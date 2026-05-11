@@ -13,7 +13,14 @@ import { webhooksRouter } from './routes/api/webhooks.mjs';
 
 const app = express();
 
-app.use(cors());
+const allowedOrigins = process.env.CORS_ORIGINS
+  ? process.env.CORS_ORIGINS.split(',').map(o => o.trim())
+  : true; // allow all origins when env var not set (local dev / self-hosted)
+
+app.use(cors({
+  origin: allowedOrigins,
+  credentials: true,
+}));
 app.use(express.json({ limit: '10mb' }));
 
 // ── Health ────────────────────────────────────────────────────────────────────
