@@ -42,11 +42,13 @@ function authH(token: string) {
 
 // ── Sidebar ───────────────────────────────────────────────────────────────────
 
+const IS_CLOUD = !!import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY;
+
 const NAV_MAIN: { id: Section; label: string; icon: React.ElementType }[] = [
   { id: "quickstart", label: "Quick Start",  icon: Sparkles  },
   { id: "keys",       label: "API Keys",     icon: Key       },
   { id: "usage",      label: "Usage",        icon: Activity  },
-  { id: "billing",    label: "Billing",      icon: CreditCard },
+  ...(IS_CLOUD ? [{ id: "billing" as Section, label: "Billing", icon: CreditCard }] : []),
 ];
 
 function UpgradeModal({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -1302,7 +1304,26 @@ interface BillingData {
   purchases: { pack_id: string; ops_granted: number; amount_usd_cents: number; is_auto_topup: boolean; created_at: string }[];
 }
 
+function SelfHostedBillingNotice() {
+  return (
+    <div className="p-8 space-y-4">
+      <div>
+        <h1 className="text-[22px] font-bold text-gray-900 tracking-tight mb-0.5">Billing</h1>
+        <p className="text-[13px] text-gray-400">Manage your subscription</p>
+      </div>
+      <div className="rounded-xl border border-gray-200 bg-gray-50 p-6 max-w-lg space-y-2">
+        <p className="text-[14px] font-semibold text-gray-900">You're running Proply self-hosted</p>
+        <p className="text-[13px] text-gray-500">
+          Billing is managed directly by you. There's no Stripe integration active in this deployment.
+          To configure billing, set <code className="bg-gray-100 px-1 rounded text-[12px]">VITE_STRIPE_PUBLISHABLE_KEY</code> in your environment.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function BillingSection({ token }: { token: string }) {
+  if (!IS_CLOUD) return <SelfHostedBillingNotice />;
   const [data, setData] = useState<BillingData | null>(null);
   const [loading, setLoading] = useState(true);
   const [buying, setBuying] = useState<string | null>(null);
