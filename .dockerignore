@@ -1,0 +1,10 @@
+node_modules
+**/node_modules
+**/dist
+**/.env
+**/.env.*
+proply.env
+.git
+.gitignore
+*.md
+apps/frontend/nginx.conf

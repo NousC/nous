@@ -1,28 +1,26 @@
 services:
+  # ── API (Express) ─────────────────────────────────────────────────────────────
   api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
     image: ghcr.io/goproply/proply-crm:latest
     restart: unless-stopped
-    ports:
-      - "3000:3000"
     env_file:
       - ./proply.env
     environment:
       NODE_ENV: production
     depends_on:
       - redis
+    # Not exposed directly — nginx inside the frontend container proxies /api/* here
 
-  frontend:
-    image: ghcr.io/goproply/proply-crm-frontend:latest
-    restart: unless-stopped
-    ports:
-      - "8080:8080"
-    env_file:
-      - ./proply.env
-
+  # ── Background worker ────────────────────────────────────────────────────────
   worker:
-    image: ghcr.io/goproply/proply-crm:latest
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+    image: ghcr.io/goproply/proply-crm-worker:latest
     restart: unless-stopped
-    command: node apps/worker/src/index.mjs
     env_file:
       - ./proply.env
     environment:
@@ -31,6 +29,28 @@ services:
       - api
       - redis
 
+  # ── Frontend (nginx: static SPA + /api proxy → api:3000) ─────────────────────
+  frontend:
+    build:
+      context: .
+      dockerfile: apps/frontend/Dockerfile
+      args:
+        # Baked into the JS bundle at build time
+        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
+        VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY}
+        VITE_API_URL: ""
+        VITE_STRIPE_PUBLISHABLE_KEY: ${VITE_STRIPE_PUBLISHABLE_KEY:-}
+        VITE_POSTHOG_KEY: ${VITE_POSTHOG_KEY:-}
+        VITE_GOOGLE_ANALYTICS_ID: ${VITE_GOOGLE_ANALYTICS_ID:-}
+        VITE_DOCS_URL: ${VITE_DOCS_URL:-}
+    image: ghcr.io/goproply/proply-crm-frontend:latest
+    restart: unless-stopped
+    ports:
+      - "${PORT:-80}:80"
+    depends_on:
+      - api
+
+  # ── Redis ────────────────────────────────────────────────────────────────────
   redis:
     image: redis:7-alpine
     restart: unless-stopped
