@@ -12,7 +12,6 @@ services:
       NODE_ENV: production
     depends_on:
       - redis
-    # Not exposed directly — nginx inside the frontend container proxies /api/* here
 
   # ── Background worker ────────────────────────────────────────────────────────
   worker:
@@ -29,22 +28,25 @@ services:
       - api
       - redis
 
-  # ── Frontend (nginx: static SPA + /api proxy → api:3000) ─────────────────────
+  # ── Frontend (nginx: static SPA) ─────────────────────────────────────────────
   frontend:
     build:
       context: .
       dockerfile: apps/frontend/Dockerfile
       args:
-        # Baked into the JS bundle at build time
         VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
         VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY}
-        VITE_API_URL: ""
+        # Leave empty when using same-domain nginx proxy (self-hosted, no Caddy).
+        # Set to https://api.yourdomain.com when using separate subdomains (Caddy / cloud).
+        VITE_API_URL: ${VITE_API_URL:-}
         VITE_STRIPE_PUBLISHABLE_KEY: ${VITE_STRIPE_PUBLISHABLE_KEY:-}
         VITE_POSTHOG_KEY: ${VITE_POSTHOG_KEY:-}
         VITE_GOOGLE_ANALYTICS_ID: ${VITE_GOOGLE_ANALYTICS_ID:-}
         VITE_DOCS_URL: ${VITE_DOCS_URL:-}
     image: ghcr.io/goproply/proply-crm-frontend:latest
     restart: unless-stopped
+    # When using Caddy (recommended for VPS): remove the ports block — Caddy handles ingress.
+    # When running without Caddy (simple single-domain): keep this to expose port 80.
     ports:
       - "${PORT:-80}:80"
     depends_on:
@@ -57,5 +59,27 @@ services:
     volumes:
       - redis_data:/data
 
+  # ── Caddy (SSL + subdomain routing) ──────────────────────────────────────────
+  # Remove this service if you handle SSL/routing externally (Cloudflare Tunnel, etc.)
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"   # HTTP/3
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN}
+      API_DOMAIN: ${API_DOMAIN}
+    depends_on:
+      - frontend
+      - api
+
 volumes:
   redis_data:
+  caddy_data:
+  caddy_config:
