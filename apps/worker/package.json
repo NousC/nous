@@ -9,6 +9,8 @@
     "typecheck": "echo 'no ts in worker — skipping'"
   },
   "dependencies": {
-    "@proply/core": "workspace:*"
+    "@proply/core": "workspace:*",
+    "express": "^4.19.0",
+    "googleapis": "^144.0.0"
   }
 }
