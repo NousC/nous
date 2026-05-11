@@ -1,0 +1,41 @@
+services:
+  api:
+    image: ghcr.io/goproply/proply-crm:latest
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file:
+      - ./proply.env
+    environment:
+      NODE_ENV: production
+    depends_on:
+      - redis
+
+  frontend:
+    image: ghcr.io/goproply/proply-crm-frontend:latest
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    env_file:
+      - ./proply.env
+
+  worker:
+    image: ghcr.io/goproply/proply-crm:latest
+    restart: unless-stopped
+    command: node apps/worker/src/index.mjs
+    env_file:
+      - ./proply.env
+    environment:
+      NODE_ENV: production
+    depends_on:
+      - api
+      - redis
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+
+volumes:
+  redis_data:

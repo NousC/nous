@@ -1,0 +1,26 @@
+{
+  "name": "@goproply/sdk",
+  "version": "1.0.0",
+  "description": "Official TypeScript SDK for the Proply contact memory API",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": ["dist", "src"],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm run build"
+  },
+  "keywords": ["proply", "ai", "agents", "crm", "memory", "sdk", "mcp"],
+  "license": "AGPL-3.0",
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}

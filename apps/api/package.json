@@ -1,0 +1,16 @@
+{
+  "name": "@proply/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/index.mjs",
+    "start": "node src/index.mjs",
+    "typecheck": "echo 'no ts in api — skipping'"
+  },
+  "dependencies": {
+    "@proply/core": "workspace:*",
+    "express": "^4.19.0",
+    "cors": "^2.8.5"
+  }
+}

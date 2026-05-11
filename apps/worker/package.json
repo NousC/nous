@@ -1,0 +1,14 @@
+{
+  "name": "@proply/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/index.mjs",
+    "start": "node src/index.mjs",
+    "typecheck": "echo 'no ts in worker — skipping'"
+  },
+  "dependencies": {
+    "@proply/core": "workspace:*"
+  }
+}
