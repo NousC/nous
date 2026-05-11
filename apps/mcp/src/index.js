@@ -1,5 +1,528 @@
-// Proply MCP Server
-// 10 core tools — see CLAUDE.md for full tool inventory
-// This file is the published entrypoint for @goproply/mcp on npm
+#!/usr/bin/env node
 
-// TODO: migrate tools from the existing mcp-server/ in assetly-blueprint
+/**
+ * Proply MCP Server — contact intelligence for GTM agents.
+ *
+ * Required env vars:
+ *   PROPLY_API_KEY        — Your Proply API key (Settings → API Keys)
+ *
+ * Optional:
+ *   PROPLY_API_URL        — API base URL (default: https://api.goproply.com)
+ *
+ * Tools:
+ *   get_contact    — full contact profile: identity + activities + facts + summary
+ *   get_company    — full company profile: org details + all contacts + company facts
+ *   create_contact — add a new contact with full profile fields
+ *   update_contact — update profile fields on an existing contact
+ *   track          — record that something happened (call, email, meeting, visit)
+ *   remember       — store a fact learned about a contact or company
+ *   list_contacts  — find contacts by pipeline stage
+ *   search         — semantic search across workspace memories
+ */
+
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { z } from "zod";
+import { validateConfig, get, post, patch, del } from "./client.js";
+
+validateConfig();
+
+const server = new McpServer({
+  name: "proply",
+  version: "0.8.2",
+  description: "Proply — contact intelligence for GTM agents. Call get_contact before acting on any person. Call track and remember after every interaction.",
+  icons: [
+    { src: "https://goproply.com/newlogoP.png", mimeType: "image/png", sizes: ["64x64"] },
+  ],
+});
+
+// ---------------------------------------------------------------------------
+// TOOL: get_contact
+// The one call you need. Returns everything known about a contact:
+// identity, pipeline stage, memory summary, recent activities, and facts.
+// ---------------------------------------------------------------------------
+server.tool(
+  "get_contact",
+  "Get everything known about a contact — identity, pipeline stage, AI summary, recent activities (newest first), and stored facts. Call this before writing any email, preparing for a call, or making a decision about a contact. Pass email or contact_id.",
+  {
+    email: z.string().optional().describe("Contact's email address"),
+    contact_id: z.string().optional().describe("Contact UUID — use if you already have it"),
+  },
+  async ({ email, contact_id }) => {
+    if (!email && !contact_id) {
+      return { content: [{ type: "text", text: "Error: provide either email or contact_id." }] };
+    }
+
+    const identifier = encodeURIComponent(contact_id || email);
+    const c = await get(`/v1/contact/${identifier}`);
+
+    const name = c.name || c.email;
+    const header = [name, c.title, c.company].filter(Boolean).join(" · ");
+    const scores = [
+      `Stage: ${c.pipeline_stage || "identified"}`,
+      c.icp_score != null        ? `ICP: ${c.icp_score}`              : null,
+      c.deal_health_score != null ? `Health: ${c.deal_health_score}`  : null,
+      c.last_activity_at
+        ? `Last seen: ${new Date(c.last_activity_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`
+        : null,
+    ].filter(Boolean).join("  |  ");
+
+    const lines = [header, scores];
+
+    if (c.summary) {
+      lines.push(`\nSummary: ${c.summary}`);
+    }
+
+    // Activities
+    const activities = c.recent_activities ?? [];
+    if (activities.length) {
+      const totalAct = c.total_activities ?? activities.length;
+      lines.push(`\nActivities (showing ${activities.length}${totalAct > activities.length ? ` of ${totalAct}` : ""}):`);
+      for (const a of activities) {
+        const date = a.occurred_at
+          ? new Date(a.occurred_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+          : "";
+        const desc = a.description ? `: ${a.description.slice(0, 100)}` : "";
+        lines.push(`  ${date} — ${a.type}${desc}`);
+      }
+    } else {
+      lines.push("\nNo activities recorded yet.");
+    }
+
+    // Facts
+    const facts = c.facts ?? [];
+    if (facts.length) {
+      const totalFacts = c.total_facts ?? facts.length;
+      lines.push(`\nFacts (showing ${facts.length}${totalFacts > facts.length ? ` of ${totalFacts}` : ""}):`);
+      for (const f of facts) {
+        const when = f.written_at ? ` (${f.written_at})` : "";
+        lines.push(`  [${f.category}]${when} ${f.content}`);
+      }
+    }
+
+    // Company facts
+    const companyFacts = c.company_facts ?? [];
+    if (companyFacts.length) {
+      lines.push(`\nCompany facts:`);
+      for (const f of companyFacts) {
+        const when = f.written_at ? ` (${f.written_at})` : "";
+        lines.push(`  [${f.category}]${when} ${f.content}`);
+      }
+    }
+
+    const text = lines.join("\n");
+    return {
+      content: [{
+        type: "text",
+        text: `${text}\n\n(contact_id: ${c.contact_id}${c.company_id ? ` · company_id: ${c.company_id}` : ""})`,
+      }],
+    };
+  }
+);
+
+// ---------------------------------------------------------------------------
+// TOOL: track
+// Record that something happened — a call, email, meeting, website visit.
+// For what you *learned*, also call remember.
+// ---------------------------------------------------------------------------
+server.tool(
+  "track",
+  "Record an interaction with a contact — email sent, call held, meeting completed, website visit, etc. Pass email or contact_id. If you learned something meaningful, also call remember.",
+  {
+    email: z.string().optional().describe("Contact's email address"),
+    contact_id: z.string().optional().describe("Contact UUID"),
+    type: z.enum([
+      "email_sent", "email_reply",
+      "call_held", "meeting_held",
+      "linkedin_message", "linkedin_connected",
+      "follow_up_sent", "proposal_sent",
+      "website_visit", "content_download", "trial_started",
+      "manual_note",
+    ]).describe("Activity type"),
+    description: z.string().optional().describe("Brief summary of what happened"),
+    occurred_at: z.string().optional().describe("ISO timestamp — defaults to now"),
+  },
+  async ({ email, contact_id, type, description, occurred_at }) => {
+    if (!email && !contact_id) {
+      return { content: [{ type: "text", text: "Error: provide either email or contact_id." }] };
+    }
+
+    const body = { source: "agent", type };
+    if (contact_id) body.contact_id = contact_id;
+    else body.email = email;
+    if (description) body.description = description;
+    if (occurred_at) body.occurred_at = occurred_at;
+
+    const result = await post("/v1/track", body);
+
+    const newContact = result.created_contact ? " (new contact created)" : "";
+    return {
+      content: [{
+        type: "text",
+        text: `Logged \`${type}\`${description ? `: "${description}"` : ""}.${newContact}`,
+      }],
+    };
+  }
+);
+
+// ---------------------------------------------------------------------------
+// TOOL: remember
+// Store a fact you learned — about a person or their company.
+// Write facts, not logs. "Concerned about integration complexity" = fact.
+// "Sent email on Tuesday" = log (use track for that).
+// ---------------------------------------------------------------------------
+server.tool(
+  "remember",
+  "Store a fact — about a contact, their company, or your own workspace (ICP, product, market). Omit email and contact_id to store workspace-level facts. Pass email or contact_id to scope to a person. Set company=true to tag to their whole org. Similar existing facts in the same scope are automatically superseded — no duplicates accumulate.",
+  {
+    email: z.string().optional().describe("Contact's email — omit for workspace-level facts"),
+    contact_id: z.string().optional().describe("Contact UUID — omit for workspace-level facts"),
+    fact: z.string().describe("The fact to store — one clear, reusable sentence"),
+    category: z.enum(["ICP", "Product", "Pricing", "Market", "Competitors", "Team", "Patterns", "General"])
+      .optional()
+      .describe("Memory category (default: General)"),
+    company: z.boolean().optional().describe("Set true to tag this fact to the whole company, not just this person"),
+  },
+  async ({ email, contact_id, fact, category = "General", company = false }) => {
+    let body = { text: fact, category, source: "agent" };
+
+    if (company && (email || contact_id)) {
+      const identifier = encodeURIComponent(contact_id || email);
+      const c = await get(`/v1/contact/${identifier}`);
+      if (!c.company_id) {
+        return { content: [{ type: "text", text: "Cannot scope to company — contact has no company_id. Storing in workspace memory instead." }] };
+      }
+      body.company_id = c.company_id;
+    } else if (contact_id) {
+      body.contact_id = contact_id;
+    } else if (email) {
+      body.email = email;
+    }
+    // else: no email/contact_id = workspace-level fact
+
+    const result = await post("/v1/remember", body);
+    const stored = result.stored ?? 0;
+
+    if (stored === 0) {
+      return { content: [{ type: "text", text: "No new facts extracted — already known or too vague." }] };
+    }
+
+    const scope = company ? "company memory" : (contact_id || email) ? "contact memory" : "workspace memory";
+    const factList = (result.facts ?? []).map(f => {
+      const superseded = f.superseded ? " (superseded previous)" : "";
+      return `"${f.content}"${superseded}`;
+    }).join(", ");
+
+    return {
+      content: [{
+        type: "text",
+        text: `Stored ${stored} fact${stored !== 1 ? "s" : ""} in ${scope} [${category}]: ${factList}`,
+      }],
+    };
+  }
+);
+
+// ---------------------------------------------------------------------------
+// TOOL: get_company
+// Full company profile — org details + every contact at that company + company facts.
+// ---------------------------------------------------------------------------
+server.tool(
+  "get_company",
+  "Get the full profile for a company — org details, all contacts at that account, and company-level facts. Pass a company UUID (available on any contact as company_id).",
+  {
+    company_id: z.string().describe("Company UUID — get this from contact.company_id"),
+  },
+  async ({ company_id }) => {
+    const c = await get(`/v1/company/${encodeURIComponent(company_id)}`);
+
+    const lines = [
+      `${c.name}${c.domain ? ` (${c.domain})` : ""}`,
+      [
+        c.industry         ? `Industry: ${c.industry}` : null,
+        c.employee_count   ? `Size: ${c.employee_count}` : null,
+        c.deal_health_score != null ? `Health: ${c.deal_health_score}` : null,
+      ].filter(Boolean).join("  |  "),
+    ];
+
+    const contacts = c.contacts ?? [];
+    if (contacts.length) {
+      lines.push(`\nContacts (${contacts.length} of ${c.total_contacts ?? contacts.length}):`);
+      for (const con of contacts) {
+        const role = con.title ? ` · ${con.title}` : "";
+        lines.push(`  ${con.name || con.email}${role} — ${con.pipeline_stage || "identified"} (${con.contact_id || con.id})`);
+      }
+    }
+
+    const facts = c.facts ?? [];
+    if (facts.length) {
+      lines.push(`\nCompany facts:`);
+      for (const f of facts) {
+        const when = f.written_at ? ` (${f.written_at})` : "";
+        lines.push(`  [${f.category}]${when} ${f.content}`);
+      }
+    }
+
+    return {
+      content: [{ type: "text", text: `${lines.join("\n")}\n\n(company_id: ${c.company_id})` }],
+    };
+  }
+);
+
+// ---------------------------------------------------------------------------
+// TOOL: search
+// Semantic search across workspace memories. Scope to one contact or search workspace-wide.
+// ---------------------------------------------------------------------------
+server.tool(
+  "search",
+  "Semantic search across all stored facts in the workspace. Scope to one contact or company, or omit to search workspace-wide. Useful for finding context before drafting a message or preparing for a call.",
+  {
+    q: z.string().describe("Search query — e.g. 'budget concerns', 'Salesforce migration'"),
+    contact_id: z.string().optional().describe("Scope to one contact — uses lenient matching (threshold 0.45)"),
+    company_id: z.string().optional().describe("Scope to one company"),
+    limit: z.number().min(1).max(20).optional().describe("Max results (default 10)"),
+  },
+  async ({ q, contact_id, company_id, limit = 10 }) => {
+    const body = { q, limit };
+    if (contact_id) body.contact_id = contact_id;
+    if (company_id) body.company_id = company_id;
+
+    const data = await post("/v1/search", body);
+    const results = data.results ?? [];
+
+    if (!results.length) {
+      return { content: [{ type: "text", text: `No memories found for "${q}".` }] };
+    }
+
+    const lines = results.map(r => {
+      const when  = r.written_at ? ` (${r.written_at})` : "";
+      const score = ` [${(r.similarity * 100).toFixed(0)}%]`;
+      return `  [${r.category}]${when}${score} ${r.content}`;
+    });
+
+    return {
+      content: [{
+        type: "text",
+        text: `Search results for "${q}" (${results.length}):\n${lines.join("\n")}`,
+      }],
+    };
+  }
+);
+
+// ---------------------------------------------------------------------------
+// TOOL: list_contacts
+// Find contacts by pipeline stage — useful for identifying who to reach out to next.
+// ---------------------------------------------------------------------------
+server.tool(
+  "list_contacts",
+  "List contacts, optionally filtered by pipeline stage. Useful for identifying who to prioritize or reach out to next.",
+  {
+    stage: z.enum(["identified", "aware", "interested", "evaluating", "client"])
+      .optional()
+      .describe("Filter by pipeline stage — omit to list all"),
+    limit: z.number().min(1).max(50).optional().describe("Max contacts to return (default 20)"),
+  },
+  async ({ stage, limit = 20 }) => {
+    const params = { limit };
+    if (stage) params.stage = stage;
+
+    const data = await get("/v1/contacts", params);
+    const contacts = data.contacts ?? [];
+    const total    = data.total ?? contacts.length;
+
+    if (!contacts.length) {
+      return { content: [{ type: "text", text: stage ? `No contacts in stage "${stage}".` : "No contacts found." }] };
+    }
+
+    const lines = contacts.map(c => {
+      const name    = c.name || c.email;
+      const company = c.company ? ` @ ${c.company}` : "";
+      const score   = c.icp_score != null ? ` ICP:${c.icp_score}` : "";
+      return `  ${name}${company} — ${c.pipeline_stage || "identified"}${score} (${c.id})`;
+    });
+
+    return {
+      content: [{
+        type: "text",
+        text: `Contacts${stage ? ` — ${stage}` : ""} (${contacts.length} of ${total}):\n${lines.join("\n")}`,
+      }],
+    };
+  }
+);
+
+// ---------------------------------------------------------------------------
+// TOOL: get_memories
+// Load all workspace-level facts — ICP, product, market, competitive intel.
+// ---------------------------------------------------------------------------
+server.tool(
+  "get_memories",
+  "Load all workspace-level facts — your ICP, product description, pricing, market positioning, and competitive intel. Call this before drafting outreach, preparing a pitch, or any task that requires knowing your own company context. Not for contact or company facts — use get_contact for those.",
+  {
+    category: z.enum(["ICP", "Product", "Pricing", "Market", "Competitors", "Team", "Patterns", "General"])
+      .optional()
+      .describe("Filter by category — omit to get all"),
+    limit: z.number().min(1).max(200).optional().describe("Max facts to return (default 50)"),
+  },
+  async ({ category, limit = 50 }) => {
+    const params = { limit };
+    if (category) params.category = category;
+
+    const data = await get("/v1/memories", params);
+    const memories = data.memories ?? [];
+
+    if (!memories.length) {
+      return { content: [{ type: "text", text: `No workspace facts stored yet${category ? ` in category "${category}"` : ""}. Use remember (without a contact) to store ICP, product, or market facts.` }] };
+    }
+
+    const byCategory = {};
+    for (const m of memories) {
+      if (!byCategory[m.category]) byCategory[m.category] = [];
+      byCategory[m.category].push(m.content);
+    }
+
+    const lines = [];
+    for (const [cat, facts] of Object.entries(byCategory)) {
+      lines.push(`[${cat}]`);
+      for (const f of facts) lines.push(`  • ${f}`);
+    }
+
+    return {
+      content: [{
+        type: "text",
+        text: `Workspace knowledge (${memories.length} fact${memories.length !== 1 ? "s" : ""}):\n\n${lines.join("\n")}`,
+      }],
+    };
+  }
+);
+
+// ---------------------------------------------------------------------------
+// TOOL: create_contact
+// Add a new contact with full profile fields. Returns the new contact_id.
+// ---------------------------------------------------------------------------
+server.tool(
+  "create_contact",
+  "Create a new contact with their full profile — name, title, company, phone, LinkedIn, and notes. Use when you have a new person to add before tracking any activity. Returns an error if the email already exists.",
+  {
+    email:        z.string().describe("Contact's email address (required, must be unique)"),
+    first_name:   z.string().optional().describe("First name"),
+    last_name:    z.string().optional().describe("Last name"),
+    company:      z.string().optional().describe("Company name"),
+    job_title:    z.string().optional().describe("Job title or role"),
+    phone:        z.string().optional().describe("Phone number"),
+    linkedin_url: z.string().optional().describe("LinkedIn profile URL"),
+    notes:        z.string().optional().describe("Free-form notes about this contact"),
+  },
+  async ({ email, first_name, last_name, company, job_title, phone, linkedin_url, notes }) => {
+    const result = await post("/v1/contacts", {
+      email, first_name, last_name, company, job_title, phone, linkedin_url, notes,
+    });
+
+    const name = result.name || result.email;
+    const meta = [result.job_title, result.company].filter(Boolean).join(" · ");
+    return {
+      content: [{
+        type: "text",
+        text: [
+          `Created contact: ${name}`,
+          meta ? meta : null,
+          `contact_id: ${result.id}`,
+          `Stage: ${result.pipeline_stage}`,
+        ].filter(Boolean).join("\n"),
+      }],
+    };
+  }
+);
+
+// ---------------------------------------------------------------------------
+// TOOL: update_contact
+// Update profile fields on an existing contact.
+// ---------------------------------------------------------------------------
+server.tool(
+  "update_contact",
+  "Update one or more profile fields on an existing contact — name, title, company, phone, LinkedIn, notes. Pass email or contact_id to identify the contact, then any fields to change. Only provided fields are updated.",
+  {
+    email:        z.string().optional().describe("Contact's email address (to identify them)"),
+    contact_id:   z.string().optional().describe("Contact UUID (alternative to email)"),
+    first_name:   z.string().optional().describe("Updated first name"),
+    last_name:    z.string().optional().describe("Updated last name"),
+    company:      z.string().optional().describe("Updated company name"),
+    job_title:    z.string().optional().describe("Updated job title or role"),
+    phone:        z.string().optional().describe("Updated phone number"),
+    linkedin_url: z.string().optional().describe("Updated LinkedIn profile URL"),
+    notes:        z.string().optional().describe("Updated free-form notes"),
+  },
+  async ({ email, contact_id, first_name, last_name, company, job_title, phone, linkedin_url, notes }) => {
+    if (!email && !contact_id) {
+      return { content: [{ type: "text", text: "Error: provide either email or contact_id." }] };
+    }
+    const identifier = encodeURIComponent(contact_id || email);
+    const result = await patch(`/v1/contacts/${identifier}`, {
+      first_name, last_name, company, job_title, phone, linkedin_url, notes,
+    });
+    const name = result.name || result.email;
+    const meta = [result.job_title, result.company].filter(Boolean).join(" · ");
+    return {
+      content: [{
+        type: "text",
+        text: [
+          `Updated contact: ${name}`,
+          meta ? meta : null,
+          `contact_id: ${result.id}`,
+        ].filter(Boolean).join("\n"),
+      }],
+    };
+  }
+);
+
+// ---------------------------------------------------------------------------
+// TOOL: delete_contact
+// Permanently remove a contact and all their associated data.
+// ---------------------------------------------------------------------------
+server.tool(
+  "delete_contact",
+  "Permanently delete a contact and all their data — activities and memories. Use for duplicates, test entries, or explicit removal requests. Cannot be undone. Pass email or contact_id.",
+  {
+    email: z.string().optional().describe("Contact's email address"),
+    contact_id: z.string().optional().describe("Contact UUID"),
+  },
+  async ({ email, contact_id }) => {
+    if (!email && !contact_id) {
+      return { content: [{ type: "text", text: "Error: provide either email or contact_id." }] };
+    }
+
+    const identifier = encodeURIComponent(contact_id || email);
+    const result = await del(`/v1/contacts/${identifier}`);
+
+    return {
+      content: [{
+        type: "text",
+        text: `Deleted contact ${result.email} (${result.contact_id}).`,
+      }],
+    };
+  }
+);
+
+// ---------------------------------------------------------------------------
+// TOOL: delete_memory
+// Soft-delete a workspace memory by ID (marks is_active: false).
+// Use to remove outdated or conflicting facts found via get_memories.
+// ---------------------------------------------------------------------------
+server.tool(
+  "delete_memory",
+  "Delete a workspace memory by ID — marks it inactive so it no longer appears in get_memories or search. Use to clean up outdated, conflicting, or incorrect facts. Get the memory ID from get_memories output.",
+  {
+    memory_id: z.string().describe("Memory UUID — get this from get_memories output"),
+  },
+  async ({ memory_id }) => {
+    const result = await del(`/v1/memory/${encodeURIComponent(memory_id)}`);
+    return {
+      content: [{
+        type: "text",
+        text: `Deleted memory (${result.id}): "${result.content}"`,
+      }],
+    };
+  }
+);
+
+// ---------------------------------------------------------------------------
+const transport = new StdioServerTransport();
+await server.connect(transport);

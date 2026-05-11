@@ -1,0 +1,19 @@
+{
+  "name": "@goproply/cli",
+  "version": "0.1.0",
+  "description": "Proply CRM CLI — manage contacts and memory from the terminal",
+  "type": "module",
+  "bin": {
+    "proply": "src/index.js"
+  },
+  "files": ["src"],
+  "scripts": {
+    "dev": "node src/index.js",
+    "start": "node src/index.js"
+  },
+  "keywords": ["proply", "crm", "cli", "agents", "memory"],
+  "license": "AGPL-3.0",
+  "dependencies": {
+    "commander": "^12.1.0"
+  }
+}
