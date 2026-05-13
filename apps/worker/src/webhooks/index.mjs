@@ -21,12 +21,28 @@ function verifyHmac(req, secret) {
 // All inbound routes accept /:workspaceId so the worker can handle any workspace
 // without needing API key auth (HMAC on sensitive sources instead).
 
-webhookRouter.post('/linkedin/:workspaceId', (req, res) => {
-  const secret = process.env.LINKEDIN_WEBHOOK_SECRET;
-  if (secret && !verifyHmac(req, secret)) {
-    return res.status(401).json({ error: 'invalid_signature' });
+// Supports both URL styles:
+//   /linkedin/:workspaceId          (path param, HMAC header)
+//   /linkedin?workspace_id=...&secret=... (Unipile style, query param secret)
+webhookRouter.post(['/linkedin/:workspaceId', '/linkedin'], (req, res) => {
+  const workspaceId = req.params.workspaceId || req.query.workspace_id;
+  if (!workspaceId) return res.status(400).json({ error: 'workspace_id_required' });
+
+  const envSecret = process.env.LINKEDIN_WEBHOOK_SECRET;
+  if (envSecret) {
+    const querySecret = req.query.secret || '';
+    const hasValidHmac = verifyHmac(req, envSecret);
+    let hasValidQuerySecret = false;
+    try {
+      hasValidQuerySecret = querySecret.length === envSecret.length &&
+        crypto.timingSafeEqual(Buffer.from(querySecret), Buffer.from(envSecret));
+    } catch { /* length mismatch → false */ }
+    if (!hasValidHmac && !hasValidQuerySecret) {
+      return res.status(401).json({ error: 'invalid_signature' });
+    }
   }
-  handleLinkedIn(req, res, req.params.workspaceId).catch(err => {
+
+  handleLinkedIn(req, res, workspaceId).catch(err => {
     console.error('[WEBHOOK/linkedin]', err);
     res.status(500).json({ error: 'internal_error' });
   });
