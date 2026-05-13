@@ -819,7 +819,7 @@ function ApiKeysSection({ workspaceId }: { workspaceId: string }) {
   };
 
   const revoke = async (id: string) => {
-    await fetch(`${apiUrl}/api/workspace/api-keys/${id}`, { method: "DELETE", headers: authH(token) });
+    await fetch(`${apiUrl}/api/workspace/api-keys/${id}?workspace_id=${encodeURIComponent(workspaceId)}`, { method: "DELETE", headers: authH(token) });
     setKeys(k => k.filter(x => x.id !== id));
   };
 
