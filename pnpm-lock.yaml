@@ -23,6 +23,9 @@ importers:
       express:
         specifier: ^4.19.0
         version: 4.22.1
+      googleapis:
+        specifier: ^144.0.0
+        version: 144.0.0
 
   apps/cli:
     dependencies:

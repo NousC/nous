@@ -34,6 +34,8 @@ import { workspaceMemoriesRouter } from './routes/api/workspaceMemories.mjs';
 import { workflowProvidersRouter } from './routes/api/workflowProviders.mjs';
 import { linkedinRouter } from './routes/api/linkedin.mjs';
 import { systemLogRouter } from './routes/api/systemLog.mjs';
+import { oauthGoogleRouter } from './routes/api/oauthGoogle.mjs';
+import { oauthAirtableRouter } from './routes/api/oauthAirtable.mjs';
 
 // /api/admin — Admin routes
 import { blogRouter } from './routes/api/blog.mjs';
@@ -92,6 +94,10 @@ app.use('/api/workspace/memories',    verifySupabaseAuth, workspaceMemoriesRoute
 app.use('/api/webhooks',              verifySupabaseAuth, webhooksRouter);
 app.use('/api/workflow-providers',    verifySupabaseAuth, workflowProvidersRouter);
 app.use('/api/linkedin',              verifySupabaseAuth, linkedinRouter);
+
+// ── OAuth callbacks — no auth middleware (redirects from external providers) ──
+app.use('/api/oauth/google',                         oauthGoogleRouter);
+app.use('/api/workflow-providers/airtable/oauth',    oauthAirtableRouter);
 
 // ── /api/roadmap, /api/updates, /api/blog, /api/changelog — Public ───────────
 app.use('/api/roadmap',           roadmapRouter);
