@@ -51,8 +51,8 @@ apiKeysRouter.post('/', async (req, res) => {
     // Raw key only returned once — never stored in plaintext
     return res.status(201).json({ ...data, key: rawKey });
   } catch (err) {
-    console.error('[POST /api/workspace/api-keys]', err);
-    return res.status(500).json({ error: 'internal_error' });
+    console.error('[POST /api/workspace/api-keys]', err?.message || err);
+    return res.status(500).json({ error: 'internal_error', detail: err?.message });
   }
 });
 
