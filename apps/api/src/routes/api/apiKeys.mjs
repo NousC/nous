@@ -42,7 +42,7 @@ apiKeysRouter.post('/', async (req, res) => {
       .insert({
         workspace_id: req.workspaceId,
         name: name.trim(),
-        hashed_key: hashedKey,
+        key_hash: hashedKey,
       })
       .select('id, name, created_at')
       .single();
