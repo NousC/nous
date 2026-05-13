@@ -7,4 +7,3 @@ proply.env
 .git
 .gitignore
 *.md
-apps/frontend/nginx.conf
