@@ -2,9 +2,11 @@
 //
 // Runs two things:
 //   1. A lightweight HTTP server for inbound webhooks (LinkedIn, Fireflies, RB2B, etc.)
-//   2. Scheduled pollers (Google Calendar every 10 minutes)
+//   2. Scheduled pollers using node-cron for predictable timing
 
 import express from 'express';
+import cron from 'node-cron';
+import { getSupabaseClient } from '@proply/core';
 import { pollAllWorkspaces } from './pollers/calendar.mjs';
 import { webhookRouter } from './webhooks/index.mjs';
 
@@ -27,14 +29,9 @@ app.use('/inbound', webhookRouter);
 const PORT = process.env.WORKER_PORT ?? 3001;
 app.listen(PORT, () => console.log(`[WORKER] Webhook server on :${PORT}`));
 
-// ── Pollers ───────────────────────────────────────────────────────────────────
-const CALENDAR_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
-
+// ── Calendar poller — every 10 minutes ───────────────────────────────────────
 async function runCalendarPoller() {
-  if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
-    console.log('[WORKER] Google Calendar not configured — skipping poll');
-    return;
-  }
+  if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) return;
   try {
     await pollAllWorkspaces();
   } catch (err) {
@@ -42,8 +39,24 @@ async function runCalendarPoller() {
   }
 }
 
-// Run once on startup, then on interval
+// Run once on startup, then every 10 min
 runCalendarPoller();
-setInterval(runCalendarPoller, CALENDAR_INTERVAL_MS);
+cron.schedule('*/10 * * * *', runCalendarPoller);
+console.log('[WORKER] Calendar poller — every 10 min');
 
-console.log(`[WORKER] Started — calendar poller every ${CALENDAR_INTERVAL_MS / 60000}min`);
+// ── Pipeline stage decay — daily at 03:00 UTC ────────────────────────────────
+async function runPipelineDecay() {
+  try {
+    const supabase = getSupabaseClient();
+    const { error } = await supabase.rpc('decay_pipeline_stages');
+    if (error) throw error;
+    console.log('[WORKER] Pipeline stage decay complete');
+  } catch (err) {
+    console.error('[WORKER] Pipeline decay error:', err.message);
+  }
+}
+
+cron.schedule('0 3 * * *', runPipelineDecay, { timezone: 'UTC' });
+console.log('[WORKER] Pipeline decay — daily at 03:00 UTC');
+
+console.log('[WORKER] Started');
