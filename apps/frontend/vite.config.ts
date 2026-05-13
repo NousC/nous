@@ -6,6 +6,7 @@ export default defineConfig(({ mode }) => {
   const gaId = process.env.VITE_GOOGLE_ANALYTICS_ID || '';
 
   return {
+    envDir: path.resolve(__dirname, '../../'),
     server: {
       host: "::",
       port: 8080,

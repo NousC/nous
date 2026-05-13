@@ -56,7 +56,7 @@ function UpgradeModal({ open, onClose }: { open: boolean; onClose: () => void })
   const go = (path: string) => { navigate(path); onClose(); };
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[400px]">
+      <DialogContent aria-describedby={undefined} className="sm:max-w-[400px]">
         <DialogHeader>
           <DialogTitle className="text-[17px]">Upgrade your plan</DialogTitle>
         </DialogHeader>
@@ -227,9 +227,9 @@ type SdkLang = "python" | "nodejs" | "curl";
 type PluginClient = "claude-code" | "claude-desktop" | "cursor";
 
 const INSTALL_METHODS: { id: InstallMethod; label: string; desc: string; logo: string | null }[] = [
-  { id: "plugin",   label: "Claude Plugin",   desc: "Memory inside Claude & agents", logo: "/claude.png" },
-  { id: "sdk",      label: "SDK Integration", desc: "Drop into your existing agent", logo: null },
-  { id: "openclaw", label: "OpenClaw",        desc: "Memory across every session",   logo: "/openclaw.jpeg" },
+  { id: "plugin",   label: "Claude Plugin",   desc: "Memory inside Claude & agents", logo: "/logos/claude.svg"   },
+  { id: "sdk",      label: "SDK Integration", desc: "Drop into your existing agent", logo: null                  },
+  { id: "openclaw", label: "OpenClaw",        desc: "Memory across every session",   logo: "/logos/openclaw.svg" },
 ];
 
 const SDK_STEPS: Record<SdkLang, { label: string; desc: string; code: string }[]> = {
@@ -796,9 +796,9 @@ function ApiKeysSection({ workspaceId }: { workspaceId: string }) {
     if (!token || !workspaceId) return;
     setLoading(true);
     try {
-      const res = await fetch(`${apiUrl}/api/api-keys?workspace_id=${encodeURIComponent(workspaceId)}`, { headers: authH(token) });
+      const res = await fetch(`${apiUrl}/api/workspace/api-keys?workspace_id=${encodeURIComponent(workspaceId)}`, { headers: authH(token) });
       const data = await res.json();
-      setKeys(data.apiKeys ?? []);
+      setKeys(data.api_keys ?? data.apiKeys ?? []);
     } finally { setLoading(false); }
   }, [token, workspaceId]);
 
@@ -806,20 +806,20 @@ function ApiKeysSection({ workspaceId }: { workspaceId: string }) {
 
   const create = async () => {
     if (!newName.trim() || !workspaceId) return;
-    const res = await fetch(`${apiUrl}/api/api-keys`, {
+    const res = await fetch(`${apiUrl}/api/workspace/api-keys`, {
       method: "POST",
       headers: { ...authH(token), "Content-Type": "application/json" },
       body: JSON.stringify({ name: newName.trim(), workspace_id: workspaceId }),
     });
     const data = await res.json();
-    if (data.apiKey) {
+    if (data.key) {
       setRevealed(data.key);
       setNewName(""); setShowForm(false); load();
     }
   };
 
   const revoke = async (id: string) => {
-    await fetch(`${apiUrl}/api/api-keys/${id}`, { method: "DELETE", headers: authH(token) });
+    await fetch(`${apiUrl}/api/workspace/api-keys/${id}`, { method: "DELETE", headers: authH(token) });
     setKeys(k => k.filter(x => x.id !== id));
   };
 

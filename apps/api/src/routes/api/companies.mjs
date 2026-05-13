@@ -1,0 +1,160 @@
+import { Router } from 'express';
+import { getSupabaseClient } from '@proply/core';
+import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
+
+export const companiesApiRouter = Router();
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// GET /api/companies/list
+companiesApiRouter.get('/list', verifySupabaseAuth, async (req, res) => {
+  try {
+    const supabase = getSupabaseClient();
+    const { workspaceId } = req.query;
+    if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
+    const { data: companies, error } = await supabase
+      .from('companies')
+      .select('id, name, domain, industry, employee_count, location, revenue_range, enrichment_status, deal_health_score')
+      .eq('workspace_id', workspaceId)
+      .order('name');
+    if (error) throw error;
+    return res.json({ companies: companies || [] });
+  } catch (err) {
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
+// GET /api/companies/by-domain
+companiesApiRouter.get('/by-domain', verifySupabaseAuth, async (req, res) => {
+  try {
+    const supabase = getSupabaseClient();
+    const { domain, workspaceId } = req.query;
+    if (!domain || !workspaceId) return res.status(400).json({ error: 'domain and workspaceId required' });
+
+    const normalized = domain.replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, '').toLowerCase().trim();
+    const { data: company } = await supabase.from('companies').select('*').eq('workspace_id', workspaceId).eq('domain', normalized).maybeSingle();
+    if (!company) return res.json({ company: null });
+
+    const { count } = await supabase.from('contacts').select('id', { count: 'exact', head: true }).eq('workspace_id', workspaceId).eq('company_id', company.id);
+    return res.json({ company: { ...company, contactCount: count || 0 } });
+  } catch (err) {
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
+// PATCH /api/companies/:id
+companiesApiRouter.patch('/:id', verifySupabaseAuth, async (req, res) => {
+  try {
+    const supabase = getSupabaseClient();
+    const { id } = req.params;
+    if (!UUID.test(id)) return res.status(400).json({ error: 'invalid_id' });
+
+    const allowed = ['name', 'industry', 'employee_count', 'location', 'revenue_range', 'domain'];
+    const updates = {};
+    for (const key of allowed) {
+      if (req.body[key] !== undefined) updates[key] = req.body[key] === '' ? null : req.body[key];
+    }
+    if (!Object.keys(updates).length) return res.status(400).json({ error: 'no_fields' });
+    updates.updated_at = new Date().toISOString();
+
+    const { data, error } = await supabase.from('companies').update(updates).eq('id', id).select('*').single();
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json({ company: data });
+  } catch (err) {
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
+// POST /api/companies/enrich
+companiesApiRouter.post('/enrich', verifySupabaseAuth, async (req, res) => {
+  try {
+    const { domain, workspaceId } = req.body;
+    if (!domain || !workspaceId) return res.status(400).json({ error: 'domain and workspaceId required' });
+    return res.json({ message: 'Enrichment queued' });
+  } catch (err) {
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
+// GET /api/companies/:id/activity-and-memory
+companiesApiRouter.get('/:id/activity-and-memory', verifySupabaseAuth, async (req, res) => {
+  try {
+    const supabase = getSupabaseClient();
+    const { id } = req.params;
+    const { workspaceId } = req.query;
+    if (!UUID.test(id) || !workspaceId) return res.status(400).json({ error: 'invalid params' });
+
+    const { data: contacts } = await supabase.from('contacts').select('id').eq('workspace_id', workspaceId).eq('company_id', id);
+    const contactIds = (contacts || []).map(c => c.id);
+
+    let activities = [], memories = [];
+    if (contactIds.length) {
+      const { data: acts } = await supabase.from('contact_activity_log').select('*').in('contact_id', contactIds).order('occurred_at', { ascending: false }).limit(50);
+      activities = acts || [];
+
+      const { data: mems } = await supabase.from('workspace_memories').select('id, content, category, source, created_at, metadata')
+        .eq('workspace_id', workspaceId).eq('is_active', true)
+        .order('created_at', { ascending: false }).limit(20);
+      memories = (mems || []).filter(m => contactIds.includes(m.metadata?.contact_id));
+    }
+
+    return res.json({ activities, memories });
+  } catch (err) {
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
+// GET /api/companies/:id/graph
+companiesApiRouter.get('/:id/graph', verifySupabaseAuth, async (req, res) => {
+  try {
+    const supabase = getSupabaseClient();
+    const { id } = req.params;
+    const { workspaceId } = req.query;
+    if (!UUID.test(id) || !workspaceId) return res.status(400).json({ error: 'invalid params' });
+
+    const { data: company } = await supabase.from('companies').select('id, name, domain, deal_health_score, icp_score, icp_fit').eq('id', id).eq('workspace_id', workspaceId).single();
+    if (!company) return res.status(404).json({ error: 'not_found' });
+
+    const { data: contacts } = await supabase.from('contacts').select('id, first_name, last_name, email, job_title, seniority, pipeline_stage, deal_health_score, last_activity_at').eq('workspace_id', workspaceId).eq('company_id', id).order('deal_health_score', { ascending: false, nullsLast: true });
+
+    const contactIds = (contacts || []).map(c => c.id);
+    let signals = [], memories = [];
+    if (contactIds.length) {
+      const cutoff = new Date(Date.now() - 90 * 86400000).toISOString();
+      const { data: acts } = await supabase.from('contact_activity_log').select('id, contact_id, activity_type, source, occurred_at, summary').in('contact_id', contactIds).gte('occurred_at', cutoff).order('occurred_at', { ascending: false }).limit(contactIds.length * 4);
+      const counts = {};
+      signals = (acts || []).filter(a => { counts[a.contact_id] = (counts[a.contact_id] || 0) + 1; return counts[a.contact_id] <= 4; });
+
+      const memResults = await Promise.all(contactIds.map(cid => supabase.from('workspace_memories').select('id, content, category, created_at, metadata').eq('workspace_id', workspaceId).eq('is_active', true).filter('metadata->>contact_id', 'eq', cid).order('created_at', { ascending: false }).limit(2)));
+      memories = memResults.flatMap((r, i) => (r.data || []).map(m => ({ ...m, contact_id: contactIds[i] })));
+    }
+
+    return res.json({ company, contacts: contacts || [], signals, memories });
+  } catch (err) {
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
+// GET /api/contact-graph
+companiesApiRouter.get('/contact-graph', verifySupabaseAuth, async (req, res) => {
+  try {
+    const supabase = getSupabaseClient();
+    const { ids, workspaceId, companyName } = req.query;
+    if (!ids || !workspaceId) return res.status(400).json({ error: 'ids and workspaceId required' });
+
+    const contactIds = String(ids).split(',').filter(id => UUID.test(id.trim())).map(id => id.trim());
+    if (!contactIds.length) return res.status(400).json({ error: 'no valid ids' });
+
+    const { data: contacts } = await supabase.from('contacts').select('id, first_name, last_name, email, job_title, pipeline_stage, deal_health_score, last_activity_at').eq('workspace_id', workspaceId).in('id', contactIds);
+
+    const cutoff = new Date(Date.now() - 90 * 86400000).toISOString();
+    const { data: acts } = await supabase.from('contact_activity_log').select('id, contact_id, activity_type, source, occurred_at, summary').in('contact_id', contactIds).gte('occurred_at', cutoff).order('occurred_at', { ascending: false }).limit(contactIds.length * 4);
+    const counts = {};
+    const signals = (acts || []).filter(a => { counts[a.contact_id] = (counts[a.contact_id] || 0) + 1; return counts[a.contact_id] <= 4; });
+
+    const synthetic = { id: 'synthetic', name: companyName || 'Company', deal_health_score: null };
+    return res.json({ company: synthetic, contacts: contacts || [], signals, memories: [] });
+  } catch (err) {
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});

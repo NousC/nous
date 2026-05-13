@@ -250,7 +250,7 @@ export default function AcceptInvitation() {
           <div className="w-full max-w-md">
             <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-8 md:p-10 space-y-6 text-center">
               <div className="flex items-center justify-center gap-2 mb-4">
-                <img src="/Assetly.png" alt="Assetly" className="w-8 h-8" />
+                <img src="/newlogoP.png" alt="Assetly" className="w-8 h-8" />
                 <span className="font-semibold text-xl text-[#2D2D2D]">Assetly</span>
             </div>
               <h1 className="text-2xl font-bold text-[#2D2D2D]">Invitation Error</h1>
@@ -279,7 +279,7 @@ export default function AcceptInvitation() {
             <div className="w-full max-w-md">
               <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-8 md:p-10 space-y-6">
                 <div className="flex items-center justify-center gap-2">
-                  <img src="/Assetly.png" alt="Assetly" className="w-8 h-8" />
+                  <img src="/newlogoP.png" alt="Assetly" className="w-8 h-8" />
                   <span className="font-semibold text-xl text-[#2D2D2D]">Assetly</span>
                 </div>
                 <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-800">
@@ -302,7 +302,7 @@ export default function AcceptInvitation() {
           <div className="w-full max-w-md">
             <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-8 md:p-10 space-y-6">
               <div className="flex items-center justify-center gap-2">
-                <img src="/Assetly.png" alt="Assetly" className="w-8 h-8" />
+                <img src="/newlogoP.png" alt="Assetly" className="w-8 h-8" />
                 <span className="font-semibold text-xl text-[#2D2D2D]">Assetly</span>
               </div>
               
@@ -343,7 +343,7 @@ export default function AcceptInvitation() {
           <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-8 md:p-10 space-y-8">
             {/* Logo - Inside Card */}
             <div className="flex items-center justify-center gap-2">
-              <img src="/Assetly.png" alt="Assetly" className="w-8 h-8" />
+              <img src="/newlogoP.png" alt="Assetly" className="w-8 h-8" />
               <span className="font-semibold text-xl text-[#2D2D2D]">Assetly</span>
             </div>
 

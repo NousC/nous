@@ -534,7 +534,7 @@ export function OnboardingFlow({
           <div className="text-center space-y-6">
             {stepIndicator}
             <div className="mb-6">
-              <img src="/Assetly.png" alt="Assetly" className="h-12 w-auto mx-auto" />
+              <img src="/newlogoP.png" alt="Assetly" className="h-12 w-auto mx-auto" />
             </div>
             <h2 className="text-[26px] font-semibold text-gray-900 tracking-[-0.02em]">
               Welcome to Assetly

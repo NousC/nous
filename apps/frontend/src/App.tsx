@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, useLocation, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { AppRoutes } from "@/components/AppRoutes";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
@@ -74,24 +74,6 @@ function PostHogPageView() {
   return null;
 }
 
-function RootRedirect() {
-  const { isAuthenticated, loading, userDataLoading } = useAuth();
-
-  const hasHashFragment = typeof window !== 'undefined' && window.location.hash.length > 1;
-  if (loading || hasHashFragment || (isAuthenticated && userDataLoading)) {
-    return <PageLoader />;
-  }
-
-  if (!isAuthenticated) {
-    return <Navigate to="/login" replace />;
-  }
-
-  return (
-    <ProtectedRoute requireOnboarding={false}>
-      <AppRoutes />
-    </ProtectedRoute>
-  );
-}
 
 const App = () => (
   <ErrorBoundary>
@@ -103,8 +85,6 @@ const App = () => (
           <BrowserRouter>
             <PostHogPageView />
             <Routes>
-              <Route path="/" element={<RootRedirect />} />
-
               {/* Auth */}
               <Route path="/login" element={<Suspense fallback={<PageLoader />}><Login /></Suspense>} />
               <Route path="/signup" element={<Suspense fallback={<PageLoader />}><Signup /></Suspense>} />

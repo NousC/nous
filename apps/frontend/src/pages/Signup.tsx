@@ -33,7 +33,7 @@ const SignupContent = () => {
   useEffect(() => {
     const ref = searchParams.get('ref') || searchParams.get('affiliate');
     if (ref) {
-      localStorage.setItem('assetly_affiliate_ref', ref.toUpperCase());
+      localStorage.setItem('proply_affiliate_ref', ref.toUpperCase());
     }
   }, [searchParams]);
 
@@ -76,8 +76,8 @@ const SignupContent = () => {
 
       if (response.ok) {
         const data = await response.json();
-        localStorage.setItem('assetly_claimed_template_id', data.template_id);
-        localStorage.setItem('assetly_claimed_workspace_id', data.workspace_id);
+        localStorage.setItem('proply_claimed_template_id', data.template_id);
+        localStorage.setItem('proply_claimed_workspace_id', data.workspace_id);
       }
     } catch (error) {
       console.error('[SIGNUP] Failed to claim free tool session:', error);
@@ -87,10 +87,10 @@ const SignupContent = () => {
   // Handle free tool session claiming after OAuth redirect
   useEffect(() => {
     const claimPendingSession = async () => {
-      const pendingSession = localStorage.getItem('assetly_pending_free_tool_session');
+      const pendingSession = localStorage.getItem('proply_pending_free_tool_session');
       if (pendingSession && session?.access_token) {
         await claimFreeToolSession(session.access_token);
-        localStorage.removeItem('assetly_pending_free_tool_session');
+        localStorage.removeItem('proply_pending_free_tool_session');
       }
     };
 
@@ -221,12 +221,12 @@ const SignupContent = () => {
     setRememberMe(rememberMe);
 
     if (freeToolSession && source === 'free_tool') {
-      localStorage.setItem('assetly_pending_free_tool_session', freeToolSession);
+      localStorage.setItem('proply_pending_free_tool_session', freeToolSession);
     }
 
     const ref = searchParams.get('ref') || searchParams.get('affiliate');
     if (ref) {
-      localStorage.setItem('assetly_affiliate_ref', ref.toUpperCase());
+      localStorage.setItem('proply_affiliate_ref', ref.toUpperCase());
     }
 
     const { error } = await signInWithGoogle();
@@ -320,11 +320,11 @@ const SignupContent = () => {
           {/* Mobile Logo */}
           <div className="flex items-center gap-2.5 mb-12 lg:hidden">
             <img
-              src="/Assetly.png"
-              alt="Assetly"
+              src="/newlogoP.png"
+              alt="Proply"
               className="w-8 h-8 object-contain"
             />
-            <span className="font-semibold text-lg tracking-tight text-gray-900">Assetly</span>
+            <span className="font-semibold text-lg tracking-tight text-gray-900">Proply</span>
           </div>
 
           <div className="mb-8">
@@ -510,11 +510,11 @@ const BrandingPanel = () => (
     {/* Logo */}
     <div className="relative z-10 flex items-center gap-2.5">
       <img
-        src="/Assetly.png"
+        src="/newlogoP.png"
         alt=""
         className="w-7 h-7 object-contain"
       />
-      <span className="font-semibold text-[15px] tracking-tight text-gray-900">Assetly</span>
+      <span className="font-semibold text-[15px] tracking-tight text-gray-900">Proply</span>
     </div>
 
     {/* Testimonial */}
@@ -526,7 +526,7 @@ const BrandingPanel = () => (
         </svg>
       </div>
       <p className="text-[20px] font-medium text-gray-800 leading-[1.5] mb-6">
-        Assetly turned our proposal process from days into minutes. The AI understands our brand and delivers polished results every time.
+        Proply gives our AI agents a real memory of every customer. Deal context, signals, and history — always there when we need it.
       </p>
       <div className="text-sm text-gray-500">
         Trusted by agencies and consultancies worldwide
@@ -536,16 +536,16 @@ const BrandingPanel = () => (
     {/* Stats */}
     <div className="relative z-10 flex gap-12">
       <div>
-        <div className="text-2xl font-semibold text-gray-900 tracking-tight">500+</div>
-        <div className="text-sm text-gray-500 mt-0.5">Proposals created</div>
+        <div className="text-2xl font-semibold text-gray-900 tracking-tight">AI-native</div>
+        <div className="text-sm text-gray-500 mt-0.5">Memory layer</div>
       </div>
       <div>
-        <div className="text-2xl font-semibold text-gray-900 tracking-tight">10x</div>
-        <div className="text-sm text-gray-500 mt-0.5">Faster delivery</div>
+        <div className="text-2xl font-semibold text-gray-900 tracking-tight">Real-time</div>
+        <div className="text-sm text-gray-500 mt-0.5">Signal tracking</div>
       </div>
       <div>
-        <div className="text-2xl font-semibold text-gray-900 tracking-tight">Built-in</div>
-        <div className="text-sm text-gray-500 mt-0.5">E-signatures</div>
+        <div className="text-2xl font-semibold text-gray-900 tracking-tight">Every</div>
+        <div className="text-sm text-gray-500 mt-0.5">Contact, synced</div>
       </div>
     </div>
   </div>

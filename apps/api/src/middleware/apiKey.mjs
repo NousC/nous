@@ -16,7 +16,7 @@ export async function verifyApiKey(req, res, next) {
   const { data: keyRow } = await supabase
     .from('api_keys')
     .select('id, workspace_id')
-    .eq('hashed_key', keyHash)
+    .eq('key_hash', keyHash)
     .is('revoked_at', null)
     .maybeSingle();
 

@@ -191,7 +191,7 @@ export default function AirtableSyncConfig({ open, onClose, workspaceId, connect
 
   return (
     <Dialog open={open} onOpenChange={v => { if (!v) onClose(); }}>
-      <DialogContent className="max-w-md max-h-[88vh] overflow-y-auto">
+      <DialogContent aria-describedby={undefined} className="max-w-md max-h-[88vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-sm font-semibold">
             <img src="/provider-logos/airtable.svg" alt="Airtable" className="h-4 w-auto" />

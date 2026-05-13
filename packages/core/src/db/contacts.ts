@@ -19,7 +19,7 @@ function formatContact(c: Record<string, unknown>): ContactListItem {
     title: (c.job_title as string) || null,
     linkedin_url: (c.linkedin_url as string) || null,
     channels: c.channels
-      ? { ...(c.channels as Record<string, unknown>), ...((c.channels as Record<string, unknown>).linkedin && { linkedin: computeLinkedInChannel((c.channels as Record<string, Record<string, unknown>>).linkedin) }) }
+      ? { ...(c.channels as Record<string, unknown>), ...((c.channels as Record<string, unknown>).linkedin ? { linkedin: computeLinkedInChannel((c.channels as Record<string, Record<string, unknown>>).linkedin) } : {}) }
       : null,
     icp_fit: (c.icp_fit as string) ?? null,
     icp_score: (c.icp_score as number) ?? null,

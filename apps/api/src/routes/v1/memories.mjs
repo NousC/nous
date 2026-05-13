@@ -44,11 +44,17 @@ memoriesRouter.get('/search', async (req, res) => {
 // POST /v1/memory — create a memory fact
 memoriesRouter.post('/', async (req, res) => {
   try {
-    const { content, category, metadata, source } = req.body;
+    const { content, category, metadata, source, contact_id, company_id } = req.body;
     if (!content?.trim()) return res.status(400).json({ error: 'content_required' });
 
+    const mergedMetadata = {
+      ...(metadata || {}),
+      ...(contact_id ? { contact_id } : {}),
+      ...(company_id ? { company_id } : {}),
+    };
+
     const memory = await saveMemory(getSupabaseClient(), req.workspaceId, {
-      content, category, metadata, source,
+      content, category, source, metadata: mergedMetadata,
     });
     return res.status(201).json({ memory });
   } catch (err) {

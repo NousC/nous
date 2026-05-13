@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-import { program } from "commander";
-import { readFileSync, writeFileSync, existsSync } from "fs";
+import { program, Command } from "commander";
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 
@@ -15,7 +15,6 @@ function readConfig() {
 function writeConfig(cfg) {
   const dir = join(homedir(), ".proply");
   if (!existsSync(dir)) {
-    const { mkdirSync } = await import("fs");
     mkdirSync(dir, { recursive: true });
   }
   writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2));
@@ -66,7 +65,7 @@ program
   .command("auth")
   .description("Manage authentication")
   .addCommand(
-    new program.Command("login")
+    new Command("login")
       .description("Save your API key")
       .requiredOption("--key <key>", "Your Proply API key")
       .option("--url <url>", "API base URL (default: https://api.goproply.com)")
@@ -79,7 +78,7 @@ program
       })
   )
   .addCommand(
-    new program.Command("status")
+    new Command("status")
       .description("Show current auth status")
       .action(() => {
         const cfg = readConfig();

@@ -19,6 +19,7 @@ interface Memory {
   created_at: string;
   updated_at: string;
   valid_from?: string;
+  contact_id?: string | null;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -474,10 +475,14 @@ function MemoryPanel({ memories, token, apiUrl, workspaceId, onUpdated, onDelete
   const [activeTab, setActiveTab] = useState("All");
   const [search, setSearch]       = useState("");
 
-  const categories = [...new Set(memories.map(m => m.category))].sort();
+  const workspaceOnly = memories.filter(m =>
+    !m.contact_id && !m.metadata?.contact_id && !m.metadata?.company_id
+  );
+
+  const categories = [...new Set(workspaceOnly.map(m => m.category))].sort();
   const tabs = ["All", ...categories];
 
-  const filtered = memories.filter(m => {
+  const filtered = workspaceOnly.filter(m => {
     const matchTab = activeTab === "All" || m.category === activeTab;
     const matchSearch = !search.trim() || m.content.toLowerCase().includes(search.toLowerCase());
     return matchTab && matchSearch;
@@ -489,7 +494,7 @@ function MemoryPanel({ memories, token, apiUrl, workspaceId, onUpdated, onDelete
   }, {});
 
   const catCounts = Object.entries(
-    memories.reduce<Record<string, number>>((acc, m) => {
+    workspaceOnly.reduce<Record<string, number>>((acc, m) => {
       acc[m.category] = (acc[m.category] || 0) + 1;
       return acc;
     }, {})
@@ -500,11 +505,11 @@ function MemoryPanel({ memories, token, apiUrl, workspaceId, onUpdated, onDelete
   return (
     <div className="flex flex-col h-full min-h-0">
       {/* Overview bar chart */}
-      {memories.length > 0 && (
+      {workspaceOnly.length > 0 && (
         <div className="flex-shrink-0 mb-5 p-4 bg-gray-50 rounded-xl border border-gray-100">
           <div className="flex items-center justify-between mb-3">
             <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Overview</p>
-            <span className="text-[11px] text-gray-400">{memories.length} facts</span>
+            <span className="text-[11px] text-gray-400">{workspaceOnly.length} facts</span>
           </div>
           <div className="space-y-2">
             {catCounts.map(([cat, count]) => (
@@ -549,7 +554,7 @@ function MemoryPanel({ memories, token, apiUrl, workspaceId, onUpdated, onDelete
             {tab}
             {tab !== "All" && (
               <span className={cn("ml-1", activeTab === tab ? "text-gray-400" : "text-gray-300")}>
-                {memories.filter(m => m.category === tab).length}
+                {workspaceOnly.filter(m => m.category === tab).length}
               </span>
             )}
           </button>

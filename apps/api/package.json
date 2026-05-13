@@ -4,8 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node --watch src/index.mjs",
-    "start": "node src/index.mjs",
+    "dev": "lsof -ti:3000 | xargs kill -9 2>/dev/null; node --env-file=../../.env --watch src/index.mjs",
+    "start": "node --env-file=../../.env src/index.mjs",
+    "test": "node --test tests/*.test.mjs",
     "typecheck": "echo 'no ts in api — skipping'"
   },
   "dependencies": {

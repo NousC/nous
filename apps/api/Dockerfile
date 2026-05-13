@@ -8,12 +8,19 @@ COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
 COPY apps/api/package.json ./apps/api/
 COPY packages/core/package.json ./packages/core/
 
-# Install prod deps only
-RUN pnpm install --frozen-lockfile --prod
+# Install all deps (need devDeps to build core)
+RUN pnpm install --frozen-lockfile
 
 # Copy source
 COPY apps/api ./apps/api
 COPY packages/core ./packages/core
+COPY tsconfig.base.json ./
+
+# Build @proply/core
+RUN pnpm --filter @proply/core run build
+
+# Prune devDeps after build
+RUN pnpm install --frozen-lockfile --prod
 
 EXPOSE 3000
 CMD ["node", "apps/api/src/index.mjs"]

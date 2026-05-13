@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node --watch src/index.mjs",
-    "start": "node src/index.mjs",
+    "dev": "node --env-file=../../.env --watch src/index.mjs",
+    "start": "node --env-file=../../.env src/index.mjs",
     "typecheck": "echo 'no ts in worker — skipping'"
   },
   "dependencies": {

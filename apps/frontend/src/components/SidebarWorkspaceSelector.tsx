@@ -79,19 +79,18 @@ export function SidebarWorkspaceSelector({ collapsed = false }: SidebarWorkspace
   const CACHE_DURATION = 30 * 1000; // 30 seconds cache
 
   useEffect(() => {
-    if (session?.access_token) {
-      const now = Date.now();
-      // Only fetch if not already fetching and cache is expired
-      if (!fetchingRef.current && (now - lastFetchRef.current) > CACHE_DURATION) {
-        fetchingRef.current = true;
-        lastFetchRef.current = now;
-        Promise.all([fetchWorkspaces(), fetchUsageData()]).finally(() => {
-          fetchingRef.current = false;
-        });
-      }
+    // Wait for both a valid session AND userData from /me so we use the correct workspace ID.
+    if (!session?.access_token || !userData) return;
+    const now = Date.now();
+    if (!fetchingRef.current && (now - lastFetchRef.current) > CACHE_DURATION) {
+      fetchingRef.current = true;
+      lastFetchRef.current = now;
+      Promise.all([fetchWorkspaces(), fetchUsageData(currentWorkspace?.id)]).finally(() => {
+        fetchingRef.current = false;
+      });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.access_token]);
+  }, [session?.access_token, userData]);
 
   const fetchUsageData = async (wsId?: string) => {
     try {

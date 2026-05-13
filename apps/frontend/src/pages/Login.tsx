@@ -54,11 +54,11 @@ const Login = () => {
           {/* Mobile Logo */}
           <div className="flex items-center gap-2.5 mb-12 lg:hidden">
             <img
-              src="/Assetly.png"
-              alt="Assetly"
+              src="/newlogoP.png"
+              alt="Proply"
               className="w-8 h-8 object-contain"
             />
-            <span className="font-semibold text-lg tracking-tight text-gray-900">Assetly</span>
+            <span className="font-semibold text-lg tracking-tight text-gray-900">Proply</span>
           </div>
 
           <div className="mb-8">
@@ -200,11 +200,11 @@ const Login = () => {
         {/* Logo */}
         <div className="relative z-10 flex items-center gap-2.5">
           <img
-            src="/Assetly.png"
+            src="/newlogoP.png"
             alt=""
             className="w-7 h-7 object-contain"
           />
-          <span className="font-semibold text-[15px] tracking-tight text-gray-900">Assetly</span>
+          <span className="font-semibold text-[15px] tracking-tight text-gray-900">Proply</span>
         </div>
 
         {/* Testimonial */}
@@ -216,7 +216,7 @@ const Login = () => {
             </svg>
           </div>
           <p className="text-[20px] font-medium text-gray-800 leading-[1.5] mb-6">
-            Assetly turned our proposal process from days into minutes. The AI understands our brand and delivers polished results every time.
+            Proply gives our AI agents a real memory of every customer. Deal context, signals, and history — always there when we need it.
           </p>
           <div className="text-sm text-gray-500">
             Trusted by agencies and consultancies worldwide
@@ -226,16 +226,16 @@ const Login = () => {
         {/* Stats */}
         <div className="relative z-10 flex gap-12">
           <div>
-            <div className="text-2xl font-semibold text-gray-900 tracking-tight">500+</div>
-            <div className="text-sm text-gray-500 mt-0.5">Proposals created</div>
+            <div className="text-2xl font-semibold text-gray-900 tracking-tight">AI-native</div>
+            <div className="text-sm text-gray-500 mt-0.5">Memory layer</div>
           </div>
           <div>
-            <div className="text-2xl font-semibold text-gray-900 tracking-tight">10x</div>
-            <div className="text-sm text-gray-500 mt-0.5">Faster delivery</div>
+            <div className="text-2xl font-semibold text-gray-900 tracking-tight">Real-time</div>
+            <div className="text-sm text-gray-500 mt-0.5">Signal tracking</div>
           </div>
           <div>
-            <div className="text-2xl font-semibold text-gray-900 tracking-tight">Built-in</div>
-            <div className="text-sm text-gray-500 mt-0.5">E-signatures</div>
+            <div className="text-2xl font-semibold text-gray-900 tracking-tight">Every</div>
+            <div className="text-sm text-gray-500 mt-0.5">Contact, synced</div>
           </div>
         </div>
       </div>

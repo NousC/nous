@@ -20,7 +20,7 @@ interface ConnectedCRM extends CrmConnection {
 }
 
 export default function CRM() {
-  const { session, userData } = useAuth();
+  const { session, userData, userDataLoading } = useAuth();
   const apiUrl = import.meta.env.VITE_API_URL ?? "";
   const workspaceId = userData?.workspace?.id || localStorage.getItem("selectedWorkspaceId") || "";
 
@@ -35,7 +35,11 @@ export default function CRM() {
 
   // Detect connected CRM
   useEffect(() => {
-    if (!session?.access_token || !workspaceId) return;
+    if (!session?.access_token) return;
+    if (!workspaceId) {
+      if (!userDataLoading) setLoadingConn(false);
+      return;
+    }
     setLoadingConn(true);
     fetch(`${apiUrl}/api/workflow-providers/connections?workspace_id=${workspaceId}`, { headers })
       .then(r => r.json())
@@ -61,7 +65,7 @@ export default function CRM() {
       })
       .catch(() => toast.error("Failed to load connections"))
       .finally(() => setLoadingConn(false));
-  }, [session?.access_token, workspaceId]);
+  }, [session?.access_token, workspaceId, userDataLoading]);
 
   // Fetch live records
   const fetchRecords = useCallback(async () => {

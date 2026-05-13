@@ -173,7 +173,7 @@ export function ContactFormModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[520px]">
+      <DialogContent aria-describedby={undefined} className="sm:max-w-[520px]">
         <DialogHeader>
           <DialogTitle>{isEditing ? "Edit Contact" : "Add Contact"}</DialogTitle>
         </DialogHeader>

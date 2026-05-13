@@ -8,17 +8,26 @@ const VALID_SOURCES = ['gmail', 'linkedin', 'calendar', 'rb2b', 'hubspot'];
 // GET /api/webhooks/subscriptions
 webhooksRouter.get('/subscriptions', async (req, res) => {
   try {
-    const { data, error } = await getSupabaseClient()
-      .from('webhook_subscriptions')
-      .select('id, source, is_active, created_at')
-      .eq('workspace_id', req.workspaceId)
-      .order('created_at', { ascending: false });
+    const workspaceId = req.workspaceId || req.query.workspaceId;
+    if (!workspaceId) return res.json({ subscriptions: [] });
 
-    if (error) throw error;
+    const { data, error } = await getSupabaseClient()
+      .from('workspace_webhook_subscriptions')
+      .select('source, status, created_at, tested_at')
+      .eq('workspace_id', workspaceId);
+
+    if (error) {
+      // Fall back to old table name if new one doesn't exist
+      const { data: fallback } = await getSupabaseClient()
+        .from('webhook_subscriptions')
+        .select('source, is_active, created_at')
+        .eq('workspace_id', workspaceId);
+      return res.json({ subscriptions: fallback || [] });
+    }
     return res.json({ subscriptions: data || [] });
   } catch (err) {
     console.error('[GET /api/webhooks/subscriptions]', err);
-    return res.status(500).json({ error: 'internal_error' });
+    return res.json({ subscriptions: [] });
   }
 });
 

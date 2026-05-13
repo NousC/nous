@@ -92,7 +92,7 @@ export default function CrmSyncConfig({ open, onClose, workspaceId, connectionId
 
   return (
     <Dialog open={open} onOpenChange={v => { if (!v) onClose(); }}>
-      <DialogContent className="max-w-sm">
+      <DialogContent aria-describedby={undefined} className="max-w-sm">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-sm font-semibold">
             <img src={meta.logo} alt={meta.label} className="h-4 w-auto" />

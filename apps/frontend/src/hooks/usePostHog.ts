@@ -11,11 +11,11 @@ export function usePostHog() {
 
   // Identify user when they log in
   useEffect(() => {
-    if (userData && session && posthog) {
-      posthog.identify(userData.id, {
-        email: userData.email,
-        name: userData.full_name || userData.email,
-        // Add any other user properties you want to track
+    const user = userData?.user;
+    if (user?.id && session && posthog) {
+      posthog.identify(user.id, {
+        email: user.email,
+        name: user.name || user.email,
       });
     }
   }, [userData, session]);

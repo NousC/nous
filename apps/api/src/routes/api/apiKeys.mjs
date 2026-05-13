@@ -14,11 +14,17 @@ apiKeysRouter.get('/', async (req, res) => {
       .is('revoked_at', null)
       .order('created_at', { ascending: false });
 
-    if (error) throw error;
+    if (error) {
+      // Table may not exist yet — return empty rather than 500
+      if (error.code === '42P01' || error.message?.includes('does not exist')) {
+        return res.json({ api_keys: [] });
+      }
+      throw error;
+    }
     return res.json({ api_keys: data || [] });
   } catch (err) {
     console.error('[GET /api/workspace/api-keys]', err);
-    return res.status(500).json({ error: 'internal_error' });
+    return res.json({ api_keys: [] });
   }
 });
 

@@ -42,10 +42,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     };
 
+    // Timeout fallback — cleared on success, fires only if init hangs
+    let timeout: ReturnType<typeof setTimeout>;
+
     // Initialize auth
     const initAuth = async () => {
       try {
-        // Get the current session (Supabase auto-detects OAuth hash)
         const { data: { session: currentSession }, error } = await supabase.auth.getSession();
 
         if (!isMounted) return;
@@ -53,34 +55,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (error) {
           console.error('[AUTH] Error getting session:', error);
           setLoading(false);
+          clearTimeout(timeout);
           return;
         }
 
         console.log('[AUTH] Session:', currentSession ? 'authenticated' : 'none');
 
-        // Update state in one batch
         setSession(currentSession);
         setUser(currentSession?.user ?? null);
         setLoading(false);
+        clearTimeout(timeout);
 
-        // Clean up OAuth hash after state is set
         cleanupHash();
 
-        // Fetch user data if authenticated
         if (currentSession) {
           fetchUserData(currentSession.access_token);
         }
       } catch (err) {
         console.error('[AUTH] Init error:', err);
         if (isMounted) setLoading(false);
+        clearTimeout(timeout);
       }
     };
 
     // Start auth initialization
     initAuth();
 
-    // Timeout fallback (only runs if loading takes too long)
-    const timeout = setTimeout(() => {
+    timeout = setTimeout(() => {
       if (isMounted) {
         console.warn('[AUTH] Init timeout');
         setLoading(false);
@@ -149,10 +150,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (response.ok) {
         const data = await response.json();
 
-        // Automatically select workspace if one exists but none is selected
-        if (data.workspace && !localStorage.getItem('selectedWorkspaceId')) {
-          localStorage.setItem('selectedWorkspaceId', data.workspace.id);
-          console.log('[AUTH] Auto-selected workspace:', data.workspace.id);
+        // If cached workspace doesn't belong to this user, clear it and use the one from /me
+        if (data.workspace) {
+          const cached = localStorage.getItem('selectedWorkspaceId');
+          if (!cached || cached !== data.workspace.id) {
+            localStorage.setItem('selectedWorkspaceId', data.workspace.id);
+            console.log('[AUTH] Auto-selected workspace:', data.workspace.id);
+          }
         }
 
         setUserData(data);
@@ -170,8 +174,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           });
           if (retry.ok) {
             const data = await retry.json();
-            if (data.workspace && !localStorage.getItem('selectedWorkspaceId')) {
-              localStorage.setItem('selectedWorkspaceId', data.workspace.id);
+            if (data.workspace) {
+              const cached = localStorage.getItem('selectedWorkspaceId');
+              if (!cached || cached !== data.workspace.id) {
+                localStorage.setItem('selectedWorkspaceId', data.workspace.id);
+              }
             }
             setUserData(data);
             setOnboardingCompleted(!!data.onboarding_completed);

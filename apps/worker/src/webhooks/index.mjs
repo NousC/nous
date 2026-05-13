@@ -22,6 +22,10 @@ function verifyHmac(req, secret) {
 // without needing API key auth (HMAC on sensitive sources instead).
 
 webhookRouter.post('/linkedin/:workspaceId', (req, res) => {
+  const secret = process.env.LINKEDIN_WEBHOOK_SECRET;
+  if (secret && !verifyHmac(req, secret)) {
+    return res.status(401).json({ error: 'invalid_signature' });
+  }
   handleLinkedIn(req, res, req.params.workspaceId).catch(err => {
     console.error('[WEBHOOK/linkedin]', err);
     res.status(500).json({ error: 'internal_error' });

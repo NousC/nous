@@ -43,7 +43,7 @@ captureRouter.post('/', async (req, res) => {
         workspace_id: req.workspaceId,
         contact_id: contact.id,
         activity_type: type,
-        description: description || null,
+        description: description || '',
         source,
         occurred_at: occurred_at || now,
         received_at: now,

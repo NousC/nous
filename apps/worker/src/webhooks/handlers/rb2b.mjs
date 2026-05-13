@@ -48,7 +48,7 @@ export async function handleRB2B(req, res, workspaceId) {
     companyId:   contact.company_id || null,
     type:        'website_visit',
     source:      'rb2b',
-    externalId:  `rb2b_${email}_${Date.now()}`,
+    externalId:  `rb2b_${email}_${(req.body.page_url || '').replace(/[^a-z0-9]/gi, '_').slice(0, 40) || 'visit'}`,
     description: page_url ? `Visited ${page_url}` : 'Website visit detected',
     rawData:     { page_url, linkedin_url },
   });

@@ -29,7 +29,7 @@ import type { ChatSession } from "@/hooks/useChatSessions";
 
 // Main navigation — all items rendered with uniform spacing
 const mainNavItems = [
-  { title: "Quick Start",  url: "/",             icon: Zap       },
+  { title: "Quick Start",  url: "/",              icon: Zap       },
   { title: "People",       url: "/people",        icon: Users     },
   { title: "Companies",    url: "/companies",     icon: Building2 },
   { title: "Integrations", url: "/integrations",  icon: Plug      },
@@ -37,12 +37,14 @@ const mainNavItems = [
   { title: "Memories",     url: "/memories",      icon: Brain     },
 ];
 
+const IS_CLOUD = !!import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY;
+
 // Bottom utility nav
 const bottomNavItems = [
   { title: "Docs",     url: "/docs",      icon: BookOpen  },
   { title: "Requests", url: "/requests",  icon: Activity  },
   { title: "Usage",    url: "/usage",     icon: BarChart2 },
-  { title: "Billing",  url: "/billing",   icon: CreditCard },
+  ...(IS_CLOUD ? [{ title: "Billing", url: "/billing", icon: CreditCard }] : []),
   { title: "API",      url: "/developer", icon: Terminal  },
 ];
 
