@@ -15,6 +15,4 @@ COPY tsconfig.base.json ./
 
 RUN pnpm --filter @proply/core run build
 
-RUN pnpm install --frozen-lockfile --prod
-
 CMD ["node", "apps/worker/src/index.mjs"]

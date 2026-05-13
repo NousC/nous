@@ -19,8 +19,5 @@ COPY tsconfig.base.json ./
 # Build @proply/core
 RUN pnpm --filter @proply/core run build
 
-# Prune devDeps after build
-RUN pnpm install --frozen-lockfile --prod
-
 EXPOSE 3000
 CMD ["node", "apps/api/src/index.mjs"]
