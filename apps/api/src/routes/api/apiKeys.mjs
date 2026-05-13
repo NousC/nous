@@ -37,6 +37,7 @@ apiKeysRouter.post('/', async (req, res) => {
     const rawKey = `pk_${crypto.randomBytes(24).toString('hex')}`;
     const hashedKey = crypto.createHash('sha256').update(rawKey).digest('hex');
 
+    console.log('[API_KEYS_CREATE] workspaceId=', req.workspaceId, 'bodyWorkspaceId=', req.body?.workspace_id);
     const { data, error } = await getSupabaseClient()
       .from('api_keys')
       .insert({
@@ -47,7 +48,7 @@ apiKeysRouter.post('/', async (req, res) => {
       .select('id, name, created_at')
       .single();
 
-    if (error) throw error;
+    if (error) { console.error('[API_KEYS_CREATE] supabase error:', JSON.stringify(error)); throw error; }
     // Raw key only returned once — never stored in plaintext
     return res.status(201).json({ ...data, key: rawKey });
   } catch (err) {
