@@ -36,8 +36,9 @@ import { linkedinRouter } from './routes/api/linkedin.mjs';
 import { systemLogRouter } from './routes/api/systemLog.mjs';
 
 // /api/admin — Admin routes
+import { blogRouter } from './routes/api/blog.mjs';
 import { adminBlogRouter } from './routes/api/admin/blog.mjs';
-import { adminChangelogRouter } from './routes/api/admin/changelog.mjs';
+import { adminChangelogRouter, publicChangelogRouter } from './routes/api/admin/changelog.mjs';
 import { roadmapRouter, adminRoadmapRouter } from './routes/api/admin/roadmap.mjs';
 import { updatesRouter, adminUpdatesRouter } from './routes/api/admin/updates.mjs';
 import { adminUsersRouter } from './routes/api/admin/users.mjs';
@@ -92,9 +93,11 @@ app.use('/api/webhooks',              verifySupabaseAuth, webhooksRouter);
 app.use('/api/workflow-providers',    verifySupabaseAuth, workflowProvidersRouter);
 app.use('/api/linkedin',              verifySupabaseAuth, linkedinRouter);
 
-// ── /api/roadmap and /api/updates — Public ────────────────────────────────────
-app.use('/api/roadmap', roadmapRouter);
-app.use('/api/updates', updatesRouter);
+// ── /api/roadmap, /api/updates, /api/blog, /api/changelog — Public ───────────
+app.use('/api/roadmap',           roadmapRouter);
+app.use('/api/updates',           updatesRouter);
+app.use('/api/blog',              blogRouter);
+app.use('/api/changelog/entries', publicChangelogRouter);
 
 // ── /api/admin — Admin (auth + admin check applied at mount) ──────────────────
 app.use('/api/admin/blog',      verifySupabaseAuth, requireAdmin, adminBlogRouter);

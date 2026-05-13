@@ -2,8 +2,24 @@ import { Router } from 'express';
 import { getSupabaseClient } from '@proply/core';
 
 export const adminChangelogRouter = Router();
+export const publicChangelogRouter = Router();
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// GET /api/changelog/entries — public read (used by goproply.com website)
+publicChangelogRouter.get('/', async (req, res) => {
+  try {
+    const supabase = getSupabaseClient();
+    const { data: entries, error } = await supabase
+      .from('changelog_entries')
+      .select('id, title, description, image_url, tag, published_at, created_at')
+      .order('published_at', { ascending: false });
+    if (error) return res.status(500).json({ error: 'internal_error' });
+    return res.json({ entries: entries || [] });
+  } catch (err) {
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
 const VALID_TAGS = ['feature', 'improvement', 'fix', 'announcement'];
 
 // POST /api/changelog/entries
