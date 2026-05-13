@@ -45,10 +45,6 @@ services:
         VITE_DOCS_URL: ${VITE_DOCS_URL:-}
     image: ghcr.io/goproply/proply-crm-frontend:latest
     restart: unless-stopped
-    # When using Caddy (recommended for VPS): remove the ports block — Caddy handles ingress.
-    # When running without Caddy (simple single-domain): keep this to expose port 80.
-    ports:
-      - "${PORT:-80}:80"
     depends_on:
       - api
 
