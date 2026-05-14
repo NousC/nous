@@ -3,7 +3,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/components/ui/sonner";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Search, Loader2, RefreshCw } from "lucide-react";
+import { Search, Loader2, RefreshCw, Download, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { CrmProvider, CrmConnection, CrmRecord } from "@/types/crm";
 
@@ -30,6 +30,8 @@ export default function CRM() {
   const [search, setSearch] = useState("");
   const [records, setRecords] = useState<CrmRecord[]>([]);
   const [loadingRecords, setLoadingRecords] = useState(false);
+  const [importingIds, setImportingIds] = useState<Set<string>>(new Set());
+  const [importedIds, setImportedIds] = useState<Set<string>>(new Set());
 
   const headers = { Authorization: `Bearer ${session?.access_token}` };
 
@@ -92,6 +94,32 @@ export default function CRM() {
   }, [crm, activeTab, search, session?.access_token, workspaceId]);
 
   useEffect(() => { if (crm) fetchRecords(); }, [crm, activeTab]);
+
+  const handleImport = useCallback(async (record: CrmRecord) => {
+    if (!crm || importingIds.has(record.id) || importedIds.has(record.id)) return;
+    setImportingIds(prev => new Set(prev).add(record.id));
+    try {
+      const r = await fetch(`${apiUrl}/api/crm/import`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          workspaceId,
+          provider: crm.provider,
+          connectionId: crm.connectionId,
+          records: [{ ...record, type: activeTab === "contacts" ? "contact" : activeTab === "companies" ? "company" : "deal" }],
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || 'Import failed');
+      if (d.errors?.length) throw new Error(d.errors[0].error);
+      setImportedIds(prev => new Set(prev).add(record.id));
+      toast.success(activeTab === "deals" ? "Deal imported — pipeline stage updated" : "Imported to Proply");
+    } catch (e: any) {
+      toast.error(e.message || 'Import failed');
+    } finally {
+      setImportingIds(prev => { const s = new Set(prev); s.delete(record.id); return s; });
+    }
+  }, [crm, activeTab, workspaceId, importingIds, importedIds]);
 
   useEffect(() => {
     if (!crm) return;
@@ -230,6 +258,7 @@ export default function CRM() {
                 <th className="px-3 py-3 text-left text-[11px] font-medium text-gray-400 uppercase tracking-wide">
                   {activeTab === "companies" ? "Location" : "Owner"}
                 </th>
+                <th className="px-3 py-3" />
               </tr>
             </thead>
             <tbody>
@@ -267,6 +296,25 @@ export default function CRM() {
                         : rec.ownerName || "—"
                       }
                     </span>
+                  </td>
+                  <td className="px-3 py-3.5 text-right">
+                    {importedIds.has(rec.id) ? (
+                      <span className="inline-flex items-center gap-1 text-[11px] text-emerald-600 font-medium">
+                        <Check className="h-3 w-3" /> Imported
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => handleImport(rec)}
+                        disabled={importingIds.has(rec.id)}
+                        className="inline-flex items-center gap-1 px-2 py-1 text-[11px] text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors disabled:opacity-40"
+                      >
+                        {importingIds.has(rec.id)
+                          ? <Loader2 className="h-3 w-3 animate-spin" />
+                          : <Download className="h-3 w-3" />
+                        }
+                        Import
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}

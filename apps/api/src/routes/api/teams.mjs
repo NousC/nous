@@ -4,6 +4,35 @@ import { getSupabaseClient } from '@proply/core';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
 import { ensureUserAndTeam } from '../../lib/auth.mjs';
 
+async function sendInviteEmail({ to, inviterName, teamName, token }) {
+  const key = process.env.RESEND_API_KEY;
+  if (!key) return;
+  const appDomain = process.env.APP_DOMAIN || 'app.goproply.com';
+  const link = `https://${appDomain}/accept-invitation?token=${token}`;
+  const from = process.env.RESEND_FROM_EMAIL || 'Proply <noreply@goproply.com>';
+  try {
+    await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+      body: JSON.stringify({
+        from,
+        to: [to],
+        subject: `You've been invited to join ${teamName} on Proply`,
+        html: `
+          <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;color:#111">
+            <p style="margin:0 0 16px">Hi,</p>
+            <p style="margin:0 0 24px"><strong>${inviterName}</strong> has invited you to join <strong>${teamName}</strong> on Proply — the AI-powered CRM.</p>
+            <a href="${link}" style="display:inline-block;background:#0d9488;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-size:14px;font-weight:600">Accept Invitation</a>
+            <p style="margin:24px 0 0;color:#666;font-size:13px">This link expires in 7 days. If you weren't expecting this email, you can safely ignore it.</p>
+          </div>
+        `,
+      }),
+    });
+  } catch (err) {
+    console.error('[INVITE_EMAIL] Failed to send:', err.message);
+  }
+}
+
 export const teamsRouter = Router();
 
 async function checkTeamMembership(userId, teamId, requiredRoles = ['founder', 'owner', 'admin', 'member', 'viewer']) {
@@ -139,7 +168,15 @@ teamsRouter.post('/:teamId/invitations', verifySupabaseAuth, async (req, res) =>
       .select().single();
     if (error) throw error;
 
-    return res.json({ invitation: { id: invitation.id, email: invitation.email, role: invitation.role, status: invitation.status, expires_at: invitation.expires_at, created_at: invitation.created_at }, emailSent: false });
+    const { data: teamData } = await supabase.from('teams').select('name').eq('id', teamId).single();
+    const emailSent = await sendInviteEmail({
+      to: normalizedEmail,
+      inviterName: user.name || user.email,
+      teamName: teamData?.name || 'Your Team',
+      token,
+    }).then(() => true).catch(() => false);
+
+    return res.json({ invitation: { id: invitation.id, email: invitation.email, role: invitation.role, status: invitation.status, expires_at: invitation.expires_at, created_at: invitation.created_at }, emailSent });
   } catch (err) {
     return res.status(500).json({ error: 'internal_error', ...(process.env.NODE_ENV !== 'production' && { detail: String(err.message) }) });
   }

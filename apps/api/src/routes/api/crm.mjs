@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getSupabaseClient } from '@proply/core';
+import { getSupabaseClient, logActivity } from '@proply/core';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
 import crypto from 'crypto';
 
@@ -86,6 +86,81 @@ async function fetchAttioRecords(apiKey, type, search) {
   });
 }
 
+// ── Import helpers ────────────────────────────────────────────────────────────
+
+async function fetchDealContactEmails(provider, creds, dealId) {
+  const token = creds.access_token || creds.api_key || creds.api_token || Object.values(creds).find(Boolean);
+  if (!token) return [];
+
+  if (provider === 'hubspot') {
+    const assocRes = await fetch(
+      `https://api.hubapi.com/crm/v3/objects/deals/${dealId}/associations/contacts`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    if (!assocRes.ok) return [];
+    const assocData = await assocRes.json();
+    const contactIds = (assocData.results || []).map(r => r.id).slice(0, 5);
+    const emails = [];
+    for (const cid of contactIds) {
+      const r = await fetch(
+        `https://api.hubapi.com/crm/v3/objects/contacts/${cid}?properties=email,firstname,lastname`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (!r.ok) continue;
+      const c = await r.json();
+      const p = c.properties || {};
+      if (p.email) emails.push({ email: p.email, name: [p.firstname, p.lastname].filter(Boolean).join(' ') });
+    }
+    return emails;
+  }
+
+  if (provider === 'pipedrive') {
+    const r = await fetch(`https://api.pipedrive.com/v1/deals/${dealId}/persons?api_token=${token}`);
+    if (!r.ok) return [];
+    const d = await r.json();
+    return (d.data || []).flatMap(p => {
+      const email = p.email?.find(e => e.primary)?.value || p.email?.[0]?.value;
+      return email ? [{ email, name: p.name || '' }] : [];
+    });
+  }
+
+  return [];
+}
+
+async function upsertContactForImport(supabase, workspaceId, provider, { email, name, company }) {
+  if (!email) return null;
+  const normalizedEmail = email.toLowerCase().trim();
+  const nameParts = (name || '').trim().split(/\s+/);
+  const firstName = nameParts[0] || null;
+  const lastName = nameParts.slice(1).join(' ') || null;
+
+  const { data: existing } = await supabase
+    .from('contacts')
+    .select('id, company_id')
+    .eq('workspace_id', workspaceId)
+    .eq('email', normalizedEmail)
+    .maybeSingle();
+
+  if (existing) return existing;
+
+  const { data: created, error } = await supabase
+    .from('contacts')
+    .insert({
+      workspace_id: workspaceId,
+      email: normalizedEmail,
+      first_name: firstName,
+      last_name: lastName,
+      company: company || null,
+      source: provider,
+      pipeline_stage: 'identified',
+    })
+    .select('id, company_id')
+    .single();
+
+  if (error) throw error;
+  return created;
+}
+
 // GET /api/crm/sync-config
 crmRouter.get('/sync-config', verifySupabaseAuth, async (req, res) => {
   try {
@@ -169,6 +244,83 @@ crmRouter.get('/records', verifySupabaseAuth, async (req, res) => {
 
     return res.json({ records });
   } catch (err) {
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
+// POST /api/crm/import — import selected records into Proply contacts + log deal signals
+crmRouter.post('/import', verifySupabaseAuth, async (req, res) => {
+  try {
+    const supabase = getSupabaseClient();
+    const { workspaceId, provider, connectionId, records } = req.body;
+    if (!workspaceId || !provider || !connectionId || !Array.isArray(records) || records.length === 0) {
+      return res.status(400).json({ error: 'workspaceId, provider, connectionId, and records required' });
+    }
+
+    const { data: connection } = await supabase
+      .from('workflow_provider_connections')
+      .select('encrypted_credentials')
+      .eq('id', connectionId)
+      .eq('workspace_id', workspaceId)
+      .single();
+    if (!connection) return res.status(404).json({ error: 'connection_not_found' });
+
+    const creds = {};
+    for (const [k, v] of Object.entries(connection.encrypted_credentials || {})) {
+      creds[k] = decryptCred(v);
+    }
+
+    let imported = 0;
+    let skipped = 0;
+    const errors = [];
+
+    for (const record of records) {
+      try {
+        if (record.type === 'contact') {
+          const contact = await upsertContactForImport(supabase, workspaceId, provider, {
+            email: record.email,
+            name: record.name,
+            company: record.company,
+          });
+          if (contact) imported++; else skipped++;
+
+        } else if (record.type === 'company') {
+          if (!record.name?.trim()) { skipped++; continue; }
+          const { data: existing } = await supabase.from('companies').select('id').eq('workspace_id', workspaceId).ilike('name', record.name.trim()).maybeSingle();
+          if (!existing) {
+            await supabase.from('companies').insert({ workspace_id: workspaceId, name: record.name.trim(), domain: record.domain || null });
+          }
+          imported++;
+
+        } else if (record.type === 'deal') {
+          const contacts = await fetchDealContactEmails(provider, creds, record.id);
+          if (contacts.length === 0) { skipped++; continue; }
+          const isWon = /won|closed[\s-]?won/i.test(record.dealStage || '');
+          for (const { email, name } of contacts) {
+            const contact = await upsertContactForImport(supabase, workspaceId, provider, { email, name });
+            if (!contact) continue;
+            await logActivity(supabase, {
+              workspaceId,
+              contactId: contact.id,
+              companyId: contact.company_id || null,
+              type: isWon ? 'deal_won' : 'deal_created',
+              source: provider,
+              externalId: `${provider}_deal_${record.id}`,
+              occurredAt: new Date().toISOString(),
+              description: record.name || 'CRM deal',
+              rawData: { deal_name: record.name, deal_value: record.dealValue, deal_stage: record.dealStage },
+            });
+          }
+          imported++;
+        }
+      } catch (err) {
+        errors.push({ id: record.id, error: err.message });
+      }
+    }
+
+    return res.json({ imported, skipped, errors });
+  } catch (err) {
+    console.error('[POST /api/crm/import]', err);
     return res.status(500).json({ error: 'internal_error' });
   }
 });
