@@ -12,7 +12,7 @@
 </div>
 
 <div align="center">
-  <strong>GTM data infrastructure for the agent era.</strong><br/>
+  <strong>GTM data infrastructure for agents.</strong><br/>
   Unify Apollo, Salesforce, Smartlead, Gmail, and LinkedIn into one identity-resolved record per human.<br/>
   Your agents query the full account context in a single MCP call.
 </div>
