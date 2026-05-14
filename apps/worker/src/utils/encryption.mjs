@@ -16,11 +16,25 @@ export function encrypt(text) {
 export function decrypt(encryptedText) {
   if (!encryptedText || typeof encryptedText !== 'string') return encryptedText;
   const parts = encryptedText.split(':');
-  // Not our iv:tag:data format — return as-is (e.g. scope URLs, plain text fields)
-  if (parts.length !== 3) return encryptedText;
-  const [ivHex, tagHex, dataHex] = parts;
-  if (!KEY.length) throw new Error('ENCRYPTION_KEY not set — cannot decrypt credentials');
-  const decipher = crypto.createDecipheriv('aes-256-gcm', KEY, Buffer.from(ivHex, 'hex'));
-  decipher.setAuthTag(Buffer.from(tagHex, 'hex'));
-  return decipher.update(Buffer.from(dataHex, 'hex')) + decipher.final('utf8');
+
+  if (parts.length === 3) {
+    // AES-256-GCM format (this module's encrypt): iv:tag:data
+    if (!KEY.length) throw new Error('ENCRYPTION_KEY not set — cannot decrypt credentials');
+    const [ivHex, tagHex, dataHex] = parts;
+    const decipher = crypto.createDecipheriv('aes-256-gcm', KEY, Buffer.from(ivHex, 'hex'));
+    decipher.setAuthTag(Buffer.from(tagHex, 'hex'));
+    return decipher.update(Buffer.from(dataHex, 'hex')) + decipher.final('utf8');
+  }
+
+  if (parts.length === 2 && /^[0-9a-f]{32}$/i.test(parts[0])) {
+    // AES-256-CBC format (API's crypto.mjs encrypt): iv:data
+    // Used for credentials stored by the API (Google OAuth, Slack OAuth, etc.)
+    if (!KEY.length) throw new Error('ENCRYPTION_KEY not set — cannot decrypt credentials');
+    const CBC_KEY = Buffer.from((process.env.ENCRYPTION_KEY || '').slice(0, 64).padEnd(64, '0'), 'hex');
+    const decipher = crypto.createDecipheriv('aes-256-cbc', CBC_KEY, Buffer.from(parts[0], 'hex'));
+    return decipher.update(parts[1], 'hex', 'utf8') + decipher.final('utf8');
+  }
+
+  // Not an encrypted value — return as-is (scope strings, URLs, plain text fields)
+  return encryptedText;
 }

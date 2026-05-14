@@ -7,6 +7,8 @@ import crypto from 'crypto';
 import { handleLinkedIn } from './handlers/linkedin.mjs';
 import { handleFireflies } from './handlers/fireflies.mjs';
 import { handleRB2B } from './handlers/rb2b.mjs';
+import { handleInstantly } from './handlers/instantly.mjs';
+import { handleCalendly } from './handlers/calendly.mjs';
 
 export const webhookRouter = Router();
 
@@ -66,6 +68,28 @@ webhookRouter.post('/rb2b/:workspaceId', (req, res) => {
   }
   handleRB2B(req, res, req.params.workspaceId).catch(err => {
     console.error('[WEBHOOK/rb2b]', err);
+    res.status(500).json({ error: 'internal_error' });
+  });
+});
+
+webhookRouter.post(['/instantly/:workspaceId', '/instantly'], (req, res) => {
+  const workspaceId = req.params.workspaceId || req.query.workspace_id;
+  if (!workspaceId) return res.status(400).json({ error: 'workspace_id_required' });
+  const secret = process.env.INSTANTLY_WEBHOOK_SECRET;
+  if (secret && !verifyHmac(req, secret)) return res.status(401).json({ error: 'invalid_signature' });
+  handleInstantly(req, res, workspaceId).catch(err => {
+    console.error('[WEBHOOK/instantly]', err);
+    res.status(500).json({ error: 'internal_error' });
+  });
+});
+
+webhookRouter.post(['/calendly/:workspaceId', '/calendly'], (req, res) => {
+  const workspaceId = req.params.workspaceId || req.query.workspace_id;
+  if (!workspaceId) return res.status(400).json({ error: 'workspace_id_required' });
+  const secret = process.env.CALENDLY_WEBHOOK_SECRET;
+  if (secret && !verifyHmac(req, secret)) return res.status(401).json({ error: 'invalid_signature' });
+  handleCalendly(req, res, workspaceId).catch(err => {
+    console.error('[WEBHOOK/calendly]', err);
     res.status(500).json({ error: 'internal_error' });
   });
 });

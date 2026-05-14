@@ -36,6 +36,7 @@ import { linkedinRouter } from './routes/api/linkedin.mjs';
 import { systemLogRouter } from './routes/api/systemLog.mjs';
 import { oauthGoogleRouter } from './routes/api/oauthGoogle.mjs';
 import { oauthAirtableRouter } from './routes/api/oauthAirtable.mjs';
+import { oauthSlackRouter } from './routes/api/oauthSlack.mjs';
 
 // /api/admin — Admin routes
 import { blogRouter } from './routes/api/blog.mjs';
@@ -97,6 +98,7 @@ app.use('/api/linkedin',              verifySupabaseAuth, linkedinRouter);
 
 // ── OAuth callbacks — no auth middleware (redirects from external providers) ──
 app.use('/api/oauth/google',                         oauthGoogleRouter);
+app.use('/api/oauth/slack',                          oauthSlackRouter);
 app.use('/api/workflow-providers/airtable/oauth',    oauthAirtableRouter);
 
 // ── /api/roadmap, /api/updates, /api/blog, /api/changelog — Public ───────────

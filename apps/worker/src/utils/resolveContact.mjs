@@ -3,6 +3,7 @@
 // Used by all webhook handlers except LinkedIn (which has its own linkedin_member_id step).
 
 import { getSupabaseClient } from '@proply/core';
+import { enrichContact } from './enrichContact.mjs';
 
 // ── Company upsert ────────────────────────────────────────────────────────────
 
@@ -183,6 +184,9 @@ export async function resolveContact(supabase, workspaceId, data, { createIfMiss
     console.error('[IDENTITY] Create error:', error.message);
     return { contact: null, created: false };
   }
+
+  // Fire-and-forget enrichment — never block the webhook response
+  enrichContact(supabase, { ...created, workspace_id: workspaceId }).catch(() => {});
 
   return { contact: created, created: true };
 }

@@ -4,8 +4,18 @@
 // ============================================================
 
 import Anthropic from '@anthropic-ai/sdk';
-import { decrypt } from './utils/encryption.js';
-import { logActivity, logSysEvent } from './webhooks.mjs';
+import { logActivity } from '@proply/core';
+import { decrypt } from '../utils/encryption.js';
+
+async function logSysEvent(supabase, workspaceId, source, eventType, summary, contactId, metadata) {
+  try {
+    await supabase.from('workspace_system_log').insert({
+      workspace_id: workspaceId, source, event_type: eventType,
+      summary: summary || null, contact_id: contactId || null,
+      metadata: metadata || {}, occurred_at: new Date().toISOString(),
+    });
+  } catch { /* non-critical */ }
+}
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 

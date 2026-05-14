@@ -8,6 +8,8 @@ import express from 'express';
 import cron from 'node-cron';
 import { getSupabaseClient } from '@proply/core';
 import { pollAllWorkspaces } from './pollers/calendar.mjs';
+import { pollAllSlackWorkspaces } from './pollers/slack.mjs';
+import { pollAllGmailWorkspaces } from './pollers/gmail.mjs';
 import { webhookRouter } from './webhooks/index.mjs';
 
 // ── Validate required env vars ────────────────────────────────────────────────
@@ -43,6 +45,24 @@ async function runCalendarPoller() {
 runCalendarPoller();
 cron.schedule('*/10 * * * *', runCalendarPoller);
 console.log('[WORKER] Calendar poller — every 10 min');
+
+// ── Slack DM poller — every hour ─────────────────────────────────────────────
+async function runSlackPoller() {
+  if (!process.env.SLACK_CLIENT_ID) return;
+  try { await pollAllSlackWorkspaces(); }
+  catch (err) { console.error('[WORKER] Slack poll error:', err.message); }
+}
+cron.schedule('0 * * * *', runSlackPoller);
+console.log('[WORKER] Slack poller — every hour');
+
+// ── Gmail poller — every 30 minutes ──────────────────────────────────────────
+async function runGmailPoller() {
+  if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) return;
+  try { await pollAllGmailWorkspaces(); }
+  catch (err) { console.error('[WORKER] Gmail poll error:', err.message); }
+}
+cron.schedule('*/30 * * * *', runGmailPoller);
+console.log('[WORKER] Gmail poller — every 30 min');
 
 // ── Pipeline stage decay — daily at 03:00 UTC ────────────────────────────────
 async function runPipelineDecay() {
