@@ -23,6 +23,7 @@
   <a href="https://docs.goproply.com/api">Public API</a> ·
   <a href="https://docs.goproply.com/mcp">MCP Server</a> ·
   <a href="https://www.npmjs.com/package/@goproply/sdk">Node.js SDK</a> ·
+  <a href="https://pypi.org/project/proply/">Python SDK</a> ·
   <a href="https://discord.gg/npa59RTgs">Discord</a>
 </div>
 
@@ -34,7 +35,7 @@
 - **Contact & Company Memory** — Three-scoped memory: person-level (private), company-level (shared across stakeholders), workspace-level (ICP, win patterns, positioning).
 - **Signal Ingestion** — LinkedIn messages, Gmail, Google Calendar, and public signals (job postings, funding) all flow into a unified activity timeline.
 - **Stakeholder Graph** — Map buying committees. Know who influences whom before your agent writes the email.
-- **REST API + SDK** — Full HTTP API with a TypeScript SDK. Integrate from any agent framework.
+- **REST API + SDKs** — Full HTTP API with TypeScript and Python SDKs. Integrate from any agent framework.
 - **Self-hostable** — One `docker compose up` and it's running on your own infra.
 
 ---
