@@ -191,7 +191,8 @@ CREATE TABLE IF NOT EXISTS contacts (
   domain        TEXT,
 
   -- Social
-  linkedin_url  TEXT,
+  linkedin_url       TEXT,
+  linkedin_member_id TEXT,                            -- permanent Unipile/LinkedIn numeric ID (ACoAA... format)
 
   -- Professional (from enrichment)
   seniority     TEXT,                             -- 'c_suite'|'vp'|'director'|'manager'|'ic'
@@ -255,8 +256,9 @@ CREATE INDEX IF NOT EXISTS contacts_company_id      ON contacts(company_id);
 CREATE INDEX IF NOT EXISTS contacts_pipeline_stage  ON contacts(workspace_id, pipeline_stage);
 CREATE INDEX IF NOT EXISTS contacts_last_activity   ON contacts(workspace_id, last_activity_at DESC NULLS LAST);
 CREATE INDEX IF NOT EXISTS contacts_deal_health     ON contacts(deal_health_score);
-CREATE INDEX IF NOT EXISTS contacts_hubspot_id      ON contacts(hubspot_id)      WHERE hubspot_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS contacts_apollo_id       ON contacts(apollo_id)       WHERE apollo_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS contacts_hubspot_id        ON contacts(hubspot_id)        WHERE hubspot_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS contacts_apollo_id         ON contacts(apollo_id)         WHERE apollo_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS contacts_linkedin_member_id ON contacts(workspace_id, linkedin_member_id) WHERE linkedin_member_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS contacts_rb2b_id         ON contacts(rb2b_id)         WHERE rb2b_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS contacts_crm_record_id   ON contacts(workspace_id, crm_record_id) WHERE crm_record_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS contacts_domain          ON contacts(domain)           WHERE domain IS NOT NULL;
@@ -762,6 +764,34 @@ CREATE TRIGGER crm_sync_configs_updated_at
   BEFORE UPDATE ON crm_sync_configs
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+
+-- ============================================================
+-- 14. WORKSPACE SYSTEM LOG  (Activity Log UI feed)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS workspace_system_log (
+  id           UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  workspace_id UUID        NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  source       TEXT        NOT NULL,   -- 'linkedin'|'gmail'|'slack'|'fireflies'|'rb2b'|etc.
+  event_type   TEXT        NOT NULL,   -- 'webhook_received'|'sync_complete'|'error'|etc.
+  summary      TEXT,
+  contact_id   UUID        REFERENCES contacts(id) ON DELETE SET NULL,
+  metadata     JSONB       DEFAULT '{}',
+  occurred_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS wsl_workspace   ON workspace_system_log(workspace_id, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS wsl_source      ON workspace_system_log(workspace_id, source);
+CREATE INDEX IF NOT EXISTS wsl_contact     ON workspace_system_log(contact_id) WHERE contact_id IS NOT NULL;
+
+ALTER TABLE workspace_system_log ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY wsl_select ON workspace_system_log
+  FOR SELECT USING (
+    workspace_id IN (SELECT workspace_id FROM workspace_members WHERE user_id = auth.uid())
+  );
+
+-- Service role writes directly — no insert policy needed for RLS bypass.
 
 -- ============================================================
 -- Done.
