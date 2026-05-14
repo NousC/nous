@@ -394,7 +394,7 @@ results.forEach(r => console.log(\`[\${r.category}] \${r.content} — \${r.id}\`
       label: "Create a contact",
       desc: "POST to add a new contact. Returns 409 if the email already exists.",
       code: `curl --request POST \\
-  --url https://assetly-backend-pwz2.onrender.com/v1/contacts \\
+  --url https://api.goproply.com/v1/contacts \\
   --header 'Authorization: Bearer YOUR_API_KEY' \\
   --header 'Content-Type: application/json' \\
   --data '{
@@ -409,7 +409,7 @@ results.forEach(r => console.log(\`[\${r.category}] \${r.content} — \${r.id}\`
       label: "Remember a fact",
       desc: "POST to store what was learned. AI extracts durable facts automatically.",
       code: `curl --request POST \\
-  --url https://assetly-backend-pwz2.onrender.com/v1/remember \\
+  --url https://api.goproply.com/v1/remember \\
   --header 'Authorization: Bearer YOUR_API_KEY' \\
   --header 'Content-Type: application/json' \\
   --data '{
@@ -421,35 +421,35 @@ results.forEach(r => console.log(\`[\${r.category}] \${r.content} — \${r.id}\`
       label: "Get contact context",
       desc: "GET the full contact profile — summary, stage, facts, activities.",
       code: `curl --request GET \\
-  --url https://assetly-backend-pwz2.onrender.com/v1/contact/sarah@acme.com \\
+  --url https://api.goproply.com/v1/contact/sarah@acme.com \\
   --header 'Authorization: Bearer YOUR_API_KEY'`,
     },
     {
       label: "Get company profile",
       desc: "GET the full company profile — all contacts + org-level facts.",
       code: `curl --request GET \\
-  --url https://assetly-backend-pwz2.onrender.com/v1/company/COMPANY_UUID \\
+  --url https://api.goproply.com/v1/company/COMPANY_UUID \\
   --header 'Authorization: Bearer YOUR_API_KEY'`,
     },
     {
       label: "List contacts",
       desc: "GET contacts filtered by pipeline stage.",
       code: `curl --request GET \\
-  --url 'https://assetly-backend-pwz2.onrender.com/v1/contacts?stage=evaluating&limit=20' \\
+  --url 'https://api.goproply.com/v1/contacts?stage=evaluating&limit=20' \\
   --header 'Authorization: Bearer YOUR_API_KEY'`,
     },
     {
       label: "Get workspace memories",
       desc: "GET workspace-level facts. Filter by category with ?category=ICP",
       code: `curl --request GET \\
-  --url 'https://assetly-backend-pwz2.onrender.com/v1/memories?category=ICP' \\
+  --url 'https://api.goproply.com/v1/memories?category=ICP' \\
   --header 'Authorization: Bearer YOUR_API_KEY'`,
     },
     {
       label: "Search memories",
       desc: "POST to search semantically. Returns IDs for deletion.",
       code: `curl --request POST \\
-  --url https://assetly-backend-pwz2.onrender.com/v1/search \\
+  --url https://api.goproply.com/v1/search \\
   --header 'Authorization: Bearer YOUR_API_KEY' \\
   --header 'Content-Type: application/json' \\
   --data '{
@@ -461,14 +461,14 @@ results.forEach(r => console.log(\`[\${r.category}] \${r.content} — \${r.id}\`
       label: "Delete a memory",
       desc: "DELETE a specific memory by UUID.",
       code: `curl --request DELETE \\
-  --url https://assetly-backend-pwz2.onrender.com/v1/memory/MEMORY_UUID \\
+  --url https://api.goproply.com/v1/memory/MEMORY_UUID \\
   --header 'Authorization: Bearer YOUR_API_KEY'`,
     },
     {
       label: "Delete a contact",
       desc: "DELETE a contact and all their activity history. Accepts email or UUID.",
       code: `curl --request DELETE \\
-  --url https://assetly-backend-pwz2.onrender.com/v1/contact/sarah@acme.com \\
+  --url https://api.goproply.com/v1/contact/sarah@acme.com \\
   --header 'Authorization: Bearer YOUR_API_KEY'`,
     },
   ],

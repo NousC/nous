@@ -21,24 +21,25 @@ const MCP_SNIPPET = `{
   "mcpServers": {
     "proply": {
       "command": "npx",
-      "args": ["proply-mcp"],
+      "args": ["-y", "@goproply/mcp"],
       "env": {
-        "PROPLY_API_KEY": "sk_live_..."
+        "PROPLY_API_KEY": "YOUR_API_KEY"
       }
     }
   }
 }`;
 
-const SDK_SNIPPET = `import Proply from 'proply-sdk';
-const proply = new Proply('sk_live_...');
+const SDK_SNIPPET = `import { Proply } from '@goproply/sdk';
+const proply = new Proply({ apiKey: 'YOUR_API_KEY' });
 
 // Full context for any contact — one call
-const ctx = await proply.getContext('john@acme.com');
+const contact = await proply.getContact('john@acme.com');
 
 // Log what your agent did (memory updates automatically)
-await proply.logAction(agentId, {
+await proply.track({
+  email: 'john@acme.com',
   type: 'email_sent',
-  contact: 'john@acme.com',
+  description: 'Sent intro email',
 });`;
 
 export function GetStartedStep({
@@ -164,7 +165,7 @@ export function GetStartedStep({
               </pre>
             </div>
             <div className="px-3 py-2 bg-white border-t border-gray-100">
-              <p className="text-xs text-gray-400">npm install proply-sdk</p>
+              <p className="text-xs text-gray-400">npm install @goproply/sdk</p>
             </div>
           </div>
         </div>
