@@ -12,16 +12,17 @@
 </div>
 
 <div align="center">
-  <strong>The CRM built for AI agents, not humans.</strong><br/>
-  Give your GTM agents structured memory of every contact, company, and relationship signal.
+  <strong>GTM data infrastructure for the agent era.</strong><br/>
+  Unify Apollo, Salesforce, Smartlead, Gmail, and LinkedIn into one identity-resolved record per human.<br/>
+  Your agents query the full account context in a single MCP call.
 </div>
 
 <br/>
 
 <div align="center">
   <a href="https://docs.goproply.com">Docs</a> ·
-  <a href="https://docs.goproply.com/api">Public API</a> ·
-  <a href="https://docs.goproply.com/mcp">MCP Server</a> ·
+  <a href="https://docs.goproply.com/public-api/introduction">Public API</a> ·
+  <a href="https://docs.goproply.com/mcp/introduction">MCP Server</a> ·
   <a href="https://www.npmjs.com/package/@goproply/sdk">Node.js SDK</a> ·
   <a href="https://pypi.org/project/proply/">Python SDK</a> ·
   <a href="https://discord.gg/npa59RTgs">Discord</a>
@@ -29,14 +30,36 @@
 
 ---
 
+## What Proply does
+
+Your GTM stack is fragmented — Apollo for prospecting, Salesforce for CRM, Smartlead for sequences, Gmail for email, LinkedIn for social. Each tool has part of the picture. None of them are queryable by an AI agent.
+
+Proply fixes that:
+
+- **Identity resolution** — Every contact across every tool merged into one clean record. No duplicates, no gaps.
+- **Complete timeline** — Every email, call, LinkedIn message, and CRM event in one place. Know exactly where a prospect stands before you act.
+- **Live sync** — Outbound tools, communication tools, and CRM stay perfectly in sync.
+- **Agent-ready** — Agents query the full account context in a single MCP call. No data wrangling.
+- **Revenue attribution** — Tie campaigns, channels, and actions directly to pipeline and closed deals.
+
+## Who it's for
+
+- **Outbound agencies** — running 10–50 client stacks
+- **GTM engineers** — at outbound-heavy companies, owning the agent data layer
+- **RevOps leads** — owning data quality, deduplication, and attribution
+
+---
+
 ## Features
 
-- **MCP Server** — 8 tools for reading contact context, saving facts, and searching memory. Drop it into any Claude, Cursor, or custom agent.
-- **Contact & Company Memory** — Three-scoped memory: person-level (private), company-level (shared across stakeholders), workspace-level (ICP, win patterns, positioning).
-- **Signal Ingestion** — LinkedIn messages, Gmail, Google Calendar, and public signals (job postings, funding) all flow into a unified activity timeline.
-- **Stakeholder Graph** — Map buying committees. Know who influences whom before your agent writes the email.
-- **REST API + SDKs** — Full HTTP API with TypeScript and Python SDKs. Integrate from any agent framework.
-- **Self-hostable** — One `docker compose up` and it's running on your own infra.
+| Feature | What it does |
+|---|---|
+| **Person graph** | Full context and activity history per contact across all channels |
+| **MCP connector** | One call returns complete account context to any MCP-compatible agent |
+| **ICP scoring** | Automatically scores contacts against your ICP as signals arrive |
+| **Inbound enrichment** | Cleans and enriches inbound leads before they hit your CRM |
+| **Pattern analysis** | Reports on wins, losses, and what campaigns are actually driving pipeline |
+| **CRM sync** | Stays fully in sync with Salesforce, HubSpot, Pipedrive — enriches them, doesn't replace them |
 
 ---
 
@@ -53,26 +76,23 @@
 
 ## Quick start
 
-→ [Self-hosted setup guide](https://docs.goproply.com/quickstart)
+→ [Full setup guide](https://docs.goproply.com/getting-started/quickstart)
 
 ```bash
-# 1. Clone and install
 git clone https://github.com/bennetglinder1/proply-crm.git
 cd proply-crm
-cp .env.example .env   # fill in your Supabase + Anthropic keys
+cp .env.example .env   # fill in Supabase + Anthropic keys
 pnpm install
-
-# 2. Start everything
 pnpm dev
 ```
 
-For production Docker deploy: [docs.goproply.com/installation/docker](https://docs.goproply.com/installation/docker)
+For production: [docs.goproply.com/installation/docker](https://docs.goproply.com/installation/docker)
 
 ---
 
 ## MCP setup (30 seconds)
 
-Add to your Claude Desktop / Cursor `mcp.json`:
+Add to your `mcp.json` (Claude Desktop, Cursor, or any MCP host):
 
 ```json
 {
@@ -89,7 +109,7 @@ Add to your Claude Desktop / Cursor `mcp.json`:
 }
 ```
 
-→ [Full MCP docs](https://docs.goproply.com/mcp)
+→ [Full MCP docs](https://docs.goproply.com/mcp/introduction)
 
 ---
 
@@ -98,17 +118,3 @@ Add to your Claude Desktop / Cursor `mcp.json`:
 - We do not scrape LinkedIn or any third-party platform
 - Signal ingestion uses only official OAuth flows and approved webhooks
 - No customer data is sent to third parties without explicit configuration
-- API keys are never logged or stored in plaintext
-- All data is stored in your own Supabase instance when self-hosting
-
----
-
-## Star history
-
-[![Star History Chart](https://api.star-history.com/svg?repos=bennetglinder1/proply-crm&type=Date)](https://star-history.com/#bennetglinder1/proply-crm&Date)
-
----
-
-## License
-
-[AGPL-3.0](LICENSE) — free to self-host and modify. If you run a modified version as a network service, you must open-source your changes.
