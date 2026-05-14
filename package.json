@@ -16,6 +16,7 @@
     "dev:mcp": "pnpm --filter ./apps/mcp run dev",
     "build": "pnpm --filter './apps/*' run build",
     "build:sdk": "pnpm --filter ./packages/sdk run build",
+    "test": "pnpm --filter './apps/api' run test && pnpm --filter './apps/worker' run test",
     "lint": "pnpm --filter './apps/*' --filter './packages/*' run lint",
     "typecheck": "pnpm --filter './apps/*' --filter './packages/*' run typecheck"
   },
