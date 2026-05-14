@@ -14,7 +14,12 @@ export function encrypt(text) {
 }
 
 export function decrypt(encryptedText) {
-  const [ivHex, tagHex, dataHex] = encryptedText.split(':');
+  if (!encryptedText || typeof encryptedText !== 'string') return encryptedText;
+  const parts = encryptedText.split(':');
+  // Not our iv:tag:data format — return as-is (e.g. scope URLs, plain text fields)
+  if (parts.length !== 3) return encryptedText;
+  const [ivHex, tagHex, dataHex] = parts;
+  if (!KEY.length) throw new Error('ENCRYPTION_KEY not set — cannot decrypt credentials');
   const decipher = crypto.createDecipheriv('aes-256-gcm', KEY, Buffer.from(ivHex, 'hex'));
   decipher.setAuthTag(Buffer.from(tagHex, 'hex'));
   return decipher.update(Buffer.from(dataHex, 'hex')) + decipher.final('utf8');

@@ -5,6 +5,12 @@ import { google } from 'googleapis';
 import { decrypt } from './encryption.mjs';
 
 export async function refreshGoogleToken(encryptedCredentials) {
+  if (!encryptedCredentials || typeof encryptedCredentials !== 'object') {
+    throw new Error('invalid_credentials: encrypted_credentials is missing or not an object');
+  }
+  if (!process.env.ENCRYPTION_KEY) {
+    throw new Error('ENCRYPTION_KEY not set — add it to proply.env');
+  }
   const creds = {};
   for (const [key, value] of Object.entries(encryptedCredentials)) {
     creds[key] = typeof value === 'string' ? decrypt(value) : value;

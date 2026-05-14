@@ -4,7 +4,8 @@
 // Dedup is handled by externalId (gcal_{event.id}).
 
 import { google } from 'googleapis';
-import { getSupabaseClient, logActivity } from '@proply/core';
+import { getSupabaseClient } from '@proply/core';
+import { logActivity } from '../utils/activity.mjs';
 import { refreshGoogleToken } from '../utils/googleOAuth.mjs';
 
 const LOOKBACK_DAYS  = 7;
