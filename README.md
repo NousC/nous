@@ -1,13 +1,13 @@
 <div align="center">
-  <img src=".github/assets/logo-dark.png#gh-dark-mode-only" alt="Proply CRM" height="60" />
-  <img src=".github/assets/logo-light.png#gh-light-mode-only" alt="Proply CRM" height="60" />
+  <img src=".github/assets/logo-dark.png#gh-dark-mode-only" alt="Proply" height="60" />
+  <img src=".github/assets/logo-light.png#gh-light-mode-only" alt="Proply" height="60" />
 </div>
 
 <div align="center">
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![npm](https://img.shields.io/npm/v/@goproply/sdk)](https://www.npmjs.com/package/@goproply/sdk)
-[![Discord](https://img.shields.io/discord/YOUR_DISCORD_ID?label=Discord&logo=discord)](https://discord.gg/YOUR_INVITE)
+[![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/npa59RTgs)
 
 </div>
 
@@ -23,28 +23,18 @@
   <a href="https://docs.goproply.com/api">Public API</a> ·
   <a href="https://docs.goproply.com/mcp">MCP Server</a> ·
   <a href="https://www.npmjs.com/package/@goproply/sdk">Node.js SDK</a> ·
-  <a href="https://pypi.org/project/proply/">Python SDK</a> ·
-  <a href="https://discord.gg/YOUR_INVITE">Discord</a>
-</div>
-
-<br/>
-
-<!-- VIDEO: replace href with your YouTube feature walkthrough -->
-<div align="center">
-  <a href="https://www.youtube.com/watch?v=YOUR_VIDEO_ID">
-    <img src=".github/assets/video-thumbnail.png" alt="Watch the intro" width="600" />
-  </a>
+  <a href="https://discord.gg/npa59RTgs">Discord</a>
 </div>
 
 ---
 
-## ✨ Features
+## Features
 
-- **MCP Server** — 10 tools for reading contact context, saving facts, and searching memory. Drop it into any Claude, Cursor, or custom agent.
+- **MCP Server** — 8 tools for reading contact context, saving facts, and searching memory. Drop it into any Claude, Cursor, or custom agent.
 - **Contact & Company Memory** — Three-scoped memory: person-level (private), company-level (shared across stakeholders), workspace-level (ICP, win patterns, positioning).
 - **Signal Ingestion** — LinkedIn messages, Gmail, Google Calendar, and public signals (job postings, funding) all flow into a unified activity timeline.
 - **Stakeholder Graph** — Map buying committees. Know who influences whom before your agent writes the email.
-- **REST API + SDKs** — Full HTTP API with TypeScript and Python SDKs. Integrate from any agent framework.
+- **REST API + SDK** — Full HTTP API with a TypeScript SDK. Integrate from any agent framework.
 - **Self-hostable** — One `docker compose up` and it's running on your own infra.
 
 ---
@@ -53,9 +43,9 @@
 
 - **API** — Node.js (ESM), Express
 - **Frontend** — Vite, React, shadcn/ui
-- **Database** — Supabase (PostgreSQL)
+- **Database** — Supabase (PostgreSQL + pgvector)
 - **MCP** — `@modelcontextprotocol/sdk`
-- **AI** — Anthropic Claude (memory synthesis, identity resolution)
+- **AI** — Anthropic Claude (memory synthesis, ICP scoring)
 - **Package manager** — pnpm workspaces
 
 ---
@@ -66,7 +56,7 @@
 
 ```bash
 # 1. Clone and install
-git clone https://github.com/goproply/proply-crm.git
+git clone https://github.com/bennetglinder1/proply-crm.git
 cd proply-crm
 cp .env.example .env   # fill in your Supabase + Anthropic keys
 pnpm install
@@ -102,18 +92,6 @@ Add to your Claude Desktop / Cursor `mcp.json`:
 
 ---
 
-## Sponsors
-
-Support Proply's open-source development:
-
-| Sponsor | Description |
-|---------|-------------|
-| [Your logo here](https://goproply.com/sponsor) | [Become a sponsor](https://opencollective.com/proply) |
-
-→ [opencollective.com/proply](https://opencollective.com/proply)
-
----
-
 ## Compliance
 
 - We do not scrape LinkedIn or any third-party platform
@@ -126,7 +104,7 @@ Support Proply's open-source development:
 
 ## Star history
 
-[![Star History Chart](https://api.star-history.com/svg?repos=goproply/proply-crm&type=Date)](https://star-history.com/#goproply/proply-crm&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=bennetglinder1/proply-crm&type=Date)](https://star-history.com/#bennetglinder1/proply-crm&Date)
 
 ---
 
