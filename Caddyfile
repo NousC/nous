@@ -3,5 +3,8 @@
 }
 
 {$API_DOMAIN} {
+    handle /inbound/* {
+        reverse_proxy worker:3001
+    }
     reverse_proxy api:3000
 }
