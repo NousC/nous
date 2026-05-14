@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "proply"
 version = "1.0.0"
 description = "Official Python SDK for the Proply contact memory API"
-license = { text = "MIT" }
+license = "MIT"
 requires-python = ">=3.9"
 keywords = ["proply", "ai", "agents", "crm", "memory", "sdk"]
 dependencies = [
