@@ -519,7 +519,6 @@ function TabBar<T extends string>({
 }
 
 function OpenClawPanel({ onNavigate }: { onNavigate: (s: Section) => void }) {
-  const [tab, setTab] = useState<"prompt" | "cli">("prompt");
   const prompt = `You have access to Proply contact memory. Use it before and after every contact interaction.
 
 Before acting on any contact:
@@ -533,29 +532,12 @@ Available tools: contact_get, contact_get_activity, contacts_search, company_get
 
 Your Proply API key is set as PROPLY_API_KEY in the environment.`;
 
-  const cli = `# Install the Proply CLI
-npm install -g @proply/cli
-
-# Save your API key
-proply config set-key YOUR_API_KEY
-
-# Verify it works
-proply contacts list`;
-
   return (
     <div className="space-y-4">
       <h3 className="text-[14px] font-semibold text-gray-800">Set up OpenClaw</h3>
       <div className="rounded-xl border border-gray-100 bg-white p-5 space-y-4">
-        <TabBar
-          tabs={[{ id: "prompt" as const, label: "PROMPT" }, { id: "cli" as const, label: "CLI" }]}
-          active={tab}
-          onChange={setTab}
-          size="sm"
-        />
-        <p className="text-[12px] text-gray-400">
-          {tab === "prompt" ? "Copy this installation prompt into OpenClaw:" : "Run these commands in your terminal:"}
-        </p>
-        <CodeSnippet code={tab === "prompt" ? prompt : cli} />
+        <p className="text-[12px] text-gray-400">Copy this installation prompt into OpenClaw:</p>
+        <CodeSnippet code={prompt} />
       </div>
       <p className="text-[12px] text-gray-400">
         Need an API key?{" "}
