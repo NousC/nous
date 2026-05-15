@@ -693,7 +693,16 @@ export default function Integrations() {
         url = `${apiUrl}/api/workflow-providers/outlook/oauth/authorize?workspace_id=${workspaceId}&connectionName=${encodeURIComponent(connectionName.trim())}`;
 
       const resp = await fetch(url, { headers: { Authorization: `Bearer ${session.access_token}` } });
-      if (!resp.ok) throw new Error((await resp.json().catch(() => ({}))).message || "Failed to initiate OAuth");
+      if (!resp.ok) {
+        const body = await resp.json().catch(() => ({}));
+        const notConfigured: Record<string, string> = {
+          google_oauth_not_configured: "Gmail requires Google OAuth setup — add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to proply.env. See docs → Providers → Gmail.",
+          slack_not_configured:        "Slack requires OAuth setup — add SLACK_CLIENT_ID and SLACK_CLIENT_SECRET to proply.env. See docs → Providers → Slack.",
+          airtable_not_configured:     "Airtable requires OAuth setup — add AIRTABLE_CLIENT_ID and AIRTABLE_CLIENT_SECRET to proply.env. See docs → Providers → Airtable.",
+          linkedin_not_configured:     "LinkedIn requires Unipile setup — add UNIPILE_API_KEY and UNIPILE_DSN to proply.env. See docs → Providers → LinkedIn.",
+        };
+        throw new Error(notConfigured[body.error] || body.message || "Failed to initiate OAuth");
+      }
       const data = await resp.json();
       const authUrl = data.authUrl || data.authorization_url;
       if (!authUrl) throw new Error("No authorization URL returned");
