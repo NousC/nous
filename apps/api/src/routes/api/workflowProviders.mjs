@@ -298,10 +298,31 @@ workflowProvidersRouter.patch('/connections/:id/enrichment-toggle', verifySupaba
     const supabase = getSupabaseClient();
     const { id } = req.params;
     if (!UUID.test(id)) return res.status(400).json({ error: 'invalid_id' });
-    const { enabled } = req.body;
+    const { enabled, workspace_id } = req.body;
 
-    const { data: existing } = await supabase.from('workflow_provider_connections').select('encrypted_credentials').eq('id', id).single();
+    const { data: existing } = await supabase
+      .from('workflow_provider_connections')
+      .select('encrypted_credentials, workspace_id, provider:workflow_providers(category)')
+      .eq('id', id).single();
     if (!existing) return res.status(404).json({ error: 'not_found' });
+
+    // If enabling an enrichment provider, disable all other enrichment connections in this workspace
+    if (enabled && existing.provider?.category === 'enrichment') {
+      const wid = workspace_id || existing.workspace_id;
+      const { data: others } = await supabase
+        .from('workflow_provider_connections')
+        .select('id, encrypted_credentials')
+        .eq('workspace_id', wid)
+        .neq('id', id)
+        .eq('provider.category', 'enrichment');
+      for (const other of others || []) {
+        if (other.encrypted_credentials?.use_for_enrichment) {
+          await supabase.from('workflow_provider_connections')
+            .update({ encrypted_credentials: { ...other.encrypted_credentials, use_for_enrichment: false } })
+            .eq('id', other.id);
+        }
+      }
+    }
 
     const updated = { ...(existing.encrypted_credentials || {}), use_for_enrichment: !!enabled };
     await supabase.from('workflow_provider_connections').update({ encrypted_credentials: updated }).eq('id', id);

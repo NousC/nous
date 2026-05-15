@@ -701,10 +701,11 @@ VALUES
   ('fireflies',        'Fireflies.ai',            'meetings'),
   ('fathom',           'Fathom',                  'meetings'),
   ('calendly',         'Calendly',                'meetings'),
-  ('airtable',         'Airtable',                'crm'),
   ('hubspot',          'HubSpot',                 'crm'),
   ('pipedrive',        'Pipedrive',               'crm'),
-  ('attio',            'Attio',                   'crm')
+  ('attio',            'Attio',                   'crm'),
+  ('apollo',           'Apollo.io',               'enrichment'),
+  ('prospeo',          'Prospeo',                 'enrichment')
 ON CONFLICT (name) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS workflow_provider_connections (
