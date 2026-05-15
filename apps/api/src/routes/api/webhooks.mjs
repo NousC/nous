@@ -71,11 +71,16 @@ webhooksRouter.delete('/subscriptions/:source', async (req, res) => {
 
 // GET /api/webhooks/urls — inbound webhook URLs for each source
 webhooksRouter.get('/urls', async (req, res) => {
-  const base = process.env.API_URL || `http://localhost:${process.env.PORT || 3000}`;
-  return res.json({
-    linkedin: `${base}/inbound/linkedin/${req.workspaceId}`,
-    gmail:    `${base}/inbound/gmail/${req.workspaceId}`,
-    calendar: `${base}/inbound/calendar/${req.workspaceId}`,
-    rb2b:     `${base}/inbound/rb2b/${req.workspaceId}`,
-  });
+  const workspaceId = req.workspaceId || req.query.workspaceId || req.query.workspace_id;
+  const base = process.env.WORKER_URL || process.env.API_URL || `http://localhost:${process.env.PORT || 3000}`;
+  const b = base.replace(/\/+$/, '');
+  const urls = [
+    { source: 'linkedin',  url: `${b}/inbound/linkedin?workspace_id=${workspaceId}&secret=YOUR_LINKEDIN_WEBHOOK_SECRET` },
+    { source: 'rb2b',      url: `${b}/inbound/rb2b/${workspaceId}` },
+    { source: 'instantly', url: `${b}/inbound/instantly/${workspaceId}` },
+    { source: 'fireflies', url: `${b}/inbound/fireflies/${workspaceId}` },
+    { source: 'fathom',    url: `${b}/inbound/fathom/${workspaceId}` },
+    { source: 'calendly',  url: `${b}/inbound/calendly/${workspaceId}` },
+  ];
+  return res.json({ urls });
 });
