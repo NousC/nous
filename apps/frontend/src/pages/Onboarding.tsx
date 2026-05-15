@@ -557,6 +557,7 @@ export default function Onboarding({ testMode = false }: OnboardingProps) {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
         body: JSON.stringify({
           company_name: companyName.trim(),
+          website: website.trim() || undefined,
           use_case: selectedUseCases.map(id => USE_CASES.find(u => u.id === id)?.label || id).join(", "),
         }),
       });
@@ -576,8 +577,7 @@ export default function Onboarding({ testMode = false }: OnboardingProps) {
       });
       localStorage.removeItem(STORAGE_KEY);
       localStorage.setItem("proply_just_onboarded", "true");
-      localStorage.setItem("assetly_just_completed_onboarding", "true");
-      localStorage.setItem("assetly_onboarding_company_name", companyName.trim());
+      localStorage.setItem("proply_onboarding_company_name", companyName.trim());
       refreshUserData().catch(console.error);
     } catch { /* non-blocking */ }
     setTimeout(() => navigate("/", { replace: true }), 3200);

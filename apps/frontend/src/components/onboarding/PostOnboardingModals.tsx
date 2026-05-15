@@ -14,7 +14,7 @@ export function PostOnboardingModals({ show, onDismiss }: PostOnboardingModalsPr
   const [isVisible, setIsVisible] = useState(false);
 
   // Read onboarding context from localStorage
-  const companyName = localStorage.getItem("assetly_onboarding_company_name") || "your company";
+  const companyName = localStorage.getItem("proply_onboarding_company_name") || "your company";
 
   useEffect(() => {
     if (show) {
@@ -30,12 +30,7 @@ export function PostOnboardingModals({ show, onDismiss }: PostOnboardingModalsPr
     setIsVisible(false);
     setTimeout(() => {
       setShowWelcome(false);
-      localStorage.setItem("assetly_welcome_shown", "true");
-      localStorage.setItem("assetly_show_lifetime_deal", "true");
-      // Clean up integration localStorage keys
-      localStorage.removeItem("assetly_onboarding_meeting_tool");
-      localStorage.removeItem("assetly_onboarding_crm");
-      localStorage.removeItem("assetly_onboarding_company_name");
+      localStorage.removeItem("proply_onboarding_company_name");
       onDismiss();
     }, 200);
   };

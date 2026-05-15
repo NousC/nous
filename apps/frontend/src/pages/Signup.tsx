@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,14 +20,9 @@ const SignupContent = () => {
   const [step, setStep] = useState<'signup' | 'verify'>('signup');
   const [otpCode, setOtpCode] = useState("");
   const [resendCountdown, setResendCountdown] = useState(0);
-  const { signUp, signIn, signInWithGoogle, verifyOtp, session } = useAuth();
+  const { signUp, signInWithGoogle, verifyOtp } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-
-  // Check for free tool session
-  const freeToolSession = searchParams.get('session');
-  const source = searchParams.get('source');
-  const isFromFreeTool = source === 'free_tool' && freeToolSession;
 
   // Capture affiliate referral code from URL and persist in localStorage
   useEffect(() => {
@@ -36,68 +31,6 @@ const SignupContent = () => {
       localStorage.setItem('proply_affiliate_ref', ref.toUpperCase());
     }
   }, [searchParams]);
-
-  // Pre-fill email from free tool session
-  useEffect(() => {
-    const fetchSessionEmail = async () => {
-      if (!isFromFreeTool) return;
-
-      try {
-        const apiUrl = import.meta.env.VITE_API_URL ?? "";
-        const response = await fetch(`${apiUrl}/api/public/free-tools/session/${freeToolSession}`);
-
-        if (response.ok) {
-          const data = await response.json();
-          if (data.email) setEmail(data.email);
-          if (data.name) setName(data.name);
-        }
-      } catch (error) {
-        console.error('[SIGNUP] Failed to fetch session email:', error);
-      }
-    };
-
-    fetchSessionEmail();
-  }, [isFromFreeTool, freeToolSession]);
-
-  // Claim free tool session after signup
-  const claimFreeToolSession = useCallback(async (accessToken: string) => {
-    if (source !== 'free_tool' || !freeToolSession) return;
-
-    try {
-      const apiUrl = import.meta.env.VITE_API_URL ?? "";
-      const response = await fetch(`${apiUrl}/api/free-tools/claim`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ session_token: freeToolSession }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        localStorage.setItem('proply_claimed_template_id', data.template_id);
-        localStorage.setItem('proply_claimed_workspace_id', data.workspace_id);
-      }
-    } catch (error) {
-      console.error('[SIGNUP] Failed to claim free tool session:', error);
-    }
-  }, [source, freeToolSession]);
-
-  // Handle free tool session claiming after OAuth redirect
-  useEffect(() => {
-    const claimPendingSession = async () => {
-      const pendingSession = localStorage.getItem('proply_pending_free_tool_session');
-      if (pendingSession && session?.access_token) {
-        await claimFreeToolSession(session.access_token);
-        localStorage.removeItem('proply_pending_free_tool_session');
-      }
-    };
-
-    if (session?.access_token) {
-      claimPendingSession();
-    }
-  }, [session?.access_token, claimFreeToolSession]);
 
   // Resend countdown timer
   useEffect(() => {
@@ -111,61 +44,6 @@ const SignupContent = () => {
     setLoading(true);
 
     setRememberMe(rememberMe);
-
-    // Special flow for free tool users - auto-confirms email
-    if (isFromFreeTool) {
-      try {
-        const apiUrl = import.meta.env.VITE_API_URL ?? "";
-        const response = await fetch(`${apiUrl}/api/public/free-tools/signup`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            session_token: freeToolSession,
-            email,
-            password,
-            name,
-          }),
-        });
-
-        const result = await response.json();
-
-        if (!response.ok) {
-          if (result.error === 'email_already_registered') {
-            toast.error("This email is already registered. Please sign in instead.");
-          } else if (result.error === 'email_mismatch') {
-            toast.error("Email must match the one you used to create the proposal.");
-          } else {
-            toast.error(result.message || "Failed to sign up");
-          }
-          setLoading(false);
-          return;
-        }
-
-        // User created with auto-confirmed email - now sign them in
-        const { error: signInError, data: signInData } = await signIn(email, password);
-
-        if (signInError) {
-          toast.error("Account created! Please sign in manually.");
-          navigate("/login");
-          return;
-        }
-
-        // Claim the free tool session
-        if (signInData?.session?.access_token) {
-          await claimFreeToolSession(signInData.session.access_token);
-        }
-
-        toast.success("Account created! Setting up your workspace...");
-        // Navigate directly to onboarding
-        setTimeout(() => navigate("/onboarding", { replace: true }), 500);
-      } catch (error) {
-        console.error('[SIGNUP] Free tool signup error:', error);
-        toast.error("Failed to sign up. Please try again.");
-      } finally {
-        setLoading(false);
-      }
-      return;
-    }
 
     // Standard signup flow - sends OTP email
     const { error, data } = await signUp(email, password, name, newsletterConsent);
@@ -219,10 +97,6 @@ const SignupContent = () => {
   const handleGoogleSignIn = async () => {
     setLoading(true);
     setRememberMe(rememberMe);
-
-    if (freeToolSession && source === 'free_tool') {
-      localStorage.setItem('proply_pending_free_tool_session', freeToolSession);
-    }
 
     const ref = searchParams.get('ref') || searchParams.get('affiliate');
     if (ref) {
@@ -329,12 +203,10 @@ const SignupContent = () => {
 
           <div className="mb-8">
             <h1 className="text-[26px] font-semibold tracking-tight text-gray-900 mb-2">
-              {isFromFreeTool ? "Access your proposal" : "Create your account"}
+              Create your account
             </h1>
             <p className="text-[15px] text-gray-500">
-              {isFromFreeTool
-                ? "Set a password to access your proposal and start editing."
-                : "Start your 7-day free trial. No credit card required."}
+              Start your 7-day free trial. No credit card required.
             </p>
           </div>
 
@@ -392,12 +264,10 @@ const SignupContent = () => {
                   type="email"
                   placeholder="you@company.com"
                   value={email}
-                  onChange={(e) => !isFromFreeTool && setEmail(e.target.value)}
+                  onChange={(e) => setEmail(e.target.value)}
                   required
                   className="h-11 rounded-lg text-sm border-gray-200 bg-white text-gray-900 placeholder:text-gray-400 focus-visible:ring-gray-300"
-                  style={isFromFreeTool ? { background: '#f5f5f5', color: '#6b7280' } : undefined}
                   disabled={loading}
-                  readOnly={!!isFromFreeTool}
                 />
               </div>
 
@@ -551,12 +421,6 @@ const BrandingPanel = () => (
   </div>
 );
 
-const Signup = () => {
-  const [searchParams] = useSearchParams();
-  const source = searchParams.get('source');
-  const isFromFreeTool = source === 'free_tool';
-
-  return <SignupContent />;
-};
+const Signup = () => <SignupContent />;
 
 export default Signup;

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { getSupabaseClient } from '@proply/core';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
+import { enrichCompany } from '../../services/enrichment.mjs';
 
 export const companiesApiRouter = Router();
 
@@ -68,10 +69,32 @@ companiesApiRouter.patch('/:id', verifySupabaseAuth, async (req, res) => {
 // POST /api/companies/enrich
 companiesApiRouter.post('/enrich', verifySupabaseAuth, async (req, res) => {
   try {
-    const { domain, workspaceId } = req.body;
+    const supabase = getSupabaseClient();
+    const { domain, workspaceId, companyId } = req.body;
     if (!domain || !workspaceId) return res.status(400).json({ error: 'domain and workspaceId required' });
-    return res.json({ message: 'Enrichment queued' });
+
+    const company = await enrichCompany(supabase, workspaceId, domain);
+    if (!company) return res.json({ enriched: false, message: 'No data found for this domain' });
+
+    // If a companyId was passed, merge the enriched data back onto it
+    if (companyId && UUID.test(companyId)) {
+      const { data: merged } = await supabase
+        .from('companies')
+        .update({
+          name: company.name, industry: company.industry,
+          employee_count: company.employee_count, location: company.location,
+          tech_stack: company.tech_stack, enrichment_status: 'complete',
+          enriched_at: new Date().toISOString(),
+        })
+        .eq('id', companyId)
+        .select('*')
+        .single();
+      return res.json({ enriched: true, company: merged || company });
+    }
+
+    return res.json({ enriched: true, company });
   } catch (err) {
+    console.error('[POST /api/companies/enrich]', err);
     return res.status(500).json({ error: 'internal_error' });
   }
 });

@@ -2057,8 +2057,8 @@ export default function People() {
 
             {importStep === 'scanning' ? (() => {
               const LABELS: Record<string, string> = {
-                gmail: 'Gmail', linkedin: 'LinkedIn', google_calendar: 'Google Calendar',
-                fireflies: 'Fireflies', calendly: 'Calendly', lemlist: 'Lemlist', instantly: 'Instantly',
+                gmail: 'Gmail', smtp: 'Email (SMTP)', linkedin: 'LinkedIn',
+                instantly: 'Instantly', slack: 'Slack',
               };
               const totalFound = enrichProgress?.contacts.reduce((sum, c) =>
                 sum + Object.values(c.sources).reduce((s, src) => s + (src.count || 0), 0), 0) ?? 0;

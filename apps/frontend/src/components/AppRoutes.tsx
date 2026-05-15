@@ -2,7 +2,6 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import React, { lazy, Suspense } from "react";
 import { AppSidebar } from "@/components/AppSidebar";
 import { ProfileDropdown } from "@/components/ProfileDropdown";
-import { useChatSessions } from "@/hooks/useChatSessions";
 import { AdminRoute } from "@/components/AdminRoute";
 
 const lazyWithErrorBoundary = (importFn: () => Promise<any>) => {
@@ -81,8 +80,6 @@ function AdminFullScreen({ children }: { children: React.ReactNode }) {
 }
 
 export function AppRoutes() {
-  const chatSessionsHook = useChatSessions();
-
   return (
     <Routes>
       {/* Full-screen admin pages — no sidebar/header */}
@@ -92,13 +89,7 @@ export function AppRoutes() {
       {/* Standard layout — sidebar + header */}
       <Route path="*" element={
         <div className="flex h-screen w-full bg-white overflow-hidden">
-          <AppSidebar
-            chatSessions={chatSessionsHook.sessions}
-            activeChatSessionId={chatSessionsHook.activeSessionId}
-            onNewChat={() => chatSessionsHook.createSession()}
-            onSelectChat={(id) => chatSessionsHook.selectSession(id)}
-            onDeleteChat={(id) => chatSessionsHook.deleteSession(id)}
-          />
+          <AppSidebar />
           <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
             <header className="flex-shrink-0 flex h-14 items-center justify-end gap-4 border-b border-gray-100 bg-white px-5">
               <ProfileDropdown />

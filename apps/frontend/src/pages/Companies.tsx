@@ -335,7 +335,7 @@ function CompanyDetail({ company, onBack, token, apiUrl, workspaceId }: {
       const res = await fetch(`${apiUrl}/api/companies/enrich`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ domain: company.domain, workspaceId }),
+        body: JSON.stringify({ domain: company.domain, workspaceId, companyId: company.id }),
       });
       if (res.ok) await fetchRecord();
     } catch { /* silent */ }

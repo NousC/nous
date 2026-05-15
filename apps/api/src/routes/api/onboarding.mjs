@@ -5,6 +5,48 @@ import { ensureUserAndTeam } from '../../lib/auth.mjs';
 
 export const onboardingRouter = Router();
 
+// POST /api/onboarding/step-1 — save company name + website to workspace
+onboardingRouter.post('/step-1', verifySupabaseAuth, async (req, res) => {
+  try {
+    const supabase = getSupabaseClient();
+    const { user, team } = await ensureUserAndTeam(req.user);
+    const { company_name, website, use_case } = req.body;
+
+    // Find the user's workspace for this team (same pattern as /complete)
+    const { data: wms } = await supabase
+      .from('workspace_members')
+      .select('workspace_id, workspaces:workspace_id(id, team_id)')
+      .eq('user_id', user.id);
+    const match = (wms || []).find(m => m.workspaces?.team_id === team.id);
+    const workspaceId = match?.workspace_id || null;
+
+    if (workspaceId && company_name?.trim()) {
+      await supabase.from('workspaces')
+        .update({ name: company_name.trim() })
+        .eq('id', workspaceId);
+    }
+
+    // Store use-case and website as workspace memories for AI context
+    const memories = [];
+    if (use_case?.trim()) memories.push(`Use case: ${use_case.trim()}`);
+    if (website?.trim()) memories.push(`Company website: ${website.trim()}`);
+    for (const content of memories) {
+      await supabase.from('workspace_memories').insert({
+        workspace_id: workspaceId,
+        category: 'Company',
+        content,
+        source: 'onboarding',
+        is_active: true,
+      }).catch(() => {});
+    }
+
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error('[POST /api/onboarding/step-1]', err);
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
 // POST /api/onboarding/complete
 onboardingRouter.post('/complete', verifySupabaseAuth, async (req, res) => {
   try {

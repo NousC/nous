@@ -25,7 +25,6 @@ import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { NavLink } from "@/components/NavLink";
 import { useAuth } from "@/contexts/AuthContext";
 import { SidebarWorkspaceSelector } from "@/components/SidebarWorkspaceSelector";
-import type { ChatSession } from "@/hooks/useChatSessions";
 
 // Main navigation — all items rendered with uniform spacing
 const mainNavItems = [
@@ -55,21 +54,13 @@ const bottomNavItems = [
 //   { title: "Reporting",  url: "/reporting",              icon: BarChart3      },
 // ];
 
-interface AppSidebarProps {
-  chatSessions?: ChatSession[];
-  activeChatSessionId?: string | null;
-  onNewChat?: () => void;
-  onSelectChat?: (sessionId: string) => void;
-  onDeleteChat?: (sessionId: string) => void;
-}
-
 const CRM_LOGOS: Record<string, string> = {
   hubspot:   "/provider-logos/hubspot.svg",
   pipedrive: "/provider-logos/pipedrive.svg",
   attio:     "/provider-logos/attio.svg",
 };
 
-export function AppSidebar({}: AppSidebarProps) {
+export function AppSidebar() {
   const { userData } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();

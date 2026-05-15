@@ -1,7 +1,10 @@
 import { Router } from 'express';
+import { randomUUID } from 'crypto';
 import { getSupabaseClient } from '@proply/core';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
 import { ensureUserAndTeam } from '../../lib/auth.mjs';
+import { enrichContact } from '../../services/enrichment.mjs';
+import { enrichContactHistory, enrichmentJobs } from '../../services/contactHistoryEnricher.mjs';
 
 export const contactsApiRouter = Router();
 
@@ -258,15 +261,23 @@ contactsApiRouter.post('/import', verifySupabaseAuth, async (req, res) => {
     const toUpdate = validRows.filter(r => existingSet.has(r.email.toLowerCase().trim()));
 
     let created = 0, updated = 0;
+    let newContactIds = [];
     if (toCreate.length) {
       const { data: inserted, error } = await supabase.from('contacts').insert(toCreate.map(r => ({
         workspace_id: workspaceId, email: r.email.toLowerCase().trim(),
         first_name: r.first_name?.trim() || null, last_name: r.last_name?.trim() || null,
         company: r.company?.trim() || null, job_title: r.job_title?.trim() || null,
         linkedin_url: r.linkedin_url?.trim() || null, source: r.source?.trim() || 'import',
+        phone: r.phone?.trim() || null, domain: r.domain?.trim() || null,
+        notes: r.notes?.trim() || null, seniority: r.seniority?.trim() || null,
+        department: r.department?.trim() || null, deal_stage: r.deal_stage?.trim() || null,
+        pipeline_stage: r.pipeline_stage?.trim() || null,
         created_by: user.id,
       }))).select('id');
-      if (!error) created = inserted?.length || 0;
+      if (!error) {
+        created = inserted?.length || 0;
+        newContactIds = (inserted || []).map(c => c.id);
+      }
     }
     for (const r of toUpdate) {
       const update = {};
@@ -274,13 +285,30 @@ contactsApiRouter.post('/import', verifySupabaseAuth, async (req, res) => {
       if (r.last_name) update.last_name = r.last_name.trim();
       if (r.company) update.company = r.company.trim();
       if (r.job_title) update.job_title = r.job_title.trim();
+      if (r.phone) update.phone = r.phone.trim();
+      if (r.domain) update.domain = r.domain.trim();
+      if (r.notes) update.notes = r.notes.trim();
+      if (r.seniority) update.seniority = r.seniority.trim();
+      if (r.department) update.department = r.department.trim();
+      if (r.deal_stage) update.deal_stage = r.deal_stage.trim();
+      if (r.pipeline_stage) update.pipeline_stage = r.pipeline_stage.trim();
+      if (r.linkedin_url) update.linkedin_url = r.linkedin_url.trim();
       if (Object.keys(update).length) {
         await supabase.from('contacts').update(update).eq('workspace_id', workspaceId).eq('email', r.email.toLowerCase().trim());
       }
       updated++;
     }
 
-    return res.json({ created, updated, skipped: rows.length - validRows.length });
+    // Fire async history enrichment for newly created contacts — don't await
+    let jobId = null;
+    if (newContactIds.length) {
+      jobId = randomUUID();
+      enrichContactHistory(supabase, workspaceId, newContactIds, jobId).catch(e =>
+        console.error('[CONTACTS_IMPORT_ENRICH_ERROR]', e.message)
+      );
+    }
+
+    return res.json({ created, updated, skipped: rows.length - validRows.length, jobId });
   } catch (err) {
     return res.status(500).json({ error: 'internal_error', ...(process.env.NODE_ENV !== 'production' && { detail: String(err.message) }) });
   }
@@ -294,16 +322,27 @@ contactsApiRouter.post('/:id/enrich', verifySupabaseAuth, async (req, res) => {
     if (!UUID.test(id)) return res.status(400).json({ error: 'invalid_id' });
     const { data: contact } = await supabase.from('contacts').select('*').eq('id', id).single();
     if (!contact) return res.status(404).json({ error: 'contact_not_found' });
-    // Enrichment runs async via worker — return current state
-    return res.json({ contact, creditsUsed: 0, message: 'Enrichment queued' });
+    if (!contact.email && !contact.linkedin_url) {
+      return res.status(422).json({ error: 'contact_has_no_email_or_linkedin' });
+    }
+
+    await enrichContact(supabase, contact);
+
+    // Re-fetch updated contact so the frontend gets live enrichment_status + new fields
+    const { data: updated } = await supabase.from('contacts').select('*').eq('id', id).single();
+    const creditsUsed = updated?.enrichment_status === 'complete' ? 1 : 0;
+    return res.json({ contact: updated || contact, creditsUsed });
   } catch (err) {
+    console.error('[POST /api/contacts/:id/enrich]', err);
     return res.status(500).json({ error: 'internal_error' });
   }
 });
 
 // GET /api/contacts/enrich-progress/:jobId
-contactsApiRouter.get('/enrich-progress/:jobId', verifySupabaseAuth, async (_req, res) => {
-  return res.json({ found: false });
+contactsApiRouter.get('/enrich-progress/:jobId', verifySupabaseAuth, (req, res) => {
+  const job = enrichmentJobs.get(req.params.jobId);
+  if (!job) return res.json({ found: false });
+  return res.json({ found: true, contacts: job.contacts, done: job.done });
 });
 
 // GET /api/companies/list

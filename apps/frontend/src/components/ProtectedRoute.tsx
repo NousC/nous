@@ -1,13 +1,14 @@
-import { Navigate } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
-  requireOnboarding?: boolean; // Kept for backwards compatibility but no longer used
+  requireOnboarding?: boolean; // kept for backwards compat, unused
 }
 
-export function ProtectedRoute({ children, requireOnboarding = false }: ProtectedRouteProps) {
-  const { isAuthenticated, loading } = useAuth();
+export function ProtectedRoute({ children }: ProtectedRouteProps) {
+  const { isAuthenticated, loading, onboardingCompleted } = useAuth();
+  const location = useLocation();
 
   if (loading) {
     return (
@@ -24,8 +25,10 @@ export function ProtectedRoute({ children, requireOnboarding = false }: Protecte
     return <Navigate to="/login" replace />;
   }
 
-  // Onboarding is now handled by TrialCheck modals on the dashboard
-  // No more redirect to /onboarding page
+  // Redirect to onboarding if not yet completed (catches Google OAuth users)
+  if (!onboardingCompleted && location.pathname !== '/onboarding') {
+    return <Navigate to="/onboarding" replace />;
+  }
 
   return <>{children}</>;
 }
