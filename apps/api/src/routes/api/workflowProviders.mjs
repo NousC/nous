@@ -139,6 +139,37 @@ async function testProviderCredentials(provider, credentials) {
       if (r.ok) return { verified: true, message: 'Connected to Instantly' };
       return { verified: false, message: `Instantly returned ${r.status} — check your API key` };
     }
+    if (p === 'fireflies') {
+      if (!token) return { verified: false, message: 'No credentials provided' };
+      const r = await fetch('https://api.fireflies.ai/graphql', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ query: '{ user { name email } }' }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (d.data?.user?.email) return { verified: true, message: `Connected as ${d.data.user.email}` };
+      return { verified: false, message: d.errors?.[0]?.message || 'Invalid Fireflies API key' };
+    }
+    if (p === 'fathom') {
+      if (!token) return { verified: false, message: 'No credentials provided' };
+      const r = await fetch('https://api.fathom.ai/external/v1/meetings?limit=1', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (r.ok) return { verified: true, message: 'Connected to Fathom' };
+      return { verified: false, message: `Fathom returned ${r.status} — check your API key` };
+    }
+    if (p === 'calendly') {
+      if (!token) return { verified: false, message: 'No credentials provided' };
+      const r = await fetch('https://api.calendly.com/users/me', {
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      });
+      if (r.ok) {
+        const d = await r.json().catch(() => ({}));
+        const name = d.resource?.name || d.resource?.email || 'Calendly user';
+        return { verified: true, message: `Connected as ${name}` };
+      }
+      return { verified: false, message: `Calendly returned ${r.status} — check your personal access token` };
+    }
     if (p === 'smtp') {
       const host     = credentials.host;
       const port     = parseInt(credentials.port || '587');
