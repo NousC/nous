@@ -110,31 +110,48 @@ workflowProvidersRouter.post('/connections', verifySupabaseAuth, async (req, res
 // Shared: test raw credentials against a provider
 async function testProviderCredentials(provider, credentials) {
   const token = credentials.access_token || credentials.api_key || credentials.api_token || Object.values(credentials).find(Boolean);
-  if (!token) return { verified: false, message: 'No credentials provided' };
 
   try {
     const p = (provider || '').toLowerCase();
     if (p === 'hubspot') {
+      if (!token) return { verified: false, message: 'No credentials provided' };
       const r = await fetch('https://api.hubapi.com/crm/v3/objects/contacts?limit=1', { headers: { Authorization: `Bearer ${token}` } });
       if (r.ok) return { verified: true, message: 'Connected to HubSpot' };
       const e = await r.json().catch(() => ({}));
       return { verified: false, message: e.message || `HubSpot returned ${r.status}` };
     }
     if (p === 'pipedrive') {
+      if (!token) return { verified: false, message: 'No credentials provided' };
       const r = await fetch(`https://api.pipedrive.com/v1/users/me?api_token=${token}`);
       if (r.ok) return { verified: true, message: 'Connected to Pipedrive' };
       return { verified: false, message: `Pipedrive returned ${r.status}` };
     }
     if (p === 'attio') {
+      if (!token) return { verified: false, message: 'No credentials provided' };
       const r = await fetch('https://api.attio.com/v2/self', { headers: { Authorization: `Bearer ${token}` } });
       if (r.ok) return { verified: true, message: 'Connected to Attio' };
       const e = await r.json().catch(() => ({}));
       return { verified: false, message: e.message || `Attio returned ${r.status}` };
     }
+    if (p === 'smtp') {
+      const host     = credentials.host;
+      const port     = parseInt(credentials.port || '587');
+      const username = credentials.username;
+      const password = credentials.password;
+      if (!host || !username || !password) {
+        return { verified: false, message: 'host, username, and password are required' };
+      }
+      const { default: nodemailer } = await import('nodemailer');
+      const transporter = nodemailer.createTransport({ host, port, secure: port === 465, auth: { user: username, pass: password } });
+      await transporter.verify();
+      return { verified: true, message: `SMTP connected (${username} via ${host})` };
+    }
+    if (!token) return { verified: false, message: 'No credentials provided' };
     // Generic: just confirm token exists
     return { verified: true, message: 'Credentials saved' };
   } catch (err) {
-    return { verified: false, message: err.message || 'Connection failed' };
+    const msg = err.message || 'Connection failed';
+    return { verified: false, message: msg.includes('ECONNREFUSED') ? `Cannot connect to SMTP server — check host and port` : msg };
   }
 }
 

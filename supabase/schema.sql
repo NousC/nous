@@ -694,7 +694,10 @@ CREATE TABLE IF NOT EXISTS workflow_providers (
 -- Seed the providers used by the calendar poller
 INSERT INTO workflow_providers (name, display_name, category)
 VALUES
-  ('gmail_oauth',      'Google Calendar / Gmail', 'calendar'),
+  ('gmail_oauth',      'Google Calendar / Gmail', 'communication'),
+  ('smtp',             'Custom SMTP / IMAP',      'communication'),
+  ('slack',            'Slack',                   'communication'),
+  ('airtable',         'Airtable',                'crm'),
   ('hubspot',          'HubSpot',                 'crm'),
   ('pipedrive',        'Pipedrive',               'crm'),
   ('attio',            'Attio',                   'crm')

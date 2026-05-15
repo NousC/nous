@@ -6,6 +6,7 @@ import { Router } from 'express';
 import crypto from 'crypto';
 import { handleLinkedIn } from './handlers/linkedin.mjs';
 import { handleFireflies } from './handlers/fireflies.mjs';
+import { handleFathom } from './handlers/fathom.mjs';
 import { handleRB2B } from './handlers/rb2b.mjs';
 import { handleInstantly } from './handlers/instantly.mjs';
 import { handleCalendly } from './handlers/calendly.mjs';
@@ -58,6 +59,16 @@ webhookRouter.post('/fireflies/:workspaceId', (req, res) => {
   }
   handleFireflies(req, res, req.params.workspaceId).catch(err => {
     console.error('[WEBHOOK/fireflies]', err);
+    res.status(500).json({ error: 'internal_error' });
+  });
+});
+
+webhookRouter.post(['/fathom/:workspaceId', '/fathom'], (req, res) => {
+  const workspaceId = req.params.workspaceId || req.query.workspace_id;
+  if (!workspaceId) return res.status(400).json({ error: 'workspace_id_required' });
+  // Fathom uses its own svix-based signature — handled inside the handler
+  handleFathom(req, res, workspaceId).catch(err => {
+    console.error('[WEBHOOK/fathom]', err);
     res.status(500).json({ error: 'internal_error' });
   });
 });

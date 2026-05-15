@@ -10,6 +10,7 @@ import { getSupabaseClient } from '@proply/core';
 import { pollAllWorkspaces } from './pollers/calendar.mjs';
 import { pollAllSlackWorkspaces } from './pollers/slack.mjs';
 import { pollAllGmailWorkspaces } from './pollers/gmail.mjs';
+import { pollAllSmtpWorkspaces } from './pollers/smtp.mjs';
 import { webhookRouter } from './webhooks/index.mjs';
 
 // ── Validate required env vars ────────────────────────────────────────────────
@@ -63,6 +64,14 @@ async function runGmailPoller() {
 }
 cron.schedule('*/30 * * * *', runGmailPoller);
 console.log('[WORKER] Gmail poller — every 30 min');
+
+// ── SMTP/IMAP poller — every 15 minutes ──────────────────────────────────────
+async function runSmtpPoller() {
+  try { await pollAllSmtpWorkspaces(); }
+  catch (err) { console.error('[WORKER] SMTP poll error:', err.message); }
+}
+cron.schedule('*/15 * * * *', runSmtpPoller);
+console.log('[WORKER] SMTP/IMAP poller — every 15 min');
 
 // ── Pipeline stage decay — daily at 03:00 UTC ────────────────────────────────
 async function runPipelineDecay() {
