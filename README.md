@@ -42,14 +42,6 @@ Proply fixes that:
 - **Agent-ready** — Agents query the full account context in a single MCP call. No data wrangling.
 - **Revenue attribution** — Tie campaigns, channels, and actions directly to pipeline and closed deals.
 
-## Who it's for
-
-- **Outbound agencies** — running 10–50 client stacks
-- **GTM engineers** — at outbound-heavy companies, owning the agent data layer
-- **RevOps leads** — owning data quality, deduplication, and attribution
-
----
-
 ## Features
 
 | Feature | What it does |
