@@ -4,7 +4,7 @@
 
 **Do not open a public GitHub issue for security vulnerabilities.**
 
-Report security issues via [GitHub Security Advisories](https://github.com/goproply/proply-crm/security/advisories/new) or email security@goproply.com.
+Report security issues via [GitHub Security Advisories](https://github.com/bennetglinder1/proply-crm/security/advisories/new) or email security@goproply.com.
 
 We will acknowledge your report within 72 hours and aim to ship a fix within 14 days for critical issues.
 
