@@ -5,7 +5,7 @@ Thanks for your interest in contributing! Before you start, please read this.
 ## Before submitting a PR
 
 - For changes **under 3 lines** — submit directly.
-- For changes **over 3 lines** — open an issue or discuss in [Discord](https://discord.gg/YOUR_INVITE) first. This prevents wasted effort if the approach doesn't fit.
+- For changes **over 3 lines** — open an issue or discuss in [Discord](https://discord.gg/npa59RTgs) first. This prevents wasted effort if the approach doesn't fit.
 - Installation/setup questions belong in Discord, not GitHub issues.
 
 ## Development setup
@@ -14,9 +14,9 @@ See the [developer guide](https://docs.goproply.com/developer-guide) for full se
 
 **Short version:**
 ```bash
-git clone https://github.com/goproply/proply-crm.git
+git clone https://github.com/bennetglinder1/proply-crm.git
 cd proply-crm
-cp .env.example .env
+cp proply.env.example proply.env
 pnpm install
 pnpm dev
 ```
@@ -48,4 +48,4 @@ Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`
 
 ## Questions?
 
-[Discord](https://discord.gg/YOUR_INVITE) is the fastest way to get help.
+[Discord](https://discord.gg/npa59RTgs) is the fastest way to get help.
