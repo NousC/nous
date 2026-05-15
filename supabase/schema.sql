@@ -697,6 +697,7 @@ VALUES
   ('gmail_oauth',      'Google Calendar / Gmail', 'communication'),
   ('smtp',             'Custom SMTP / IMAP',      'communication'),
   ('slack',            'Slack',                   'communication'),
+  ('instantly',        'Instantly',               'outbound'),
   ('airtable',         'Airtable',                'crm'),
   ('hubspot',          'HubSpot',                 'crm'),
   ('pipedrive',        'Pipedrive',               'crm'),

@@ -133,6 +133,12 @@ async function testProviderCredentials(provider, credentials) {
       const e = await r.json().catch(() => ({}));
       return { verified: false, message: e.message || `Attio returned ${r.status}` };
     }
+    if (p === 'instantly') {
+      if (!token) return { verified: false, message: 'No credentials provided' };
+      const r = await fetch('https://api.instantly.ai/api/v2/campaigns?limit=1', { headers: { Authorization: `Bearer ${token}` } });
+      if (r.ok) return { verified: true, message: 'Connected to Instantly' };
+      return { verified: false, message: `Instantly returned ${r.status} — check your API key` };
+    }
     if (p === 'smtp') {
       const host     = credentials.host;
       const port     = parseInt(credentials.port || '587');

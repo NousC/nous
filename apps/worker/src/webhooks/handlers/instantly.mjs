@@ -1,6 +1,7 @@
 // Instantly.ai webhook handler — receives email campaign events and logs them as activities.
 // Supported events: reply_received, email_sent, email_opened, email_bounced, unsubscribed.
-// Resolves contact by lead_email (update-only — Instantly never bootstraps new contacts).
+// reply_received creates new contacts (a reply = strong intent signal).
+// All other events are update-only.
 
 import { getSupabaseClient } from '@proply/core';
 import { logActivity } from '../../utils/activity.mjs';
@@ -40,12 +41,14 @@ export async function handleInstantly(req, res, workspaceId) {
     return res.json({ ok: true, skipped: `unhandled event: ${eventType}` });
   }
 
+  const isReply = eventType === 'reply_received' || eventType === 'email_replied';
+
   const { contact } = await resolveContact(supabase, workspaceId, {
     email:      leadEmail,
     first_name: firstName,
     last_name:  lastName,
     source:     'instantly',
-  }, { createIfMissing: false });
+  }, { createIfMissing: isReply }); // replies create contact — sent/opened/bounced do not
 
   if (!contact) return res.json({ ok: true, skipped: 'contact not found' });
 
