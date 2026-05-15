@@ -72,7 +72,10 @@ webhooksRouter.delete('/subscriptions/:source', async (req, res) => {
 // GET /api/webhooks/urls — inbound webhook URLs for each source
 webhooksRouter.get('/urls', async (req, res) => {
   const workspaceId = req.workspaceId || req.query.workspaceId || req.query.workspace_id;
-  const base = process.env.WORKER_URL || process.env.API_URL || `http://localhost:${process.env.PORT || 3000}`;
+  const base = process.env.WORKER_URL
+    || process.env.API_URL
+    || (process.env.API_DOMAIN ? `https://${process.env.API_DOMAIN}` : null)
+    || `http://localhost:${process.env.PORT || 3000}`;
   const b = base.replace(/\/+$/, '');
   const urls = [
     { source: 'linkedin',  url: `${b}/inbound/linkedin?workspace_id=${workspaceId}&secret=YOUR_LINKEDIN_WEBHOOK_SECRET` },
