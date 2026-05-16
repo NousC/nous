@@ -12,12 +12,22 @@ const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY
   : null;
 
 function decrypt(encryptedValue) {
-  if (!ENCRYPTION_KEY || !encryptedValue) return null;
+  if (!ENCRYPTION_KEY || !encryptedValue || typeof encryptedValue !== 'string') return null;
+  const parts = encryptedValue.split(':');
   try {
-    const [ivHex, encrypted] = encryptedValue.split(':');
-    const iv = Buffer.from(ivHex, 'hex');
-    const decipher = crypto.createDecipheriv('aes-256-cbc', ENCRYPTION_KEY, iv);
-    return decipher.update(encrypted, 'hex', 'utf8') + decipher.final('utf8');
+    if (parts.length === 2 && /^[0-9a-f]{32}$/i.test(parts[0])) {
+      // AES-256-CBC: iv(16B=32hex):data
+      const decipher = crypto.createDecipheriv('aes-256-cbc', ENCRYPTION_KEY, Buffer.from(parts[0], 'hex'));
+      return decipher.update(parts[1], 'hex', 'utf8') + decipher.final('utf8');
+    }
+    if (parts.length === 3 && /^[0-9a-f]{32}$/i.test(parts[0]) && /^[0-9a-f]{32}$/i.test(parts[2])) {
+      // Old AES-256-GCM (api/utils/encryption.js): iv(16B=32hex):data:tag(16B=32hex)
+      const [ivHex, dataHex, tagHex] = parts;
+      const decipher = crypto.createDecipheriv('aes-256-gcm', ENCRYPTION_KEY, Buffer.from(ivHex, 'hex'));
+      decipher.setAuthTag(Buffer.from(tagHex, 'hex'));
+      return decipher.update(dataHex, 'hex', 'utf8') + decipher.final('utf8');
+    }
+    return null;
   } catch { return null; }
 }
 
