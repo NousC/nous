@@ -48,6 +48,13 @@ contactsApiRouter.get('/', verifySupabaseAuth, async (req, res) => {
   }
 });
 
+// GET /api/contacts/enrich-progress/:jobId — must be before /:id so Express doesn't swallow it
+contactsApiRouter.get('/enrich-progress/:jobId', verifySupabaseAuth, (req, res) => {
+  const job = enrichmentJobs.get(req.params.jobId);
+  if (!job) return res.json({ found: false });
+  return res.json({ found: true, contacts: job.contacts, done: job.done });
+});
+
 // GET /api/contacts/:id
 contactsApiRouter.get('/:id', verifySupabaseAuth, async (req, res) => {
   try {
@@ -332,12 +339,7 @@ contactsApiRouter.post('/:id/enrich', verifySupabaseAuth, async (req, res) => {
   }
 });
 
-// GET /api/contacts/enrich-progress/:jobId
-contactsApiRouter.get('/enrich-progress/:jobId', verifySupabaseAuth, (req, res) => {
-  const job = enrichmentJobs.get(req.params.jobId);
-  if (!job) return res.json({ found: false });
-  return res.json({ found: true, contacts: job.contacts, done: job.done });
-});
+// (enrich-progress route is registered above /:id to prevent Express route shadowing)
 
 // GET /api/companies/list
 contactsApiRouter.get('/companies/list', verifySupabaseAuth, async (req, res) => {

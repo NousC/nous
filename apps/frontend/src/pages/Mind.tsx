@@ -1108,18 +1108,21 @@ function parseCSVLine(line: string): string[] {
 }
 
 const IMPORT_FIELDS = [
-  { key: 'email',         label: 'Email' },
-  { key: 'full_name',     label: 'Full Name' },
-  { key: 'first_name',    label: 'First Name' },
-  { key: 'last_name',     label: 'Last Name' },
-  { key: 'company',       label: 'Company' },
-  { key: 'job_title',     label: 'Job Title' },
-  { key: 'phone',         label: 'Phone' },
-  { key: 'deal_stage',    label: 'Deal Stage' },
-  { key: 'source',        label: 'Source' },
-  { key: 'linkedin_url',  label: 'LinkedIn URL' },
-  { key: 'notes',         label: 'Notes' },
-  { key: 'pipeline_stage',label: 'Pipeline Stage' },
+  { key: 'email',          label: 'Email' },
+  { key: 'full_name',      label: 'Full Name' },
+  { key: 'first_name',     label: 'First Name' },
+  { key: 'last_name',      label: 'Last Name' },
+  { key: 'company',        label: 'Company' },
+  { key: 'domain',         label: 'Domain' },
+  { key: 'job_title',      label: 'Job Title' },
+  { key: 'phone',          label: 'Phone' },
+  { key: 'deal_stage',     label: 'Deal Stage' },
+  { key: 'source',         label: 'Source' },
+  { key: 'linkedin_url',   label: 'LinkedIn URL' },
+  { key: 'notes',          label: 'Notes' },
+  { key: 'seniority',      label: 'Seniority' },
+  { key: 'department',     label: 'Department' },
+  { key: 'pipeline_stage', label: 'Pipeline Stage' },
 ] as const;
 
 const IMPORT_AUTO_MATCH: Record<string, string[]> = {
@@ -1128,12 +1131,15 @@ const IMPORT_AUTO_MATCH: Record<string, string[]> = {
   last_name:      ['last_name','lastname','lname','surname'],
   full_name:      ['full_name','fullname','name'],
   company:        ['company','companyname','organization','account'],
+  domain:         ['domain','website','companydomain','company_domain','url','web'],
   job_title:      ['title','job_title','jobtitle','position','role'],
   phone:          ['phone','phonenumber','mobile','tel'],
   deal_stage:     ['deal_stage','dealstage'],
   source:         ['source','leadsource','lead_source'],
   linkedin_url:   ['linkedin_url','linkedin','linkedinurl'],
   notes:          ['notes','note','comment','description'],
+  seniority:      ['seniority','senioritylevel','level'],
+  department:     ['department','dept','team'],
   pipeline_stage: ['pipeline_stage','pipelinestage','pipeline'],
 };
 
@@ -1149,24 +1155,52 @@ function detectImportMappings(headers: string[]): Record<string, string> {
   return map;
 }
 
+const SOURCE_LABELS: Record<string, string> = {
+  gmail: 'Gmail', smtp: 'Email (SMTP)', linkedin: 'LinkedIn',
+  instantly: 'Instantly', slack: 'Slack',
+};
+
 function PeopleImportModal({ workspaceId, token, onClose, onDone }: {
   workspaceId:string; token:string; onClose:()=>void; onDone:()=>void;
 }) {
-  const [step, setStep] = useState<'upload'|'mapping'>('upload');
+  const [step, setStep] = useState<'upload'|'mapping'|'scanning'>('upload');
   const [dragOver, setDragOver] = useState(false);
   const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
   const [csvSampleRow, setCsvSampleRow] = useState<Record<string,string>>({});
   const [csvAllRows, setCsvAllRows] = useState<Record<string,string>[]>([]);
   const [fieldMappings, setFieldMappings] = useState<Record<string,string>>({});
   const [importing, setImporting] = useState(false);
-  const [result, setResult] = useState<{created:number;updated:number}|null>(null);
+  const [importResult, setImportResult] = useState<{created:number;updated:number}|null>(null);
+  const [enrichJobId, setEnrichJobId] = useState<string|null>(null);
+  const [enrichProgress, setEnrichProgress] = useState<{contacts: any[]; done: boolean}|null>(null);
   const importRef = useRef<HTMLInputElement>(null);
+
+  // Poll enrichment progress while scanning
+  useEffect(() => {
+    if (step !== 'scanning' || !enrichJobId || !token) return;
+    const poll = async () => {
+      try {
+        const r = await fetch(`${apiUrl}/api/contacts/enrich-progress/${enrichJobId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!r.ok) return;
+        const d = await r.json();
+        if (d.found) {
+          setEnrichProgress({ contacts: d.contacts, done: d.done });
+          if (d.done) onDone();
+        }
+      } catch { /* silent */ }
+    };
+    poll();
+    const id = setInterval(poll, 1500);
+    return () => clearInterval(id);
+  }, [step, enrichJobId, token, onDone]);
 
   const parseCSVFile = async (file: File) => {
     try {
       const text = await file.text();
       const lines = text.trim().split(/\r?\n/);
-      if (lines.length < 2) return;
+      if (lines.length < 2) { toast.error('CSV is empty or has no data rows'); return; }
       const headers = parseCSVLine(lines[0]);
       const rows = lines.slice(1).map(line => {
         const vals = parseCSVLine(line); const row: Record<string,string> = {};
@@ -1176,7 +1210,7 @@ function PeopleImportModal({ workspaceId, token, onClose, onDone }: {
       setCsvHeaders(headers); setCsvAllRows(rows);
       setCsvSampleRow(rows[0]||{}); setFieldMappings(detectImportMappings(headers));
       setStep('mapping');
-    } catch { /* silent */ }
+    } catch { toast.error('Failed to parse CSV'); }
   };
 
   const runImport = async () => {
@@ -1184,7 +1218,7 @@ function PeopleImportModal({ workspaceId, token, onClose, onDone }: {
     try {
       const rows = csvAllRows.map(row => {
         const mapped: Record<string,string> = {};
-        for (const [col,field] of Object.entries(fieldMappings)) { if (field&&row[col]) mapped[field]=row[col]; }
+        for (const [col,field] of Object.entries(fieldMappings)) { if (field && row[col]) mapped[field] = row[col]; }
         if (mapped.full_name && !mapped.first_name && !mapped.last_name) {
           const parts = mapped.full_name.trim().split(/\s+/);
           mapped.first_name = parts[0]||''; mapped.last_name = parts.slice(1).join(' ')||'';
@@ -1193,39 +1227,120 @@ function PeopleImportModal({ workspaceId, token, onClose, onDone }: {
         return mapped;
       }).filter(r => r.email || r.linkedin_url);
 
+      if (!rows.length) {
+        toast.error('No rows with a mapped Email or LinkedIn URL — please map at least one column');
+        return;
+      }
+
       const res = await fetch(`${apiUrl}/api/contacts/import`, {
-        method:'POST', headers:{'Content-Type':'application/json', Authorization:`Bearer ${token}`},
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ workspaceId, rows }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error||'Import failed');
-      setResult({ created: data.created||0, updated: data.updated||0 });
-      onDone();
-    } catch { /* silent */ }
-    finally { setImporting(false); }
+      if (!res.ok) throw new Error(data.error || 'Import failed');
+
+      setImportResult({ created: data.created||0, updated: data.updated||0 });
+
+      if (data.jobId && data.created > 0) {
+        setEnrichJobId(data.jobId);
+        setEnrichProgress(null);
+        setStep('scanning');
+      } else {
+        toast.success(data.created > 0 ? `${data.created} contacts imported` : `${data.updated} contacts updated`);
+        onDone();
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Import failed');
+    } finally {
+      setImporting(false);
+    }
   };
 
+  const maxWidth = step === 'mapping' ? 580 : step === 'scanning' ? 480 : 400;
+
   return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={step === 'scanning' ? undefined : onClose}>
       <div className="bg-background border border-border shadow-2xl w-full mx-4"
-        style={{ maxWidth: step==='mapping'?580:400, fontFamily:"'JetBrains Mono',monospace" }}
+        style={{ maxWidth, fontFamily:"'JetBrains Mono',monospace" }}
         onClick={e=>e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-3 border-b border-border/40 flex-shrink-0">
           <span className="text-[9px] text-muted-foreground/40 tracking-widest">PROPLY / MIND / PEOPLE / IMPORT</span>
           <button onClick={onClose} className="text-muted-foreground/40 hover:text-foreground/70 transition-colors"><X className="h-3.5 w-3.5"/></button>
         </div>
-        {result ? (
-          <div className="px-6 py-10 text-center">
-            <div className="text-[13px] text-foreground/80 mb-1">{result.created} new &middot; {result.updated} updated</div>
-            <div className="text-[10px] text-muted-foreground/40 mb-5">import complete</div>
-            <button onClick={onClose} className="text-[10px] px-4 py-1.5 border border-border/60 hover:border-border text-muted-foreground hover:text-foreground transition-colors">done</button>
+
+        {step === 'scanning' ? (
+          <div className="px-6 py-5">
+            <div className="flex items-center gap-2 mb-4">
+              {enrichProgress?.done
+                ? <Check className="h-3.5 w-3.5 text-emerald-500"/>
+                : <RefreshCw className="h-3.5 w-3.5 animate-spin text-violet-400"/>}
+              <span className="text-[12px] text-foreground/80">
+                {enrichProgress?.done ? 'Scan complete' : 'Scanning contact history…'}
+              </span>
+              {importResult && (
+                <span className="text-[10px] text-muted-foreground/40 ml-auto">
+                  {importResult.created} new · {importResult.updated} updated
+                </span>
+              )}
+            </div>
+
+            <div className="space-y-2 max-h-[55vh] overflow-y-auto">
+              {enrichProgress?.contacts.map((contact: any) => {
+                const active = Object.entries(contact.sources as Record<string,{status:string;count:number}>)
+                  .filter(([,s]) => s.status !== 'skipped');
+                return (
+                  <div key={contact.id} className="border border-border/20 px-4 py-3">
+                    <div className="text-[11px] text-foreground/70 mb-2">
+                      {contact.name}
+                      <span className="text-muted-foreground/35 ml-2">{contact.email}</span>
+                    </div>
+                    <div className="space-y-1">
+                      {active.map(([src, s]) => (
+                        <div key={src} className="flex items-center justify-between">
+                          <span className="text-[9px] text-muted-foreground/50">{SOURCE_LABELS[src] ?? src}</span>
+                          {s.status === 'pending'  && <span className="text-[9px] text-muted-foreground/25">waiting…</span>}
+                          {s.status === 'scanning' && (
+                            <span className="flex items-center gap-1 text-[9px] text-violet-400/70">
+                              <span className="w-1 h-1 rounded-full bg-violet-400 animate-pulse"/>scanning…
+                            </span>
+                          )}
+                          {s.status === 'done' && s.count > 0 && (
+                            <span className="flex items-center gap-1 text-[9px] text-emerald-500/70">
+                              <Check className="h-2.5 w-2.5"/>{s.count} found
+                            </span>
+                          )}
+                          {s.status === 'done' && s.count === 0 && (
+                            <span className="text-[9px] text-muted-foreground/20">—</span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+              {!enrichProgress && (
+                <div className="flex justify-center py-8">
+                  <RefreshCw className="h-4 w-4 animate-spin text-muted-foreground/20"/>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-4 pt-4 border-t border-border/20">
+              <button
+                disabled={!enrichProgress?.done}
+                onClick={() => { onDone(); onClose(); }}
+                className="w-full text-[10px] px-4 py-2 bg-violet-500/20 border border-violet-500/30 text-violet-400/80 hover:bg-violet-500/30 transition-colors disabled:opacity-30">
+                {enrichProgress?.done ? 'done' : 'scanning…'}
+              </button>
+            </div>
           </div>
-        ) : step==='upload' ? (
+
+        ) : step === 'upload' ? (
           <div className="px-6 py-5">
             <div
               onDragOver={e=>{e.preventDefault();setDragOver(true);}}
               onDragLeave={()=>setDragOver(false)}
-              onDrop={e=>{e.preventDefault();setDragOver(false);const f=e.dataTransfer.files?.[0];if(f?.name.endsWith('.csv'))parseCSVFile(f);}}
+              onDrop={e=>{e.preventDefault();setDragOver(false);const f=e.dataTransfer.files?.[0];if(f?.name.endsWith('.csv'))parseCSVFile(f);else toast.error('Please drop a .csv file');}}
               onClick={()=>importRef.current?.click()}
               className={`flex flex-col items-center justify-center gap-3 h-36 border border-dashed cursor-pointer transition-colors select-none ${dragOver?'border-violet-500/60 bg-violet-500/5':'border-border/40 hover:border-border/70 hover:bg-muted/10'}`}>
               <FileText className="h-5 w-5 text-muted-foreground/30"/>
@@ -1236,23 +1351,24 @@ function PeopleImportModal({ workspaceId, token, onClose, onDone }: {
             </div>
             <input ref={importRef} type="file" accept=".csv" className="hidden" onChange={e=>{const f=e.target.files?.[0];e.target.value='';if(f)parseCSVFile(f);}}/>
           </div>
+
         ) : (
           <div>
             <div className="overflow-y-auto" style={{maxHeight:'60vh'}}>
               <div className="flex items-center px-5 py-2 border-b border-border/20 bg-muted/10">
                 <span className="text-[9px] text-muted-foreground/35 tracking-widest flex-1">CSV COLUMN</span>
                 <span className="text-[9px] text-muted-foreground/35 tracking-widest" style={{width:170}}>MAPS TO</span>
-                <span className="text-[9px] text-muted-foreground/35 tracking-widest flex-1">SAMPLE</span>
+                <span className="text-[9px] text-muted-foreground/35 tracking-widest flex-1 pl-4">SAMPLE</span>
               </div>
               {csvHeaders.map(col=>(
-                <div key={col} className="flex items-center px-5 py-2 border-b border-border/10">
+                <div key={col} className="flex items-center px-5 py-2.5 border-b border-border/10">
                   <span className="text-[11px] text-foreground/70 flex-1 truncate pr-2">{col}</span>
                   <select value={fieldMappings[col]||''} onChange={e=>setFieldMappings(p=>({...p,[col]:e.target.value}))}
-                    className="bg-background border border-border/40 text-[10px] text-foreground/65 px-2 py-1 outline-none hover:border-border transition-colors flex-shrink-0" style={{width:170}}>
+                    className="bg-background border border-border/40 text-[10px] text-foreground/65 px-2 py-1.5 outline-none hover:border-border focus:border-violet-500/50 transition-colors flex-shrink-0" style={{width:170}}>
                     <option value="">— skip —</option>
                     {IMPORT_FIELDS.map(f=><option key={f.key} value={f.key}>{f.label}</option>)}
                   </select>
-                  <span className="text-[10px] text-violet-400/70 flex-1 truncate pl-4">{csvSampleRow[col]||<span className="text-muted-foreground/20">—</span>}</span>
+                  <span className="text-[10px] text-violet-400/70 flex-1 truncate pl-4">{csvSampleRow[col]||'—'}</span>
                 </div>
               ))}
             </div>
