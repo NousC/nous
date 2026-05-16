@@ -5,29 +5,77 @@ import { ensureUserAndTeam } from '../../lib/auth.mjs';
 
 export const requestsRouter = Router();
 
+const EVENT_TYPE_MAP = {
+  contact_read:   { op_type: 'retrieve', entity_type: 'contact' },
+  contact_list:   { op_type: 'retrieve', entity_type: 'contact' },
+  contact_create: { op_type: 'write',    entity_type: 'contact' },
+  contact_update: { op_type: 'write',    entity_type: 'contact' },
+  contact_delete: { op_type: 'delete',   entity_type: 'contact' },
+  memory_write:   { op_type: 'write',    entity_type: 'memory'  },
+  memory_search:  { op_type: 'retrieve', entity_type: 'memory'  },
+  memory_delete:  { op_type: 'delete',   entity_type: 'memory'  },
+  company_read:   { op_type: 'retrieve', entity_type: 'company' },
+};
+
 // GET /api/requests/log
 requestsRouter.get('/log', verifySupabaseAuth, async (req, res) => {
   try {
     const supabase = getSupabaseClient();
     const { user, team } = await ensureUserAndTeam(req.user);
     const { op_type, entity_type, days = '7', limit = '50', offset = '0' } = req.query;
-
+    const lim = Math.min(parseInt(limit), 100);
+    const off = parseInt(offset);
     const since = days === 'all' ? null : new Date(Date.now() - parseInt(days) * 86400000).toISOString();
 
-    let query = supabase.from('memory_ops_log')
-      .select('id, created_at, op_type, entity_type, source, api_key_id', { count: 'exact' })
-      .eq('team_id', team.id)
-      .order('created_at', { ascending: false })
-      .range(parseInt(offset), parseInt(offset) + Math.min(parseInt(limit), 100) - 1);
+    // Get user's workspace IDs for system log query
+    const { data: memberships } = await supabase
+      .from('workspace_members')
+      .select('workspace_id')
+      .eq('user_id', user.id);
+    const wsIds = (memberships || []).map(m => m.workspace_id);
 
-    if (since) query = query.gte('created_at', since);
-    if (op_type && op_type !== 'all') query = query.eq('op_type', op_type);
-    if (entity_type && entity_type !== 'all') query = query.eq('entity_type', entity_type);
+    // Query both tables in parallel
+    const [opsRes, sysRes] = await Promise.all([
+      (() => {
+        let q = supabase.from('memory_ops_log')
+          .select('id, created_at, op_type, entity_type, source, api_key_id', { count: 'exact' })
+          .eq('team_id', team.id)
+          .order('created_at', { ascending: false });
+        if (since) q = q.gte('created_at', since);
+        if (op_type && op_type !== 'all') q = q.eq('op_type', op_type);
+        if (entity_type && entity_type !== 'all') q = q.eq('entity_type', entity_type);
+        return q;
+      })(),
+      wsIds.length ? (() => {
+        let q = supabase.from('workspace_system_log')
+          .select('id, occurred_at, event_type, source, summary', { count: 'exact' })
+          .in('workspace_id', wsIds)
+          .in('source', ['mcp', 'sdk', 'api'])
+          .order('occurred_at', { ascending: false });
+        if (since) q = q.gte('occurred_at', since);
+        return q;
+      })() : Promise.resolve({ data: [], count: 0 }),
+    ]);
 
-    const { data: rows, count, error } = await query;
-    if (error) throw error;
+    // Map system log entries to request format, applying filters
+    const sysRows = (sysRes.data || [])
+      .map(r => {
+        const mapped = EVENT_TYPE_MAP[r.event_type] || { op_type: 'retrieve', entity_type: 'contact' };
+        return { id: r.id, created_at: r.occurred_at, op_type: mapped.op_type, entity_type: mapped.entity_type, source: r.source, api_key_id: null, summary: r.summary };
+      })
+      .filter(r => {
+        if (op_type && op_type !== 'all' && r.op_type !== op_type) return false;
+        if (entity_type && entity_type !== 'all' && r.entity_type !== entity_type) return false;
+        return true;
+      });
 
-    const keyIds = [...new Set((rows || []).filter(r => r.api_key_id).map(r => r.api_key_id))];
+    // Merge, sort by time, paginate
+    const merged = [...(opsRes.data || []), ...sysRows]
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    const page = merged.slice(off, off + lim);
+    const total = (opsRes.count || 0) + (sysRes.count || 0);
+
+    const keyIds = [...new Set(page.filter(r => r.api_key_id).map(r => r.api_key_id))];
     let keyMap = {};
     if (keyIds.length) {
       const { data: keys } = await supabase.from('api_keys').select('id, name').in('id', keyIds);
@@ -35,10 +83,19 @@ requestsRouter.get('/log', verifySupabaseAuth, async (req, res) => {
     }
 
     return res.json({
-      requests: (rows || []).map(r => ({ id: r.id, created_at: r.created_at, op_type: r.op_type, entity_type: r.entity_type, source: r.source, api_key_name: r.api_key_id ? (keyMap[r.api_key_id] || 'Unknown') : null })),
-      total: count || 0,
+      requests: page.map(r => ({
+        id: r.id,
+        created_at: r.created_at,
+        op_type: r.op_type,
+        entity_type: r.entity_type,
+        source: r.source,
+        api_key_name: r.api_key_id ? (keyMap[r.api_key_id] || 'Unknown') : (r.source === 'mcp' ? 'MCP' : null),
+        summary: r.summary || null,
+      })),
+      total,
     });
   } catch (err) {
+    console.error('[GET /api/requests/log]', err);
     return res.status(500).json({ error: 'internal_error' });
   }
 });

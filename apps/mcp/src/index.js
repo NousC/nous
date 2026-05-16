@@ -54,8 +54,12 @@ server.tool(
     }
 
     const identifier = encodeURIComponent(contact_id || email);
-    const c = await get(`/v1/contact/${identifier}`);
+    const [c, actData] = await Promise.all([
+      get(`/v1/contacts/${identifier}`),
+      get(`/v1/contacts/${identifier}/activity`, { limit: 20 }).catch(() => ({ activities: [] })),
+    ]);
 
+    const contactId = c.id || c.contact_id;
     const name = c.name || c.email;
     const header = [name, c.title, c.company].filter(Boolean).join(" · ");
     const scores = [
@@ -74,10 +78,9 @@ server.tool(
     }
 
     // Activities
-    const activities = c.recent_activities ?? [];
+    const activities = actData.activities ?? [];
     if (activities.length) {
-      const totalAct = c.total_activities ?? activities.length;
-      lines.push(`\nActivities (showing ${activities.length}${totalAct > activities.length ? ` of ${totalAct}` : ""}):`);
+      lines.push(`\nActivities (${activities.length}):`);
       for (const a of activities) {
         const date = a.occurred_at
           ? new Date(a.occurred_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })
@@ -114,7 +117,7 @@ server.tool(
     return {
       content: [{
         type: "text",
-        text: `${text}\n\n(contact_id: ${c.contact_id}${c.company_id ? ` · company_id: ${c.company_id}` : ""})`,
+        text: `${text}\n\n(contact_id: ${contactId}${c.company_id ? ` · company_id: ${c.company_id}` : ""})`,
       }],
     };
   }
