@@ -200,8 +200,8 @@ async function backfillLinkedInMessages(supabase, workspaceId, contactId, { link
         externalId:  `li_msg_${msgId}`,
         occurredAt,
         rawData:     { text, is_outbound: isOutbound },
+        description: text.slice(0, 500) || (isOutbound ? 'LinkedIn message (sent)' : 'LinkedIn message (received)'),
         summary:     isOutbound ? `You: ${text.slice(0, 200)}` : text.slice(0, 200),
-        description: isOutbound ? 'LinkedIn message (sent)' : 'LinkedIn message (received)',
       });
       logged++;
     }
@@ -338,7 +338,7 @@ export async function handleLinkedIn(req, res, workspaceId) {
       externalId:  msgId ? `li_msg_${msgId}` : null,
       occurredAt,
       rawData:     body,
-      description: isSender ? 'LinkedIn message (sent)' : 'LinkedIn message (received)',
+      description: messageText.slice(0, 500) || (isSender ? 'LinkedIn message (sent)' : 'LinkedIn message (received)'),
       summary:     isSender ? `You: ${messageText.slice(0, 200)}` : messageText.slice(0, 200),
     });
 
