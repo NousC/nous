@@ -2810,10 +2810,10 @@ export default function Mind() {
             <NextStepsCard contacts={allContacts} accentColor={mindAccent} onOpen={()=>{ setPeopleSort({col:"lastActivity",dir:"asc"}); setPopup("people"); }} />
           </div>
 
-          {/* Stats — fixed at right edge */}
-          <div className="absolute right-6 top-1/2 -translate-y-1/2 flex flex-col gap-3 text-right pointer-events-auto" style={{ zIndex:20 }}>
+          {/* Stats — fixed at left edge */}
+          <div className="absolute left-6 top-1/2 -translate-y-1/2 flex flex-col gap-3 text-left pointer-events-auto" style={{ zIndex:20 }}>
             <button onClick={()=>setOpsExpanded(e=>!e)}
-              className="text-right group transition-opacity opacity-70 hover:opacity-100">
+              className="text-left group transition-opacity opacity-70 hover:opacity-100">
               <div className="text-muted-foreground/40 text-[9px] tracking-widest mb-0.5 group-hover:text-muted-foreground/70">TOTAL OPS</div>
               <div className="text-foreground/70 tabular-nums text-[11px] group-hover:text-foreground">{(totalOps>0?totalOps:ops.length).toLocaleString()}</div>
             </button>
@@ -2824,7 +2824,7 @@ export default function Mind() {
               {label:"MEMORIES",    value:memories.length,     p:"memories"     as Popup},
             ]).map(({label,value,p})=>(
               <button key={label} onClick={()=>setPopup(q=>q===p?null:p)}
-                className={`text-right group transition-opacity ${popup===p?"opacity-100":"opacity-70 hover:opacity-100"}`}>
+                className={`text-left group transition-opacity ${popup===p?"opacity-100":"opacity-70 hover:opacity-100"}`}>
                 <div className="text-muted-foreground/40 text-[9px] tracking-widest mb-0.5 group-hover:text-muted-foreground/70">{label}</div>
                 <div className="text-foreground/70 tabular-nums text-[11px] group-hover:text-foreground">{value.toLocaleString()}</div>
               </button>
