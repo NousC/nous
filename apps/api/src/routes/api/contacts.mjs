@@ -255,7 +255,7 @@ contactsApiRouter.post('/import', verifySupabaseAuth, async (req, res) => {
     if (!validRows.length) return res.status(400).json({ error: 'no_valid_rows' });
 
     const emails = validRows.map(r => r.email.toLowerCase().trim());
-    const { data: existing } = await supabase.from('contacts').select('email').eq('workspace_id', workspaceId).in('email', emails);
+    const { data: existing } = await supabase.from('contacts').select('id, email').eq('workspace_id', workspaceId).in('email', emails);
     const existingSet = new Set((existing || []).map(c => c.email.toLowerCase()));
 
     const toCreate = validRows.filter(r => !existingSet.has(r.email.toLowerCase().trim()));
@@ -300,11 +300,13 @@ contactsApiRouter.post('/import', verifySupabaseAuth, async (req, res) => {
       updated++;
     }
 
-    // Fire async history enrichment for newly created contacts — don't await
+    // Fire async history enrichment for all imported contacts (new + updated)
+    const existingIds = (existing || []).map(c => c.id);
+    const allImportedIds = [...newContactIds, ...existingIds];
     let jobId = null;
-    if (newContactIds.length) {
+    if (allImportedIds.length) {
       jobId = randomUUID();
-      enrichContactHistory(supabase, workspaceId, newContactIds, jobId).catch(e =>
+      enrichContactHistory(supabase, workspaceId, allImportedIds, jobId).catch(e =>
         console.error('[CONTACTS_IMPORT_ENRICH_ERROR]', e.message)
       );
     }

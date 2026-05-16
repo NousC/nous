@@ -1241,9 +1241,10 @@ function PeopleImportModal({ workspaceId, token, onClose, onDone }: {
 
       setImportResult({ created: data.created||0, updated: data.updated||0 });
 
-      if (data.jobId && data.created > 0) {
+      if (data.jobId) {
         setEnrichJobId(data.jobId);
         setEnrichProgress(null);
+        setImportResult({ created: data.created||0, updated: data.updated||0 });
         setStep('scanning');
       } else {
         toast.success(data.created > 0 ? `${data.created} contacts imported` : `${data.updated} contacts updated`);
