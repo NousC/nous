@@ -91,7 +91,7 @@ async function pollWorkspace(supabase, conn) {
         source:     'slack',
         externalId: `slack_msg_${dm.id}_${ts}`,
         occurredAt,
-        description: 'Slack DM',
+        description: msg.text.slice(0, 500),
         summary:    msg.text.slice(0, 500),
         rawData:    { channel_id: dm.id, ts, user: msg.user },
       });

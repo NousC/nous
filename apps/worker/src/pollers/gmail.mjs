@@ -126,7 +126,7 @@ async function pollWorkspace(supabase, conn) {
         source:      'gmail',
         externalId:  `gmail_${msg.id}_${contact.id}`,
         occurredAt,
-        description: isOutbound ? `Email sent: ${subject}` : `Email received: ${subject}`,
+        description: snippet || (isOutbound ? `Email sent: ${subject}` : `Email received: ${subject}`),
         summary:     snippet,
         rawData:     { message_id: msg.id, subject, from: fromAddr, to: toAddrs },
       });
