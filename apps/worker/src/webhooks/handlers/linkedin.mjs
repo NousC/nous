@@ -228,12 +228,6 @@ export async function handleLinkedIn(req, res, workspaceId) {
 
   console.log('[LINKEDIN_WEBHOOK] event=', eventType, 'keys:', Object.keys(body).join(', '));
 
-  // Log to Activity Log immediately — so the UI always shows the webhook arrived
-  logSysEvent(supabase, workspaceId, 'linkedin', 'webhook_received',
-    `Unipile event received: ${eventType || 'unknown'}`,
-    null, { event: eventType, keys: Object.keys(body) }
-  );
-
   if (NON_ACTIONABLE.has(eventType)) {
     console.log('[LINKEDIN_WEBHOOK] skipping non-actionable event:', eventType);
     return res.json({ ok: true, skipped: eventType });
@@ -292,7 +286,7 @@ export async function handleLinkedIn(req, res, workspaceId) {
 
     logSysEvent(supabase, workspaceId, 'linkedin', 'webhook_received',
       `New LinkedIn connection${fullName ? `: ${fullName}` : ''}`,
-      contact.id, { linkedin_url: linkedinUrl }
+      contact.id, { type: 'connection', linkedin_url: linkedinUrl }
     );
     return res.json({ ok: true, contactId: contact.id, type: 'connection' });
   }
@@ -413,13 +407,25 @@ export async function handleLinkedIn(req, res, workspaceId) {
       isSender
         ? `LinkedIn message sent to ${fullName || linkedinUrl}: ${messageText.slice(0, 120)}`
         : `LinkedIn message from ${fullName || linkedinUrl}: ${messageText.slice(0, 120)}`,
-      contact.id, { message_id: msgId, is_sender: isSender }
+      contact.id, { type: isSender ? 'message_sent' : 'message', message_id: msgId, is_sender: isSender }
     );
 
-    // New contact → backfill their full conversation history
+    // New contact → backfill their full conversation history.
+    // Also backfill existing contacts that have no prior linkedin_message activities —
+    // catches contacts imported before the webhook was set up (e.g. old connections).
+    const chatId = body.chat_id || body.provider_chat_id || null;
     if (created) {
-      const chatId = body.chat_id || body.provider_chat_id || null;
       backfillLinkedInMessages(supabase, workspaceId, contact.id, { linkedinUrl, chatId }).catch(() => {});
+    } else {
+      const { count: priorMsgCount } = await supabase
+        .from('contact_activity_log')
+        .select('id', { count: 'exact', head: true })
+        .eq('contact_id', contact.id)
+        .eq('activity_type', 'linkedin_message')
+        .eq('source', 'linkedin');
+      if (!priorMsgCount) {
+        backfillLinkedInMessages(supabase, workspaceId, contact.id, { linkedinUrl, chatId }).catch(() => {});
+      }
     }
 
     return res.json({ ok: true, contactId: contact.id, type: 'message' });

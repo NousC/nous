@@ -204,9 +204,9 @@ async function logActivity(supabase, { workspaceId, contactId, activityType, des
     .eq('activity_type', activityType)
     .eq('source', 'linkedin')
     .gte('occurred_at', dayStart.toISOString())
-    .maybeSingle();
+    .limit(1);
 
-  if (existing) return; // already logged today
+  if (existing?.length > 0) return; // already logged today
 
   await supabase.from('contact_activity_log').insert({
     workspace_id:  workspaceId,
@@ -314,15 +314,6 @@ async function syncConversations(supabase, workspaceId, accountId) {
     } catch {
       // rpc may not exist — silently skip
     }
-
-    await logActivity(supabase, {
-      workspaceId,
-      contactId,
-      activityType: 'linkedin_message',
-      description:  `LinkedIn conversation active${chat.name ? ` with ${chat.name}` : ''}`,
-      occurredAt:   lastMsgAt,
-      rawData:      { chat_id: chat.id, attendee_provider_id: memberId },
-    });
 
     // Store chat_id in channels.linkedin for fast outbound message lookup
     const { data: cd } = await supabase.from('contacts').select('channels').eq('id', contactId).single();

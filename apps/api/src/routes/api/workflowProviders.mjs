@@ -345,6 +345,144 @@ workflowProvidersRouter.delete('/connections/:id', verifySupabaseAuth, async (re
   }
 });
 
+// GET /api/workflow-providers/slack/channels  — list channels for a saved Slack connection
+workflowProvidersRouter.get('/slack/channels', verifySupabaseAuth, async (req, res) => {
+  try {
+    const supabase = getSupabaseClient();
+    const { connection_id } = req.query;
+    if (!connection_id) return res.status(400).json({ error: 'connection_id_required' });
+
+    const { data: conn } = await supabase
+      .from('workflow_provider_connections')
+      .select('encrypted_credentials')
+      .eq('id', connection_id)
+      .single();
+    if (!conn) return res.status(404).json({ error: 'not_found' });
+
+    const token = decrypt(conn.encrypted_credentials?.bot_token || conn.encrypted_credentials?.access_token || conn.encrypted_credentials?.token || '');
+    if (!token) return res.status(400).json({ error: 'no_token' });
+
+    const slackRes = await fetch('https://slack.com/api/conversations.list?types=public_channel,private_channel&exclude_archived=true&limit=200', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await slackRes.json();
+    if (!data.ok) return res.status(400).json({ error: data.error || 'slack_error' });
+
+    const channels = (data.channels || []).map(c => ({ id: c.id, name: c.name, is_private: c.is_private }));
+    return res.json({ channels });
+  } catch (err) {
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
+const NAMED_PROVIDERS = ['apollo', 'instantly', 'lemlist', 'prospeo', 'signalbase'];
+
+async function testNamedProvider(name, apiKey) {
+  if (!apiKey) return { verified: false, message: 'API key is required' };
+
+  if (name === 'apollo') {
+    const r = await fetch('https://api.apollo.io/v1/people/match', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Api-Key': apiKey },
+      body: JSON.stringify({ reveal_personal_emails: false }),
+    });
+    if (r.status === 401 || r.status === 403) return { verified: false, message: 'Invalid Apollo API key' };
+    return { verified: true, message: 'Apollo API key verified' };
+  }
+
+  if (name === 'instantly') {
+    const r = await fetch('https://api.instantly.ai/api/v2/campaigns?limit=1', {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    if (r.ok) return { verified: true, message: 'Connected to Instantly' };
+    return { verified: false, message: `Instantly returned ${r.status} — check your API key` };
+  }
+
+  if (name === 'lemlist') {
+    const r = await fetch('https://api.lemlist.com/api/team', {
+      headers: { Authorization: `Basic ${Buffer.from(`:${apiKey}`).toString('base64')}` },
+    });
+    if (r.ok) return { verified: true, message: 'Connected to Lemlist' };
+    return { verified: false, message: `Lemlist returned ${r.status} — check your API key` };
+  }
+
+  if (name === 'prospeo') {
+    const r = await fetch('https://api.prospeo.io/domain-search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-KEY': apiKey },
+      body: JSON.stringify({ company: 'test.com', limit: 1 }),
+    });
+    if (r.status === 401 || r.status === 403) return { verified: false, message: 'Invalid Prospeo API key' };
+    return { verified: true, message: 'Prospeo API key verified' };
+  }
+
+  if (name === 'signalbase') {
+    const r = await fetch('https://api.signalbase.io/v1/account', {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    if (r.ok) return { verified: true, message: 'Connected to SignalBase' };
+    return { verified: false, message: `SignalBase returned ${r.status} — check your API key` };
+  }
+
+  return { verified: false, message: 'Unknown provider' };
+}
+
+// POST /api/workflow-providers/:name/test  (apollo, instantly, lemlist, prospeo, signalbase)
+workflowProvidersRouter.post('/:name/test', verifySupabaseAuth, async (req, res) => {
+  const { name } = req.params;
+  if (!NAMED_PROVIDERS.includes(name)) return res.status(404).json({ error: 'not_found' });
+  try {
+    const { api_key } = req.body;
+    const result = await testNamedProvider(name, api_key);
+    return res.json(result);
+  } catch (err) {
+    return res.status(500).json({ verified: false, message: err.message || 'internal_error' });
+  }
+});
+
+// POST /api/workflow-providers/:name/connect  (apollo, instantly, lemlist, prospeo, signalbase)
+workflowProvidersRouter.post('/:name/connect', verifySupabaseAuth, async (req, res) => {
+  const { name } = req.params;
+  if (!NAMED_PROVIDERS.includes(name)) return res.status(404).json({ error: 'not_found' });
+  try {
+    const supabase = getSupabaseClient();
+    const { workspace_id, name: connName, api_key } = req.body;
+    if (!workspace_id || !api_key) return res.status(400).json({ error: 'workspace_id and api_key required' });
+
+    const { data: provider } = await supabase
+      .from('workflow_providers')
+      .select('id')
+      .eq('name', name)
+      .maybeSingle();
+    if (!provider?.id) return res.status(404).json({ error: `provider_not_found: ${name}` });
+
+    const encryptedKey = (() => {
+      if (!ENCRYPTION_KEY) return api_key;
+      const iv = crypto.randomBytes(16);
+      const cipher = crypto.createCipheriv('aes-256-cbc', ENCRYPTION_KEY, iv);
+      return iv.toString('hex') + ':' + cipher.update(api_key, 'utf8', 'hex') + cipher.final('hex');
+    })();
+
+    const { data, error } = await supabase
+      .from('workflow_provider_connections')
+      .insert({
+        workspace_id,
+        provider_id: provider.id,
+        name: connName || name,
+        encrypted_credentials: { api_key: encryptedKey },
+        is_verified: true,
+        last_test_at: new Date().toISOString(),
+      })
+      .select('id, workspace_id, provider_id, name, created_at, is_verified')
+      .single();
+
+    if (error) throw error;
+    return res.json({ connection: data });
+  } catch (err) {
+    return res.status(500).json({ error: 'internal_error', message: err.message });
+  }
+});
+
 // GET /api/workflow-providers/:id
 workflowProvidersRouter.get('/:id', verifySupabaseAuth, async (req, res) => {
   try {

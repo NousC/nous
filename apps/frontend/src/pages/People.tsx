@@ -17,6 +17,7 @@ import {
   ListFilter,
   ArrowUpDown,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   Check,
   Info,
@@ -1290,6 +1291,8 @@ export default function People() {
   const [dealStageFilter, setDealStageFilter] = useState(() => localStorage.getItem("people_deal_stage") || "");
   const [sort, setSort]               = useState<SortKey>(() => (localStorage.getItem("people_sort") as SortKey) || "last_interaction");
   const [search, setSearch]           = useState("");
+  const [page, setPage]               = useState(0);
+  const PAGE_SIZE = 50;
   const [selected, setSelected]       = useState<Person | null>(null);
 
   // Persist filter/sort to localStorage
@@ -1297,6 +1300,9 @@ export default function People() {
   useEffect(() => { localStorage.setItem("people_source", source); }, [source]);
   useEffect(() => { localStorage.setItem("people_deal_stage", dealStageFilter); }, [dealStageFilter]);
   useEffect(() => { localStorage.setItem("people_sort", sort); }, [sort]);
+
+  // Reset to page 0 whenever filters/search/sort change
+  useEffect(() => { setPage(0); }, [search, filter, source, sort]);
   const [checked, setChecked]         = useState<Set<string>>(new Set());
   const [deleting, setDeleting]       = useState(false);
   const [showTaskModal, setShowTaskModal]     = useState(false);
@@ -1393,29 +1399,22 @@ export default function People() {
       if (filter !== "all") params.set("filter", filter);
       if (source) params.set("source", source);
       if (sort !== "last_interaction") params.set("sort", sort);
+      params.set("limit", String(PAGE_SIZE));
+      params.set("offset", String(page * PAGE_SIZE));
 
       const res = await fetch(`${apiUrl}/api/contacts?${params}`, {
         headers: { Authorization: `Bearer ${session.access_token}` },
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      const mapped = (data.contacts || []).map(mapContactToPerson);
-      mapped.sort((a: Person, b: Person) => {
-        const aT = a.lastActivityAt ? new Date(a.lastActivityAt).getTime() : null;
-        const bT = b.lastActivityAt ? new Date(b.lastActivityAt).getTime() : null;
-        if (aT === null && bT === null) return 0;
-        if (aT === null) return 1;
-        if (bT === null) return -1;
-        return sort === 'interactions_asc' ? aT - bT : bT - aT;
-      });
-      setPeople(mapped);
+      setPeople((data.contacts || []).map(mapContactToPerson));
       setTotal(data.total || 0);
     } catch {
       setError(true);
     } finally {
       setLoading(false);
     }
-  }, [workspaceId, session?.access_token, search, filter, source, sort, apiUrl]);
+  }, [workspaceId, session?.access_token, search, filter, source, sort, page, apiUrl]);
 
   useEffect(() => { fetchPeople(); }, [fetchPeople]);
 
@@ -2525,7 +2524,30 @@ export default function People() {
             </button>
           </div>
         ) : (
-          <p className="text-[12px] text-gray-400">{total} {total === 1 ? "person" : "people"}</p>
+          <div className="flex items-center justify-between">
+            <p className="text-[12px] text-gray-400">
+              {total === 0 ? "0 people" : `${page * PAGE_SIZE + 1}–${Math.min((page + 1) * PAGE_SIZE, total)} of ${total} ${total === 1 ? "person" : "people"}`}
+            </p>
+            {total > PAGE_SIZE && (
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setPage(p => p - 1)}
+                  disabled={page === 0}
+                  className="p-1 rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+                <span className="text-[12px] text-gray-500 px-1">{page + 1} / {Math.ceil(total / PAGE_SIZE)}</span>
+                <button
+                  onClick={() => setPage(p => p + 1)}
+                  disabled={(page + 1) * PAGE_SIZE >= total}
+                  className="p-1 rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
+            )}
+          </div>
         )}
       </div>
     </div>

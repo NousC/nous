@@ -13,6 +13,7 @@ export async function verifySupabaseAuth(req, res, next) {
   if (error || !user) return res.status(401).json({ error: 'invalid_token' });
 
   req.user = user;
+  req.supabaseUser = user;
 
   // workspace_members stores the internal users.id, not the auth UUID.
   // Resolve the internal user record so membership checks use the right ID.

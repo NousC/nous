@@ -32,6 +32,9 @@ contactsApiRouter.get('/', verifySupabaseAuth, async (req, res) => {
       const t = `%${search.trim()}%`;
       query = query.or(`email.ilike.${t},first_name.ilike.${t},last_name.ilike.${t},company.ilike.${t}`);
     }
+    query = sort === 'interactions_asc'
+      ? query.order('last_activity_at', { ascending: true, nullsFirst: false })
+      : query.order('last_activity_at', { ascending: false, nullsFirst: false });
     const lim = Math.min(parseInt(limit) || 50, 100);
     const off = parseInt(offset) || 0;
     query = query.range(off, off + lim - 1);
@@ -39,16 +42,7 @@ contactsApiRouter.get('/', verifySupabaseAuth, async (req, res) => {
     const { data: raw, error, count } = await query;
     if (error) throw error;
 
-    const contacts = (raw || []).sort((a, b) => {
-      const aD = a.last_activity_at ? new Date(a.last_activity_at).getTime() : null;
-      const bD = b.last_activity_at ? new Date(b.last_activity_at).getTime() : null;
-      if (!aD && !bD) return 0;
-      if (!aD) return 1;
-      if (!bD) return -1;
-      return sort === 'interactions_asc' ? aD - bD : bD - aD;
-    });
-
-    return res.json({ contacts, total: count || 0, limit: lim, offset: off });
+    return res.json({ contacts: raw || [], total: count || 0, limit: lim, offset: off });
   } catch (err) {
     return res.status(500).json({ error: 'internal_error', ...(process.env.NODE_ENV !== 'production' && { detail: String(err.message) }) });
   }
