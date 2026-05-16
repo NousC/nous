@@ -25,10 +25,11 @@ workspaceMemoriesRouter.get('/', verifySupabaseAuth, async (req, res) => {
     } else if (company_id) {
       query = query.filter('metadata->>company_id', 'eq', company_id);
     } else {
-      // workspace-level view: exclude contact/company-specific memories
-      query = query.is('contact_id', null)
-        .or('metadata->>contact_id.is.null,metadata->>contact_id.eq.');
-      query = query.or('metadata->>company_id.is.null,metadata->>company_id.eq.');
+      // workspace-level view: exclude contact- and company-specific memories
+      // Use metadata JSONB filtering (direct contact_id column may not exist yet)
+      query = query
+        .filter('metadata->>contact_id', 'is', null)
+        .filter('metadata->>company_id', 'is', null);
     }
 
     const { data: memories, error, count } = await query;
