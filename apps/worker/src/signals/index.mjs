@@ -159,7 +159,7 @@ async function refreshContactBlock(supabase, contactId, workspaceId) {
   try {
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
     const [{ data: contact }, { data: recentActs }, { data: facts }] = await Promise.all([
-      supabase.from('contacts').select('first_name, last_name, email, pipeline_stage, company').eq('id', contactId).single(),
+      supabase.from('contacts').select('first_name, last_name, email, pipeline_stage, company, summary_generated_at').eq('id', contactId).single(),
       supabase.from('contact_activity_log').select('activity_type, description, occurred_at')
         .eq('contact_id', contactId).gte('occurred_at', thirtyDaysAgo)
         .order('occurred_at', { ascending: false }).limit(15),
@@ -169,6 +169,15 @@ async function refreshContactBlock(supabase, contactId, workspaceId) {
         .order('created_at', { ascending: false }).limit(15),
     ]);
     if (!contact || (!recentActs?.length && !facts?.length)) return;
+
+    // Debounce: skip if summary was regenerated in the last 30 minutes (burst protection)
+    if (contact.summary_generated_at) {
+      const age = Date.now() - new Date(contact.summary_generated_at).getTime();
+      if (age < 30 * 60 * 1000) {
+        console.log(`[CONTACT_BLOCK] skipped — regenerated ${Math.floor(age / 60000)}m ago — contact ${contactId}`);
+        return;
+      }
+    }
 
     const name = [contact.first_name, contact.last_name].filter(Boolean).join(' ') || contact.email;
     const actLines  = (recentActs || []).slice(0, 8).map(a =>
@@ -187,7 +196,10 @@ Second sentence: the single most important thing to know right now — the block
     });
     const newSummary = msg.content[0]?.text?.trim();
     if (newSummary) {
-      await supabase.from('contacts').update({ memory_summary: newSummary }).eq('id', contactId);
+      await supabase.from('contacts').update({
+        memory_summary: newSummary,
+        summary_generated_at: new Date().toISOString(),
+      }).eq('id', contactId);
       console.log(`[CONTACT_BLOCK] summary refreshed — contact ${contactId}`);
     }
   } catch (err) {

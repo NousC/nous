@@ -25,11 +25,60 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { validateConfig, get, post, patch, del } from "./client.js";
 
+// ─── Context engineering helpers ──────────────────────────────────────────────
+
+// Activity types with known direction
+const ALWAYS_OUT = new Set(["email_sent", "follow_up_sent", "proposal_sent"]);
+const ALWAYS_IN  = new Set(["website_visit", "content_download", "trial_started"]);
+const OUT_SOURCES = new Set(["agent", "mcp", "sdk", "api"]);
+
+function actDir(a) {
+  if (ALWAYS_OUT.has(a.type)) return "out";
+  if (ALWAYS_IN.has(a.type))  return "in";
+  // LinkedIn webhook captures both sent and received — check description
+  if (a.source === "linkedin" && a.type === "linkedin_message") {
+    const d = (a.description || "").toLowerCase();
+    if (d.startsWith("linkedin message sent") || d.includes(" sent to ")) return "out";
+    return "in";
+  }
+  if (OUT_SOURCES.has(a.source)) return "out";
+  if (a.source) return "in"; // any other source = webhook-delivered = inbound
+  return "neutral";
+}
+
+const ARROW = { out: "→", in: "←", neutral: "↔" };
+
+// Higher = show first when capping 7-30d to top 3
+const SIGNAL_WEIGHT = {
+  proposal_sent: 10, trial_started: 9, call_held: 8, meeting_held: 8,
+  email_reply: 6, email_sent: 6, follow_up_sent: 5,
+  linkedin_message: 4, content_download: 4,
+  website_visit: 3, linkedin_connected: 3, manual_note: 2,
+};
+
+function relAge(ts) {
+  const d = Math.floor((Date.now() - new Date(ts).getTime()) / 86400000);
+  if (d < 1)  return "today";
+  if (d === 1) return "1d ago";
+  if (d < 30) return `${d}d ago`;
+  const m = Math.floor(d / 30);
+  if (m < 12) return `${m}mo ago`;
+  return `${Math.floor(m / 12)}y ago`;
+}
+
+function fmtShortDate(ts) {
+  return new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function fmtType(t) {
+  return t.replace(/_/g, " ");
+}
+
 validateConfig();
 
 const server = new McpServer({
   name: "proply",
-  version: "0.8.7",
+  version: "0.8.8",
   description: "Proply — contact intelligence for GTM agents. Call get_contact before acting on any person. Call track and remember after every interaction.",
   icons: [
     { src: "https://goproply.com/newlogoP.png", mimeType: "image/png", sizes: ["64x64"] },
@@ -43,7 +92,7 @@ const server = new McpServer({
 // ---------------------------------------------------------------------------
 server.tool(
   "get_contact",
-  "Get everything known about a contact — identity, pipeline stage, AI summary, recent activities (newest first), and stored facts. Call this before writing any email, preparing for a call, or making a decision about a contact. Pass email or contact_id.",
+  "Get everything known about a contact — identity, pipeline stage, status (are you waiting on them or are they waiting on you?), AI summary, recent activities with direction arrows (← inbound / → outbound), and stored facts. Call this before writing any email, preparing for a call, or making a decision. Also call get_memories for outreach history. Pass email or contact_id.",
   {
     email: z.string().optional().describe("Contact's email address"),
     contact_id: z.string().optional().describe("Contact UUID — use if you already have it"),
@@ -68,14 +117,9 @@ server.tool(
       `Stage: ${c.pipeline_stage || "identified"}`,
       c.icp_score != null         ? `ICP: ${c.icp_score}`             : null,
       c.deal_health_score != null ? `Health: ${c.deal_health_score}`  : null,
-      c.last_activity_at
-        ? `Last seen: ${new Date(c.last_activity_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`
-        : null,
     ].filter(Boolean).join("  |  ");
 
     const lines = [header, scores];
-
-    if (c.summary) lines.push(`\nSummary: ${c.summary}`);
 
     // ── Activity timeline — temporal compression ──────────────────────────────
     const activities = actData.activities ?? [];
@@ -83,8 +127,8 @@ server.tool(
     const ms7  = 7  * 86400000;
     const ms30 = 30 * 86400000;
 
-    const hot  = [];   // 0–7 days  → full body
-    const warm = [];   // 7–30 days → description only
+    const hot  = [];   // 0–7 days  → full body + direction arrow
+    const warm = [];   // 7–30 days → description + direction arrow, capped to top 3 by signal weight
     const counts = {}; // 30–90 days → counts by type
 
     for (const a of activities) {
@@ -94,24 +138,43 @@ server.tool(
       else                  counts[a.type] = (counts[a.type] || 0) + 1;
     }
 
-    const fmtDate = t => new Date(t).toLocaleDateString("en-US", { month: "short", day: "numeric" });
-    const fmtType = t => t.replace(/_/g, " ");
+    // ── Status line — derived from most recent activity direction ─────────────
+    if (activities.length) {
+      const latest = activities[0];
+      const dir = actDir(latest);
+      const when = relAge(latest.occurred_at);
+      if (dir === "in") {
+        lines.push(`\nStatus: ← Waiting on your reply · ${when}`);
+      } else if (dir === "out") {
+        lines.push(`\nStatus: → You reached out · ${when}`);
+      } else {
+        lines.push(`\nStatus: ↔ Last touch · ${when}`);
+      }
+    }
+
+    if (c.memory_summary || c.summary) {
+      lines.push(`\nSummary: ${c.memory_summary || c.summary}`);
+    }
 
     if (hot.length || warm.length || Object.keys(counts).length) {
       if (hot.length) {
         lines.push(`\nLast 7 days (${hot.length}):`);
         for (const a of hot) {
-          const body = a.body || null;
-          const desc = a.description || null;
-          const content = body || desc || null;
-          lines.push(`  ${fmtDate(a.occurred_at)} — ${fmtType(a.type)}${content ? `: ${content}` : ""}`);
+          const arrow = ARROW[actDir(a)];
+          const content = a.body || a.description || null;
+          lines.push(`  ${arrow} ${fmtShortDate(a.occurred_at)}  ${fmtType(a.type)}${content ? `: "${content}"` : ""}`);
         }
       }
       if (warm.length) {
-        lines.push(`\n7–30 days (${warm.length}):`);
-        for (const a of warm) {
+        const topWarm = warm
+          .slice()
+          .sort((a, b) => (SIGNAL_WEIGHT[b.type] ?? 0) - (SIGNAL_WEIGHT[a.type] ?? 0))
+          .slice(0, 3);
+        lines.push(`\n7–30 days (showing ${topWarm.length} of ${warm.length}):`);
+        for (const a of topWarm) {
+          const arrow = ARROW[actDir(a)];
           const desc = a.description ? `: ${a.description}` : "";
-          lines.push(`  ${fmtDate(a.occurred_at)} — ${fmtType(a.type)}${desc}`);
+          lines.push(`  ${arrow} ${fmtShortDate(a.occurred_at)}  ${fmtType(a.type)}${desc}`);
         }
       }
       if (Object.keys(counts).length) {
@@ -119,19 +182,21 @@ server.tool(
           .sort(([, a], [, b]) => b - a)
           .map(([t, n]) => `${n}× ${fmtType(t)}`)
           .join(" · ");
-        lines.push(`\n30–90 days: ${summary}`);
+        lines.push(`\nHistory (30–90d): ${summary}`);
       }
     } else {
       lines.push("\nNo activity in the last 90 days.");
     }
 
-    // ── Facts ─────────────────────────────────────────────────────────────────
+    // ── Facts — capped at 5, newest first with relative age ──────────────────
     const facts = c.facts ?? [];
     if (facts.length) {
-      const totalFacts = c.total_facts ?? facts.length;
-      lines.push(`\nFacts (${facts.length}${totalFacts > facts.length ? ` of ${totalFacts}` : ""}):`);
-      for (const f of facts) {
-        lines.push(`  [${f.category}] ${f.content}`);
+      const shown = facts.slice(0, 5);
+      const extra = facts.length - shown.length;
+      lines.push(`\nFacts${extra > 0 ? ` (+${extra} more)` : ""}:`);
+      for (const f of shown) {
+        const age = f.written_at ? ` · ${relAge(f.written_at)}` : "";
+        lines.push(`  [${f.category}] ${f.content}${age}`);
       }
     }
 
