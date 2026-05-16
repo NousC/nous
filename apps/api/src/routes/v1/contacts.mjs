@@ -8,6 +8,7 @@ import {
   deleteContact,
 } from '@proply/core';
 import { identifierType } from '@proply/core';
+import { logMcpOp } from '../../lib/mcpLogger.mjs';
 
 export const contactsRouter = Router();
 
@@ -25,6 +26,12 @@ contactsRouter.get('/', async (req, res) => {
       limit: req.query.limit ? parseInt(req.query.limit) : undefined,
       offset: req.query.offset ? parseInt(req.query.offset) : undefined,
     });
+    const count = (result.contacts ?? []).length;
+    const stage = req.query.pipeline_stage || req.query.stage;
+    logMcpOp(req.workspaceId, { clientType: req.clientType,
+      eventType: 'contact_list',
+      summary: `${count} contact${count !== 1 ? 's' : ''}${stage ? ` · ${stage}` : ''}`,
+    });
     return res.json(result);
   } catch (err) {
     console.error('[GET /v1/contacts]', err);
@@ -41,6 +48,16 @@ contactsRouter.get('/:id', async (req, res) => {
     const contact = await getContactByIdentifier(getSupabaseClient(), req.workspaceId, req.params.id);
     if (!contact) return res.status(404).json({ error: 'contact_not_found' });
 
+    const nameParts = [contact.name || contact.email, contact.title, contact.company].filter(Boolean);
+    const scoreParts = [
+      contact.pipeline_stage,
+      contact.icp_score != null ? `ICP ${contact.icp_score}` : null,
+    ].filter(Boolean);
+    logMcpOp(req.workspaceId, { clientType: req.clientType,
+      eventType: 'contact_read',
+      summary: [...nameParts, ...scoreParts].join(' · '),
+      contactId: contact.id || contact.contact_id,
+    });
     return res.json(contact);
   } catch (err) {
     console.error('[GET /v1/contacts/:id]', err);
@@ -172,6 +189,12 @@ contactsRouter.post('/', async (req, res) => {
     const contact = await createContact(getSupabaseClient(), req.workspaceId, {
       email, first_name, last_name, company, job_title, phone, linkedin_url, notes,
     });
+    const nameParts = [contact.name || email, job_title, company].filter(Boolean);
+    logMcpOp(req.workspaceId, { clientType: req.clientType,
+      eventType: 'contact_create',
+      summary: nameParts.join(' · '),
+      contactId: contact.id,
+    });
     return res.status(201).json(contact);
   } catch (err) {
     if (err.status === 409) return res.status(409).json({ error: 'email_already_exists' });
@@ -185,6 +208,12 @@ contactsRouter.patch('/:id', async (req, res) => {
   try {
     const contact = await updateContact(getSupabaseClient(), req.workspaceId, req.params.id, req.body);
     if (!contact) return res.status(404).json({ error: 'contact_not_found' });
+    const changed = Object.keys(req.body).filter(k => req.body[k] != null).join(', ');
+    logMcpOp(req.workspaceId, { clientType: req.clientType,
+      eventType: 'contact_update',
+      summary: `${contact.name || contact.email} · updated ${changed}`,
+      contactId: contact.id,
+    });
     return res.json(contact);
   } catch (err) {
     console.error('[PATCH /v1/contacts/:id]', err);
@@ -197,6 +226,10 @@ contactsRouter.delete('/:id', async (req, res) => {
   try {
     const result = await deleteContact(getSupabaseClient(), req.workspaceId, req.params.id);
     if (!result) return res.status(404).json({ error: 'contact_not_found' });
+    logMcpOp(req.workspaceId, { clientType: req.clientType,
+      eventType: 'contact_delete',
+      summary: result.email || req.params.id,
+    });
     return res.json(result);
   } catch (err) {
     console.error('[DELETE /v1/contacts/:id]', err);

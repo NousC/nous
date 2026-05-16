@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import React, { lazy, Suspense } from "react";
 import { AppSidebar } from "@/components/AppSidebar";
 import { ProfileDropdown } from "@/components/ProfileDropdown";
@@ -26,6 +26,8 @@ const lazyWithErrorBoundary = (importFn: () => Promise<any>) => {
   );
 };
 
+const Mind            = lazyWithErrorBoundary(() => import("@/pages/Mind"));
+const Operations      = lazyWithErrorBoundary(() => import("@/pages/Operations"));
 const DeveloperPortal = lazyWithErrorBoundary(() => import("@/pages/DeveloperPortal"));
 const People          = lazyWithErrorBoundary(() => import("@/pages/People"));
 const Companies       = lazyWithErrorBoundary(() => import("@/pages/Companies"));
@@ -79,6 +81,29 @@ function AdminFullScreen({ children }: { children: React.ReactNode }) {
   );
 }
 
+// Pages that manage their own top bar (no shared header)
+const NO_HEADER_ROUTES = ["/"];
+
+function StandardLayout({ children }: { children: React.ReactNode }) {
+  const location = useLocation();
+  const showHeader = !NO_HEADER_ROUTES.includes(location.pathname);
+  return (
+    <div className="flex h-screen w-full bg-background overflow-hidden">
+      <AppSidebar />
+      <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        {showHeader && (
+          <header className="flex-shrink-0 flex h-14 items-center justify-end gap-4 border-b border-border/60 bg-background px-5">
+            <ProfileDropdown />
+          </header>
+        )}
+        <div className="flex-1 overflow-auto">
+          {children}
+        </div>
+      </main>
+    </div>
+  );
+}
+
 export function AppRoutes() {
   return (
     <Routes>
@@ -86,50 +111,42 @@ export function AppRoutes() {
       <Route path="/admin/cms" element={<AdminFullScreen><Suspense fallback={<MinimalLoader />}><AdminCMS /></Suspense></AdminFullScreen>} />
       <Route path="/admin/support" element={<AdminFullScreen><Suspense fallback={<MinimalLoader />}><AdminSupportDashboard /></Suspense></AdminFullScreen>} />
 
-      {/* Standard layout — sidebar + header */}
+      {/* Standard layout — sidebar + conditional header */}
       <Route path="*" element={
-        <div className="flex h-screen w-full bg-white overflow-hidden">
-          <AppSidebar />
-          <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
-            <header className="flex-shrink-0 flex h-14 items-center justify-end gap-4 border-b border-gray-100 bg-white px-5">
-              <ProfileDropdown />
-            </header>
-            <div className="flex-1 overflow-auto">
-              <Routes>
-                <Route path="/" element={<Suspense fallback={<MinimalLoader />}><DeveloperPortal /></Suspense>} />
-                <Route path="/developer" element={<Suspense fallback={<MinimalLoader />}><DeveloperPortal /></Suspense>} />
-                <Route path="/billing" element={<Suspense fallback={<MinimalLoader />}><DeveloperPortal /></Suspense>} />
-                <Route path="/usage" element={<Suspense fallback={<MinimalLoader />}><DeveloperPortal /></Suspense>} />
+        <StandardLayout>
+          <Routes>
+            <Route path="/" element={<Suspense fallback={<MinimalLoader />}><Mind /></Suspense>} />
+            <Route path="/operations" element={<Suspense fallback={<MinimalLoader />}><Operations /></Suspense>} />
+            <Route path="/requests" element={<Suspense fallback={<MinimalLoader />}><Operations /></Suspense>} />
+            <Route path="/developer" element={<Suspense fallback={<MinimalLoader />}><DeveloperPortal /></Suspense>} />
+            <Route path="/billing" element={<Suspense fallback={<MinimalLoader />}><DeveloperPortal /></Suspense>} />
+            <Route path="/usage" element={<Suspense fallback={<MinimalLoader />}><DeveloperPortal /></Suspense>} />
 
-                <Route path="/people" element={<Suspense fallback={<TableLoader />}><People /></Suspense>} />
-                <Route path="/companies" element={<Suspense fallback={<TableLoader />}><Companies /></Suspense>} />
-                <Route path="/crm" element={<Suspense fallback={<TableLoader />}><CRM /></Suspense>} />
-                <Route path="/memories" element={<Suspense fallback={<TableLoader />}><Memories /></Suspense>} />
+            <Route path="/people" element={<Suspense fallback={<TableLoader />}><People /></Suspense>} />
+            <Route path="/companies" element={<Suspense fallback={<TableLoader />}><Companies /></Suspense>} />
+            <Route path="/crm" element={<Suspense fallback={<TableLoader />}><CRM /></Suspense>} />
+            <Route path="/memories" element={<Suspense fallback={<TableLoader />}><Memories /></Suspense>} />
 
-                <Route path="/integrations" element={<Suspense fallback={<TableLoader />}><Integrations /></Suspense>} />
-                <Route path="/requests" element={<Suspense fallback={<TableLoader />}><Requests /></Suspense>} />
-                <Route path="/inbox" element={<Suspense fallback={<TableLoader />}><Inbox /></Suspense>} />
+            <Route path="/integrations" element={<Suspense fallback={<TableLoader />}><Integrations /></Suspense>} />
+            <Route path="/inbox" element={<Suspense fallback={<TableLoader />}><Inbox /></Suspense>} />
 
-                <Route path="/reporting" element={<Suspense fallback={<TableLoader />}><Reporting /></Suspense>} />
-                <Route path="/analytics" element={<Navigate to="/reporting" replace />} />
+            <Route path="/reporting" element={<Suspense fallback={<TableLoader />}><Reporting /></Suspense>} />
+            <Route path="/analytics" element={<Navigate to="/reporting" replace />} />
 
-                <Route path="/api" element={<Suspense fallback={<MinimalLoader />}><API /></Suspense>} />
-                <Route path="/settings" element={<Suspense fallback={<MinimalLoader />}><Settings /></Suspense>} />
-                <Route path="/settings/*" element={<Suspense fallback={<MinimalLoader />}><Settings /></Suspense>} />
-                <Route path="/system-log" element={<Suspense fallback={<TableLoader />}><SystemLog /></Suspense>} />
+            <Route path="/api" element={<Suspense fallback={<MinimalLoader />}><API /></Suspense>} />
+            <Route path="/settings" element={<Suspense fallback={<MinimalLoader />}><Settings /></Suspense>} />
+            <Route path="/settings/*" element={<Suspense fallback={<MinimalLoader />}><Settings /></Suspense>} />
+            <Route path="/system-log" element={<Suspense fallback={<TableLoader />}><SystemLog /></Suspense>} />
 
-                {/* Admin pages with sidebar */}
-                <Route path="/admin/changelog" element={<AdminRoute><Suspense fallback={<MinimalLoader />}><AdminChangelog /></Suspense></AdminRoute>} />
-                <Route path="/admin/roadmap" element={<AdminRoute><Suspense fallback={<MinimalLoader />}><AdminRoadmap /></Suspense></AdminRoute>} />
-                <Route path="/admin/updates" element={<AdminRoute><Suspense fallback={<MinimalLoader />}><AdminUpdates /></Suspense></AdminRoute>} />
-                <Route path="/admin/media" element={<AdminRoute><Suspense fallback={<MinimalLoader />}><AdminMedia /></Suspense></AdminRoute>} />
-                <Route path="/admin/affiliates" element={<AdminRoute><Suspense fallback={<MinimalLoader />}><AdminAffiliates /></Suspense></AdminRoute>} />
+            <Route path="/admin/changelog" element={<AdminRoute><Suspense fallback={<MinimalLoader />}><AdminChangelog /></Suspense></AdminRoute>} />
+            <Route path="/admin/roadmap" element={<AdminRoute><Suspense fallback={<MinimalLoader />}><AdminRoadmap /></Suspense></AdminRoute>} />
+            <Route path="/admin/updates" element={<AdminRoute><Suspense fallback={<MinimalLoader />}><AdminUpdates /></Suspense></AdminRoute>} />
+            <Route path="/admin/media" element={<AdminRoute><Suspense fallback={<MinimalLoader />}><AdminMedia /></Suspense></AdminRoute>} />
+            <Route path="/admin/affiliates" element={<AdminRoute><Suspense fallback={<MinimalLoader />}><AdminAffiliates /></Suspense></AdminRoute>} />
 
-                <Route path="*" element={<Suspense fallback={<MinimalLoader />}><NotFound /></Suspense>} />
-              </Routes>
-            </div>
-          </main>
-        </div>
+            <Route path="*" element={<Suspense fallback={<MinimalLoader />}><NotFound /></Suspense>} />
+          </Routes>
+        </StandardLayout>
       } />
     </Routes>
   );

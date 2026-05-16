@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { getSupabaseClient, saveMemory } from '@proply/core';
+import { logMcpOp } from '../../lib/mcpLogger.mjs';
 
 export const rememberRouter = Router();
 
@@ -29,6 +30,11 @@ rememberRouter.post('/', async (req, res) => {
 
     const memory = await saveMemory(getSupabaseClient(), req.workspaceId, {
       content: resolvedContent, category, source, metadata: mergedMetadata,
+    });
+    logMcpOp(req.workspaceId, { clientType: req.clientType,
+      eventType: 'memory_write',
+      summary: `[${category}] ${resolvedContent.slice(0, 80)}${resolvedContent.length > 80 ? '…' : ''}`,
+      contactId: resolvedContactId || null,
     });
     return res.status(201).json({ memory, stored: 1, facts: [{ content: memory.content }] });
   } catch (err) {

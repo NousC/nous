@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { getSupabaseClient, getCompanyProfile } from '@proply/core';
+import { logMcpOp } from '../../lib/mcpLogger.mjs';
 
 export const companiesRouter = Router();
 
@@ -99,6 +100,12 @@ companiesRouter.get('/:id', async (req, res) => {
   try {
     const company = await getCompanyProfile(getSupabaseClient(), req.workspaceId, req.params.id);
     if (!company) return res.status(404).json({ error: 'company_not_found' });
+    const parts = [company.name, company.domain, company.industry].filter(Boolean);
+    if (company.employee_count) parts.push(`${company.employee_count} employees`);
+    logMcpOp(req.workspaceId, { clientType: req.clientType,
+      eventType: 'company_read',
+      summary: parts.join(' · '),
+    });
     return res.json(company);
   } catch (err) {
     console.error('[GET /v1/companies/:id]', err);

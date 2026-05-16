@@ -27,5 +27,8 @@ export async function verifyApiKey(req, res, next) {
 
   req.workspaceId = keyRow.workspace_id;
   req.apiKeyId = keyRow.id;
+  // Normalize client identifier: mcp, sdk (sdk-node → sdk), or api
+  const rawClient = (req.headers['x-proply-client'] || '').toLowerCase();
+  req.clientType = rawClient === 'mcp' ? 'mcp' : rawClient.startsWith('sdk') ? 'sdk' : 'api';
   next();
 }

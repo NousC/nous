@@ -4,6 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
+import { ThemeProvider } from "@/contexts/ThemeContext";
 import { AppRoutes } from "@/components/AppRoutes";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { usePostHog } from "@/hooks/usePostHog";
@@ -77,6 +78,7 @@ function PostHogPageView() {
 
 const App = () => (
   <ErrorBoundary>
+    <ThemeProvider>
     <AuthProvider>
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
@@ -123,6 +125,7 @@ const App = () => (
         </TooltipProvider>
       </QueryClientProvider>
     </AuthProvider>
+    </ThemeProvider>
   </ErrorBoundary>
 );
 

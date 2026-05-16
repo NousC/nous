@@ -7,6 +7,7 @@ import {
   softDeleteMemory,
   searchMemories,
 } from '@proply/core';
+import { logMcpOp } from '../../lib/mcpLogger.mjs';
 
 export const memoriesRouter = Router();
 
@@ -16,6 +17,12 @@ memoriesRouter.get('/', async (req, res) => {
     const memories = await listMemories(getSupabaseClient(), req.workspaceId, {
       category: req.query.category,
       limit: req.query.limit ? parseInt(req.query.limit) : undefined,
+    });
+    const count = memories.length;
+    const cat = req.query.category;
+    logMcpOp(req.workspaceId, { clientType: req.clientType,
+      eventType: 'workspace_memory_read',
+      summary: `${count} workspace fact${count !== 1 ? 's' : ''}${cat ? ` · ${cat}` : ''}`,
     });
     return res.json({ memories });
   } catch (err) {

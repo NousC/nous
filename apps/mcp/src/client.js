@@ -28,6 +28,7 @@ async function request(method, path, { body, query } = {}) {
   const headers = {
     Authorization: `Bearer ${API_KEY}`,
     "Content-Type": "application/json",
+    "X-Proply-Client": "mcp",
   };
 
   const res = await fetch(url.toString(), {

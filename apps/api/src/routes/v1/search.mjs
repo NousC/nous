@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { getSupabaseClient, searchMemories } from '@proply/core';
+import { logMcpOp } from '../../lib/mcpLogger.mjs';
 
 export const searchRouter = Router();
 
@@ -12,6 +13,11 @@ searchRouter.post('/', async (req, res) => {
     const results = await searchMemories(getSupabaseClient(), req.workspaceId, {
       q, contact_id, company_id,
       limit: limit ? parseInt(limit) : undefined,
+    });
+    const count = results.length;
+    logMcpOp(req.workspaceId, { clientType: req.clientType,
+      eventType: 'memory_search',
+      summary: `"${q}" → ${count} result${count !== 1 ? 's' : ''}`,
     });
     return res.json({ results });
   } catch (err) {

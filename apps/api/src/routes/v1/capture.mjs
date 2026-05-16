@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { getSupabaseClient, isUUID } from '@proply/core';
+import { logMcpOp } from '../../lib/mcpLogger.mjs';
 
 export const captureRouter = Router();
 
@@ -61,6 +62,11 @@ captureRouter.post('/', async (req, res) => {
       .eq('id', contact.id)
       .single();
 
+    logMcpOp(req.workspaceId, { clientType: req.clientType,
+      eventType: 'activity_track',
+      summary: `${type}${description ? `: ${description.slice(0, 70)}` : ''}`,
+      contactId: contact.id,
+    });
     return res.status(201).json({
       activity,
       contact_id: contact.id,
