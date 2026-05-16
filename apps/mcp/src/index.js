@@ -78,7 +78,7 @@ validateConfig();
 
 const server = new McpServer({
   name: "proply",
-  version: "0.8.8",
+  version: "0.8.9",
   description: "Proply — contact intelligence for GTM agents. Call get_contact before acting on any person. Call track and remember after every interaction.",
   icons: [
     { src: "https://goproply.com/newlogoP.png", mimeType: "image/png", sizes: ["64x64"] },
@@ -223,6 +223,18 @@ server.tool(
 // Record that something happened — a call, email, meeting, website visit.
 // For what you *learned*, also call remember.
 // ---------------------------------------------------------------------------
+
+const TRACK_NEXT_STEP = {
+  call_held:        "Call remember if you learned something worth keeping.",
+  meeting_held:     "Call remember if you learned something worth keeping.",
+  email_reply:      "They replied — draft your response or update the pipeline stage.",
+  linkedin_replied: "They replied — draft your response or update the pipeline stage.",
+  proposal_sent:    "Flag for follow-up if no reply in 3 days.",
+  follow_up_sent:   "Consider updating the pipeline stage if they're not engaging.",
+  trial_started:    "High-intent signal — consider moving to evaluating stage.",
+  linkedin_connected: "Good opener — send an intro message.",
+};
+
 server.tool(
   "track",
   "Record an interaction with a contact — email sent, call held, meeting completed, website visit, etc. Pass email or contact_id. If you learned something meaningful, also call remember.",
@@ -253,12 +265,17 @@ server.tool(
 
     const result = await post("/v1/track", body);
 
-    const newContact = result.created_contact ? " (new contact created)" : "";
+    const parts = [`Logged \`${type}\`${description ? `: "${description}"` : ""}.`];
+
+    if (result.stage_after && result.stage_before && result.stage_after !== result.stage_before) {
+      parts.push(`Stage advanced: ${result.stage_before} → ${result.stage_after}.`);
+    }
+
+    const hint = TRACK_NEXT_STEP[type];
+    if (hint) parts.push(`Next: ${hint}`);
+
     return {
-      content: [{
-        type: "text",
-        text: `Logged \`${type}\`${description ? `: "${description}"` : ""}.${newContact}`,
-      }],
+      content: [{ type: "text", text: parts.join("\n") }],
     };
   }
 );
@@ -355,8 +372,8 @@ server.tool(
     if (facts.length) {
       lines.push(`\nCompany facts:`);
       for (const f of facts) {
-        const when = f.written_at ? ` (${f.written_at})` : "";
-        lines.push(`  [${f.category}]${when} ${f.content}`);
+        const age = f.written_at ? ` · ${relAge(f.written_at)}` : "";
+        lines.push(`  [${f.category}] ${f.content}${age}`);
       }
     }
 
@@ -392,9 +409,8 @@ server.tool(
     }
 
     const lines = results.map(r => {
-      const when  = r.written_at ? ` (${r.written_at})` : "";
-      const score = ` [${(r.similarity * 100).toFixed(0)}%]`;
-      return `  [${r.category}]${when}${score} ${r.content}`;
+      const age = r.written_at ? ` · ${relAge(r.written_at)}` : "";
+      return `  [${r.category}]${age} ${r.content}`;
     });
 
     return {
@@ -412,16 +428,19 @@ server.tool(
 // ---------------------------------------------------------------------------
 server.tool(
   "list_contacts",
-  "List contacts, optionally filtered by pipeline stage. Useful for identifying who to prioritize or reach out to next.",
+  "List contacts sorted by urgency (high ICP + longest since last touch first). Use stage to focus on a specific pipeline stage. Contacts marked !! are high-ICP and have gone cold — prioritize those.",
   {
     stage: z.enum(["identified", "aware", "interested", "evaluating", "client"])
       .optional()
       .describe("Filter by pipeline stage — omit to list all"),
+    filter: z.enum(["hot", "engaged"]).optional()
+      .describe("hot = active in last 14d with health≥45; engaged = active in last 60d"),
     limit: z.number().min(1).max(50).optional().describe("Max contacts to return (default 20)"),
   },
-  async ({ stage, limit = 20 }) => {
-    const params = { limit };
-    if (stage) params.stage = stage;
+  async ({ stage, filter, limit = 20 }) => {
+    const params = { limit: 50 }; // fetch more so urgency sort is meaningful
+    if (stage)  params.pipeline_stage = stage;
+    if (filter) params.filter = filter;
 
     const data = await get("/v1/contacts", params);
     const contacts = data.contacts ?? [];
@@ -431,17 +450,38 @@ server.tool(
       return { content: [{ type: "text", text: stage ? `No contacts in stage "${stage}".` : "No contacts found." }] };
     }
 
-    const lines = contacts.map(c => {
+    // Urgency sort: high ICP score, penalised by days since last touch
+    const daysSince = c => c.last_activity_at
+      ? Math.floor((Date.now() - new Date(c.last_activity_at).getTime()) / 86400000)
+      : 999;
+
+    contacts.sort((a, b) => {
+      const ua = (a.icp_score ?? 0) - Math.min(daysSince(a) * 1.5, 50);
+      const ub = (b.icp_score ?? 0) - Math.min(daysSince(b) * 1.5, 50);
+      return ub - ua;
+    });
+
+    const shown = contacts.slice(0, limit);
+
+    const lines = shown.map(c => {
       const name    = c.name || c.email;
       const company = c.company ? ` @ ${c.company}` : "";
-      const score   = c.icp_score != null ? ` ICP:${c.icp_score}` : "";
-      return `  ${name}${company} — ${c.pipeline_stage || "identified"}${score} (${c.id})`;
+      const icp     = c.icp_score != null ? ` · ICP:${c.icp_score}` : "";
+      const d       = daysSince(c);
+      const age     = d === 999 ? " · never touched" : ` · ${relAge(c.last_activity_at)}`;
+      const flag    = d > 7 && (c.icp_score ?? 0) >= 70 ? "!! " : "   ";
+      return `${flag}${name}${company} — ${c.pipeline_stage || "identified"}${icp}${age} (${c.id})`;
     });
+
+    const header = `Contacts${stage ? ` — ${stage}` : ""}${filter ? ` [${filter}]` : ""} (${shown.length} of ${total}, sorted by urgency):`;
+    const legend = shown.some(c => daysSince(c) > 7 && (c.icp_score ?? 0) >= 70)
+      ? "!! = high ICP, gone cold\n"
+      : "";
 
     return {
       content: [{
         type: "text",
-        text: `Contacts${stage ? ` — ${stage}` : ""} (${contacts.length} of ${total}):\n${lines.join("\n")}`,
+        text: `${header}\n${legend}${lines.join("\n")}`,
       }],
     };
   }
