@@ -1,6 +1,6 @@
 {
   "name": "@goproply/mcp",
-  "version": "0.8.4",
+  "version": "0.8.5",
   "description": "Proply MCP Server — contact intelligence for GTM agents.",
   "type": "module",
   "bin": {
@@ -16,7 +16,6 @@
   "keywords": ["mcp", "proply", "memory", "crm", "gtm", "agents"],
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",
-    "@proply/core": "workspace:*",
     "zod": "^3.23.8"
   }
 }
