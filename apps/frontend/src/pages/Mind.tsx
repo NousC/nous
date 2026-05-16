@@ -67,7 +67,7 @@ interface IntegrationConn {
   id: string;
   name: string;
   is_verified: boolean;
-  provider: { display_name: string; logo_url?: string; category?: string; name?: string } | null;
+  provider: { display_name: string; logo_url?: string; category?: string; name?: string; auth_type?: string } | null;
 }
 
 interface AvailableProvider {
@@ -77,6 +77,7 @@ interface AvailableProvider {
   logo_url?: string;
   category?: string;
   description?: string;
+  auth_type?: string;
 }
 
 interface MemoryFact {
@@ -810,6 +811,9 @@ function CompaniesPopup({ companies, workspaceId, token, onClose }: { companies:
   const [coSort, setCoSort] = useState<CoSort>({ col:"dealHealthScore", dir:"desc" });
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 50;
+  const coEnriching = new Set<string>();
+  const coEnriched  = new Set<string>();
+  const coEnrichErr = new Set<string>();
 
   useEffect(() => {
     if (!detail) return;
@@ -1033,9 +1037,9 @@ function CompaniesPopup({ companies, workspaceId, token, onClose }: { companies:
       {/* Table header */}
       <div className="flex items-center px-5 py-1.5 border-b border-border/20 bg-muted/10">
         <SortHdr col="name"         label="COMPANY"   style={{width:155}} />
+        <span className="text-[9px] text-muted-foreground/35 tracking-widest flex-shrink-0" style={{width:95}}>DOMAIN</span>
         <span className="text-[9px] text-muted-foreground/35 tracking-widest flex-1 min-w-0">TOP CONTACTS</span>
         <SortHdr col="lastActivity" label="LAST ACT." style={{width:88}} />
-        <span className="text-[9px] text-muted-foreground/35 tracking-widest flex-shrink-0" style={{width:95}}>DOMAIN</span>
         <SortHdr col="industry"     label="INDUSTRY"  style={{width:88}} />
         <SortHdr col="employees"    label="EMP."      style={{width:68}} className="justify-end" />
         <SortHdr col="contacts"     label="CONTACTS"  style={{width:55}} className="justify-end" />
@@ -1045,18 +1049,15 @@ function CompaniesPopup({ companies, workspaceId, token, onClose }: { companies:
       <div className="divide-y divide-border/10 flex-1 overflow-y-auto">
         {pageRows.map(co => {
           const topContacts = co.contacts.slice(0,3).map(c=>c.name.split(" ")[0]).join(", ");
-          const enriching = coEnriching.has(co.id);
-          const enriched  = coEnriched.has(co.id);
-          const enrichErr = coEnrichErr.has(co.id);
           return (
           <div key={co.id} className="flex items-center px-5 py-2.5 hover:bg-muted/20 transition-colors group">
             <button onClick={() => setDetail(co)} className="flex items-center gap-2 flex-shrink-0 text-left" style={{width:155}}>
               <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{backgroundColor:healthColor(co.dealHealthScore)}} />
               <span className="text-[11px] text-foreground/80 truncate">{co.name}</span>
             </button>
+            <span className="text-[10px] text-muted-foreground/40 flex-shrink-0 truncate pr-2" style={{width:95}}>{co.domain??"—"}</span>
             <button onClick={()=>setDetail(co)} className="text-[10px] text-muted-foreground/35 flex-1 min-w-0 truncate pr-2 text-left">{topContacts||"—"}</button>
             <span className="text-[10px] text-muted-foreground/40 flex-shrink-0 pr-2" style={{width:88}}>{relTime(co.lastActivityAt)}</span>
-            <span className="text-[10px] text-muted-foreground/40 flex-shrink-0 truncate pr-2" style={{width:95}}>{co.domain??"—"}</span>
             <span className="text-[10px] text-muted-foreground/40 flex-shrink-0 truncate pr-2" style={{width:88}}>{co.industry??"—"}</span>
             <span className="text-[10px] text-muted-foreground/40 flex-shrink-0 text-right tabular-nums" style={{width:68}}>{co.employeeCount!=null?co.employeeCount.toLocaleString():"—"}</span>
             <span className="text-[10px] text-muted-foreground/50 flex-shrink-0 text-right tabular-nums" style={{width:55}}>{co.contactCount}</span>
@@ -1291,14 +1292,13 @@ function PeoplePopup({ contacts, onClose, token, onNavigate, workspaceId, defaul
 
   const handleEnrich = async (c: ContactInfo, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!c.domain || enriching.has(c.id) || enriched.has(c.id)) return;
+    if (enriching.has(c.id) || enriched.has(c.id)) return;
     setEnriching(prev => new Set(prev).add(c.id));
     setEnrichErr(prev => { const s = new Set(prev); s.delete(c.id); return s; });
     try {
-      const res = await fetch(`${apiUrl}/api/companies/enrich`, {
+      const res = await fetch(`${apiUrl}/api/contacts/${c.id}/enrich`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ domain: c.domain, workspaceId, companyId: c.companyId }),
+        headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) setEnriched(prev => new Set(prev).add(c.id));
       else setEnrichErr(prev => new Set(prev).add(c.id));
@@ -1387,7 +1387,8 @@ function PeoplePopup({ contacts, onClose, token, onNavigate, workspaceId, defaul
         {/* Table header — NAME, COMPANY, LI, STAGE, ICP, DEAL↕, SEGMENT, HEALTH, LAST INT.↕, ENRICH */}
         <div className="flex items-center px-5 py-1.5 border-b border-border/20 bg-muted/10">
           <span className="text-[9px] text-muted-foreground/35 tracking-widest flex-shrink-0" style={{width:155}}>NAME</span>
-          <span className="text-[9px] text-muted-foreground/35 tracking-widest flex-shrink-0" style={{width:115}}>COMPANY</span>
+          <span className="text-[9px] text-muted-foreground/35 tracking-widest flex-shrink-0" style={{width:105}}>COMPANY</span>
+          <span className="text-[9px] text-muted-foreground/35 tracking-widest flex-shrink-0" style={{width:95}}>DOMAIN</span>
           <span className="text-[9px] text-muted-foreground/35 tracking-widest flex-shrink-0" style={{width:36}}>LI</span>
           <span className="text-[9px] text-muted-foreground/35 tracking-widest flex-shrink-0" style={{width:80}}>STAGE</span>
           <span className="text-[9px] text-muted-foreground/35 tracking-widest flex-shrink-0" style={{width:38}}>ICP</span>
@@ -1405,7 +1406,8 @@ function PeoplePopup({ contacts, onClose, token, onNavigate, workspaceId, defaul
                 <div className="text-[11px] text-foreground/80 truncate">{c.name}</div>
                 {c.title && <div className="text-[9px] text-muted-foreground/35 truncate">{c.title}</div>}
               </button>
-              <button onClick={() => setDetail(c)} className="text-[10px] text-muted-foreground/50 truncate pr-2 flex-shrink-0 text-left" style={{width:115}}>{c.companyName ?? "—"}</button>
+              <button onClick={() => setDetail(c)} className="text-[10px] text-muted-foreground/50 truncate pr-2 flex-shrink-0 text-left" style={{width:105}}>{c.companyName ?? "—"}</button>
+              <span className="text-[10px] text-muted-foreground/35 truncate pr-2 flex-shrink-0" style={{width:95}}>{c.domain ?? "—"}</span>
               <div className="flex-shrink-0" style={{width:36}}>
                 {c.linkedinUrl
                   ? <a href={c.linkedinUrl} target="_blank" rel="noopener noreferrer" onClick={e=>e.stopPropagation()}
@@ -1424,16 +1426,14 @@ function PeoplePopup({ contacts, onClose, token, onNavigate, workspaceId, defaul
               </button>
               <button onClick={() => setDetail(c)} className="text-[10px] text-muted-foreground/40 flex-1 text-left" style={{minWidth:0}}>{relTime(c.lastActivityAt)}</button>
               <div className="flex-shrink-0 text-right" style={{width:72}}>
-                {!c.domain ? (
-                  <span className="text-[8px] text-muted-foreground/20">no domain</span>
-                ) : enriched.has(c.id) ? (
+                {enriched.has(c.id) ? (
                   <span className="text-[8px] text-emerald-500/60">enriched</span>
                 ) : enrichErr.has(c.id) ? (
                   <span className="text-[8px] text-red-400/60">failed</span>
                 ) : (
                   <button onClick={e => handleEnrich(c, e)} disabled={enriching.has(c.id)}
-                    className="text-[8px] text-violet-400/50 hover:text-violet-400/80 transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-40 flex items-center gap-0.5 ml-auto">
-                    {enriching.has(c.id) ? <RefreshCw className="h-2.5 w-2.5 animate-spin"/> : <><span>Enrich</span><span className="text-muted-foreground/30">·5cr</span></>}
+                    className="text-[8px] text-violet-400/60 hover:text-violet-400/90 transition-colors disabled:opacity-40 flex items-center gap-0.5 ml-auto">
+                    {enriching.has(c.id) ? <RefreshCw className="h-2.5 w-2.5 animate-spin"/> : <span>Enrich</span>}
                   </button>
                 )}
               </div>
@@ -1518,6 +1518,7 @@ function IntegrationsPopup({ integrations, workspaceId, token, onClose }: {
   const [connTestResult, setConnTestResult] = useState<{verified:boolean;message:string}|null>(null);
   const [connSaving, setConnSaving] = useState(false);
   const [connSuccess, setConnSuccess] = useState<string|null>(null);
+  const [connOAuthLoading, setConnOAuthLoading] = useState(false);
   // Live connections state (so we can refresh after connecting)
   const [liveConns, setLiveConns] = useState<IntegrationConn[]>(integrations);
 
@@ -1545,9 +1546,46 @@ function IntegrationsPopup({ integrations, workspaceId, token, onClose }: {
     navigator.clipboard.writeText(url).then(() => { setCopied(key); setTimeout(()=>setCopied(null),2000); });
   };
 
+  const isOAuth = (p: AvailableProvider | null) =>
+    p?.auth_type === "oauth2" || ["airtable","notion","google_analytics","slack","gmail","granola","salesforce"].includes(p?.name ?? "");
+
   const startConnect = (p: AvailableProvider) => {
     setConnecting(p); setConnApiKey(""); setConnName(p.display_name);
-    setConnTestResult(null); setConnSuccess(null);
+    setConnTestResult(null); setConnSuccess(null); setConnOAuthLoading(false);
+  };
+
+  const handleOAuthConnect = async () => {
+    if (!connecting || !workspaceId || !token) return;
+    setConnOAuthLoading(true);
+    try {
+      let url = `${apiUrl}/api/workflow-providers/${connecting.name}/oauth/authorize?workspace_id=${workspaceId}&connectionName=${encodeURIComponent(connName.trim() || connecting.display_name)}`;
+      if (connecting.name === "gmail" || connecting.name === "gmail_oauth")
+        url = `${apiUrl}/api/oauth/google/gmail/authorize?workspaceId=${workspaceId}&connectionName=${encodeURIComponent(connName.trim() || connecting.display_name)}`;
+
+      const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+      if (!resp.ok) {
+        const body = await resp.json().catch(() => ({}));
+        setConnTestResult({ verified: false, message: body.message || "Failed to initiate OAuth" });
+        setConnOAuthLoading(false);
+        return;
+      }
+      const data = await resp.json();
+      const authUrl = data.authUrl || data.authorization_url;
+      if (!authUrl) { setConnTestResult({ verified: false, message: "No authorization URL returned" }); setConnOAuthLoading(false); return; }
+
+      const w = 600, h = 700;
+      const popup = window.open(authUrl, `${connecting.name}OAuth`, `width=${w},height=${h},left=${window.screenX + (window.outerWidth - w) / 2},top=${window.screenY + (window.outerHeight - h) / 2}`);
+
+      const timer = window.setInterval(() => {
+        if (popup?.closed) {
+          window.clearInterval(timer);
+          setConnOAuthLoading(false);
+          setConnSuccess(connecting.display_name);
+          setLiveConns(prev => [...prev, { id: Date.now().toString(), name: connName.trim() || connecting.display_name, is_verified: true, provider: { display_name: connecting.display_name, logo_url: connecting.logo_url, category: connecting.category, name: connecting.name, auth_type: connecting.auth_type } }]);
+          setTimeout(() => { setConnecting(null); setConnSuccess(null); setTab("connected"); }, 1500);
+        }
+      }, 800);
+    } catch { setConnTestResult({ verified: false, message: "OAuth failed" }); setConnOAuthLoading(false); }
   };
 
   const testConnection = async () => {
@@ -1598,6 +1636,24 @@ function IntegrationsPopup({ integrations, workspaceId, token, onClose }: {
             <div className="text-center py-8">
               <Check className="h-8 w-8 text-emerald-500/70 mx-auto mb-2"/>
               <div className="text-[12px] text-emerald-500/70">{connSuccess} connected</div>
+            </div>
+          ) : isOAuth(connecting) ? (
+            <div className="space-y-4">
+              <div>
+                <div className="text-[9px] text-muted-foreground/35 mb-1">CONNECTION NAME</div>
+                <input value={connName} onChange={e=>setConnName(e.target.value)}
+                  className="w-full bg-muted/20 border border-border/40 text-[11px] text-foreground px-2.5 py-1.5 outline-none focus:border-violet-500/40"/>
+              </div>
+              {connTestResult && (
+                <div className="text-[10px] px-3 py-2 border text-red-400/70 border-red-500/20 bg-red-500/5">
+                  {connTestResult.message}
+                </div>
+              )}
+              <button onClick={handleOAuthConnect} disabled={connOAuthLoading}
+                className="w-full text-[11px] px-4 py-2 bg-violet-500/20 border border-violet-500/30 text-violet-400/80 hover:bg-violet-500/30 transition-colors disabled:opacity-40 flex items-center justify-center gap-2">
+                {connOAuthLoading ? <><RefreshCw className="h-3 w-3 animate-spin"/>connecting…</> : `Connect ${connecting?.display_name} via OAuth`}
+              </button>
+              <p className="text-[9px] text-muted-foreground/35 text-center">You'll be redirected to authorize securely</p>
             </div>
           ) : (
             <div className="space-y-4">
@@ -1659,6 +1715,7 @@ function IntegrationsPopup({ integrations, workspaceId, token, onClose }: {
                   display_name: conn.provider?.display_name ?? conn.name,
                   logo_url: conn.provider?.logo_url,
                   category: conn.provider?.category,
+                  auth_type: conn.provider?.auth_type,
                 };
                 return (
                 <div key={conn.id} className="flex items-center gap-4 px-5 py-3 hover:bg-muted/10 transition-colors group">
@@ -2099,7 +2156,7 @@ function SettingsFullPopup({ onClose, initialTab = "profile" }: { onClose: () =>
     if (!token) return;
     setKeysLoading(true);
     try {
-      const res = await fetch(`${apiUrl}/api/workspace/api-keys`, { headers: { Authorization: `Bearer ${token}` } });
+      const res = await fetch(`${apiUrl}/api/workspace/api-keys?workspaceId=${workspaceId}`, { headers: { Authorization: `Bearer ${token}` } });
       if (res.ok) setApiKeys((await res.json()).api_keys ?? []);
     } finally { setKeysLoading(false); }
   };
@@ -2187,7 +2244,7 @@ function SettingsFullPopup({ onClose, initialTab = "profile" }: { onClose: () =>
     if (!newKeyName.trim() || !token) return;
     setCreatingKey(true);
     try {
-      const res = await fetch(`${apiUrl}/api/workspace/api-keys`, {
+      const res = await fetch(`${apiUrl}/api/workspace/api-keys?workspaceId=${workspaceId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ name: newKeyName.trim() }),
@@ -2199,7 +2256,7 @@ function SettingsFullPopup({ onClose, initialTab = "profile" }: { onClose: () =>
 
   const deleteKey = async (id: string) => {
     if (!token || !confirm("Delete this API key? This cannot be undone.")) return;
-    await fetch(`${apiUrl}/api/workspace/api-keys/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
+    await fetch(`${apiUrl}/api/workspace/api-keys/${id}?workspaceId=${workspaceId}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
     await loadKeys();
     toast.success("Key deleted");
   };
