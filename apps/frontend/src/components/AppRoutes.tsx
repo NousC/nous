@@ -1,7 +1,5 @@
-import { Routes, Route, Navigate, useLocation } from "react-router-dom";
+import { Routes, Route, Navigate } from "react-router-dom";
 import React, { lazy, Suspense } from "react";
-import { AppSidebar } from "@/components/AppSidebar";
-import { ProfileDropdown } from "@/components/ProfileDropdown";
 import { AdminRoute } from "@/components/AdminRoute";
 
 const lazyWithErrorBoundary = (importFn: () => Promise<any>) => {
@@ -81,21 +79,11 @@ function AdminFullScreen({ children }: { children: React.ReactNode }) {
   );
 }
 
-// Pages that manage their own top bar (no shared header)
-const NO_HEADER_ROUTES = ["/"];
-
+// Sidebar-free shell — Mind is the chrome, pages fill the screen
 function StandardLayout({ children }: { children: React.ReactNode }) {
-  const location = useLocation();
-  const showHeader = !NO_HEADER_ROUTES.includes(location.pathname);
   return (
     <div className="flex h-screen w-full bg-background overflow-hidden">
-      <AppSidebar />
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {showHeader && (
-          <header className="flex-shrink-0 flex h-14 items-center justify-end gap-4 border-b border-border/60 bg-background px-5">
-            <ProfileDropdown />
-          </header>
-        )}
         <div className="flex-1 overflow-auto">
           {children}
         </div>
@@ -122,20 +110,21 @@ export function AppRoutes() {
             <Route path="/billing" element={<Suspense fallback={<MinimalLoader />}><DeveloperPortal /></Suspense>} />
             <Route path="/usage" element={<Suspense fallback={<MinimalLoader />}><DeveloperPortal /></Suspense>} />
 
-            <Route path="/people" element={<Suspense fallback={<TableLoader />}><People /></Suspense>} />
-            <Route path="/companies" element={<Suspense fallback={<TableLoader />}><Companies /></Suspense>} />
-            <Route path="/crm" element={<Suspense fallback={<TableLoader />}><CRM /></Suspense>} />
-            <Route path="/memories" element={<Suspense fallback={<TableLoader />}><Memories /></Suspense>} />
+            {/* These views live as popovers in Mind — redirect direct URL access back to home */}
+            <Route path="/people" element={<Navigate to="/" replace />} />
+            <Route path="/companies" element={<Navigate to="/" replace />} />
+            <Route path="/crm" element={<Navigate to="/" replace />} />
+            <Route path="/memories" element={<Navigate to="/" replace />} />
+            <Route path="/integrations" element={<Navigate to="/" replace />} />
+            <Route path="/settings" element={<Navigate to="/" replace />} />
+            <Route path="/settings/*" element={<Navigate to="/" replace />} />
 
-            <Route path="/integrations" element={<Suspense fallback={<TableLoader />}><Integrations /></Suspense>} />
             <Route path="/inbox" element={<Suspense fallback={<TableLoader />}><Inbox /></Suspense>} />
 
             <Route path="/reporting" element={<Suspense fallback={<TableLoader />}><Reporting /></Suspense>} />
             <Route path="/analytics" element={<Navigate to="/reporting" replace />} />
 
             <Route path="/api" element={<Suspense fallback={<MinimalLoader />}><API /></Suspense>} />
-            <Route path="/settings" element={<Suspense fallback={<MinimalLoader />}><Settings /></Suspense>} />
-            <Route path="/settings/*" element={<Suspense fallback={<MinimalLoader />}><Settings /></Suspense>} />
             <Route path="/system-log" element={<Suspense fallback={<TableLoader />}><SystemLog /></Suspense>} />
 
             <Route path="/admin/changelog" element={<AdminRoute><Suspense fallback={<MinimalLoader />}><AdminChangelog /></Suspense></AdminRoute>} />
