@@ -27,12 +27,12 @@ requestsRouter.get('/log', verifySupabaseAuth, async (req, res) => {
     const off = parseInt(offset);
     const since = days === 'all' ? null : new Date(Date.now() - parseInt(days) * 86400000).toISOString();
 
-    // Get user's workspace IDs for system log query
-    const { data: memberships } = await supabase
-      .from('workspace_members')
-      .select('workspace_id')
-      .eq('user_id', user.id);
-    const wsIds = (memberships || []).map(m => m.workspace_id);
+    // Get all workspace IDs for this team (same approach as /stats)
+    const { data: teamWorkspaces } = await supabase
+      .from('workspaces')
+      .select('id')
+      .eq('team_id', team.id);
+    const wsIds = (teamWorkspaces || []).map(w => w.id);
 
     // Query both tables in parallel
     const [opsRes, sysRes] = await Promise.all([
