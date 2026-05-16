@@ -35,7 +35,7 @@ contactsApiRouter.get('/', verifySupabaseAuth, async (req, res) => {
     query = sort === 'interactions_asc'
       ? query.order('last_activity_at', { ascending: true, nullsFirst: false })
       : query.order('last_activity_at', { ascending: false, nullsFirst: false });
-    const lim = Math.min(parseInt(limit) || 50, 100);
+    const lim = Math.min(parseInt(limit) || 50, 1000);
     const off = parseInt(offset) || 0;
     query = query.range(off, off + lim - 1);
 

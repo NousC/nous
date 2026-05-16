@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
 import {
@@ -1283,6 +1283,7 @@ type SortKey = "last_interaction" | "interactions_desc" | "interactions_asc";
 export default function People() {
   const { userData, session } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const workspaceId = userData?.workspace?.id;
   const apiUrl = import.meta.env.VITE_API_URL ?? "";
 
@@ -1290,8 +1291,14 @@ export default function People() {
   const [source, setSource]           = useState(() => localStorage.getItem("people_source") || "");
   const [dealStageFilter, setDealStageFilter] = useState(() => localStorage.getItem("people_deal_stage") || "");
   const [sort, setSort]               = useState<SortKey>(() => (localStorage.getItem("people_sort") as SortKey) || "last_interaction");
-  const [search, setSearch]           = useState("");
+  const [search, setSearch]           = useState(() => searchParams.get("q") ?? "");
   const [page, setPage]               = useState(0);
+
+  // Sync search when navigating to /people?q=... from another page
+  useEffect(() => {
+    const q = searchParams.get("q");
+    if (q !== null) setSearch(q);
+  }, [searchParams]); // eslint-disable-line
   const PAGE_SIZE = 50;
   const [selected, setSelected]       = useState<Person | null>(null);
 

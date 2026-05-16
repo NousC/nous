@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { AppRoutes } from "@/components/AppRoutes";
+import { CommandPalette } from "@/components/CommandPalette";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { usePostHog } from "@/hooks/usePostHog";
 import { useEffect, lazy, Suspense } from "react";
@@ -108,12 +109,13 @@ const App = () => (
               <Route path="/cookies" element={<Suspense fallback={<PageLoader />}><CookiePolicy /></Suspense>} />
               <Route path="/impressum" element={<Suspense fallback={<PageLoader />}><Impressum /></Suspense>} />
 
-              {/* App (with sidebar) */}
+              {/* App — sidebar-free, Mind is the shell */}
               <Route
                 path="/*"
                 element={
                   <ProtectedRoute requireOnboarding={false}>
                     <AppRoutes />
+                    <CommandPalette />
                   </ProtectedRoute>
                 }
               />

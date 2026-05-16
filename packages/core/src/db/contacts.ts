@@ -54,7 +54,16 @@ export async function listContacts(
 
   if (search?.trim()) {
     const q = `%${search.trim()}%`;
-    query = query.or(`email.ilike.${q},first_name.ilike.${q},last_name.ilike.${q},company.ilike.${q}`);
+    // Build OR clauses — also split multi-word queries so "John Smith" matches first_name+last_name
+    const parts = search.trim().split(/\s+/).filter(Boolean);
+    let orClauses = `email.ilike.${q},first_name.ilike.${q},last_name.ilike.${q},company.ilike.${q}`;
+    if (parts.length > 1) {
+      for (const part of parts) {
+        const pq = `%${part}%`;
+        orClauses += `,first_name.ilike.${pq},last_name.ilike.${pq}`;
+      }
+    }
+    query = query.or(orClauses);
   }
 
   if (linkedin_url?.trim()) {

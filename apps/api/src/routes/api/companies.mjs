@@ -158,6 +158,24 @@ companiesApiRouter.get('/:id/graph', verifySupabaseAuth, async (req, res) => {
   }
 });
 
+// GET /api/companies/graph-edges — all workspace_graph_edges for the Mind view
+companiesApiRouter.get('/graph-edges', verifySupabaseAuth, async (req, res) => {
+  try {
+    const supabase = getSupabaseClient();
+    const { workspaceId } = req.query;
+    if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
+    const { data: edges } = await supabase
+      .from('workspace_graph_edges')
+      .select('subject_type, subject_id, subject_label, relationship, object_type, object_id, object_label, confidence')
+      .eq('workspace_id', workspaceId)
+      .limit(2000);
+    return res.json({ edges: edges ?? [] });
+  } catch (err) {
+    console.error('[GET /api/companies/graph-edges]', err);
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
 // GET /api/contact-graph
 companiesApiRouter.get('/contact-graph', verifySupabaseAuth, async (req, res) => {
   try {
