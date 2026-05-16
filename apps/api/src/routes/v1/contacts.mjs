@@ -72,14 +72,17 @@ contactsRouter.get('/:id/activity', async (req, res) => {
     if (!contact) return res.status(404).json({ error: 'contact_not_found' });
 
     const limit = Math.min(parseInt(req.query.limit) || 50, 100);
+    const since = req.query.since || null;
     const supabase = getSupabaseClient();
 
-    const { data: rows } = await supabase
+    let q = supabase
       .from('contact_activity_log')
       .select('id, activity_type, description, summary, source, occurred_at, raw_data')
       .eq('contact_id', contact.id)
       .order('occurred_at', { ascending: false })
       .limit(limit);
+    if (since) q = q.gte('occurred_at', since);
+    const { data: rows } = await q;
 
     const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).toISOString();
     const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString();

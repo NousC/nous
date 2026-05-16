@@ -29,7 +29,7 @@ validateConfig();
 
 const server = new McpServer({
   name: "proply",
-  version: "0.8.2",
+  version: "0.8.7",
   description: "Proply — contact intelligence for GTM agents. Call get_contact before acting on any person. Call track and remember after every interaction.",
   icons: [
     { src: "https://goproply.com/newlogoP.png", mimeType: "image/png", sizes: ["64x64"] },
@@ -54,9 +54,11 @@ server.tool(
     }
 
     const identifier = encodeURIComponent(contact_id || email);
+    const since90 = new Date(Date.now() - 90 * 86400000).toISOString();
+
     const [c, actData] = await Promise.all([
       get(`/v1/contacts/${identifier}`),
-      get(`/v1/contacts/${identifier}/activity`, { limit: 20 }).catch(() => ({ activities: [] })),
+      get(`/v1/contacts/${identifier}/activity`, { limit: 100, since: since90 }).catch(() => ({ activities: [] })),
     ]);
 
     const contactId = c.id || c.contact_id;
@@ -64,7 +66,7 @@ server.tool(
     const header = [name, c.title, c.company].filter(Boolean).join(" · ");
     const scores = [
       `Stage: ${c.pipeline_stage || "identified"}`,
-      c.icp_score != null        ? `ICP: ${c.icp_score}`              : null,
+      c.icp_score != null         ? `ICP: ${c.icp_score}`             : null,
       c.deal_health_score != null ? `Health: ${c.deal_health_score}`  : null,
       c.last_activity_at
         ? `Last seen: ${new Date(c.last_activity_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`
@@ -73,43 +75,71 @@ server.tool(
 
     const lines = [header, scores];
 
-    if (c.summary) {
-      lines.push(`\nSummary: ${c.summary}`);
+    if (c.summary) lines.push(`\nSummary: ${c.summary}`);
+
+    // ── Activity timeline — temporal compression ──────────────────────────────
+    const activities = actData.activities ?? [];
+    const now = Date.now();
+    const ms7  = 7  * 86400000;
+    const ms30 = 30 * 86400000;
+
+    const hot  = [];   // 0–7 days  → full body
+    const warm = [];   // 7–30 days → description only
+    const counts = {}; // 30–90 days → counts by type
+
+    for (const a of activities) {
+      const age = now - new Date(a.occurred_at).getTime();
+      if (age < ms7)        hot.push(a);
+      else if (age < ms30)  warm.push(a);
+      else                  counts[a.type] = (counts[a.type] || 0) + 1;
     }
 
-    // Activities
-    const activities = actData.activities ?? [];
-    if (activities.length) {
-      lines.push(`\nActivities (${activities.length}):`);
-      for (const a of activities) {
-        const date = a.occurred_at
-          ? new Date(a.occurred_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })
-          : "";
-        const desc = a.description ? `: ${a.description.slice(0, 100)}` : "";
-        lines.push(`  ${date} — ${a.type}${desc}`);
+    const fmtDate = t => new Date(t).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    const fmtType = t => t.replace(/_/g, " ");
+
+    if (hot.length || warm.length || Object.keys(counts).length) {
+      if (hot.length) {
+        lines.push(`\nLast 7 days (${hot.length}):`);
+        for (const a of hot) {
+          const body = a.body || null;
+          const desc = a.description || null;
+          const content = body || desc || null;
+          lines.push(`  ${fmtDate(a.occurred_at)} — ${fmtType(a.type)}${content ? `: ${content}` : ""}`);
+        }
+      }
+      if (warm.length) {
+        lines.push(`\n7–30 days (${warm.length}):`);
+        for (const a of warm) {
+          const desc = a.description ? `: ${a.description}` : "";
+          lines.push(`  ${fmtDate(a.occurred_at)} — ${fmtType(a.type)}${desc}`);
+        }
+      }
+      if (Object.keys(counts).length) {
+        const summary = Object.entries(counts)
+          .sort(([, a], [, b]) => b - a)
+          .map(([t, n]) => `${n}× ${fmtType(t)}`)
+          .join(" · ");
+        lines.push(`\n30–90 days: ${summary}`);
       }
     } else {
-      lines.push("\nNo activities recorded yet.");
+      lines.push("\nNo activity in the last 90 days.");
     }
 
-    // Facts
+    // ── Facts ─────────────────────────────────────────────────────────────────
     const facts = c.facts ?? [];
     if (facts.length) {
       const totalFacts = c.total_facts ?? facts.length;
-      lines.push(`\nFacts (showing ${facts.length}${totalFacts > facts.length ? ` of ${totalFacts}` : ""}):`);
+      lines.push(`\nFacts (${facts.length}${totalFacts > facts.length ? ` of ${totalFacts}` : ""}):`);
       for (const f of facts) {
-        const when = f.written_at ? ` (${f.written_at})` : "";
-        lines.push(`  [${f.category}]${when} ${f.content}`);
+        lines.push(`  [${f.category}] ${f.content}`);
       }
     }
 
-    // Company facts
     const companyFacts = c.company_facts ?? [];
     if (companyFacts.length) {
       lines.push(`\nCompany facts:`);
       for (const f of companyFacts) {
-        const when = f.written_at ? ` (${f.written_at})` : "";
-        lines.push(`  [${f.category}]${when} ${f.content}`);
+        lines.push(`  [${f.category}] ${f.content}`);
       }
     }
 
