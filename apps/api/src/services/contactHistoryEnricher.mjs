@@ -367,8 +367,6 @@ async function scanLinkedIn(supabase, workspaceId, contact, accountId, attendeeM
               resolvedProviderId = candidateId;
               for (const chat of chats) {
                 const chatMsgs = await unipilePages(`${UNIPILE_BASE()}/chats/${chat.id}/messages`, accountId);
-                const hasInbound = chatMsgs.some(m => !m.is_sender && (m.sender_id === candidateId || m.sender?.provider_id === candidateId));
-                if (!hasInbound) continue;
                 messages.push(...chatMsgs);
               }
               break;
