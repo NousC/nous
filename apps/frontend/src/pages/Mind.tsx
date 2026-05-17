@@ -1201,7 +1201,6 @@ function PeopleImportModal({ workspaceId, token, onClose, onDone }: {
         const d = await r.json();
         if (d.found) {
           setEnrichProgress({ contacts: d.contacts, done: d.done });
-          if (d.done) onDone();
         }
       } catch { /* silent */ }
     };
@@ -1301,38 +1300,49 @@ function PeopleImportModal({ workspaceId, token, onClose, onDone }: {
 
             <div className="space-y-2 max-h-[55vh] overflow-y-auto">
               {enrichProgress?.contacts.map((contact: any) => {
-                const active = Object.entries(contact.sources as Record<string,{status:string;count:number}>)
-                  .filter(([,s]) => s.status !== 'skipped');
+                const entries = Object.entries(contact.sources as Record<string,{status:string;count:number}>);
+                const active  = entries.filter(([,s]) => s.status !== 'skipped');
+                const allSkipped = active.length === 0;
                 return (
                   <div key={contact.id} className="border border-border/20 px-4 py-3">
                     <div className="text-[11px] text-foreground/70 mb-2">
                       {contact.name}
-                      <span className="text-muted-foreground/35 ml-2">{contact.email}</span>
+                      {contact.email && <span className="text-muted-foreground/35 ml-2">{contact.email}</span>}
                     </div>
-                    <div className="space-y-1">
-                      {active.map(([src, s]) => (
-                        <div key={src} className="flex items-center justify-between">
-                          <span className="text-[9px] text-muted-foreground/50">{SOURCE_LABELS[src] ?? src}</span>
-                          {s.status === 'pending'  && <span className="text-[9px] text-muted-foreground/25">waiting…</span>}
-                          {s.status === 'scanning' && (
-                            <span className="flex items-center gap-1 text-[9px] text-violet-400/70">
-                              <span className="w-1 h-1 rounded-full bg-violet-400 animate-pulse"/>scanning…
-                            </span>
-                          )}
-                          {s.status === 'done' && s.count > 0 && (
-                            <span className="flex items-center gap-1 text-[9px] text-emerald-500/70">
-                              <Check className="h-2.5 w-2.5"/>{s.count} found
-                            </span>
-                          )}
-                          {s.status === 'done' && s.count === 0 && (
-                            <span className="text-[9px] text-muted-foreground/20">—</span>
-                          )}
-                        </div>
-                      ))}
-                    </div>
+                    {allSkipped ? (
+                      <div className="text-[9px] text-muted-foreground/25 italic">no integrations connected</div>
+                    ) : (
+                      <div className="space-y-1">
+                        {active.map(([src, s]) => (
+                          <div key={src} className="flex items-center justify-between">
+                            <span className="text-[9px] text-muted-foreground/50">{SOURCE_LABELS[src] ?? src}</span>
+                            {s.status === 'pending'  && <span className="text-[9px] text-muted-foreground/25">waiting…</span>}
+                            {s.status === 'scanning' && (
+                              <span className="flex items-center gap-1 text-[9px] text-violet-400/70">
+                                <span className="w-1 h-1 rounded-full bg-violet-400 animate-pulse"/>scanning…
+                              </span>
+                            )}
+                            {s.status === 'done' && s.count > 0 && (
+                              <span className="flex items-center gap-1 text-[9px] text-emerald-500/70">
+                                <Check className="h-2.5 w-2.5"/>{s.count} found
+                              </span>
+                            )}
+                            {s.status === 'done' && s.count === 0 && (
+                              <span className="text-[9px] text-muted-foreground/20">—</span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 );
               })}
+              {enrichProgress?.done && enrichProgress.contacts.length > 0 &&
+                enrichProgress.contacts.every((c: any) => Object.values(c.sources as Record<string,{status:string}>).every(s => s.status === 'skipped')) && (
+                <div className="mt-3 text-[9px] text-muted-foreground/35 text-center">
+                  Connect Gmail, LinkedIn, or other integrations to scan contact history automatically.
+                </div>
+              )}
               {!enrichProgress && (
                 <div className="flex justify-center py-8">
                   <RefreshCw className="h-4 w-4 animate-spin text-muted-foreground/20"/>
@@ -1345,7 +1355,7 @@ function PeopleImportModal({ workspaceId, token, onClose, onDone }: {
                 disabled={!enrichProgress?.done}
                 onClick={() => { onDone(); onClose(); }}
                 className="w-full text-[10px] px-4 py-2 bg-violet-500/20 border border-violet-500/30 text-violet-400/80 hover:bg-violet-500/30 transition-colors disabled:opacity-30">
-                {enrichProgress?.done ? 'done' : 'scanning…'}
+                {enrichProgress?.done ? 'done — close' : 'scanning…'}
               </button>
             </div>
           </div>
