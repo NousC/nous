@@ -402,11 +402,14 @@ async function scanLinkedIn(supabase, workspaceId, contact, accountId, attendeeM
 
           for (const chat of chats) {
             const chatMsgs = await unipilePages(`${UNIPILE_BASE()}/chats/${chat.id}/messages`, accountId);
-            // Only DMs: group chats have multiple distinct inbound senders
             const inboundSenders = new Set(chatMsgs.filter(m => !m.is_sender && m.sender_id).map(m => m.sender_id));
+            // Skip group chats
             if (inboundSenders.size > 1) { console.log(`[ENRICH_LI PATH B] skip group chat ${chat.id} (${inboundSenders.size} senders)`); continue; }
-            // Only include if all inbound messages come from one sender (the contact)
-            if (inboundSenders.size === 1) messages.push(...chatMsgs);
+            if (inboundSenders.size === 0) continue;
+            const [actualSenderId] = inboundSenders;
+            console.log(`[ENRICH_LI PATH B] chat=${chat.id} inbound sender_id=${actualSenderId} expected=${realProviderId} match=${actualSenderId === realProviderId}`);
+            // Only include if the single inbound sender matches the contact's provider_id
+            if (actualSenderId === realProviderId) messages.push(...chatMsgs);
           }
 
           if (messages.length > 0) break;
@@ -529,6 +532,81 @@ async function scanSlack(supabase, workspaceId, contact, slackConn) {
   }
 }
 
+// ── Fireflies ─────────────────────────────────────────────────────────────────
+
+async function scanFireflies(supabase, workspaceId, contact, apiKey) {
+  if (!contact.email) return 0;
+  try {
+    const query = `query {
+      transcripts(participant_email: "${contact.email}") {
+        id title date duration
+        participants { name email }
+        summary { overview }
+      }
+    }`;
+    const res = await fetch('https://api.fireflies.ai/graphql', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({ query }),
+    });
+    if (!res.ok) return 0;
+    const data = await res.json();
+    const transcripts = data.data?.transcripts || [];
+    let logged = 0;
+    for (const t of transcripts) {
+      const occurredAt = t.date ? new Date(t.date).toISOString() : new Date().toISOString();
+      const participants = (t.participants || []).map(p => p.name || p.email).filter(Boolean).join(', ');
+      const r = await logActivity(supabase, {
+        workspaceId, contactId: contact.id, companyId: contact.company_id || null,
+        type: 'meeting_held', source: 'fireflies',
+        externalId:  `ff_${t.id}_${contact.id}`,
+        occurredAt,
+        description: t.title || 'Meeting recorded',
+        summary:     t.summary?.overview ? t.summary.overview.slice(0, 300) : (participants ? `Participants: ${participants}` : null),
+      });
+      if (r) logged++;
+    }
+    console.log(`[ENRICH_FIREFLIES] ${contact.email}: ${logged} logged`);
+    return logged;
+  } catch (e) {
+    console.error(`[ENRICH_FIREFLIES] ${contact.email}:`, e.message);
+    return 0;
+  }
+}
+
+// ── Fathom ────────────────────────────────────────────────────────────────────
+
+async function scanFathom(supabase, workspaceId, contact, apiKey) {
+  if (!contact.email) return 0;
+  try {
+    const res = await fetch(
+      `https://api.fathom.ai/external/v1/meetings?participant_email=${encodeURIComponent(contact.email)}&limit=50`,
+      { headers: { Authorization: `Bearer ${apiKey}` } }
+    );
+    if (!res.ok) return 0;
+    const data = await res.json();
+    const meetings = data.data || data.meetings || [];
+    let logged = 0;
+    for (const m of meetings) {
+      const occurredAt = m.started_at || m.created_at || new Date().toISOString();
+      const r = await logActivity(supabase, {
+        workspaceId, contactId: contact.id, companyId: contact.company_id || null,
+        type: 'meeting_held', source: 'fathom',
+        externalId:  `fathom_${m.id}_${contact.id}`,
+        occurredAt,
+        description: m.title || 'Meeting recorded',
+        summary:     m.summary || null,
+      });
+      if (r) logged++;
+    }
+    console.log(`[ENRICH_FATHOM] ${contact.email}: ${logged} logged`);
+    return logged;
+  } catch (e) {
+    console.error(`[ENRICH_FATHOM] ${contact.email}:`, e.message);
+    return 0;
+  }
+}
+
 // ── Main export ───────────────────────────────────────────────────────────────
 
 export async function enrichContactHistory(supabase, workspaceId, contactIds, jobId = null) {
@@ -546,11 +624,15 @@ export async function enrichContactHistory(supabase, workspaceId, contactIds, jo
   const connections = await getWorkspaceConnections(supabase, workspaceId);
 
   // Resolve credentials once
-  const gmailConn     = connections.gmail_oauth || null;
-  const smtpConn      = connections.smtp        || null;
-  const slackConn     = connections.slack       || null;
-  const instantlyKey  = connections.instantly?.encrypted_credentials?.api_key
+  const gmailConn      = connections.gmail_oauth || null;
+  const smtpConn       = connections.smtp        || null;
+  const slackConn      = connections.slack       || null;
+  const instantlyKey   = connections.instantly?.encrypted_credentials?.api_key
     ? decrypt(connections.instantly.encrypted_credentials.api_key) : null;
+  const firefliesKey   = connections.fireflies?.encrypted_credentials?.api_key
+    ? decrypt(connections.fireflies.encrypted_credentials.api_key) : null;
+  const fathomKey      = connections.fathom?.encrypted_credentials?.api_key
+    ? decrypt(connections.fathom.encrypted_credentials.api_key) : null;
 
   // Pre-fetch LinkedIn attendee map once for the whole batch
   let attendeeMap = { byUrl: new Map(), byMemberId: new Map(), connectedAt: new Map(), connectedAtByMemberId: new Map() };
@@ -567,11 +649,13 @@ export async function enrichContactHistory(supabase, workspaceId, contactIds, jo
         name:  [c.first_name, c.last_name].filter(Boolean).join(' ') || c.email,
         email: c.email,
         sources: {
-          gmail:    makeSource(!!gmailConn),
-          smtp:     makeSource(!!smtpConn),
-          linkedin: makeSource(!!connections.linkedin?.account_id),
+          gmail:     makeSource(!!gmailConn),
+          smtp:      makeSource(!!smtpConn),
+          linkedin:  makeSource(!!connections.linkedin?.account_id),
           instantly: makeSource(!!instantlyKey),
-          slack:    makeSource(!!slackConn),
+          slack:     makeSource(!!slackConn),
+          fireflies: makeSource(!!firefliesKey),
+          fathom:    makeSource(!!fathomKey),
         },
       })),
       done: false,
@@ -595,34 +679,63 @@ export async function enrichContactHistory(supabase, workspaceId, contactIds, jo
     const results = await Promise.allSettled(batch.map(async (contact) => {
       let count = 0;
 
+      const logScanEvent = (source, n, contactName) => supabase.from('workspace_system_log').insert({
+        workspace_id: workspaceId, source, event_type: 'scan_complete',
+        contact_id: contact.id,
+        summary: n > 0 ? `${contactName}: found ${n} item${n === 1 ? '' : 's'}` : `${contactName}: no new activity`,
+        metadata: { contact_id: contact.id, items_found: n },
+        occurred_at: new Date().toISOString(),
+      }).then(() => {}).catch(() => {});
+
+      const contactName = [contact.first_name, contact.last_name].filter(Boolean).join(' ') || contact.email || 'Contact';
+
       if (gmailConn) {
         setSource(contact.id, 'gmail', 'scanning');
         const n = await scanGmail(supabase, workspaceId, contact, gmailConn);
         setSource(contact.id, 'gmail', 'done', n);
+        logScanEvent('gmail', n, contactName);
         count += n;
       }
       if (smtpConn) {
         setSource(contact.id, 'smtp', 'scanning');
         const n = await scanImap(supabase, workspaceId, contact, smtpConn);
         setSource(contact.id, 'smtp', 'done', n);
+        logScanEvent('smtp', n, contactName);
         count += n;
       }
       if (connections.linkedin?.account_id) {
         setSource(contact.id, 'linkedin', 'scanning');
         const n = await scanLinkedIn(supabase, workspaceId, contact, connections.linkedin.account_id, attendeeMap);
         setSource(contact.id, 'linkedin', 'done', n);
+        logScanEvent('linkedin', n, contactName);
         count += n;
       }
       if (instantlyKey) {
         setSource(contact.id, 'instantly', 'scanning');
         const n = await scanInstantly(supabase, workspaceId, contact, instantlyKey);
         setSource(contact.id, 'instantly', 'done', n);
+        logScanEvent('instantly', n, contactName);
         count += n;
       }
       if (slackConn) {
         setSource(contact.id, 'slack', 'scanning');
         const n = await scanSlack(supabase, workspaceId, contact, slackConn);
         setSource(contact.id, 'slack', 'done', n);
+        logScanEvent('slack', n, contactName);
+        count += n;
+      }
+      if (firefliesKey) {
+        setSource(contact.id, 'fireflies', 'scanning');
+        const n = await scanFireflies(supabase, workspaceId, contact, firefliesKey);
+        setSource(contact.id, 'fireflies', 'done', n);
+        logScanEvent('fireflies', n, contactName);
+        count += n;
+      }
+      if (fathomKey) {
+        setSource(contact.id, 'fathom', 'scanning');
+        const n = await scanFathom(supabase, workspaceId, contact, fathomKey);
+        setSource(contact.id, 'fathom', 'done', n);
+        logScanEvent('fathom', n, contactName);
         count += n;
       }
 

@@ -30,6 +30,7 @@ export function systemLogOpName(
   const e = (eventType ?? "").toLowerCase();
 
   if (s === "linkedin") {
+    if (e === "scan_complete")   return { name: "linkedin.scan.complete",               color: "blue" };
     if (e === "webhook_received") {
       const t = ((metadata?.type ?? metadata?.event_type ?? "") as string).toLowerCase();
       if (t === "message_sent")   return { name: "linkedin.webhook.message.sent",       color: "blue" };
@@ -43,6 +44,7 @@ export function systemLogOpName(
   }
 
   if (s === "gmail" || s === "smtp") {
+    if (e === "scan_complete")   return { name: s === "smtp" ? "smtp.scan.complete" : "gmail.scan.complete", color: "sky" };
     if (e === "sync_run")        return { name: "gmail.sync.run",         color: "sky" };
     if (e === "signal_ingested") return { name: "gmail.signal.ingest",    color: "sky" };
     if (e === "webhook_received") return { name: "gmail.webhook.ingest",  color: "sky" };
@@ -58,15 +60,25 @@ export function systemLogOpName(
     return { name: "calendly.sync.run", color: "emerald" };
   }
 
-  if (s === "fireflies") return { name: "fireflies.sync.run", color: "purple" };
+  if (s === "fireflies") {
+    if (e === "scan_complete") return { name: "fireflies.scan.complete", color: "purple" };
+    return { name: "fireflies.sync.run", color: "purple" };
+  }
+
+  if (s === "fathom") {
+    if (e === "scan_complete") return { name: "fathom.scan.complete", color: "teal" };
+    return { name: "fathom.sync.run", color: "teal" };
+  }
 
   if (s === "instantly") {
-    if (e === "webhook_received") return { name: "instantly.webhook.ingest", color: "pink" };
+    if (e === "scan_complete")    return { name: "instantly.scan.complete",   color: "pink" };
+    if (e === "webhook_received") return { name: "instantly.webhook.ingest",  color: "pink" };
     return { name: "instantly.sync.run", color: "pink" };
   }
 
   if (s === "slack") {
-    if (e === "webhook_received") return { name: "slack.webhook.ingest", color: "yellow" };
+    if (e === "scan_complete")    return { name: "slack.scan.complete",       color: "yellow" };
+    if (e === "webhook_received") return { name: "slack.webhook.ingest",      color: "yellow" };
     return { name: "slack.sync.run", color: "yellow" };
   }
 

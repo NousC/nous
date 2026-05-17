@@ -455,7 +455,7 @@ function EvtIcon({ activityType, source }: { activityType: string; source: strin
     return <div className={cn(b,"bg-blue-50 border border-blue-100")}><Search className="h-3 w-3 text-blue-500"/></div>;
   }
 
-  if (activityType === 'icp_scored')
+if (activityType === 'icp_scored')
     return <div className={cn(b,"bg-indigo-50 border border-indigo-100")}><Target className="h-3 w-3 text-indigo-500"/></div>;
 
   if (['note','contact_created','manual','airtable_imported','airtable_synced','airtable_pushed'].includes(activityType))
