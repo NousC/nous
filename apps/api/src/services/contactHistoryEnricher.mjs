@@ -313,7 +313,8 @@ async function scanLinkedIn(supabase, workspaceId, contact, accountId, attendeeM
 
   try {
     const norm       = normaliseLinkedInUrl(contact.linkedin_url);
-    const identifier = norm?.match(/\/in\/([^/?]+)/)?.[1];
+    // Extract identifier from the ORIGINAL url (not norm) to preserve case — ACoAA member IDs are case-sensitive
+    const identifier = contact.linkedin_url?.match(/\/in\/([^/?]+)/i)?.[1] || null;
     const storedMemberId = contact.linkedin_member_id || null;
 
     const knownConnectedAt = (storedMemberId && attendeeMap.connectedAtByMemberId.get(storedMemberId))
@@ -332,37 +333,84 @@ async function scanLinkedIn(supabase, workspaceId, contact, accountId, attendeeM
     }
 
     // Message history
+    // Check attendee map by storedMemberId, by URL, or by identifier (handles ACoAA-format provider IDs in the URL)
     const attendeeId = (storedMemberId && attendeeMap.byMemberId.get(storedMemberId))
-      || (norm && attendeeMap.byUrl.get(norm));
+      || (norm && attendeeMap.byUrl.get(norm))
+      || (identifier && attendeeMap.byMemberId.get(identifier));
 
     let messages = [];
     if (attendeeId) {
-      messages = await unipilePages(`${UNIPILE_BASE()}/chat_attendees/${attendeeId}/messages`, accountId);
+      console.log(`[ENRICH_LI] found attendeeId=${attendeeId} for ${norm || identifier}`);
+      // Fetch via attendee endpoint first to get the chat_id, then re-fetch from the chat endpoint for full history
+      const sample = await unipilePages(`${UNIPILE_BASE()}/chat_attendees/${attendeeId}/messages`, accountId);
+      const chatId = sample[0]?.chat_id;
+      if (chatId) {
+        console.log(`[ENRICH_LI] fetching full chat history from chat_id=${chatId}`);
+        messages = await unipilePages(`${UNIPILE_BASE()}/chats/${chatId}/messages`, accountId);
+      } else {
+        messages = sample;
+      }
     } else if (storedMemberId || identifier) {
       try {
-        const lookupId  = storedMemberId || identifier;
-        const profileRes = await fetch(`${UNIPILE_BASE()}/users/${lookupId}?account_id=${accountId}`, { headers: unipileHeaders() });
-        if (profileRes.ok) {
-          const profile    = await profileRes.json();
-          const providerId = profile.provider_id;
-          if (providerId && !storedMemberId) {
-            await supabase.from('contacts').update({ linkedin_member_id: providerId }).eq('id', contact.id).then(null, () => {});
-          }
-          if (providerId) {
-            const chatRes = await fetch(`${UNIPILE_BASE()}/chats?account_id=${accountId}&attendee_provider_id=${providerId}&limit=10`, { headers: unipileHeaders() });
-            if (chatRes.ok) {
-              for (const chat of (await chatRes.json()).items || []) {
+        // Try every candidate ID as provider_id directly on /chats first (handles ACoAA URNs)
+        const candidateIds = [...new Set([storedMemberId, identifier].filter(Boolean))];
+        let resolvedProviderId = null;
+
+        for (const candidateId of candidateIds) {
+          console.log(`[ENRICH_LI PATH B] trying provider_id=${candidateId}`);
+          const chatRes = await fetch(`${UNIPILE_BASE()}/chats?account_id=${accountId}&attendee_provider_id=${candidateId}&limit=10`, { headers: unipileHeaders() });
+          if (chatRes.ok) {
+            const chatData = await chatRes.json();
+            const chats = chatData.items || [];
+            console.log(`[ENRICH_LI PATH B] provider_id=${candidateId} -> ${chats.length} chats`);
+            if (chats.length > 0) {
+              resolvedProviderId = candidateId;
+              for (const chat of chats) {
                 const chatMsgs = await unipilePages(`${UNIPILE_BASE()}/chats/${chat.id}/messages`, accountId);
-                const hasInbound = chatMsgs.some(m => !m.is_sender && (m.sender_id === providerId || m.sender?.provider_id === providerId));
+                const hasInbound = chatMsgs.some(m => !m.is_sender && (m.sender_id === candidateId || m.sender?.provider_id === candidateId));
                 if (!hasInbound) continue;
                 messages.push(...chatMsgs);
               }
+              break;
             }
+          } else {
+            console.log(`[ENRICH_LI PATH B] /chats with provider_id=${candidateId} -> ${chatRes.status}`);
+          }
+        }
+
+        // Fallback: resolve via /users/ to get canonical provider_id
+        if (!resolvedProviderId) {
+          const lookupId  = storedMemberId || identifier;
+          console.log(`[ENRICH_LI PATH B] /users lookup id=${lookupId}`);
+          const profileRes = await fetch(`${UNIPILE_BASE()}/users/${lookupId}?account_id=${accountId}`, { headers: unipileHeaders() });
+          if (profileRes.ok) {
+            const profile    = await profileRes.json();
+            const providerId = profile.provider_id;
+            console.log(`[ENRICH_LI PATH B] /users -> provider_id=${providerId}`);
+            if (providerId && !storedMemberId) {
+              await supabase.from('contacts').update({ linkedin_member_id: providerId }).eq('id', contact.id).then(null, () => {});
+            }
+            if (providerId) {
+              const chatRes2 = await fetch(`${UNIPILE_BASE()}/chats?account_id=${accountId}&attendee_provider_id=${providerId}&limit=10`, { headers: unipileHeaders() });
+              if (chatRes2.ok) {
+                for (const chat of (await chatRes2.json()).items || []) {
+                  const chatMsgs = await unipilePages(`${UNIPILE_BASE()}/chats/${chat.id}/messages`, accountId);
+                  const hasInbound = chatMsgs.some(m => !m.is_sender && (m.sender_id === providerId || m.sender?.provider_id === providerId));
+                  if (!hasInbound) continue;
+                  messages.push(...chatMsgs);
+                }
+              }
+            }
+          } else {
+            const body = await profileRes.text().catch(() => '');
+            console.log(`[ENRICH_LI PATH B] /users/${lookupId} -> ${profileRes.status} ${body.slice(0, 200)}`);
           }
         }
       } catch (e) { console.error(`[ENRICH_LI PATH B] ${norm || storedMemberId}:`, e.message); }
     }
 
+    const withText = messages.filter(m => m.text?.trim());
+    console.log(`[ENRICH_LI] ${messages.length} msgs fetched, ${withText.length} have text, keys: ${JSON.stringify([...new Set(messages.slice(0,1).flatMap(m => Object.keys(m)))])}`);
     for (const msg of messages) {
       if (!msg.text?.trim()) continue;
       const r = await logActivity(supabase, {
