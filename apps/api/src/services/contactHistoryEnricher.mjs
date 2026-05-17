@@ -365,18 +365,36 @@ async function scanLinkedIn(supabase, workspaceId, contact, accountId, attendeeM
             realProviderId = profile.provider_id || null;
             console.log(`[ENRICH_LI PATH B] resolved -> provider_id=${realProviderId}`);
             if (realProviderId && !storedMemberId) {
-              await supabase.from('contacts').update({ linkedin_member_id: realProviderId }).eq('id', contact.id).catch(() => {});
+              try { await supabase.from('contacts').update({ linkedin_member_id: realProviderId }).eq('id', contact.id); } catch {}
             }
           } else {
             console.log(`[ENRICH_LI PATH B] /users/${candidateId} -> ${profileRes.status}`);
           }
 
-          // Step 2: search chats by the real provider_id (or fall back to candidateId for ACoAA inputs)
+          // Step 2: check if the resolved provider_id is already in our attendee map
+          // If so, use the reliable Path A approach (attendee → chat_id → full messages)
+          if (realProviderId) {
+            const attendeeIdFromMap = attendeeMap.byMemberId.get(realProviderId);
+            console.log(`[ENRICH_LI PATH B] attendee map lookup for ${realProviderId}: ${attendeeIdFromMap || 'not found'}`);
+            if (attendeeIdFromMap) {
+              const sample = await unipilePages(`${UNIPILE_BASE()}/chat_attendees/${attendeeIdFromMap}/messages`, accountId);
+              const chatId = sample[0]?.chat_id;
+              console.log(`[ENRICH_LI PATH B] Path A fallback: attendeeId=${attendeeIdFromMap} chatId=${chatId}`);
+              if (chatId) {
+                messages = await unipilePages(`${UNIPILE_BASE()}/chats/${chatId}/messages`, accountId);
+              } else {
+                messages = sample;
+              }
+              break;
+            }
+          }
+
+          // Step 3: fall back to chat search by provider_id — less reliable, but last resort
           const searchId = realProviderId || (candidateId.startsWith('ACoAA') ? candidateId : null);
           if (!searchId) continue;
 
-          console.log(`[ENRICH_LI PATH B] searching chats by provider_id=${searchId}`);
-          const chatRes = await fetch(`${UNIPILE_BASE()}/chats?account_id=${accountId}&attendee_provider_id=${searchId}&limit=20`, { headers: unipileHeaders() });
+          console.log(`[ENRICH_LI PATH B] fallback chat search by provider_id=${searchId}`);
+          const chatRes = await fetch(`${UNIPILE_BASE()}/chats?account_id=${accountId}&attendee_provider_id=${searchId}&limit=5`, { headers: unipileHeaders() });
           if (!chatRes.ok) { console.log(`[ENRICH_LI PATH B] /chats -> ${chatRes.status}`); continue; }
 
           const chats = (await chatRes.json()).items || [];
@@ -387,12 +405,8 @@ async function scanLinkedIn(supabase, workspaceId, contact, accountId, attendeeM
             // Only DMs: group chats have multiple distinct inbound senders
             const inboundSenders = new Set(chatMsgs.filter(m => !m.is_sender && m.sender_id).map(m => m.sender_id));
             if (inboundSenders.size > 1) { console.log(`[ENRICH_LI PATH B] skip group chat ${chat.id} (${inboundSenders.size} senders)`); continue; }
-            // Confirm the contact actually sent messages (using their real provider_id)
-            if (realProviderId) {
-              const contactSent = chatMsgs.some(m => !m.is_sender && (m.sender_id === realProviderId || m.sender?.provider_id === realProviderId));
-              if (!contactSent && inboundSenders.size > 0) { console.log(`[ENRICH_LI PATH B] skip chat ${chat.id} — inbound not from contact`); continue; }
-            }
-            messages.push(...chatMsgs);
+            // Only include if all inbound messages come from one sender (the contact)
+            if (inboundSenders.size === 1) messages.push(...chatMsgs);
           }
 
           if (messages.length > 0) break;
