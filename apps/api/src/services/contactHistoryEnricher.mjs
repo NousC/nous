@@ -352,57 +352,50 @@ async function scanLinkedIn(supabase, workspaceId, contact, accountId, attendeeM
       }
     } else if (storedMemberId || identifier) {
       try {
-        // Try every candidate ID as provider_id directly on /chats first (handles ACoAA URNs)
         const candidateIds = [...new Set([storedMemberId, identifier].filter(Boolean))];
-        let resolvedProviderId = null;
 
         for (const candidateId of candidateIds) {
-          console.log(`[ENRICH_LI PATH B] trying provider_id=${candidateId}`);
-          const chatRes = await fetch(`${UNIPILE_BASE()}/chats?account_id=${accountId}&attendee_provider_id=${candidateId}&limit=10`, { headers: unipileHeaders() });
-          if (chatRes.ok) {
-            const chatData = await chatRes.json();
-            const chats = chatData.items || [];
-            console.log(`[ENRICH_LI PATH B] provider_id=${candidateId} -> ${chats.length} chats`);
-            if (chats.length > 0) {
-              resolvedProviderId = candidateId;
-              for (const chat of chats) {
-                const chatMsgs = await unipilePages(`${UNIPILE_BASE()}/chats/${chat.id}/messages`, accountId);
-                messages.push(...chatMsgs);
-              }
-              break;
-            }
-          } else {
-            console.log(`[ENRICH_LI PATH B] /chats with provider_id=${candidateId} -> ${chatRes.status}`);
-          }
-        }
-
-        // Fallback: resolve via /users/ to get canonical provider_id
-        if (!resolvedProviderId) {
-          const lookupId  = storedMemberId || identifier;
-          console.log(`[ENRICH_LI PATH B] /users lookup id=${lookupId}`);
-          const profileRes = await fetch(`${UNIPILE_BASE()}/users/${lookupId}?account_id=${accountId}`, { headers: unipileHeaders() });
+          // Step 1: resolve the actual LinkedIn provider_id (ACoAA format) via /users/
+          // This is critical — searching chats by a URL slug returns unrelated chats
+          let realProviderId = null;
+          console.log(`[ENRICH_LI PATH B] resolving ${candidateId} via /users/`);
+          const profileRes = await fetch(`${UNIPILE_BASE()}/users/${candidateId}?account_id=${accountId}`, { headers: unipileHeaders() });
           if (profileRes.ok) {
-            const profile    = await profileRes.json();
-            const providerId = profile.provider_id;
-            console.log(`[ENRICH_LI PATH B] /users -> provider_id=${providerId}`);
-            if (providerId && !storedMemberId) {
-              await supabase.from('contacts').update({ linkedin_member_id: providerId }).eq('id', contact.id).then(null, () => {});
-            }
-            if (providerId) {
-              const chatRes2 = await fetch(`${UNIPILE_BASE()}/chats?account_id=${accountId}&attendee_provider_id=${providerId}&limit=10`, { headers: unipileHeaders() });
-              if (chatRes2.ok) {
-                for (const chat of (await chatRes2.json()).items || []) {
-                  const chatMsgs = await unipilePages(`${UNIPILE_BASE()}/chats/${chat.id}/messages`, accountId);
-                  const hasInbound = chatMsgs.some(m => !m.is_sender && (m.sender_id === providerId || m.sender?.provider_id === providerId));
-                  if (!hasInbound) continue;
-                  messages.push(...chatMsgs);
-                }
-              }
+            const profile = await profileRes.json();
+            realProviderId = profile.provider_id || null;
+            console.log(`[ENRICH_LI PATH B] resolved -> provider_id=${realProviderId}`);
+            if (realProviderId && !storedMemberId) {
+              await supabase.from('contacts').update({ linkedin_member_id: realProviderId }).eq('id', contact.id).catch(() => {});
             }
           } else {
-            const body = await profileRes.text().catch(() => '');
-            console.log(`[ENRICH_LI PATH B] /users/${lookupId} -> ${profileRes.status} ${body.slice(0, 200)}`);
+            console.log(`[ENRICH_LI PATH B] /users/${candidateId} -> ${profileRes.status}`);
           }
+
+          // Step 2: search chats by the real provider_id (or fall back to candidateId for ACoAA inputs)
+          const searchId = realProviderId || (candidateId.startsWith('ACoAA') ? candidateId : null);
+          if (!searchId) continue;
+
+          console.log(`[ENRICH_LI PATH B] searching chats by provider_id=${searchId}`);
+          const chatRes = await fetch(`${UNIPILE_BASE()}/chats?account_id=${accountId}&attendee_provider_id=${searchId}&limit=20`, { headers: unipileHeaders() });
+          if (!chatRes.ok) { console.log(`[ENRICH_LI PATH B] /chats -> ${chatRes.status}`); continue; }
+
+          const chats = (await chatRes.json()).items || [];
+          console.log(`[ENRICH_LI PATH B] ${chats.length} chats found`);
+
+          for (const chat of chats) {
+            const chatMsgs = await unipilePages(`${UNIPILE_BASE()}/chats/${chat.id}/messages`, accountId);
+            // Only DMs: group chats have multiple distinct inbound senders
+            const inboundSenders = new Set(chatMsgs.filter(m => !m.is_sender && m.sender_id).map(m => m.sender_id));
+            if (inboundSenders.size > 1) { console.log(`[ENRICH_LI PATH B] skip group chat ${chat.id} (${inboundSenders.size} senders)`); continue; }
+            // Confirm the contact actually sent messages (using their real provider_id)
+            if (realProviderId) {
+              const contactSent = chatMsgs.some(m => !m.is_sender && (m.sender_id === realProviderId || m.sender?.provider_id === realProviderId));
+              if (!contactSent && inboundSenders.size > 0) { console.log(`[ENRICH_LI PATH B] skip chat ${chat.id} — inbound not from contact`); continue; }
+            }
+            messages.push(...chatMsgs);
+          }
+
+          if (messages.length > 0) break;
         }
       } catch (e) { console.error(`[ENRICH_LI PATH B] ${norm || storedMemberId}:`, e.message); }
     }
