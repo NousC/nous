@@ -795,7 +795,7 @@ type CoTab = "overview" | "activity" | "memory";
 
 type CoSort = { col: string; dir: "asc"|"desc" };
 
-function CompaniesPopup({ companies, workspaceId, token, onClose }: { companies:Company[]; workspaceId:string; token:string; onClose:()=>void }) {
+function CompaniesPopup({ companies, workspaceId, token, onClose, onDelete }: { companies:Company[]; workspaceId:string; token:string; onClose:()=>void; onDelete:(id:string)=>void }) {
   const [q, setQ] = useState("");
   const [detail, setDetail] = useState<Company | null>(null);
   const [coTab, setCoTab] = useState<CoTab>("overview");
@@ -814,6 +814,16 @@ function CompaniesPopup({ companies, workspaceId, token, onClose }: { companies:
   const coEnriching = new Set<string>();
   const coEnriched  = new Set<string>();
   const coEnrichErr = new Set<string>();
+  const [deletedIds, setDeletedIds] = useState<Set<string>>(new Set());
+
+  const deleteCompany = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setDeletedIds(prev => new Set(prev).add(id));
+    onDelete(id);
+    fetch(`${apiUrl}/api/companies/${id}?workspaceId=${workspaceId}`, {
+      method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
+    }).catch(() => {});
+  };
 
   useEffect(() => {
     if (!detail) return;
@@ -1047,7 +1057,7 @@ function CompaniesPopup({ companies, workspaceId, token, onClose }: { companies:
       </div>
       {/* Rows */}
       <div className="divide-y divide-border/10 flex-1 overflow-y-auto">
-        {pageRows.map(co => {
+        {pageRows.filter(co => !deletedIds.has(co.id)).map(co => {
           const topContacts = co.contacts.slice(0,3).map(c=>c.name.split(" ")[0]).join(", ");
           return (
           <div key={co.id} className="flex items-center px-5 py-2.5 hover:bg-muted/20 transition-colors group">
@@ -1064,6 +1074,10 @@ function CompaniesPopup({ companies, workspaceId, token, onClose }: { companies:
             <span className="text-[10px] flex-shrink-0 text-right tabular-nums" style={{width:68,color:co.dealHealthScore!=null?healthColor(co.dealHealthScore):""}}>
               {co.dealHealthScore!=null?`${co.dealHealthScore}`:"—"}
             </span>
+            <button onClick={e=>deleteCompany(co.id,e)}
+              className="opacity-0 group-hover:opacity-100 transition-opacity ml-3 flex-shrink-0 text-muted-foreground/30 hover:text-red-400/70">
+              <Trash2 className="h-3 w-3"/>
+            </button>
           </div>
           );
         })}
@@ -1394,7 +1408,7 @@ function PeopleImportModal({ workspaceId, token, onClose, onDone }: {
 
 const PAGE_SIZE = 50;
 
-function PeoplePopup({ contacts, onClose, token, onNavigate, workspaceId, defaultSort }: { contacts:ContactInfo[]; onClose:()=>void; token:string; onNavigate:()=>void; workspaceId:string; defaultSort?: { col:"lastActivity"|"deal"|null; dir:"asc"|"desc" } }) {
+function PeoplePopup({ contacts, onClose, token, onNavigate, workspaceId, defaultSort, onDelete }: { contacts:ContactInfo[]; onClose:()=>void; token:string; onNavigate:()=>void; workspaceId:string; defaultSort?: { col:"lastActivity"|"deal"|null; dir:"asc"|"desc" }; onDelete:(id:string)=>void }) {
   const [q, setQ] = useState("");
   const [stage, setStage] = useState("");
   const [detail, setDetail] = useState<ContactInfo | null>(null);
@@ -1405,7 +1419,17 @@ function PeoplePopup({ contacts, onClose, token, onNavigate, workspaceId, defaul
   const [enriching, setEnriching] = useState<Set<string>>(new Set());
   const [enriched, setEnriched] = useState<Set<string>>(new Set());
   const [enrichErr, setEnrichErr] = useState<Set<string>>(new Set());
+  const [deletedIds, setDeletedIds] = useState<Set<string>>(new Set());
   const stages = ["identified","aware","interested","evaluating","client"];
+
+  const deleteContact = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setDeletedIds(prev => new Set(prev).add(id));
+    onDelete(id);
+    fetch(`${apiUrl}/api/contacts/${id}`, {
+      method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
+    }).catch(() => {});
+  };
 
   const handleEnrich = async (c: ContactInfo, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -1517,7 +1541,7 @@ function PeoplePopup({ contacts, onClose, token, onNavigate, workspaceId, defaul
         </div>
         {/* Rows */}
         <div className="divide-y divide-border/10">
-          {pageRows.map(c => (
+          {pageRows.filter(c => !deletedIds.has(c.id)).map(c => (
             <div key={c.id} className="flex items-center px-5 py-2 hover:bg-muted/20 transition-colors group">
               <button onClick={() => setDetail(c)} className="flex-shrink-0 text-left min-w-0 pr-3" style={{width:155}}>
                 <div className="text-[11px] text-foreground/80 truncate">{c.name}</div>
@@ -1542,17 +1566,21 @@ function PeoplePopup({ contacts, onClose, token, onNavigate, workspaceId, defaul
                 {c.dealHealthScore!=null ? `${c.dealHealthScore}` : "—"}
               </button>
               <button onClick={() => setDetail(c)} className="text-[10px] text-muted-foreground/40 flex-1 text-left" style={{minWidth:0}}>{relTime(c.lastActivityAt)}</button>
-              <div className="flex-shrink-0 text-right" style={{width:72}}>
+              <div className="flex-shrink-0 flex items-center justify-end gap-2" style={{width:72}}>
                 {enriched.has(c.id) ? (
                   <span className="text-[8px] text-emerald-500/60">enriched</span>
                 ) : enrichErr.has(c.id) ? (
                   <span className="text-[8px] text-red-400/60">failed</span>
                 ) : (
                   <button onClick={e => handleEnrich(c, e)} disabled={enriching.has(c.id)}
-                    className="text-[8px] text-violet-400/60 hover:text-violet-400/90 transition-colors disabled:opacity-40 flex items-center gap-0.5 ml-auto">
+                    className="text-[8px] text-violet-400/60 hover:text-violet-400/90 transition-colors disabled:opacity-40 flex items-center gap-0.5">
                     {enriching.has(c.id) ? <RefreshCw className="h-2.5 w-2.5 animate-spin"/> : <span>Enrich</span>}
                   </button>
                 )}
+                <button onClick={e => deleteContact(c.id, e)}
+                  className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground/30 hover:text-red-400/70 flex-shrink-0">
+                  <Trash2 className="h-3 w-3"/>
+                </button>
               </div>
             </div>
           ))}
@@ -3013,8 +3041,8 @@ export default function Mind() {
       {/* ── Modals ── */}
       {showConnect&&<ConnectModal onClose={()=>setShowConnect(false)}/>}
 
-      {popup==="companies"&&workspaceId&&token&&<CompaniesPopup companies={companies} workspaceId={workspaceId} token={token} onClose={()=>setPopup(null)}/>}
-      {popup==="people"&&token&&workspaceId&&<PeoplePopup contacts={allContacts} token={token} workspaceId={workspaceId} onClose={()=>{setPopup(null);setPeopleSort(undefined);}} onNavigate={()=>navigate("/people")} defaultSort={peopleSort}/>}
+      {popup==="companies"&&workspaceId&&token&&<CompaniesPopup companies={companies} workspaceId={workspaceId} token={token} onClose={()=>setPopup(null)} onDelete={id=>setCompanies(prev=>prev.filter(c=>c.id!==id))}/>}
+      {popup==="people"&&token&&workspaceId&&<PeoplePopup contacts={allContacts} token={token} workspaceId={workspaceId} onClose={()=>{setPopup(null);setPeopleSort(undefined);}} onNavigate={()=>navigate("/people")} defaultSort={peopleSort} onDelete={id=>setAllContacts(prev=>prev.filter(c=>c.id!==id))}/>}
       {popup==="integrations"&&workspaceId&&token&&<IntegrationsPopup integrations={integrations} workspaceId={workspaceId} token={token} onClose={()=>setPopup(null)}/>}
       {popup==="memories"&&workspaceId&&token&&<MemoriesPopup memories={memories} categories={memoriesCategories} workspaceId={workspaceId} token={token} onClose={()=>setPopup(null)}/>}
       {popup==="settings"&&<SettingsFullPopup initialTab={settingsTab} onClose={()=>setPopup(null)}/>}

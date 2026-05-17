@@ -1,6 +1,6 @@
 # proply · Python SDK
 
-Official Python SDK for the [Proply](https://goproply.com) contact memory API — the memory layer for AI agents.
+Official Python SDK for the [Proply](https://goproply.com) API — GTM data infrastructure for agents.
 
 ## Install
 

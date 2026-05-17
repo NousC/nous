@@ -1,7 +1,7 @@
 {
   "name": "@goproply/sdk",
   "version": "1.0.0",
-  "description": "Official TypeScript SDK for the Proply contact memory API",
+  "description": "Official TypeScript SDK for Proply — GTM data infrastructure for agents",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {

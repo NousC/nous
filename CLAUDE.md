@@ -4,7 +4,7 @@ This file helps AI coding assistants understand the architecture before making c
 
 ## What this project is
 
-Proply CRM is the memory layer for GTM AI agents. It stores structured facts about contacts and companies, ingests signals from email/LinkedIn/calendar, and exposes that context via an MCP server and REST API so agents always have full relationship context.
+Proply CRM is GTM data infrastructure for agents. It unifies Apollo, Salesforce, Smartlead, Gmail, and LinkedIn into one identity-resolved record per human, ingests signals from email/LinkedIn/calendar, and exposes that context via an MCP server and REST API so agents always have full account context in a single call.
 
 ## Monorepo structure
 

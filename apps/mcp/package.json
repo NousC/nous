@@ -1,7 +1,7 @@
 {
   "name": "@goproply/mcp",
   "version": "0.8.9",
-  "description": "Proply MCP Server — contact intelligence for GTM agents.",
+  "description": "Proply MCP Server — GTM data infrastructure for agents.",
   "type": "module",
   "bin": {
     "proply-mcp": "src/index.js"

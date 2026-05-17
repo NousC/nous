@@ -176,6 +176,24 @@ companiesApiRouter.get('/graph-edges', verifySupabaseAuth, async (req, res) => {
   }
 });
 
+// DELETE /api/companies/:id
+companiesApiRouter.delete('/:id', verifySupabaseAuth, async (req, res) => {
+  try {
+    const supabase = getSupabaseClient();
+    const { id } = req.params;
+    const { workspaceId } = req.query;
+    if (!UUID.test(id)) return res.status(400).json({ error: 'invalid_company_id' });
+    if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
+    const { data: company } = await supabase.from('companies').select('id').eq('id', id).eq('workspace_id', workspaceId).single();
+    if (!company) return res.status(404).json({ error: 'company_not_found' });
+    await supabase.from('companies').delete().eq('id', id);
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('[DELETE /api/companies/:id]', err);
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
 // GET /api/contact-graph
 companiesApiRouter.get('/contact-graph', verifySupabaseAuth, async (req, res) => {
   try {
