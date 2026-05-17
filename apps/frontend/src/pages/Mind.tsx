@@ -1213,7 +1213,7 @@ function PeopleImportModal({ workspaceId, token, onClose, onDone }: {
   const parseCSVFile = async (file: File) => {
     try {
       const text = await file.text();
-      const lines = text.trim().split(/\r?\n/);
+      const lines = text.replace(/^﻿/, '').trim().split(/\r?\n/);
       if (lines.length < 2) { toast.error('CSV is empty or has no data rows'); return; }
       const headers = parseCSVLine(lines[0]);
       const rows = lines.slice(1).map(line => {

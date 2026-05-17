@@ -251,57 +251,94 @@ contactsApiRouter.post('/import', verifySupabaseAuth, async (req, res) => {
     const { data: membership } = await supabase.from('workspace_members').select('workspace_id').eq('workspace_id', workspaceId).eq('user_id', user.id).single();
     if (!membership) return res.status(403).json({ error: 'workspace_not_found_or_unauthorized' });
 
-    const validRows = rows.filter(r => r.email && EMAIL.test(r.email.trim())).slice(0, 2000);
+    // Accept rows with a valid email OR a linkedin_url — at least one is required
+    const validRows = rows.filter(r => {
+      const hasEmail = r.email && EMAIL.test(r.email.trim());
+      const hasLinkedin = r.linkedin_url && r.linkedin_url.trim().length > 0;
+      return hasEmail || hasLinkedin;
+    }).slice(0, 2000);
     if (!validRows.length) return res.status(400).json({ error: 'no_valid_rows' });
 
-    const emails = validRows.map(r => r.email.toLowerCase().trim());
-    const { data: existing } = await supabase.from('contacts').select('id, email').eq('workspace_id', workspaceId).in('email', emails);
-    const existingSet = new Set((existing || []).map(c => c.email.toLowerCase()));
+    // Split into email-identified and linkedin-only rows
+    const emailRows = validRows.filter(r => r.email && EMAIL.test(r.email.trim()));
+    const linkedinOnlyRows = validRows.filter(r => !(r.email && EMAIL.test(r.email.trim())));
 
-    const toCreate = validRows.filter(r => !existingSet.has(r.email.toLowerCase().trim()));
-    const toUpdate = validRows.filter(r => existingSet.has(r.email.toLowerCase().trim()));
+    // Dedup email rows by email
+    const emails = emailRows.map(r => r.email.toLowerCase().trim());
+    const { data: existingByEmail } = emails.length
+      ? await supabase.from('contacts').select('id, email').eq('workspace_id', workspaceId).in('email', emails)
+      : { data: [] };
+    const existingEmailSet = new Set((existingByEmail || []).map(c => c.email.toLowerCase()));
+
+    // Dedup linkedin-only rows by linkedin_url
+    const linkedinUrls = linkedinOnlyRows.map(r => r.linkedin_url.trim());
+    const { data: existingByLinkedin } = linkedinUrls.length
+      ? await supabase.from('contacts').select('id, linkedin_url').eq('workspace_id', workspaceId).in('linkedin_url', linkedinUrls)
+      : { data: [] };
+    const existingLinkedinSet = new Set((existingByLinkedin || []).map(c => c.linkedin_url));
+
+    const toCreate = [
+      ...emailRows.filter(r => !existingEmailSet.has(r.email.toLowerCase().trim())),
+      ...linkedinOnlyRows.filter(r => !existingLinkedinSet.has(r.linkedin_url.trim())),
+    ];
+    const toUpdateEmail = emailRows.filter(r => existingEmailSet.has(r.email.toLowerCase().trim()));
+    const toUpdateLinkedin = linkedinOnlyRows.filter(r => existingLinkedinSet.has(r.linkedin_url.trim()));
+
+    const buildInsertRow = (r) => ({
+      workspace_id: workspaceId,
+      email: r.email ? r.email.toLowerCase().trim() : null,
+      first_name: r.first_name?.trim() || null, last_name: r.last_name?.trim() || null,
+      company: r.company?.trim() || null, job_title: r.job_title?.trim() || null,
+      linkedin_url: r.linkedin_url?.trim() || null, source: r.source?.trim() || 'import',
+      phone: r.phone?.trim() || null, domain: r.domain?.trim() || null,
+      notes: r.notes?.trim() || null, seniority: r.seniority?.trim() || null,
+      department: r.department?.trim() || null, deal_stage: r.deal_stage?.trim() || null,
+      pipeline_stage: r.pipeline_stage?.trim() || null,
+      created_by: user.id,
+    });
+
+    const buildUpdateFields = (r) => {
+      const u = {};
+      if (r.first_name) u.first_name = r.first_name.trim();
+      if (r.last_name) u.last_name = r.last_name.trim();
+      if (r.company) u.company = r.company.trim();
+      if (r.job_title) u.job_title = r.job_title.trim();
+      if (r.phone) u.phone = r.phone.trim();
+      if (r.domain) u.domain = r.domain.trim();
+      if (r.notes) u.notes = r.notes.trim();
+      if (r.seniority) u.seniority = r.seniority.trim();
+      if (r.department) u.department = r.department.trim();
+      if (r.deal_stage) u.deal_stage = r.deal_stage.trim();
+      if (r.pipeline_stage) u.pipeline_stage = r.pipeline_stage.trim();
+      if (r.linkedin_url) u.linkedin_url = r.linkedin_url.trim();
+      return u;
+    };
 
     let created = 0, updated = 0;
     let newContactIds = [];
     if (toCreate.length) {
-      const { data: inserted, error } = await supabase.from('contacts').insert(toCreate.map(r => ({
-        workspace_id: workspaceId, email: r.email.toLowerCase().trim(),
-        first_name: r.first_name?.trim() || null, last_name: r.last_name?.trim() || null,
-        company: r.company?.trim() || null, job_title: r.job_title?.trim() || null,
-        linkedin_url: r.linkedin_url?.trim() || null, source: r.source?.trim() || 'import',
-        phone: r.phone?.trim() || null, domain: r.domain?.trim() || null,
-        notes: r.notes?.trim() || null, seniority: r.seniority?.trim() || null,
-        department: r.department?.trim() || null, deal_stage: r.deal_stage?.trim() || null,
-        pipeline_stage: r.pipeline_stage?.trim() || null,
-        created_by: user.id,
-      }))).select('id');
+      const { data: inserted, error } = await supabase.from('contacts').insert(toCreate.map(buildInsertRow)).select('id');
       if (!error) {
         created = inserted?.length || 0;
         newContactIds = (inserted || []).map(c => c.id);
       }
     }
-    for (const r of toUpdate) {
-      const update = {};
-      if (r.first_name) update.first_name = r.first_name.trim();
-      if (r.last_name) update.last_name = r.last_name.trim();
-      if (r.company) update.company = r.company.trim();
-      if (r.job_title) update.job_title = r.job_title.trim();
-      if (r.phone) update.phone = r.phone.trim();
-      if (r.domain) update.domain = r.domain.trim();
-      if (r.notes) update.notes = r.notes.trim();
-      if (r.seniority) update.seniority = r.seniority.trim();
-      if (r.department) update.department = r.department.trim();
-      if (r.deal_stage) update.deal_stage = r.deal_stage.trim();
-      if (r.pipeline_stage) update.pipeline_stage = r.pipeline_stage.trim();
-      if (r.linkedin_url) update.linkedin_url = r.linkedin_url.trim();
-      if (Object.keys(update).length) {
-        await supabase.from('contacts').update(update).eq('workspace_id', workspaceId).eq('email', r.email.toLowerCase().trim());
-      }
+    for (const r of toUpdateEmail) {
+      const u = buildUpdateFields(r);
+      if (Object.keys(u).length) await supabase.from('contacts').update(u).eq('workspace_id', workspaceId).eq('email', r.email.toLowerCase().trim());
+      updated++;
+    }
+    for (const r of toUpdateLinkedin) {
+      const u = buildUpdateFields(r);
+      if (Object.keys(u).length) await supabase.from('contacts').update(u).eq('workspace_id', workspaceId).eq('linkedin_url', r.linkedin_url.trim());
       updated++;
     }
 
     // Fire async history enrichment for all imported contacts (new + updated)
-    const existingIds = (existing || []).map(c => c.id);
+    const existingIds = [
+      ...(existingByEmail || []).map(c => c.id),
+      ...(existingByLinkedin || []).map(c => c.id),
+    ];
     const allImportedIds = [...newContactIds, ...existingIds];
     let jobId = null;
     if (allImportedIds.length) {
