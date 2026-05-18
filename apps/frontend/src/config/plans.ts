@@ -1,5 +1,5 @@
 /**
- * Centralized Pricing Config — Proply
+ * Centralized Pricing Config — Nous
  *
  * Model: Op-pack (buy once, balance depletes with use, no monthly reset)
  * Axes: ops balance (depletes) + accounts limit (capacity ceiling)
@@ -65,7 +65,7 @@ export const HEADLESS_PLAN = {
   id: 'headless',
   displayName: 'Headless GTM Memory',
   description: 'Unlimited ops + accounts. Dedicated infra, white-label, on-prem.',
-  contactEmail: 'hello@goproply.com',
+  contactEmail: 'hello@opennous.cloud',
 };
 
 export function getOpPackById(id: string): OpPack | undefined {

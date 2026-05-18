@@ -3,7 +3,7 @@ node_modules
 **/dist
 **/.env
 **/.env.*
-proply.env
+nous.env
 .git
 .gitignore
 *.md

@@ -62,7 +62,7 @@ export function CommandPalette() {
     const lq = q.toLowerCase();
 
     const openPopup = (popup: string) => {
-      window.dispatchEvent(new CustomEvent("proply:open-popup", { detail: popup }));
+      window.dispatchEvent(new CustomEvent("nous:open-popup", { detail: popup }));
       setOpen(false);
     };
 

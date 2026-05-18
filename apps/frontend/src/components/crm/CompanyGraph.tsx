@@ -64,7 +64,7 @@ const PROVIDER_LOGO: Record<string, string> = {
 const PROVIDER_SHORT: Record<string, string> = {
   rb2b: "RB2B", linkedin: "LI", gmail: "GM", instantly: "IN",
   fireflies: "FF", apollo: "AP", hubspot: "HS", pipedrive: "PD",
-  slack: "SL", notion: "NO", proply: "PR", manual: "—",
+  slack: "SL", notion: "NO", nous: "PR", manual: "—",
 };
 
 const PUBLIC_SIGNALS = new Set([
@@ -282,7 +282,7 @@ export function CompanyGraph({ companyId, contactIds, companyName, companyDomain
 
   // Stable storage key per company
   const storageKey = useMemo(() =>
-    `proply-graph-pos:${companyId ?? companyName ?? "unknown"}`,
+    `nous-graph-pos:${companyId ?? companyName ?? "unknown"}`,
   [companyId, companyName]);
 
   // Keep ref in sync for callbacks

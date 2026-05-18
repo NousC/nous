@@ -554,7 +554,7 @@ function PreferencesSection({
     <div className="space-y-8">
       <div>
         <h1 className="text-lg font-semibold">Preferences</h1>
-        <p className="text-muted-foreground">Customize how Proply looks and behaves</p>
+        <p className="text-muted-foreground">Customize how Nous looks and behaves</p>
       </div>
 
       {/* Appearance */}
@@ -566,7 +566,7 @@ function PreferencesSection({
               <Label className="text-base font-medium">Appearance</Label>
             </div>
             <p className="text-sm text-muted-foreground">
-              Customize how Proply looks on your device.
+              Customize how Nous looks on your device.
             </p>
           </div>
           <Select value={appearance} onValueChange={setAppearance}>
@@ -2521,7 +2521,7 @@ function CompanySettingsSection() {
             <div className="flex items-center justify-between mb-3">
               <div>
                 <p className="text-sm font-medium">Company Knowledge</p>
-                <p className="text-xs text-muted-foreground">Resources Proply references when generating proposals</p>
+                <p className="text-xs text-muted-foreground">Resources Nous references when generating proposals</p>
               </div>
               <Button variant="outline" size="sm" onClick={() => setIsAddSourceOpen(true)} className="h-8">
                 <Plus className="h-3.5 w-3.5 mr-1" /> Add
@@ -2686,7 +2686,7 @@ function CompanySettingsSection() {
                 <ol className="text-xs text-muted-foreground space-y-1 list-decimal list-inside">
                   <li>Go to the <span className="font-medium">Integrations</span> tab</li>
                   <li>Click <span className="font-medium">Add Connection</span> and select Slack</li>
-                  <li>Authorize Proply to access your Slack workspace</li>
+                  <li>Authorize Nous to access your Slack workspace</li>
                   <li>Come back here to select your notification channel</li>
                 </ol>
               </div>
@@ -2744,7 +2744,7 @@ function CompanySettingsSection() {
                       </SelectContent>
                     </Select>
                     <p className="text-xs text-muted-foreground mt-1.5">
-                      For private channels, invite the bot first: <code className="bg-muted px-1 py-0.5 rounded text-[10px]">/invite @Proply</code>
+                      For private channels, invite the bot first: <code className="bg-muted px-1 py-0.5 rounded text-[10px]">/invite @Nous</code>
                     </p>
                   </div>
                 )}
@@ -5035,7 +5035,7 @@ function SubscriptionSection({ session }: { session: any }) {
                         className="w-full mb-4"
                         variant="outline"
                         size="sm"
-                        onClick={() => window.open("mailto:hello@goproply.com?subject=Enterprise Plan Inquiry", "_blank")}
+                        onClick={() => window.open("mailto:hello@opennous.cloud?subject=Enterprise Plan Inquiry", "_blank")}
                       >
                         Contact Us
                       </Button>
@@ -5240,7 +5240,7 @@ function ApiKeysSection({
             <Key className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
             <h3 className="text-sm font-medium mb-2">No API keys</h3>
             <p className="text-sm text-muted-foreground mb-4">
-              Create your first API key to start using the Proply API programmatically.
+              Create your first API key to start using the Nous API programmatically.
             </p>
             <Button onClick={() => setShowNewKeyForm(true)}>
               <Plus className="h-4 w-4 mr-2" />
@@ -5399,7 +5399,7 @@ function TutorialsSection({
     <div className="space-y-8">
       <div>
         <h1 className="text-lg font-semibold">Tutorials</h1>
-        <p className="text-muted-foreground text-sm">Step-by-step video guides to get the most out of Proply</p>
+        <p className="text-muted-foreground text-sm">Step-by-step video guides to get the most out of Nous</p>
       </div>
 
       {/* Tutorial Videos */}
@@ -5488,11 +5488,11 @@ function TutorialsSection({
               className="w-16 h-16 rounded-full object-cover border-2 border-white shadow-sm"
             />
             <p className="text-sm font-semibold mt-2.5">Bennet Glinder</p>
-            <p className="text-xs text-muted-foreground">Founder, Proply</p>
+            <p className="text-xs text-muted-foreground">Founder, Nous</p>
           </div>
           <div className="flex-1 flex flex-col justify-between">
             <p className="text-sm text-muted-foreground leading-relaxed mb-4">
-              Got questions, feedback, or just want to chat about proposals and AI? I'd love to connect and hear how you're using Proply.
+              Got questions, feedback, or just want to chat about proposals and AI? I'd love to connect and hear how you're using Nous.
             </p>
             <div>
               <Button
@@ -6094,7 +6094,7 @@ function IntegrationsSection({ session }: { session: any }) {
                   <p className="text-xs text-muted-foreground mt-0.5">
                     {airtableConn
                       ? `Connected ${format(new Date(airtableConn.created_at), 'MMM d, yyyy')} · auto-syncs contacts bidirectionally`
-                      : 'Use Airtable as your frontend — Proply stays in sync automatically'}
+                      : 'Use Airtable as your frontend — Nous stays in sync automatically'}
                   </p>
                 </div>
                 <div className="flex items-center gap-1.5">
@@ -6150,7 +6150,7 @@ function IntegrationsSection({ session }: { session: any }) {
                 <p className="text-xs text-muted-foreground mt-0.5">
                   {linkedinStatus?.connected
                     ? `${linkedinStatus.connection?.linkedin_name ?? ''}${linkedinStatus.connection?.linkedin_headline ? ` · ${linkedinStatus.connection.linkedin_headline}` : ''}`
-                    : 'Sync connections and conversations to Proply contacts'}
+                    : 'Sync connections and conversations to Nous contacts'}
                 </p>
               </div>
               <div className="flex items-center gap-1.5">
@@ -6645,7 +6645,7 @@ const FEATURE_OPTIONS = [
   'AI Writer',
   'Workflow Builder',
   'Proposal Writer',
-  'Ask Proply',
+  'Ask Nous',
   'Forms',
   'E-Signatures',
   'Asset Library',
@@ -7057,7 +7057,7 @@ function BookCallSection() {
               </Avatar>
               <div className="space-y-0.5">
                 <h3 className="text-sm font-medium text-foreground">Bennet Glinder</h3>
-                <p className="text-sm text-muted-foreground">Founder, Proply</p>
+                <p className="text-sm text-muted-foreground">Founder, Nous</p>
               </div>
             </div>
 

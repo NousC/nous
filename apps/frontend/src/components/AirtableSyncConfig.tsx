@@ -225,7 +225,7 @@ export default function AirtableSyncConfig({ open, onClose, workspaceId, connect
             <div className="flex items-center justify-between rounded-lg border border-gray-100 bg-gray-50/60 px-3 py-2">
               <div>
                 <p className="text-[12px] font-medium text-gray-700">Auto-sync daily</p>
-                <p className="text-[11px] text-gray-400">Proply pulls updates from Airtable every 24 h</p>
+                <p className="text-[11px] text-gray-400">Nous pulls updates from Airtable every 24 h</p>
               </div>
               <Switch
                 checked={autoSync}

@@ -104,7 +104,7 @@ function Sidebar({
     <aside className="w-[220px] flex-shrink-0 flex flex-col h-full border-r border-gray-100 bg-[#FAFAF9]">
       {/* Logo */}
       <div className="px-5 pt-5 pb-4">
-        <img src="/newlogoP.png" alt="Proply" className="h-7 w-auto object-contain" />
+        <img src="/newlogoP.png" alt="Nous" className="h-7 w-auto object-contain" />
       </div>
 
       {/* API Management label */}
@@ -143,7 +143,7 @@ function Sidebar({
       </div>
       <nav className="px-2.5 space-y-0.5">
         <a
-          href="mailto:support@goproply.com"
+          href="mailto:support@opennous.cloud"
           className="w-full flex items-center gap-2.5 px-2.5 py-[7px] rounded-lg text-[13px] text-gray-600 hover:text-gray-900 hover:bg-gray-100/80 transition-all"
         >
           <HelpCircle className="h-[15px] w-[15px] flex-shrink-0" strokeWidth={1.75} />
@@ -236,15 +236,15 @@ const SDK_STEPS: Record<SdkLang, { label: string; desc: string; code: string }[]
   python: [
     {
       label: "Install the SDK",
-      desc: "Get started by installing the Proply Python package using pip.",
-      code: "pip install proply",
+      desc: "Get started by installing the Nous Python package using pip.",
+      code: "pip install nous",
     },
     {
       label: "Initialize the client",
       desc: "Initialize with your API key — no workspace ID needed, keys are workspace-scoped.",
-      code: `from proply import ProplyClient
+      code: `from nous import NousClient
 
-client = ProplyClient(api_key="YOUR_API_KEY")`,
+client = NousClient(api_key="YOUR_API_KEY")`,
     },
     {
       label: "Remember a fact",
@@ -314,20 +314,20 @@ for r in results["results"]:
   nodejs: [
     {
       label: "Install the SDK",
-      desc: "Get started by installing the Proply Node.js package using npm.",
-      code: "npm install @goproply/sdk",
+      desc: "Get started by installing the Nous Node.js package using npm.",
+      code: "npm install @opennous/sdk",
     },
     {
       label: "Initialize the client",
       desc: "Initialize with your API key — no workspace ID needed, keys are workspace-scoped.",
-      code: `import { Proply } from '@goproply/sdk';
+      code: `import { Nous } from '@opennous/sdk';
 
-const proply = new Proply({ apiKey: 'YOUR_API_KEY' });`,
+const nous = new Nous({ apiKey: 'YOUR_API_KEY' });`,
     },
     {
       label: "Remember a fact",
       desc: "Store what was learned. Pass a sentence or full transcript — AI extracts facts either way.",
-      code: `await proply.remember({
+      code: `await nous.remember({
   email: 'sarah@acme.com',
   text: 'Concerned about Salesforce migration and Q3 budget constraints.',
   category: 'Product',
@@ -336,20 +336,20 @@ const proply = new Proply({ apiKey: 'YOUR_API_KEY' });`,
     {
       label: "Get contact context",
       desc: "Full profile — summary, stage, scores, facts, activities. Call this before acting on any contact.",
-      code: `const contact = await proply.getContact('sarah@acme.com');
+      code: `const contact = await nous.getContact('sarah@acme.com');
 console.log(contact.summary);
 // → "Sarah is evaluating for Q3; primary concern is Salesforce migration."`,
     },
     {
       label: "Get company profile",
       desc: "Full org profile — all contacts at that account plus company-level facts.",
-      code: `const company = await proply.getCompany(contact.company_id);
+      code: `const company = await nous.getCompany(contact.company_id);
 console.log(\`\${company.name} — \${company.contacts.length} contacts\`);`,
     },
     {
       label: "Create a contact",
       desc: "Add a new contact. Returns a conflict error if the email already exists.",
-      code: `await proply.createContact({
+      code: `await nous.createContact({
   email: 'sarah@acme.com',
   first_name: 'Sarah',
   last_name: 'Chen',
@@ -360,19 +360,19 @@ console.log(\`\${company.name} — \${company.contacts.length} contacts\`);`,
     {
       label: "List contacts",
       desc: "List contacts filtered by pipeline stage — useful for knowing who to prioritize.",
-      code: `const { contacts } = await proply.listContacts({ stage: 'evaluating', limit: 20 });
+      code: `const { contacts } = await nous.listContacts({ stage: 'evaluating', limit: 20 });
 contacts.forEach(c => console.log(c.name, c.pipeline_stage));`,
     },
     {
       label: "Get workspace memories",
       desc: "Load workspace-level facts (ICP, patterns, pricing). Filter by category.",
-      code: `const { memories } = await proply.getMemories({ category: 'ICP' });
+      code: `const { memories } = await nous.getMemories({ category: 'ICP' });
 memories.forEach(m => console.log(\`[\${m.category}] \${m.content} — \${m.id}\`));`,
     },
     {
       label: "Search memories",
       desc: "Semantic search across all stored facts. Returns IDs for targeted deletion.",
-      code: `const { results } = await proply.search({
+      code: `const { results } = await nous.search({
   q: 'budget concerns',
   contact_id: contact.contact_id,
 });
@@ -381,12 +381,12 @@ results.forEach(r => console.log(\`[\${r.category}] \${r.content} — \${r.id}\`
     {
       label: "Delete a memory",
       desc: "Remove a stale fact by ID. Get the ID from search or getMemories.",
-      code: `await proply.deleteMemory('MEMORY_UUID');`,
+      code: `await nous.deleteMemory('MEMORY_UUID');`,
     },
     {
       label: "Delete a contact",
       desc: "Permanently remove a contact and all their activity history.",
-      code: `await proply.deleteContact('sarah@acme.com');`,
+      code: `await nous.deleteContact('sarah@acme.com');`,
     },
   ],
   curl: [
@@ -394,7 +394,7 @@ results.forEach(r => console.log(\`[\${r.category}] \${r.content} — \${r.id}\`
       label: "Create a contact",
       desc: "POST to add a new contact. Returns 409 if the email already exists.",
       code: `curl --request POST \\
-  --url https://api.goproply.com/v1/contacts \\
+  --url https://api.opennous.cloud/v1/contacts \\
   --header 'Authorization: Bearer YOUR_API_KEY' \\
   --header 'Content-Type: application/json' \\
   --data '{
@@ -409,7 +409,7 @@ results.forEach(r => console.log(\`[\${r.category}] \${r.content} — \${r.id}\`
       label: "Remember a fact",
       desc: "POST to store what was learned. AI extracts durable facts automatically.",
       code: `curl --request POST \\
-  --url https://api.goproply.com/v1/remember \\
+  --url https://api.opennous.cloud/v1/remember \\
   --header 'Authorization: Bearer YOUR_API_KEY' \\
   --header 'Content-Type: application/json' \\
   --data '{
@@ -421,35 +421,35 @@ results.forEach(r => console.log(\`[\${r.category}] \${r.content} — \${r.id}\`
       label: "Get contact context",
       desc: "GET the full contact profile — summary, stage, facts, activities.",
       code: `curl --request GET \\
-  --url https://api.goproply.com/v1/contact/sarah@acme.com \\
+  --url https://api.opennous.cloud/v1/contact/sarah@acme.com \\
   --header 'Authorization: Bearer YOUR_API_KEY'`,
     },
     {
       label: "Get company profile",
       desc: "GET the full company profile — all contacts + org-level facts.",
       code: `curl --request GET \\
-  --url https://api.goproply.com/v1/company/COMPANY_UUID \\
+  --url https://api.opennous.cloud/v1/company/COMPANY_UUID \\
   --header 'Authorization: Bearer YOUR_API_KEY'`,
     },
     {
       label: "List contacts",
       desc: "GET contacts filtered by pipeline stage.",
       code: `curl --request GET \\
-  --url 'https://api.goproply.com/v1/contacts?stage=evaluating&limit=20' \\
+  --url 'https://api.opennous.cloud/v1/contacts?stage=evaluating&limit=20' \\
   --header 'Authorization: Bearer YOUR_API_KEY'`,
     },
     {
       label: "Get workspace memories",
       desc: "GET workspace-level facts. Filter by category with ?category=ICP",
       code: `curl --request GET \\
-  --url 'https://api.goproply.com/v1/memories?category=ICP' \\
+  --url 'https://api.opennous.cloud/v1/memories?category=ICP' \\
   --header 'Authorization: Bearer YOUR_API_KEY'`,
     },
     {
       label: "Search memories",
       desc: "POST to search semantically. Returns IDs for deletion.",
       code: `curl --request POST \\
-  --url https://api.goproply.com/v1/search \\
+  --url https://api.opennous.cloud/v1/search \\
   --header 'Authorization: Bearer YOUR_API_KEY' \\
   --header 'Content-Type: application/json' \\
   --data '{
@@ -461,14 +461,14 @@ results.forEach(r => console.log(\`[\${r.category}] \${r.content} — \${r.id}\`
       label: "Delete a memory",
       desc: "DELETE a specific memory by UUID.",
       code: `curl --request DELETE \\
-  --url https://api.goproply.com/v1/memory/MEMORY_UUID \\
+  --url https://api.opennous.cloud/v1/memory/MEMORY_UUID \\
   --header 'Authorization: Bearer YOUR_API_KEY'`,
     },
     {
       label: "Delete a contact",
       desc: "DELETE a contact and all their activity history. Accepts email or UUID.",
       code: `curl --request DELETE \\
-  --url https://api.goproply.com/v1/contact/sarah@acme.com \\
+  --url https://api.opennous.cloud/v1/contact/sarah@acme.com \\
   --header 'Authorization: Bearer YOUR_API_KEY'`,
     },
   ],
@@ -519,7 +519,7 @@ function TabBar<T extends string>({
 }
 
 function OpenClawPanel({ onNavigate }: { onNavigate: (s: Section) => void }) {
-  const prompt = `You have access to Proply contact memory. Use it before and after every contact interaction.
+  const prompt = `You have access to Nous contact memory. Use it before and after every contact interaction.
 
 Before acting on any contact:
 → Call contact_get(email or contact_id) to load their full profile — pipeline stage, AI summary, recent activities, facts, and LinkedIn channel state. Never skip this step.
@@ -530,7 +530,7 @@ After every interaction:
 
 Available tools: contact_get, contact_get_activity, contacts_search, company_get, track, memory_save, memory_search, memory_list, memory_delete
 
-Your Proply API key is set as PROPLY_API_KEY in the environment.`;
+Your Nous API key is set as NOUS_API_KEY in the environment.`;
 
   return (
     <div className="space-y-4">
@@ -602,16 +602,16 @@ function SdkPanel({ onNavigate }: { onNavigate: (s: Section) => void }) {
 function PluginPanel() {
   const [client, setClient] = useState<PluginClient>("claude-code");
 
-  const claudeCodeMcp = `claude mcp add proply -e PROPLY_API_KEY=YOUR_API_KEY -- npx -y @goproply/mcp`;
+  const claudeCodeMcp = `claude mcp add nous -e NOUS_API_KEY=YOUR_API_KEY -- npx -y @opennous/mcp`;
 
   const claudeDesktopMcp = `// ~/Library/Application Support/Claude/claude_desktop_config.json
 {
   "mcpServers": {
-    "proply": {
+    "nous": {
       "command": "npx",
-      "args": ["-y", "@goproply/mcp"],
+      "args": ["-y", "@opennous/mcp"],
       "env": {
-        "PROPLY_API_KEY": "YOUR_API_KEY"
+        "NOUS_API_KEY": "YOUR_API_KEY"
       }
     }
   }
@@ -620,11 +620,11 @@ function PluginPanel() {
   const cursorMcp = `// .cursor/mcp.json
 {
   "mcpServers": {
-    "proply": {
+    "nous": {
       "command": "npx",
-      "args": ["-y", "@goproply/mcp"],
+      "args": ["-y", "@opennous/mcp"],
       "env": {
-        "PROPLY_API_KEY": "YOUR_API_KEY"
+        "NOUS_API_KEY": "YOUR_API_KEY"
       }
     }
   }
@@ -649,7 +649,7 @@ function PluginPanel() {
       <div className="rounded-xl border border-gray-100 bg-white p-5 space-y-4">
         {client === "claude-code" && (
           <>
-            <p className="text-[12px] text-gray-400">Add the Proply MCP server with a single command in your terminal:</p>
+            <p className="text-[12px] text-gray-400">Add the Nous MCP server with a single command in your terminal:</p>
             <CodeSnippet code={claudeCodeMcp} />
           </>
         )}
@@ -699,7 +699,7 @@ function QuickStartSection({ onNavigate }: { onNavigate: (s: Section) => void })
   return (
     <div className="p-8 max-w-3xl space-y-7">
       <div>
-        <h2 className="text-[22px] font-bold text-gray-900 tracking-tight">Install Proply</h2>
+        <h2 className="text-[22px] font-bold text-gray-900 tracking-tight">Install Nous</h2>
         <p className="text-[13px] text-gray-500 mt-1">
           Choose how you want to integrate contact memory into your AI agents.
         </p>
@@ -1294,7 +1294,7 @@ function SelfHostedBillingNotice() {
         <p className="text-[13px] text-gray-400">Manage your subscription</p>
       </div>
       <div className="rounded-xl border border-gray-200 bg-gray-50 p-6 max-w-lg space-y-2">
-        <p className="text-[14px] font-semibold text-gray-900">You're running Proply self-hosted</p>
+        <p className="text-[14px] font-semibold text-gray-900">You're running Nous self-hosted</p>
         <p className="text-[13px] text-gray-500">
           Billing is managed directly by you. There's no Stripe integration active in this deployment.
           To configure billing, set <code className="bg-gray-100 px-1 rounded text-[12px]">VITE_STRIPE_PUBLISHABLE_KEY</code> in your environment.

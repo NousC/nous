@@ -5,7 +5,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 
-const CONFIG_PATH = join(homedir(), ".proply", "config.json");
+const CONFIG_PATH = join(homedir(), ".nous", "config.json");
 
 function readConfig() {
   if (!existsSync(CONFIG_PATH)) return {};
@@ -13,7 +13,7 @@ function readConfig() {
 }
 
 function writeConfig(cfg) {
-  const dir = join(homedir(), ".proply");
+  const dir = join(homedir(), ".nous");
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
@@ -22,11 +22,11 @@ function writeConfig(cfg) {
 
 function apiClient() {
   const cfg = readConfig();
-  const apiKey = process.env.PROPLY_API_KEY || cfg.apiKey;
-  const apiUrl = process.env.PROPLY_API_URL || cfg.apiUrl || "https://api.goproply.com";
+  const apiKey = process.env.NOUS_API_KEY || cfg.apiKey;
+  const apiUrl = process.env.NOUS_API_URL || cfg.apiUrl || "https://api.opennous.cloud";
 
   if (!apiKey) {
-    console.error("No API key found. Run: proply auth login");
+    console.error("No API key found. Run: nous auth login");
     process.exit(1);
   }
 
@@ -59,7 +59,7 @@ function apiClient() {
 }
 
 // ---------------------------------------------------------------------------
-// proply auth login
+// nous auth login
 // ---------------------------------------------------------------------------
 program
   .command("auth")
@@ -67,14 +67,14 @@ program
   .addCommand(
     new Command("login")
       .description("Save your API key")
-      .requiredOption("--key <key>", "Your Proply API key")
-      .option("--url <url>", "API base URL (default: https://api.goproply.com)")
+      .requiredOption("--key <key>", "Your Nous API key")
+      .option("--url <url>", "API base URL (default: https://api.opennous.cloud)")
       .action(({ key, url }) => {
         const cfg = readConfig();
         cfg.apiKey = key;
         if (url) cfg.apiUrl = url;
         writeConfig(cfg);
-        console.log("✓ Authenticated. Run `proply contact list` to verify.");
+        console.log("✓ Authenticated. Run `nous contact list` to verify.");
       })
   )
   .addCommand(
@@ -82,18 +82,18 @@ program
       .description("Show current auth status")
       .action(() => {
         const cfg = readConfig();
-        const key = process.env.PROPLY_API_KEY || cfg.apiKey;
-        const url = process.env.PROPLY_API_URL || cfg.apiUrl || "https://api.goproply.com";
+        const key = process.env.NOUS_API_KEY || cfg.apiKey;
+        const url = process.env.NOUS_API_URL || cfg.apiUrl || "https://api.opennous.cloud";
         if (key) {
           console.log(`Logged in\nAPI URL: ${url}\nKey: ${key.slice(0, 8)}...`);
         } else {
-          console.log("Not logged in. Run: proply auth login --key <your-key>");
+          console.log("Not logged in. Run: nous auth login --key <your-key>");
         }
       })
   );
 
 // ---------------------------------------------------------------------------
-// proply contact
+// nous contact
 // ---------------------------------------------------------------------------
 const contact = program.command("contact").description("Manage contacts");
 
@@ -166,7 +166,7 @@ contact
   });
 
 // ---------------------------------------------------------------------------
-// proply memory
+// nous memory
 // ---------------------------------------------------------------------------
 const memory = program.command("memory").description("Manage workspace memory");
 
@@ -224,4 +224,4 @@ memory
   });
 
 // ---------------------------------------------------------------------------
-program.name("proply").version("0.1.0").parse();
+program.name("nous").version("0.1.0").parse();

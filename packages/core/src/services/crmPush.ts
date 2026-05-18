@@ -1,4 +1,4 @@
-// Push Proply activity into connected CRMs as native engagement objects.
+// Push Nous activity into connected CRMs as native engagement objects.
 // Called fire-and-forget from logActivity (db/activities.ts).
 //
 // Per-provider mapping:
@@ -436,14 +436,14 @@ async function pushAttioNote(creds: Record<string, string | null>, crmId: string
   if (evt.summary)     lines.push(evt.summary);
   if (evt.description) lines.push(`_${evt.description}_`);
   lines.push('');
-  lines.push(`— Logged by Proply on ${new Date(evt.occurredAt || Date.now()).toLocaleString()}`);
+  lines.push(`— Logged by Nous on ${new Date(evt.occurredAt || Date.now()).toLocaleString()}`);
 
   const cr = await crmFetch('https://api.attio.com/v2/notes', {
     method: 'POST', headers,
     body: JSON.stringify({ data: {
       parent_object:    'people',
       parent_record_id: crmId,
-      title:            `[Proply] ${activityTitle(evt)}`,
+      title:            `[Nous] ${activityTitle(evt)}`,
       format:           'markdown',
       content:          lines.join('\n'),
       created_at:       evt.occurredAt || new Date().toISOString(),

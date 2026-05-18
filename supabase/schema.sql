@@ -1,5 +1,5 @@
 -- ============================================================
--- Proply CRM — Complete Database Schema
+-- Nous CRM — Complete Database Schema
 -- Run once in your Supabase SQL editor to set up a fresh instance.
 --
 -- Prerequisites: Supabase project with auth.users already enabled.
@@ -308,7 +308,7 @@ CREATE TABLE IF NOT EXISTS contact_activity_log (
   received_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
 
   -- Where it came from
-  source        TEXT        NOT NULL DEFAULT 'proply',
+  source        TEXT        NOT NULL DEFAULT 'nous',
   external_id   TEXT,                             -- dedup: source's own event ID
   raw_data      JSONB,
 
@@ -763,7 +763,7 @@ CREATE TABLE IF NOT EXISTS crm_sync_configs (
   connection_id   UUID        REFERENCES workflow_provider_connections(id) ON DELETE SET NULL,
   provider        TEXT        NOT NULL,   -- 'hubspot' | 'pipedrive' | 'attio' | 'salesforce'
   auto_sync       BOOLEAN     DEFAULT false,
-  push_activities BOOLEAN     DEFAULT true,  -- push Proply touchpoints → CRM as engagements
+  push_activities BOOLEAN     DEFAULT true,  -- push Nous touchpoints → CRM as engagements
   last_synced_at  TIMESTAMPTZ,
   contacts_synced INT         DEFAULT 0,
   created_at      TIMESTAMPTZ DEFAULT now(),

@@ -113,7 +113,7 @@ export default function CRM() {
       if (!r.ok) throw new Error(d.error || 'Import failed');
       if (d.errors?.length) throw new Error(d.errors[0].error);
       setImportedIds(prev => new Set(prev).add(record.id));
-      toast.success(activeTab === "deals" ? "Deal imported — pipeline stage updated" : "Imported to Proply");
+      toast.success(activeTab === "deals" ? "Deal imported — pipeline stage updated" : "Imported to Nous");
     } catch (e: any) {
       toast.error(e.message || 'Import failed');
     } finally {

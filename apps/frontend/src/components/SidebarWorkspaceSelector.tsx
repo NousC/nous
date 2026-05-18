@@ -174,7 +174,7 @@ export function SidebarWorkspaceSelector({ collapsed = false }: SidebarWorkspace
       setLoading(true);
 
       localStorage.setItem('selectedWorkspaceId', workspaceId);
-      window.dispatchEvent(new CustomEvent('proply:workspace-changed', { detail: { workspaceId } }));
+      window.dispatchEvent(new CustomEvent('nous:workspace-changed', { detail: { workspaceId } }));
 
       const apiUrl = import.meta.env.VITE_API_URL ?? '';
       const response = await fetch(`${apiUrl}/me?workspace_id=${workspaceId}`, {

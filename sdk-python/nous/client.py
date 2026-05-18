@@ -1,4 +1,4 @@
-"""Proply Python SDK — contact memory for AI agents."""
+"""Nous Python SDK — contact memory for AI agents."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from typing import Any, Literal, Optional
 
 import httpx
 
-DEFAULT_BASE_URL = "https://api.goproply.com"
+DEFAULT_BASE_URL = "https://api.opennous.cloud"
 
 ActivityType = Literal[
     "email_sent", "email_reply",
@@ -24,22 +24,22 @@ MemoryCategory = Literal[
 ]
 
 
-class ProplyError(Exception):
+class NousError(Exception):
     def __init__(self, message: str, status: int, code: str | None = None) -> None:
         super().__init__(message)
         self.status = status
         self.code = code
 
 
-class ProplyClient:
+class NousClient:
     """
-    Proply contact memory client.
+    Nous contact memory client.
 
     Usage::
 
-        from proply import ProplyClient
+        from nous import NousClient
 
-        client = ProplyClient(api_key="YOUR_API_KEY")
+        client = NousClient(api_key="YOUR_API_KEY")
 
         # Before acting on a contact
         contact = client.get_contact("sarah@acme.com")
@@ -56,15 +56,15 @@ class ProplyClient:
         base_url: str | None = None,
         timeout: float = 30.0,
     ) -> None:
-        self._api_key = api_key or os.environ.get("PROPLY_API_KEY")
+        self._api_key = api_key or os.environ.get("NOUS_API_KEY")
         if not self._api_key:
             raise ValueError(
-                "api_key is required. Pass it explicitly or set the PROPLY_API_KEY environment variable."
+                "api_key is required. Pass it explicitly or set the NOUS_API_KEY environment variable."
             )
-        self._base_url = (base_url or os.environ.get("PROPLY_BASE_URL") or DEFAULT_BASE_URL).rstrip("/")
+        self._base_url = (base_url or os.environ.get("NOUS_BASE_URL") or DEFAULT_BASE_URL).rstrip("/")
         self._client = httpx.Client(
             base_url=self._base_url,
-            headers={"Authorization": f"Bearer {self._api_key}", "X-Proply-Client": "sdk-python"},
+            headers={"Authorization": f"Bearer {self._api_key}", "X-Nous-Client": "sdk-python"},
             timeout=timeout,
         )
 
@@ -94,7 +94,7 @@ class ProplyClient:
             except Exception:
                 msg = res.reason_phrase
                 code = None
-            raise ProplyError(msg, res.status_code, code)
+            raise NousError(msg, res.status_code, code)
         if res.status_code == 204:
             return {}
         return res.json()
@@ -375,7 +375,7 @@ class ProplyClient:
         """Close the underlying HTTP client."""
         self._client.close()
 
-    def __enter__(self) -> "ProplyClient":
+    def __enter__(self) -> "NousClient":
         return self
 
     def __exit__(self, *_: Any) -> None:

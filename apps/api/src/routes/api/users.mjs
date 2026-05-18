@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getSupabaseClient } from '@proply/core';
+import { getSupabaseClient } from '@nous/core';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
 import { ensureUserAndTeam } from '../../lib/auth.mjs';
 
@@ -79,7 +79,7 @@ usersRouter.get('/me/export', verifySupabaseAuth, async (req, res) => {
       exportData.templates = templates || [];
     }
 
-    res.setHeader('Content-Disposition', `attachment; filename="proply-export-${user.id}.json"`);
+    res.setHeader('Content-Disposition', `attachment; filename="nous-export-${user.id}.json"`);
     res.setHeader('Content-Type', 'application/json');
     return res.json(exportData);
   } catch (err) {

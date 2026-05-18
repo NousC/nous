@@ -19,24 +19,24 @@ function prefersSdk(useCase: string | null, agentSetup: string | null) {
 
 const MCP_SNIPPET = `{
   "mcpServers": {
-    "proply": {
+    "nous": {
       "command": "npx",
-      "args": ["-y", "@goproply/mcp"],
+      "args": ["-y", "@opennous/mcp"],
       "env": {
-        "PROPLY_API_KEY": "YOUR_API_KEY"
+        "NOUS_API_KEY": "YOUR_API_KEY"
       }
     }
   }
 }`;
 
-const SDK_SNIPPET = `import { Proply } from '@goproply/sdk';
-const proply = new Proply({ apiKey: 'YOUR_API_KEY' });
+const SDK_SNIPPET = `import { Nous } from '@opennous/sdk';
+const nous = new Nous({ apiKey: 'YOUR_API_KEY' });
 
 // Full context for any contact — one call
-const contact = await proply.getContact('john@acme.com');
+const contact = await nous.getContact('john@acme.com');
 
 // Log what your agent did (memory updates automatically)
-await proply.track({
+await nous.track({
   email: 'john@acme.com',
   type: 'email_sent',
   description: 'Sent intro email',
@@ -56,7 +56,7 @@ export function GetStartedStep({
       <div>
         <h1 className="text-2xl font-semibold text-gray-900">You're set up.</h1>
         <p className="text-sm text-gray-500 mt-1">
-          Here's how to connect your agents to Proply's memory.
+          Here's how to connect your agents to Nous's memory.
         </p>
       </div>
 
@@ -165,7 +165,7 @@ export function GetStartedStep({
               </pre>
             </div>
             <div className="px-3 py-2 bg-white border-t border-gray-100">
-              <p className="text-xs text-gray-400">npm install @goproply/sdk</p>
+              <p className="text-xs text-gray-400">npm install @opennous/sdk</p>
             </div>
           </div>
         </div>

@@ -48,7 +48,7 @@ export function TemplateDesignStep({
           Build your first template
         </h1>
         <p className="text-gray-500 text-[14px] font-light">
-          Set your design preferences so Proply matches your brand
+          Set your design preferences so Nous matches your brand
         </p>
       </div>
 

@@ -1,4 +1,4 @@
-import { ProplyPageLayout, Theme } from "@/components/ProplyPageLayout";
+import { NousPageLayout, Theme } from "@/components/NousPageLayout";
 
 const S = {
   label: (t: Theme) => ({ fontFamily: "JetBrains Mono, monospace", fontSize: "11px", color: t.accent, textTransform: "uppercase" as const, letterSpacing: "0.18em", marginBottom: "10px" }),
@@ -22,9 +22,9 @@ function Li({ t, children }: { t: Theme; children: React.ReactNode }) {
 
 export default function TermsOfService() {
   return (
-    <ProplyPageLayout
-      seoTitle="Terms of Service | Proply"
-      seoDescription="Proply Terms of Service — terms and conditions governing your use of our platform."
+    <NousPageLayout
+      seoTitle="Terms of Service | Nous"
+      seoDescription="Nous Terms of Service — terms and conditions governing your use of our platform."
     >
       {(t) => (
         <>
@@ -35,14 +35,14 @@ export default function TermsOfService() {
           </div>
 
           <Section t={t} title="1. Agreement to Terms">
-            <p style={S.body(t)}>These Terms of Service ("Terms") constitute a legally binding agreement between you and Proply governing your access to and use of Proply — the memory layer for GTM agents — including goproply.com, the MCP server, and related APIs (collectively, the "Service").</p>
+            <p style={S.body(t)}>These Terms of Service ("Terms") constitute a legally binding agreement between you and Nous governing your access to and use of Nous — the memory layer for GTM agents — including opennous.cloud, the MCP server, and related APIs (collectively, the "Service").</p>
             <p style={S.body(t)}>By accessing or using the Service, you agree to be bound by these Terms. If you do not agree, you may not use the Service.</p>
           </Section>
 
           <Section t={t} title="2. Description of Service">
-            <p style={S.body(t)}>Proply is the memory layer for GTM agents — a hosted memory and signal layer for AI agents running sales and marketing workflows. The Service enables users to:</p>
+            <p style={S.body(t)}>Nous is the memory layer for GTM agents — a hosted memory and signal layer for AI agents running sales and marketing workflows. The Service enables users to:</p>
             <ul style={{ listStyle: "none", padding: 0, display: "flex", flexDirection: "column", gap: "6px" }}>
-              {["Store and retrieve structured memory about contacts and companies via MCP or REST API","Ingest signals from connected tools (email, LinkedIn, CRM, analytics)","Run AI-powered memory synthesis, enrichment, and research","Expose persistent context to AI agents via the Proply MCP server","Collaborate across workspaces with unlimited team members"].map(i => <Li key={i} t={t}>{i}</Li>)}
+              {["Store and retrieve structured memory about contacts and companies via MCP or REST API","Ingest signals from connected tools (email, LinkedIn, CRM, analytics)","Run AI-powered memory synthesis, enrichment, and research","Expose persistent context to AI agents via the Nous MCP server","Collaborate across workspaces with unlimited team members"].map(i => <Li key={i} t={t}>{i}</Li>)}
             </ul>
           </Section>
 
@@ -63,7 +63,7 @@ export default function TermsOfService() {
           <Section t={t} title="5. User Content and Data">
             <p style={S.body(t)}>You retain all rights to the contact data, company data, activity logs, and memory entries you create or import through the Service ("User Content"). We do not claim ownership of your User Content.</p>
             <p style={S.body(t)}>By submitting User Content, you grant us a worldwide, non-exclusive, royalty-free license to store and process your User Content solely for the purpose of providing the Service.</p>
-            <p style={S.body(t)}>You are solely responsible for the accuracy and legality of the data you import or create in Proply, including compliance with applicable data protection laws regarding the contacts you store.</p>
+            <p style={S.body(t)}>You are solely responsible for the accuracy and legality of the data you import or create in Nous, including compliance with applicable data protection laws regarding the contacts you store.</p>
           </Section>
 
           <Section t={t} title="6. AI-Generated Memory">
@@ -80,7 +80,7 @@ export default function TermsOfService() {
           </Section>
 
           <Section t={t} title="8. Intellectual Property">
-            <p style={S.body(t)}>The Service and its original content, features, and functionality are owned by Proply and are protected by international copyright, trademark, and other intellectual property laws. Our trademarks may not be used without prior written consent.</p>
+            <p style={S.body(t)}>The Service and its original content, features, and functionality are owned by Nous and are protected by international copyright, trademark, and other intellectual property laws. Our trademarks may not be used without prior written consent.</p>
           </Section>
 
           <Section t={t} title="9. Disclaimer of Warranties">
@@ -88,7 +88,7 @@ export default function TermsOfService() {
           </Section>
 
           <Section t={t} title="10. Limitation of Liability">
-            <p style={S.body(t)}>TO THE MAXIMUM EXTENT PERMITTED BY LAW, PROPLY SHALL NOT BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES.</p>
+            <p style={S.body(t)}>TO THE MAXIMUM EXTENT PERMITTED BY LAW, NOUS SHALL NOT BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES.</p>
             <p style={S.body(t)}>Our total liability for any claims shall not exceed the amount you paid to us during the twelve (12) months preceding the claim.</p>
           </Section>
 
@@ -108,14 +108,14 @@ export default function TermsOfService() {
 
           <Section t={t} title="14. Contact">
             <div style={{ fontFamily: "Inter, sans-serif", fontSize: "14px", color: t.muted, lineHeight: 1.9 }}>
-              <p><span style={{ color: t.text, fontFamily: "JetBrains Mono, monospace" }}>Proply</span> — Bennet Glinder</p>
+              <p><span style={{ color: t.text, fontFamily: "JetBrains Mono, monospace" }}>Nous</span> — Bennet Glinder</p>
               <p>Dietrich-Schäfer-Straße 20, 28211 Bremen, Germany</p>
               <p>Email: <a href="mailto:bennetglinder@gmail.com" style={S.link(t)}>bennetglinder@gmail.com</a></p>
-              <p>Web: <a href="https://goproply.com" style={S.link(t)}>goproply.com</a></p>
+              <p>Web: <a href="https://opennous.cloud" style={S.link(t)}>opennous.cloud</a></p>
             </div>
           </Section>
         </>
       )}
-    </ProplyPageLayout>
+    </NousPageLayout>
   );
 }

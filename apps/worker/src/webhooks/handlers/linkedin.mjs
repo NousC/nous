@@ -3,7 +3,7 @@
 //   message_received — inbound/outbound LinkedIn messages
 //   new_relation     — new 1st-degree connection accepted
 
-import { getSupabaseClient } from '@proply/core';
+import { getSupabaseClient } from '@nous/core';
 import { logActivity } from '../../utils/activity.mjs';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

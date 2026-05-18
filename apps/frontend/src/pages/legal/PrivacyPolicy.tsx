@@ -1,4 +1,4 @@
-import { ProplyPageLayout, Theme } from "@/components/ProplyPageLayout";
+import { NousPageLayout, Theme } from "@/components/NousPageLayout";
 
 const S = {
   label: (t: Theme) => ({
@@ -52,9 +52,9 @@ function Li({ t, children }: { t: Theme; children: React.ReactNode }) {
 
 export default function PrivacyPolicy() {
   return (
-    <ProplyPageLayout
-      seoTitle="Privacy Policy | Proply"
-      seoDescription="Learn how Proply collects, uses, and protects your personal information."
+    <NousPageLayout
+      seoTitle="Privacy Policy | Nous"
+      seoDescription="Learn how Nous collects, uses, and protects your personal information."
     >
       {(t) => (
         <>
@@ -65,7 +65,7 @@ export default function PrivacyPolicy() {
           </div>
 
           <Section t={t} title="1. Introduction">
-            <p style={S.body(t)}>Proply ("we," "our," or "us") is committed to protecting your privacy. This Privacy Policy explains how we collect, use, and safeguard your information when you use Proply — the memory layer for GTM agents — and related services at goproply.com.</p>
+            <p style={S.body(t)}>Nous ("we," "our," or "us") is committed to protecting your privacy. This Privacy Policy explains how we collect, use, and safeguard your information when you use Nous — the memory layer for GTM agents — and related services at opennous.cloud.</p>
             <p style={S.body(t)}>By using the Service, you agree to the collection and use of information in accordance with this policy.</p>
           </Section>
 
@@ -87,9 +87,9 @@ export default function PrivacyPolicy() {
           </Section>
 
           <Section t={t} title="4. Agent Memory Processing">
-            <p style={S.body(t)}>Proply processes contact and company data on your behalf to build and serve persistent memory for your AI agents:</p>
+            <p style={S.body(t)}>Nous processes contact and company data on your behalf to build and serve persistent memory for your AI agents:</p>
             <ul style={{ listStyle: "none", padding: 0, display: "flex", flexDirection: "column", gap: "6px" }}>
-              {["Your contact and account data is processed by AI providers (Anthropic, OpenAI) to synthesize memory facts","We do not use your data to train AI models","You retain ownership of all data you import or create in Proply","Memory data is processed securely and not shared with third parties outside of operating the Service"].map(i => <Li key={i} t={t}>{i}</Li>)}
+              {["Your contact and account data is processed by AI providers (Anthropic, OpenAI) to synthesize memory facts","We do not use your data to train AI models","You retain ownership of all data you import or create in Nous","Memory data is processed securely and not shared with third parties outside of operating the Service"].map(i => <Li key={i} t={t}>{i}</Li>)}
             </ul>
           </Section>
 
@@ -104,7 +104,7 @@ export default function PrivacyPolicy() {
           </Section>
 
           <Section t={t} title="6. Subprocessors">
-            <p style={S.body(t)}>We use the following third-party services to operate Proply:</p>
+            <p style={S.body(t)}>We use the following third-party services to operate Nous:</p>
             <div style={{ border: `1px solid ${t.border}`, borderRadius: "10px", overflow: "hidden", marginBottom: "12px" }}>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
                 <thead>
@@ -157,14 +157,14 @@ export default function PrivacyPolicy() {
 
           <Section t={t} title="12. Contact / Data Controller">
             <div style={{ fontFamily: "Inter, sans-serif", fontSize: "14px", color: t.muted, lineHeight: 1.9 }}>
-              <p><span style={{ color: t.text, fontFamily: "JetBrains Mono, monospace" }}>Proply</span> — Bennet Glinder</p>
+              <p><span style={{ color: t.text, fontFamily: "JetBrains Mono, monospace" }}>Nous</span> — Bennet Glinder</p>
               <p>Dietrich-Schäfer-Straße 20, 28211 Bremen, Germany</p>
               <p>Email: <a href="mailto:bennetglinder@gmail.com" style={S.link(t)}>bennetglinder@gmail.com</a></p>
-              <p>Web: <a href="https://goproply.com" style={S.link(t)}>goproply.com</a></p>
+              <p>Web: <a href="https://opennous.cloud" style={S.link(t)}>opennous.cloud</a></p>
             </div>
           </Section>
         </>
       )}
-    </ProplyPageLayout>
+    </NousPageLayout>
   );
 }

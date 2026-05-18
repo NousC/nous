@@ -11,7 +11,7 @@ build/
 .env
 .env.local
 .env.*.local
-proply.env
+nous.env
 
 # Logs
 *.log

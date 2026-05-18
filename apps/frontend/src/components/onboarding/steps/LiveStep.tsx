@@ -120,7 +120,7 @@ export function LiveStep({
 
       {/* Compact Acquisition */}
       <div className="space-y-2">
-        <p className="text-[13px] text-gray-500">How did you hear about Proply?</p>
+        <p className="text-[13px] text-gray-500">How did you hear about Nous?</p>
         <div className="flex flex-wrap gap-1.5">
           {ACQUISITION_SOURCES.map((source) => {
             const IconComponent = source.icon;

@@ -238,7 +238,7 @@ const Inbox = () => {
     if (notification.from_contact_email) {
       return notification.from_contact_email;
     }
-    return "Proply";
+    return "Nous";
   };
 
   return (

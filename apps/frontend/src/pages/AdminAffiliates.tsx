@@ -403,7 +403,7 @@ export default function AdminAffiliates() {
                         </TableCell>
                         <TableCell>
                           <button
-                            onClick={() => copyToClipboard(`https://goproply.com/signup?ref=${a.referral_code}`, "Referral link")}
+                            onClick={() => copyToClipboard(`https://opennous.cloud/signup?ref=${a.referral_code}`, "Referral link")}
                             className="inline-flex items-center gap-1 font-mono text-xs bg-gray-100 px-2 py-1 rounded hover:bg-gray-200 transition-colors"
                             title="Click to copy referral link"
                           >
@@ -471,7 +471,7 @@ export default function AdminAffiliates() {
                                 </DropdownMenuItem>
                               )}
                               <DropdownMenuItem
-                                onClick={() => copyToClipboard(`https://goproply.com/signup?ref=${a.referral_code}`, "Referral link")}
+                                onClick={() => copyToClipboard(`https://opennous.cloud/signup?ref=${a.referral_code}`, "Referral link")}
                               >
                                 <Copy className="h-4 w-4 mr-2" />
                                 Copy referral link

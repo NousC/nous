@@ -141,7 +141,7 @@ function normaliseLinkedInUrl(raw) {
   }
 }
 
-// Find a Proply contact by LinkedIn URL, member ID, or full name
+// Find a Nous contact by LinkedIn URL, member ID, or full name
 async function matchContact(supabase, workspaceId, { profileUrl, fullName, memberId }) {
   // 1. Normalize URL match (handles trailing slash variants)
   const normUrl = normaliseLinkedInUrl(profileUrl);

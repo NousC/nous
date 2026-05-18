@@ -1,4 +1,4 @@
-import { ProplyError } from './index';
+import { NousError } from './index';
 
 export class HttpClient {
   constructor(
@@ -12,7 +12,7 @@ export class HttpClient {
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${this.apiKey}`,
-        'X-Proply-Client': 'sdk-node',
+        'X-Nous-Client': 'sdk-node',
         ...init.headers,
       },
     });
@@ -20,7 +20,7 @@ export class HttpClient {
     if (!res.ok) {
       let body: { error?: string; message?: string } = {};
       try { body = await res.json() as typeof body; } catch { /* ignore */ }
-      throw new ProplyError(
+      throw new NousError(
         body.message ?? body.error ?? res.statusText,
         res.status,
         body.error,

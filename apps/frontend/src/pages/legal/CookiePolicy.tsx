@@ -1,4 +1,4 @@
-import { ProplyPageLayout, Theme } from "@/components/ProplyPageLayout";
+import { NousPageLayout, Theme } from "@/components/NousPageLayout";
 
 const S = {
   label: (t: Theme) => ({ fontFamily: "JetBrains Mono, monospace", fontSize: "11px", color: t.accent, textTransform: "uppercase" as const, letterSpacing: "0.18em", marginBottom: "10px" }),
@@ -23,9 +23,9 @@ function Li({ t, children }: { t: Theme; children: React.ReactNode }) {
 
 export default function CookiePolicy() {
   return (
-    <ProplyPageLayout
-      seoTitle="Cookie Policy | Proply"
-      seoDescription="Learn about how Proply uses cookies and similar technologies."
+    <NousPageLayout
+      seoTitle="Cookie Policy | Nous"
+      seoDescription="Learn about how Nous uses cookies and similar technologies."
     >
       {(t) => (
         <>
@@ -36,7 +36,7 @@ export default function CookiePolicy() {
           </div>
 
           <Section t={t} title="1. Introduction">
-            <p style={S.body(t)}>This Cookie Policy explains how Proply uses cookies and similar tracking technologies when you visit goproply.com and use our platform. By using the Service, you consent to the use of cookies in accordance with this policy.</p>
+            <p style={S.body(t)}>This Cookie Policy explains how Nous uses cookies and similar tracking technologies when you visit opennous.cloud and use our platform. By using the Service, you consent to the use of cookies in accordance with this policy.</p>
           </Section>
 
           <Section t={t} title="2. What Are Cookies?">
@@ -105,14 +105,14 @@ export default function CookiePolicy() {
 
           <Section t={t} title="8. Contact">
             <div style={{ fontFamily: "Inter, sans-serif", fontSize: "14px", color: t.muted, lineHeight: 1.9 }}>
-              <p><span style={{ color: t.text, fontFamily: "JetBrains Mono, monospace" }}>Proply</span> — Bennet Glinder</p>
+              <p><span style={{ color: t.text, fontFamily: "JetBrains Mono, monospace" }}>Nous</span> — Bennet Glinder</p>
               <p>Dietrich-Schäfer-Straße 20, 28211 Bremen, Germany</p>
               <p>Email: <a href="mailto:bennetglinder@gmail.com" style={S.link(t)}>bennetglinder@gmail.com</a></p>
-              <p>Web: <a href="https://goproply.com" style={S.link(t)}>goproply.com</a></p>
+              <p>Web: <a href="https://opennous.cloud" style={S.link(t)}>opennous.cloud</a></p>
             </div>
           </Section>
         </>
       )}
-    </ProplyPageLayout>
+    </NousPageLayout>
   );
 }

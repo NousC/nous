@@ -1,4 +1,4 @@
--- Activity push from Proply → CRMs (HubSpot Engagements, Pipedrive Activities, Attio Notes).
+-- Activity push from Nous → CRMs (HubSpot Engagements, Pipedrive Activities, Attio Notes).
 -- Safe to re-run.
 
 -- Identity cache columns on contacts (hubspot_id already exists)

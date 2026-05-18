@@ -132,7 +132,7 @@ export function ImportContactsStep({ onNext, onSkip }: ImportContactsStepProps) 
       <div>
         <h1 className="text-2xl font-semibold text-gray-900">Import your contacts</h1>
         <p className="text-sm text-gray-500 mt-1">
-          Upload a CSV from your client's pipeline to seed Proply's memory.
+          Upload a CSV from your client's pipeline to seed Nous's memory.
         </p>
       </div>
 

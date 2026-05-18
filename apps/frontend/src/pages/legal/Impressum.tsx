@@ -1,4 +1,4 @@
-import { ProplyPageLayout, Theme } from "@/components/ProplyPageLayout";
+import { NousPageLayout, Theme } from "@/components/NousPageLayout";
 
 const S = {
   label: (t: Theme) => ({ fontFamily: "JetBrains Mono, monospace", fontSize: "11px", color: t.accent, textTransform: "uppercase" as const, letterSpacing: "0.18em", marginBottom: "10px" }),
@@ -17,9 +17,9 @@ function Section({ t, title, children }: { t: Theme; title: string; children: Re
 
 export default function Impressum() {
   return (
-    <ProplyPageLayout
-      seoTitle="Impressum | Proply"
-      seoDescription="Legal notice and company information for Proply — memory layer for GTM agents."
+    <NousPageLayout
+      seoTitle="Impressum | Nous"
+      seoDescription="Legal notice and company information for Nous — memory layer for GTM agents."
     >
       {(t) => (
         <>
@@ -31,11 +31,11 @@ export default function Impressum() {
 
           <Section t={t} title="Company Information">
             <div style={{ fontFamily: "Inter, sans-serif", fontSize: "14px", color: t.muted, lineHeight: 1.9 }}>
-              <p><span style={{ color: t.text, fontFamily: "JetBrains Mono, monospace" }}>Proply</span> — Bennet Glinder</p>
+              <p><span style={{ color: t.text, fontFamily: "JetBrains Mono, monospace" }}>Nous</span> — Bennet Glinder</p>
               <p>Dietrich-Schäfer-Straße 20, 28211 Bremen, Germany</p>
               <p style={{ marginTop: "8px" }}>Email: <a href="mailto:bennetglinder@gmail.com" style={S.link(t)}>bennetglinder@gmail.com</a></p>
               <p>Phone: +1 518 250 8377</p>
-              <p>Web: <a href="https://goproply.com" style={S.link(t)}>goproply.com</a></p>
+              <p>Web: <a href="https://opennous.cloud" style={S.link(t)}>opennous.cloud</a></p>
             </div>
           </Section>
 
@@ -67,6 +67,6 @@ export default function Impressum() {
           </Section>
         </>
       )}
-    </ProplyPageLayout>
+    </NousPageLayout>
   );
 }

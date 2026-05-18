@@ -3,7 +3,7 @@
 // Update-only — never creates new contacts from meeting invitees.
 
 import { createHmac } from 'crypto';
-import { getSupabaseClient } from '@proply/core';
+import { getSupabaseClient } from '@nous/core';
 import { logActivity } from '../../utils/activity.mjs';
 import { resolveContact } from '../../utils/resolveContact.mjs';
 

@@ -14,9 +14,9 @@ export function APIDocumentation() {
         <div className="mb-4">
           <span className="text-sm text-gray-400 uppercase tracking-wider">Getting Started</span>
         </div>
-        <h1 className="text-4xl font-bold tracking-tight mb-4">Proply API</h1>
+        <h1 className="text-4xl font-bold tracking-tight mb-4">Nous API</h1>
         <p className="text-lg text-gray-500 mb-6 leading-relaxed">
-          Proply is an AI agent that creates professionally designed proposals, sends them for signing, and manages your contacts. One endpoint. Tell the agent what you need, it handles the rest &mdash; including the design.
+          Nous is an AI agent that creates professionally designed proposals, sends them for signing, and manages your contacts. One endpoint. Tell the agent what you need, it handles the rest &mdash; including the design.
         </p>
 
         <div className="bg-gray-50 rounded-lg p-6 mb-8">
@@ -45,7 +45,7 @@ export function APIDocumentation() {
 
         {/* Use anywhere cards */}
         <div className="mb-8">
-          <h3 className="text-2xl font-semibold mb-6">Use Proply from anywhere</h3>
+          <h3 className="text-2xl font-semibold mb-6">Use Nous from anywhere</h3>
           <div className="grid md:grid-cols-3 gap-6">
             <div className="border border-gray-200 rounded-lg p-6 bg-white hover:shadow-md transition-shadow">
               <div className="w-12 h-12 bg-landing-green/10 rounded-lg flex items-center justify-center mb-4">
@@ -67,7 +67,7 @@ export function APIDocumentation() {
               </div>
               <h4 className="text-lg font-semibold mb-2">MCP Server</h4>
               <p className="text-sm text-gray-500">
-                Add Proply to Claude Desktop, Cursor, or any MCP-compatible client. The agent shows up as a tool automatically.
+                Add Nous to Claude Desktop, Cursor, or any MCP-compatible client. The agent shows up as a tool automatically.
               </p>
             </div>
 
@@ -79,7 +79,7 @@ export function APIDocumentation() {
               </div>
               <h4 className="text-lg font-semibold mb-2">Integrations</h4>
               <p className="text-sm text-gray-500">
-                Slack, n8n, Make, Zapier &mdash; anywhere you can send an HTTP request or connect an MCP server, Proply works.
+                Slack, n8n, Make, Zapier &mdash; anywhere you can send an HTTP request or connect an MCP server, Nous works.
               </p>
             </div>
           </div>
@@ -109,7 +109,7 @@ export function APIDocumentation() {
             <h3 className="text-xl font-semibold mb-3">Getting Your API Key</h3>
             <div className="bg-gray-50 rounded-lg p-4 mb-4">
               <ol className="list-decimal list-inside space-y-2 text-sm text-muted-foreground">
-                <li>Log in to your Proply account</li>
+                <li>Log in to your Nous account</li>
                 <li>Go to <a href="/settings" className="text-landing-green hover:underline">Settings &rarr; API Keys</a></li>
                 <li>Click "Create API Key" and give it a name</li>
                 <li>Copy the key immediately (it's only shown once)</li>
@@ -135,7 +135,7 @@ export function APIDocumentation() {
           <Badge className="bg-yellow-500/10 text-yellow-700 border border-yellow-300 font-medium text-xs px-2 py-0.5">Beta</Badge>
         </div>
         <p className="text-lg text-gray-500 mb-6">
-          Connect Proply as a tool in Claude Desktop, Cursor, Windsurf, or any MCP-compatible client. Once connected, the AI assistant can create proposals, send documents for signing, and manage contacts on your behalf.
+          Connect Nous as a tool in Claude Desktop, Cursor, Windsurf, or any MCP-compatible client. Once connected, the AI assistant can create proposals, send documents for signing, and manage contacts on your behalf.
         </p>
 
         <div className="space-y-8">
@@ -146,13 +146,13 @@ export function APIDocumentation() {
             </p>
             <CodeBlock code={`{
   "mcpServers": {
-    "proply": {
+    "nous": {
       "type": "stdio",
       "command": "npx",
-      "args": ["-y", "@goproply/mcp"],
+      "args": ["-y", "@opennous/mcp"],
       "env": {
-        "PROPLY_API_KEY": "your-api-key",
-        "PROPLY_WORKSPACE_ID": "your-workspace-id"
+        "NOUS_API_KEY": "your-api-key",
+        "NOUS_WORKSPACE_ID": "your-workspace-id"
       }
     }
   }
@@ -314,8 +314,8 @@ export function APIDocumentation() {
               <div className="bg-[#1e1e1e] text-[#d4d4d4] p-4 rounded-lg text-sm font-mono">
                 <p className="text-gray-400 mb-2"># In Claude Desktop, Cursor, or any MCP client:</p>
                 <p className="text-white">"Create a proposal for Acme Corp — they need a full brand redesign, budget is $15k"</p>
-                <p className="text-gray-400 mt-3"># Claude calls Proply's create_proposal tool automatically.</p>
-                <p className="text-gray-400"># Proply picks a template, writes the content, designs it, and returns a link.</p>
+                <p className="text-gray-400 mt-3"># Claude calls Nous's create_proposal tool automatically.</p>
+                <p className="text-gray-400"># Nous picks a template, writes the content, designs it, and returns a link.</p>
               </div>
               <div className="bg-[#1e1e1e] text-[#d4d4d4] p-4 rounded-lg text-sm font-mono">
                 <p className="text-white">"Send that proposal to john@acmecorp.com for signing"</p>
@@ -333,14 +333,14 @@ export function APIDocumentation() {
         </div>
         <h2 className="text-3xl font-bold tracking-tight mb-4">POST /agent</h2>
         <p className="text-lg text-gray-500 mb-8 leading-relaxed">
-          The primary interface to Proply. Send a message, the agent decides what actions to take. It has access to all your templates, contacts, documents, and CRM data.
+          The primary interface to Nous. Send a message, the agent decides what actions to take. It has access to all your templates, contacts, documents, and CRM data.
         </p>
 
         <EndpointDoc
           method="POST"
           endpoint="/api/agent"
           title="Agent"
-          description="Send a message to the Proply agent. The agent interprets your request and takes the appropriate actions — creating proposals, sending for signing, looking up contacts, etc."
+          description="Send a message to the Nous agent. The agent interprets your request and takes the appropriate actions — creating proposals, sending for signing, looking up contacts, etc."
           bodyParams={[
             {
               name: "message",
@@ -375,7 +375,7 @@ export function APIDocumentation() {
           ]}
           requestExample={{
             curl: `curl -X POST "${apiUrl}/api/agent" \\
-  -H "Authorization: Bearer $PROPLY_API_KEY" \\
+  -H "Authorization: Bearer $NOUS_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
     "message": "Create a proposal for Acme Corp — social media management, $5k/month retainer",
@@ -384,7 +384,7 @@ export function APIDocumentation() {
             javascript: `const response = await fetch('${apiUrl}/api/agent', {
   method: 'POST',
   headers: {
-    'Authorization': \`Bearer \${process.env.PROPLY_API_KEY}\`,
+    'Authorization': \`Bearer \${process.env.NOUS_API_KEY}\`,
     'Content-Type': 'application/json'
   },
   body: JSON.stringify({
@@ -401,7 +401,7 @@ import os
 
 response = requests.post(
     '${apiUrl}/api/agent',
-    headers={'Authorization': f'Bearer {os.environ["PROPLY_API_KEY"]}'},
+    headers={'Authorization': f'Bearer {os.environ["NOUS_API_KEY"]}'},
     json={
         'message': 'Create a proposal for Acme Corp — social media management, $5k/month retainer',
         'workspaceId': 'your-workspace-id'
@@ -423,9 +423,9 @@ print(result['links'])`,
     }
   ],
   "links": {
-    "view": "https://goproply.com/share/xyz-token",
-    "pdf": "https://api.goproply.com/api/documents/doc-550e8400-e29b-41d4/export/pdf",
-    "edit": "https://goproply.com/documents/doc-550e8400-e29b-41d4"
+    "view": "https://opennous.cloud/share/xyz-token",
+    "pdf": "https://api.opennous.cloud/api/documents/doc-550e8400-e29b-41d4/export/pdf",
+    "edit": "https://opennous.cloud/documents/doc-550e8400-e29b-41d4"
   }
 }`}
         />
@@ -533,7 +533,7 @@ print(result['links'])`,
               <Badge className="bg-gray-500 font-mono text-xs">search_meeting_notes</Badge>
               <span className="text-xs text-gray-400">requires integration</span>
             </div>
-            <p className="text-gray-600 mb-2">Search your CRM (Pipedrive, HubSpot), create deals, and search meeting transcripts (Granola, Fireflies, Fathom). These tools appear when the integration is connected in Proply settings.</p>
+            <p className="text-gray-600 mb-2">Search your CRM (Pipedrive, HubSpot), create deals, and search meeting transcripts (Granola, Fireflies, Fathom). These tools appear when the integration is connected in Nous settings.</p>
             <p className="text-sm text-gray-400">Examples: "Search my CRM for Acme", "Create a deal for the website redesign", "Find notes from yesterday's call with Acme"</p>
           </div>
         </div>
@@ -581,8 +581,8 @@ print(result['links'])`,
     "document_id": "doc-550e8400-e29b-41d4",
     "workspace_id": "ws-123",
     "links": {
-      "view": "https://goproply.com/share/xyz-token",
-      "pdf": "https://api.goproply.com/api/documents/doc-550e8400/export/pdf"
+      "view": "https://opennous.cloud/share/xyz-token",
+      "pdf": "https://api.opennous.cloud/api/documents/doc-550e8400/export/pdf"
     }
   }
 }`} language="json" />
@@ -613,10 +613,10 @@ print(result['links'])`,
             ]}
             requestExample={{
               curl: `curl -X GET "${apiUrl}/api/documents?workspaceId=your-workspace-id&type=proposal" \\
-  -H "Authorization: Bearer $PROPLY_API_KEY"`,
+  -H "Authorization: Bearer $NOUS_API_KEY"`,
               javascript: `const response = await fetch('${apiUrl}/api/documents?workspaceId=your-workspace-id&type=proposal', {
   headers: {
-    'Authorization': \`Bearer \${process.env.PROPLY_API_KEY}\`
+    'Authorization': \`Bearer \${process.env.NOUS_API_KEY}\`
   }
 });
 
@@ -625,7 +625,7 @@ const { documents } = await response.json();`,
 
 response = requests.get(
     '${apiUrl}/api/documents',
-    headers={'Authorization': f'Bearer {os.environ["PROPLY_API_KEY"]}'},
+    headers={'Authorization': f'Bearer {os.environ["NOUS_API_KEY"]}'},
     params={'workspaceId': 'your-workspace-id', 'type': 'proposal'}
 )
 
@@ -639,7 +639,7 @@ documents = response.json()['documents']`,
       "type": "proposal",
       "status": "completed",
       "created_at": "2026-03-26T14:30:00Z",
-      "share_url": "https://goproply.com/share/xyz-token"
+      "share_url": "https://opennous.cloud/share/xyz-token"
     }
   ],
   "total": 1
@@ -657,15 +657,15 @@ documents = response.json()['documents']`,
               ]}
               requestExample={{
                 curl: `curl -X GET "${apiUrl}/api/documents/doc-550e8400-e29b-41d4" \\
-  -H "Authorization: Bearer $PROPLY_API_KEY"`,
+  -H "Authorization: Bearer $NOUS_API_KEY"`,
                 javascript: `const response = await fetch('${apiUrl}/api/documents/doc-550e8400-e29b-41d4', {
-  headers: { 'Authorization': \`Bearer \${process.env.PROPLY_API_KEY}\` }
+  headers: { 'Authorization': \`Bearer \${process.env.NOUS_API_KEY}\` }
 });
 
 const document = await response.json();`,
                 python: `response = requests.get(
     '${apiUrl}/api/documents/doc-550e8400-e29b-41d4',
-    headers={'Authorization': f'Bearer {os.environ["PROPLY_API_KEY"]}'}
+    headers={'Authorization': f'Bearer {os.environ["NOUS_API_KEY"]}'}
 )`,
               }}
               responseExample={`{
@@ -691,22 +691,22 @@ const document = await response.json();`,
               ]}
               requestExample={{
                 curl: `curl -X POST "${apiUrl}/api/documents/doc-550e8400-e29b-41d4/export/pdf" \\
-  -H "Authorization: Bearer $PROPLY_API_KEY"`,
+  -H "Authorization: Bearer $NOUS_API_KEY"`,
                 javascript: `const response = await fetch('${apiUrl}/api/documents/doc-550e8400-e29b-41d4/export/pdf', {
   method: 'POST',
-  headers: { 'Authorization': \`Bearer \${process.env.PROPLY_API_KEY}\` }
+  headers: { 'Authorization': \`Bearer \${process.env.NOUS_API_KEY}\` }
 });
 
 const { pdf_url } = await response.json();`,
                 python: `response = requests.post(
     '${apiUrl}/api/documents/doc-550e8400-e29b-41d4/export/pdf',
-    headers={'Authorization': f'Bearer {os.environ["PROPLY_API_KEY"]}'}
+    headers={'Authorization': f'Bearer {os.environ["NOUS_API_KEY"]}'}
 )
 
 pdf_url = response.json()['pdf_url']`,
               }}
               responseExample={`{
-  "pdf_url": "https://storage.goproply.com/pdfs/doc-550e8400.pdf",
+  "pdf_url": "https://storage.opennous.cloud/pdfs/doc-550e8400.pdf",
   "expires_at": "2026-03-27T14:30:00Z"
 }`}
             />
@@ -723,22 +723,22 @@ pdf_url = response.json()['pdf_url']`,
               ]}
               requestExample={{
                 curl: `curl -X POST "${apiUrl}/api/documents/doc-550e8400-e29b-41d4/share-link" \\
-  -H "Authorization: Bearer $PROPLY_API_KEY"`,
+  -H "Authorization: Bearer $NOUS_API_KEY"`,
                 javascript: `const response = await fetch('${apiUrl}/api/documents/doc-550e8400-e29b-41d4/share-link', {
   method: 'POST',
-  headers: { 'Authorization': \`Bearer \${process.env.PROPLY_API_KEY}\` }
+  headers: { 'Authorization': \`Bearer \${process.env.NOUS_API_KEY}\` }
 });
 
 const { share_url } = await response.json();`,
                 python: `response = requests.post(
     '${apiUrl}/api/documents/doc-550e8400-e29b-41d4/share-link',
-    headers={'Authorization': f'Bearer {os.environ["PROPLY_API_KEY"]}'}
+    headers={'Authorization': f'Bearer {os.environ["NOUS_API_KEY"]}'}
 )
 
 share_url = response.json()['share_url']`,
               }}
               responseExample={`{
-  "share_url": "https://goproply.com/share/xyz-token",
+  "share_url": "https://opennous.cloud/share/xyz-token",
   "token": "xyz-token"
 }`}
             />
@@ -759,20 +759,20 @@ share_url = response.json()['share_url']`,
               ]}
               requestExample={{
                 curl: `curl -X PATCH "${apiUrl}/api/documents/doc-550e8400-e29b-41d4" \\
-  -H "Authorization: Bearer $PROPLY_API_KEY" \\
+  -H "Authorization: Bearer $NOUS_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{"variables": {"client_name": "Acme Corporation"}}'`,
                 javascript: `const response = await fetch('${apiUrl}/api/documents/doc-550e8400-e29b-41d4', {
   method: 'PATCH',
   headers: {
-    'Authorization': \`Bearer \${process.env.PROPLY_API_KEY}\`,
+    'Authorization': \`Bearer \${process.env.NOUS_API_KEY}\`,
     'Content-Type': 'application/json'
   },
   body: JSON.stringify({ variables: { client_name: 'Acme Corporation' } })
 });`,
                 python: `response = requests.patch(
     '${apiUrl}/api/documents/doc-550e8400-e29b-41d4',
-    headers={'Authorization': f'Bearer {os.environ["PROPLY_API_KEY"]}'},
+    headers={'Authorization': f'Bearer {os.environ["NOUS_API_KEY"]}'},
     json={'variables': {'client_name': 'Acme Corporation'}}
 )`,
               }}
@@ -795,14 +795,14 @@ share_url = response.json()['share_url']`,
               ]}
               requestExample={{
                 curl: `curl -X DELETE "${apiUrl}/api/documents/doc-550e8400-e29b-41d4" \\
-  -H "Authorization: Bearer $PROPLY_API_KEY"`,
+  -H "Authorization: Bearer $NOUS_API_KEY"`,
                 javascript: `await fetch('${apiUrl}/api/documents/doc-550e8400-e29b-41d4', {
   method: 'DELETE',
-  headers: { 'Authorization': \`Bearer \${process.env.PROPLY_API_KEY}\` }
+  headers: { 'Authorization': \`Bearer \${process.env.NOUS_API_KEY}\` }
 });`,
                 python: `requests.delete(
     '${apiUrl}/api/documents/doc-550e8400-e29b-41d4',
-    headers={'Authorization': f'Bearer {os.environ["PROPLY_API_KEY"]}'}
+    headers={'Authorization': f'Bearer {os.environ["NOUS_API_KEY"]}'}
 )`,
               }}
               responseExample={`{
@@ -835,15 +835,15 @@ share_url = response.json()['share_url']`,
             ]}
             requestExample={{
               curl: `curl -X GET "${apiUrl}/api/templates?workspaceId=your-workspace-id&type=proposal" \\
-  -H "Authorization: Bearer $PROPLY_API_KEY"`,
+  -H "Authorization: Bearer $NOUS_API_KEY"`,
               javascript: `const response = await fetch('${apiUrl}/api/templates?workspaceId=your-workspace-id&type=proposal', {
-  headers: { 'Authorization': \`Bearer \${process.env.PROPLY_API_KEY}\` }
+  headers: { 'Authorization': \`Bearer \${process.env.NOUS_API_KEY}\` }
 });
 
 const { templates } = await response.json();`,
               python: `response = requests.get(
     '${apiUrl}/api/templates',
-    headers={'Authorization': f'Bearer {os.environ["PROPLY_API_KEY"]}'},
+    headers={'Authorization': f'Bearer {os.environ["NOUS_API_KEY"]}'},
     params={'workspaceId': 'your-workspace-id', 'type': 'proposal'}
 )
 
@@ -873,15 +873,15 @@ templates = response.json()['templates']`,
               ]}
               requestExample={{
                 curl: `curl -X GET "${apiUrl}/api/templates/tmpl-550e8400-e29b-41d4" \\
-  -H "Authorization: Bearer $PROPLY_API_KEY"`,
+  -H "Authorization: Bearer $NOUS_API_KEY"`,
                 javascript: `const response = await fetch('${apiUrl}/api/templates/tmpl-550e8400-e29b-41d4', {
-  headers: { 'Authorization': \`Bearer \${process.env.PROPLY_API_KEY}\` }
+  headers: { 'Authorization': \`Bearer \${process.env.NOUS_API_KEY}\` }
 });
 
 const template = await response.json();`,
                 python: `response = requests.get(
     '${apiUrl}/api/templates/tmpl-550e8400-e29b-41d4',
-    headers={'Authorization': f'Bearer {os.environ["PROPLY_API_KEY"]}'}
+    headers={'Authorization': f'Bearer {os.environ["NOUS_API_KEY"]}'}
 )`,
               }}
               responseExample={`{
@@ -907,15 +907,15 @@ const template = await response.json();`,
               ]}
               requestExample={{
                 curl: `curl -X GET "${apiUrl}/api/templates/tmpl-550e8400-e29b-41d4/variables" \\
-  -H "Authorization: Bearer $PROPLY_API_KEY"`,
+  -H "Authorization: Bearer $NOUS_API_KEY"`,
                 javascript: `const response = await fetch('${apiUrl}/api/templates/tmpl-550e8400-e29b-41d4/variables', {
-  headers: { 'Authorization': \`Bearer \${process.env.PROPLY_API_KEY}\` }
+  headers: { 'Authorization': \`Bearer \${process.env.NOUS_API_KEY}\` }
 });
 
 const { variables } = await response.json();`,
                 python: `response = requests.get(
     '${apiUrl}/api/templates/tmpl-550e8400-e29b-41d4/variables',
-    headers={'Authorization': f'Bearer {os.environ["PROPLY_API_KEY"]}'}
+    headers={'Authorization': f'Bearer {os.environ["NOUS_API_KEY"]}'}
 )`,
               }}
               responseExample={`{
@@ -951,15 +951,15 @@ const { variables } = await response.json();`,
             ]}
             requestExample={{
               curl: `curl -X GET "${apiUrl}/api/contacts?workspaceId=your-workspace-id" \\
-  -H "Authorization: Bearer $PROPLY_API_KEY"`,
+  -H "Authorization: Bearer $NOUS_API_KEY"`,
               javascript: `const response = await fetch('${apiUrl}/api/contacts?workspaceId=your-workspace-id', {
-  headers: { 'Authorization': \`Bearer \${process.env.PROPLY_API_KEY}\` }
+  headers: { 'Authorization': \`Bearer \${process.env.NOUS_API_KEY}\` }
 });
 
 const { contacts } = await response.json();`,
               python: `response = requests.get(
     '${apiUrl}/api/contacts',
-    headers={'Authorization': f'Bearer {os.environ["PROPLY_API_KEY"]}'},
+    headers={'Authorization': f'Bearer {os.environ["NOUS_API_KEY"]}'},
     params={'workspaceId': 'your-workspace-id'}
 )`,
             }}
@@ -987,13 +987,13 @@ const { contacts } = await response.json();`,
               ]}
               requestExample={{
                 curl: `curl -X GET "${apiUrl}/api/contacts/contact-123" \\
-  -H "Authorization: Bearer $PROPLY_API_KEY"`,
+  -H "Authorization: Bearer $NOUS_API_KEY"`,
                 javascript: `const response = await fetch('${apiUrl}/api/contacts/contact-123', {
-  headers: { 'Authorization': \`Bearer \${process.env.PROPLY_API_KEY}\` }
+  headers: { 'Authorization': \`Bearer \${process.env.NOUS_API_KEY}\` }
 });`,
                 python: `response = requests.get(
     '${apiUrl}/api/contacts/contact-123',
-    headers={'Authorization': f'Bearer {os.environ["PROPLY_API_KEY"]}'}
+    headers={'Authorization': f'Bearer {os.environ["NOUS_API_KEY"]}'}
 )`,
               }}
               responseExample={`{
@@ -1022,13 +1022,13 @@ const { contacts } = await response.json();`,
               ]}
               requestExample={{
                 curl: `curl -X POST "${apiUrl}/api/contacts" \\
-  -H "Authorization: Bearer $PROPLY_API_KEY" \\
+  -H "Authorization: Bearer $NOUS_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{"workspaceId": "your-workspace-id", "name": "John Smith", "email": "john@acmecorp.com", "company": "Acme Corp"}'`,
                 javascript: `const response = await fetch('${apiUrl}/api/contacts', {
   method: 'POST',
   headers: {
-    'Authorization': \`Bearer \${process.env.PROPLY_API_KEY}\`,
+    'Authorization': \`Bearer \${process.env.NOUS_API_KEY}\`,
     'Content-Type': 'application/json'
   },
   body: JSON.stringify({
@@ -1040,7 +1040,7 @@ const { contacts } = await response.json();`,
 });`,
                 python: `response = requests.post(
     '${apiUrl}/api/contacts',
-    headers={'Authorization': f'Bearer {os.environ["PROPLY_API_KEY"]}'},
+    headers={'Authorization': f'Bearer {os.environ["NOUS_API_KEY"]}'},
     json={
         'workspaceId': 'your-workspace-id',
         'name': 'John Smith',
@@ -1075,20 +1075,20 @@ const { contacts } = await response.json();`,
               ]}
               requestExample={{
                 curl: `curl -X PATCH "${apiUrl}/api/contacts/contact-123" \\
-  -H "Authorization: Bearer $PROPLY_API_KEY" \\
+  -H "Authorization: Bearer $NOUS_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{"company": "Acme Corporation"}'`,
                 javascript: `await fetch('${apiUrl}/api/contacts/contact-123', {
   method: 'PATCH',
   headers: {
-    'Authorization': \`Bearer \${process.env.PROPLY_API_KEY}\`,
+    'Authorization': \`Bearer \${process.env.NOUS_API_KEY}\`,
     'Content-Type': 'application/json'
   },
   body: JSON.stringify({ company: 'Acme Corporation' })
 });`,
                 python: `requests.patch(
     '${apiUrl}/api/contacts/contact-123',
-    headers={'Authorization': f'Bearer {os.environ["PROPLY_API_KEY"]}'},
+    headers={'Authorization': f'Bearer {os.environ["NOUS_API_KEY"]}'},
     json={'company': 'Acme Corporation'}
 )`,
               }}
@@ -1113,14 +1113,14 @@ const { contacts } = await response.json();`,
               ]}
               requestExample={{
                 curl: `curl -X DELETE "${apiUrl}/api/contacts/contact-123" \\
-  -H "Authorization: Bearer $PROPLY_API_KEY"`,
+  -H "Authorization: Bearer $NOUS_API_KEY"`,
                 javascript: `await fetch('${apiUrl}/api/contacts/contact-123', {
   method: 'DELETE',
-  headers: { 'Authorization': \`Bearer \${process.env.PROPLY_API_KEY}\` }
+  headers: { 'Authorization': \`Bearer \${process.env.NOUS_API_KEY}\` }
 });`,
                 python: `requests.delete(
     '${apiUrl}/api/contacts/contact-123',
-    headers={'Authorization': f'Bearer {os.environ["PROPLY_API_KEY"]}'}
+    headers={'Authorization': f'Bearer {os.environ["NOUS_API_KEY"]}'}
 )`,
               }}
               responseExample={`{
@@ -1151,15 +1151,15 @@ const { contacts } = await response.json();`,
           ]}
           requestExample={{
             curl: `curl -X GET "${apiUrl}/api/documents/doc-550e8400-e29b-41d4/signing/status" \\
-  -H "Authorization: Bearer $PROPLY_API_KEY"`,
+  -H "Authorization: Bearer $NOUS_API_KEY"`,
             javascript: `const response = await fetch('${apiUrl}/api/documents/doc-550e8400-e29b-41d4/signing/status', {
-  headers: { 'Authorization': \`Bearer \${process.env.PROPLY_API_KEY}\` }
+  headers: { 'Authorization': \`Bearer \${process.env.NOUS_API_KEY}\` }
 });
 
 const status = await response.json();`,
             python: `response = requests.get(
     '${apiUrl}/api/documents/doc-550e8400-e29b-41d4/signing/status',
-    headers={'Authorization': f'Bearer {os.environ["PROPLY_API_KEY"]}'}
+    headers={'Authorization': f'Bearer {os.environ["NOUS_API_KEY"]}'}
 )`,
           }}
           responseExample={`{

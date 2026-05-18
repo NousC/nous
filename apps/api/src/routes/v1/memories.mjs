@@ -6,7 +6,7 @@ import {
   updateMemory,
   softDeleteMemory,
   searchMemories,
-} from '@proply/core';
+} from '@nous/core';
 import { logMcpOp } from '../../lib/mcpLogger.mjs';
 
 export const memoriesRouter = Router();

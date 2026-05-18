@@ -23,7 +23,7 @@ A contact requires at least an **email** or a **LinkedIn URL** to be enriched. I
 ```
 Apollo BYOK (if toggled on for enrichment)
   → Prospeo BYOK (if connected)
-    → Proply's built-in Prospeo key
+    → Nous's built-in Prospeo key
 ```
 
 Provider selection is evaluated per-contact at enrichment time. A workspace's Apollo key is only used if it is connected **and** the "use for enrichment" toggle is enabled. Prospeo BYOK is always used for enrichment when connected. If neither workspace key is available, the system falls back to the platform-level Prospeo API key.
@@ -191,4 +191,4 @@ The quality of Mode 1 scoring is entirely dependent on what workspace memories a
 - `ICP: RevOps leads at outbound agencies running 50+ seats`
 - `Market: US and Canada only, no enterprise`
 
-Use `proply.remember({ text: '...', category: 'ICP' })` via the MCP tool, or the Memories page in the app.
+Use `nous.remember({ text: '...', category: 'ICP' })` via the MCP tool, or the Memories page in the app.

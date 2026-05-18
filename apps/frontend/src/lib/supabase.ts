@@ -12,7 +12,7 @@ if (!supabaseUrl || !supabaseAnonKey) {
 }
 
 // Key used to store the "remember me" preference
-const REMEMBER_ME_KEY = 'proply_remember_me';
+const REMEMBER_ME_KEY = 'nous_remember_me';
 
 // Helper to set the remember me preference (call before sign in)
 export const setRememberMe = (remember: boolean) => {

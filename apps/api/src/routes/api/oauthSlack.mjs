@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import crypto from 'crypto';
-import { getSupabaseClient } from '@proply/core';
+import { getSupabaseClient } from '@nous/core';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
 import { encrypt } from '../../utils/crypto.mjs';
 
@@ -39,7 +39,7 @@ oauthSlackRouter.get('/authorize', verifySupabaseAuth, async (req, res) => {
   const url = new URL('https://slack.com/oauth/v2/authorize');
   url.searchParams.set('client_id', process.env.SLACK_CLIENT_ID);
   url.searchParams.set('user_scope', USER_SCOPES);
-  url.searchParams.set('redirect_uri', process.env.SLACK_REDIRECT_URI || `${process.env.API_URL || 'https://api.goproply.com'}/api/oauth/slack/callback`);
+  url.searchParams.set('redirect_uri', process.env.SLACK_REDIRECT_URI || `${process.env.API_URL || 'https://api.opennous.cloud'}/api/oauth/slack/callback`);
   url.searchParams.set('state', state);
 
   return res.json({ authUrl: url.toString() });
@@ -47,7 +47,7 @@ oauthSlackRouter.get('/authorize', verifySupabaseAuth, async (req, res) => {
 
 // GET /api/oauth/slack/callback  — no auth, redirect from Slack
 oauthSlackRouter.get('/callback', async (req, res) => {
-  const frontendUrl = process.env.APP_URL || 'https://app.goproply.com';
+  const frontendUrl = process.env.APP_URL || 'https://app.opennous.cloud';
   const { code, state, error: oauthError } = req.query;
 
   if (oauthError) return res.redirect(`${frontendUrl}/oauth-callback.html?oauth_error=${oauthError}`);
@@ -65,7 +65,7 @@ oauthSlackRouter.get('/callback', async (req, res) => {
         client_id:     process.env.SLACK_CLIENT_ID,
         client_secret: process.env.SLACK_CLIENT_SECRET,
         code,
-        redirect_uri: process.env.SLACK_REDIRECT_URI || `${process.env.API_URL || 'https://api.goproply.com'}/api/oauth/slack/callback`,
+        redirect_uri: process.env.SLACK_REDIRECT_URI || `${process.env.API_URL || 'https://api.opennous.cloud'}/api/oauth/slack/callback`,
       }),
     });
     const tokenData = await tokenRes.json();

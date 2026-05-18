@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 
 /**
- * Proply MCP Server — contact intelligence for GTM agents.
+ * Nous MCP Server — contact intelligence for GTM agents.
  *
  * Required env vars:
- *   PROPLY_API_KEY        — Your Proply API key (Settings → API Keys)
+ *   NOUS_API_KEY        — Your Nous API key (Settings → API Keys)
  *
  * Optional:
- *   PROPLY_API_URL        — API base URL (default: https://api.goproply.com)
+ *   NOUS_API_URL        — API base URL (default: https://api.opennous.cloud)
  *
  * Tools:
  *   get_contact    — full contact profile: identity + activities + facts + summary
@@ -77,11 +77,11 @@ function fmtType(t) {
 validateConfig();
 
 const server = new McpServer({
-  name: "proply",
+  name: "nous",
   version: "0.8.9",
-  description: "Proply — contact intelligence for GTM agents. Call get_contact before acting on any person. Call track and remember after every interaction.",
+  description: "Nous — contact intelligence for GTM agents. Call get_contact before acting on any person. Call track and remember after every interaction.",
   icons: [
-    { src: "https://goproply.com/newlogoP.png", mimeType: "image/png", sizes: ["64x64"] },
+    { src: "https://opennous.cloud/newlogoP.png", mimeType: "image/png", sizes: ["64x64"] },
   ],
 });
 

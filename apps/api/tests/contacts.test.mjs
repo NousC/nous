@@ -21,14 +21,14 @@ function skip(name, fn) {
 const headers = () => ({ 'x-api-key': apiKey });
 
 let createdId = null;
-const testEmail = `test-integration-${Date.now()}@proply-test.invalid`;
+const testEmail = `test-integration-${Date.now()}@nous-test.invalid`;
 
 skip('POST /v1/contacts — create contact', async () => {
   const res = await post('/v1/contacts', {
     email: testEmail,
     first_name: 'Integration',
     last_name: 'Test',
-    company: 'Proply Tests Inc',
+    company: 'Nous Tests Inc',
     job_title: 'QA Bot',
   }, headers());
   assert.equal(res.status, 201, await res.text());
@@ -41,7 +41,7 @@ skip('POST /v1/contacts — create contact', async () => {
 
 skip('GET /v1/contacts — list includes created contact', async () => {
   assert.ok(createdId, 'depends on create test');
-  const res = await get(`/v1/contacts?search=proply-test`, headers());
+  const res = await get(`/v1/contacts?search=nous-test`, headers());
   assert.equal(res.status, 200);
   const body = await res.json();
   assert.ok(Array.isArray(body.contacts));

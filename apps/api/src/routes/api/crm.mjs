@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getSupabaseClient, logActivity } from '@proply/core';
+import { getSupabaseClient, logActivity } from '@nous/core';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
 import crypto from 'crypto';
 
@@ -286,7 +286,7 @@ crmRouter.post('/sync-config', verifySupabaseAuth, async (req, res) => {
   }
 });
 
-// POST /api/crm/sync-now — pulls every contact from the provider and upserts into Proply.
+// POST /api/crm/sync-now — pulls every contact from the provider and upserts into Nous.
 // Runs inline (small CRMs finish in seconds; bigger ones can be moved to the worker later).
 crmRouter.post('/sync-now', verifySupabaseAuth, async (req, res) => {
   try {
@@ -425,7 +425,7 @@ crmRouter.get('/records', verifySupabaseAuth, async (req, res) => {
   }
 });
 
-// POST /api/crm/import — import selected records into Proply contacts + log deal signals
+// POST /api/crm/import — import selected records into Nous contacts + log deal signals
 crmRouter.post('/import', verifySupabaseAuth, async (req, res) => {
   try {
     const supabase = getSupabaseClient();

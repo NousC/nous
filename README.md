@@ -1,12 +1,12 @@
 <div align="center">
-  <img src=".github/assets/logo-dark.png#gh-dark-mode-only" alt="Proply" height="60" />
-  <img src=".github/assets/logo-light.png#gh-light-mode-only" alt="Proply" height="60" />
+  <img src=".github/assets/logo-dark.png#gh-dark-mode-only" alt="Nous" height="60" />
+  <img src=".github/assets/logo-light.png#gh-light-mode-only" alt="Nous" height="60" />
 </div>
 
 <div align="center">
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
-[![npm](https://img.shields.io/npm/v/@goproply/sdk)](https://www.npmjs.com/package/@goproply/sdk)
+[![npm](https://img.shields.io/npm/v/@opennous/sdk)](https://www.npmjs.com/package/@opennous/sdk)
 [![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/npa59RTgs)
 
 </div>
@@ -20,21 +20,21 @@
 <br/>
 
 <div align="center">
-  <a href="https://docs.goproply.com">Docs</a> ·
-  <a href="https://docs.goproply.com/public-api/introduction">Public API</a> ·
-  <a href="https://docs.goproply.com/mcp/introduction">MCP Server</a> ·
-  <a href="https://www.npmjs.com/package/@goproply/sdk">Node.js SDK</a> ·
-  <a href="https://pypi.org/project/proply/">Python SDK</a> ·
+  <a href="https://docs.opennous.cloud">Docs</a> ·
+  <a href="https://docs.opennous.cloud/public-api/introduction">Public API</a> ·
+  <a href="https://docs.opennous.cloud/mcp/introduction">MCP Server</a> ·
+  <a href="https://www.npmjs.com/package/@opennous/sdk">Node.js SDK</a> ·
+  <a href="https://pypi.org/project/nous/">Python SDK</a> ·
   <a href="https://discord.gg/npa59RTgs">Discord</a>
 </div>
 
 ---
 
-## What Proply does
+## What Nous does
 
 Your GTM stack is fragmented — Apollo for prospecting, Salesforce for CRM, Smartlead for sequences, Gmail for email, LinkedIn for social. Each tool has part of the picture. None of them are queryable by an AI agent.
 
-Proply fixes that:
+Nous fixes that:
 
 - **Identity resolution** — Every contact across every tool merged into one clean record. No duplicates, no gaps.
 - **Complete timeline** — Every email, call, LinkedIn message, and CRM event in one place. Know exactly where a prospect stands before you act.
@@ -68,17 +68,17 @@ Proply fixes that:
 
 ## Quick start
 
-→ [Full setup guide](https://docs.goproply.com/getting-started/quickstart)
+→ [Full setup guide](https://docs.opennous.cloud/getting-started/quickstart)
 
 ```bash
-git clone https://github.com/bennetglinder1/proply-crm.git
-cd proply-crm
+git clone https://github.com/bennetglinder1/nous.git
+cd nous
 cp .env.example .env   # fill in Supabase + Anthropic keys
 pnpm install
 pnpm dev
 ```
 
-For production: [docs.goproply.com/installation/docker](https://docs.goproply.com/installation/docker)
+For production: [docs.opennous.cloud/installation/docker](https://docs.opennous.cloud/installation/docker)
 
 ---
 
@@ -89,19 +89,19 @@ Add to your `mcp.json` (Claude Desktop, Cursor, or any MCP host):
 ```json
 {
   "mcpServers": {
-    "proply": {
+    "nous": {
       "command": "npx",
-      "args": ["-y", "@goproply/mcp"],
+      "args": ["-y", "@opennous/mcp"],
       "env": {
-        "PROPLY_API_KEY": "your-api-key",
-        "PROPLY_API_URL": "http://localhost:3000"
+        "NOUS_API_KEY": "your-api-key",
+        "NOUS_API_URL": "http://localhost:3000"
       }
     }
   }
 }
 ```
 
-→ [Full MCP docs](https://docs.goproply.com/mcp/introduction)
+→ [Full MCP docs](https://docs.opennous.cloud/mcp/introduction)
 
 ---
 

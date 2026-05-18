@@ -4,10 +4,10 @@ services:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
-    image: ghcr.io/goproply/proply-crm:latest
+    image: ghcr.io/opennous/nous:latest
     restart: unless-stopped
     env_file:
-      - ./proply.env
+      - ./nous.env
     environment:
       NODE_ENV: production
     depends_on:
@@ -18,10 +18,10 @@ services:
     build:
       context: .
       dockerfile: apps/worker/Dockerfile
-    image: ghcr.io/goproply/proply-crm-worker:latest
+    image: ghcr.io/opennous/nous-worker:latest
     restart: unless-stopped
     env_file:
-      - ./proply.env
+      - ./nous.env
     environment:
       NODE_ENV: production
     depends_on:
@@ -43,7 +43,7 @@ services:
         VITE_POSTHOG_KEY: ${VITE_POSTHOG_KEY:-}
         VITE_GOOGLE_ANALYTICS_ID: ${VITE_GOOGLE_ANALYTICS_ID:-}
         VITE_DOCS_URL: ${VITE_DOCS_URL:-}
-    image: ghcr.io/goproply/proply-crm-frontend:latest
+    image: ghcr.io/opennous/nous-frontend:latest
     restart: unless-stopped
     depends_on:
       - api

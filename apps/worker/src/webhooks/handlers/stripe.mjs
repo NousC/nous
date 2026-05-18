@@ -1,11 +1,11 @@
 // Stripe inbound webhook handler — logs payment_received → promotes contact to client.
 // Wire this up in the user's own Stripe dashboard:
-//   Endpoint: https://api.goproply.com/inbound/stripe/<workspaceId>
+//   Endpoint: https://api.opennous.cloud/inbound/stripe/<workspaceId>
 //   Events: payment_intent.succeeded, invoice.paid
 //
 // Optional: set STRIPE_INBOUND_WEBHOOK_SECRET to a shared secret for HMAC verification.
 
-import { getSupabaseClient } from '@proply/core';
+import { getSupabaseClient } from '@nous/core';
 import { logActivity } from '../../utils/activity.mjs';
 import { resolveContact } from '../../utils/resolveContact.mjs';
 

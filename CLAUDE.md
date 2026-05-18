@@ -1,22 +1,22 @@
-# Proply CRM — AI Agent Guide
+# Nous CRM — AI Agent Guide
 
 This file helps AI coding assistants understand the architecture before making changes.
 
 ## What this project is
 
-Proply CRM is GTM data infrastructure for agents. It unifies Apollo, Salesforce, Smartlead, Gmail, and LinkedIn into one identity-resolved record per human, ingests signals from email/LinkedIn/calendar, and exposes that context via an MCP server and REST API so agents always have full account context in a single call.
+Nous CRM is GTM data infrastructure for agents. It unifies Apollo, Salesforce, Smartlead, Gmail, and LinkedIn into one identity-resolved record per human, ingests signals from email/LinkedIn/calendar, and exposes that context via an MCP server and REST API so agents always have full account context in a single call.
 
 ## Monorepo structure
 
 ```
 apps/
   api/       — Node.js/Express REST API (v1 endpoints — the public surface)
-  mcp/       — MCP server (@goproply/mcp, 10 core tools)
+  mcp/       — MCP server (@opennous/mcp, 10 core tools)
   frontend/  — Vite + React + shadcn/ui (Contacts, People, Companies, Memories pages)
   worker/    — Background workers (CalendarPoller, signal ingestion, webhooks)
 packages/
   core/      — Shared DB logic, Supabase client, memory types, contact schema
-  sdk/       — TypeScript SDK (@goproply/sdk, published to npm)
+  sdk/       — TypeScript SDK (@opennous/sdk, published to npm)
 sdk-python/  — Python SDK (published to PyPI)
 ```
 

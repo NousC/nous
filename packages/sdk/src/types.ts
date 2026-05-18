@@ -1,8 +1,8 @@
 // ─── Config ───────────────────────────────────────────────────────────────────
 
-export interface ProplyConfig {
+export interface NousConfig {
   apiKey: string;
-  /** Defaults to https://api.goproply.com */
+  /** Defaults to https://api.opennous.cloud */
   baseUrl?: string;
 }
 
