@@ -31,3 +31,7 @@ apps/frontend/dist/
 
 # TypeScript
 *.tsbuildinfo
+
+# Python build artifacts
+*.egg-info/
+__pycache__/

@@ -1,17 +1,17 @@
-# nous · Python SDK
+# opennous · Python SDK
 
 Official Python SDK for the [Nous](https://opennous.cloud) API — GTM data infrastructure for agents.
 
 ## Install
 
 ```bash
-pip install nous
+pip install opennous
 ```
 
 ## Usage
 
 ```python
-from nous import NousClient
+from opennous import NousClient
 
 client = NousClient(api_key="your-api-key")
 

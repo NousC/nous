@@ -37,7 +37,7 @@ class NousClient:
 
     Usage::
 
-        from nous import NousClient
+        from opennous import NousClient
 
         client = NousClient(api_key="YOUR_API_KEY")
 
