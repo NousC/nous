@@ -5,8 +5,9 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/components/ui/sonner";
-import { ArrowRight, Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff } from "lucide-react";
 import { setRememberMe } from "@/lib/supabase";
+import { NousBrandingPanel } from "./auth-shared/NousBrandingPanel";
 
 const Login = () => {
   const [email, setEmail] = useState("");
@@ -47,26 +48,32 @@ const Login = () => {
   };
 
   return (
-    <div className="min-h-screen font-inter flex bg-white">
+    <div className="min-h-screen font-inter flex bg-[#FAF9F7]">
       {/* Left Column - Login Form */}
-      <div className="flex-1 flex items-center justify-center p-8 lg:p-16">
-        <div className="w-full max-w-[400px]">
+      <div
+        className="flex-1 flex items-center justify-center p-8 lg:p-16 relative"
+        style={{
+          backgroundImage:
+            "radial-gradient(circle, rgba(120, 90, 70, 0.12) 1px, transparent 1.4px)",
+          backgroundSize: "18px 18px",
+        }}
+      >
+        <div className="w-full max-w-[420px] relative">
           {/* Mobile Logo */}
-          <div className="flex items-center gap-2.5 mb-12 lg:hidden">
-            <img
-              src="/newlogoP.png"
-              alt="Proply"
-              className="w-8 h-8 object-contain"
-            />
-            <span className="font-semibold text-lg tracking-tight text-gray-900">Proply</span>
+          <div className="flex items-center gap-2 mb-12 lg:hidden">
+            <img src="/nous-logo.svg" alt="" className="w-7 h-7 object-contain" />
+            <span className="font-bold text-[18px] tracking-[-0.02em] text-[#1f1410]">nous</span>
           </div>
 
-          <div className="mb-8">
-            <h1 className="text-[26px] font-semibold tracking-tight text-gray-900 mb-2">
-              Welcome back
+          <div className="mb-9">
+            <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#8a7568] mb-3">
+              <span className="text-[#c97e5c]">#</span> sign in
+            </div>
+            <h1 className="text-[34px] font-bold tracking-[-0.03em] leading-[1.05] text-[#1f1410] mb-3">
+              Welcome back.
             </h1>
-            <p className="text-[15px] text-gray-500">
-              Sign in to continue to your workspace
+            <p className="text-[15px] text-[#6b5a50]">
+              Sign in to continue to your workspace.
             </p>
           </div>
 
@@ -76,7 +83,7 @@ const Login = () => {
               type="button"
               onClick={handleGoogleSignIn}
               variant="outline"
-              className="w-full h-11 rounded-lg flex items-center justify-center gap-2.5 font-medium text-sm border-gray-200 hover:bg-gray-50 text-gray-700"
+              className="w-full h-11 rounded-lg flex items-center justify-center gap-2.5 font-medium text-sm border-[#e6dccf] bg-white hover:bg-[#f5ede5] text-[#3d2517]"
               disabled={loading}
             >
               <svg className="w-[18px] h-[18px]" viewBox="0 0 24 24">
@@ -91,18 +98,18 @@ const Login = () => {
             {/* Divider */}
             <div className="relative py-1">
               <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-gray-200" />
+                <div className="w-full border-t border-[#e6dccf]" />
               </div>
               <div className="relative flex justify-center">
-                <span className="px-3 text-xs text-gray-400 bg-white font-medium">or</span>
+                <span className="px-3 text-[10px] uppercase tracking-[0.12em] text-[#a08c7e] bg-[#FAF9F7] font-mono">or</span>
               </div>
             </div>
 
             {/* Email Form */}
             <form onSubmit={handleLogin} className="space-y-4">
               <div>
-                <label className="text-sm font-medium text-gray-700 mb-1.5 block">
-                  Email address
+                <label className="text-[13px] font-medium text-[#3d2517] mb-1.5 block tracking-tight">
+                  Email
                 </label>
                 <Input
                   type="email"
@@ -110,14 +117,14 @@ const Login = () => {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
-                  className="h-11 rounded-lg text-sm border-gray-200 bg-white text-gray-900 placeholder:text-gray-400 focus-visible:ring-gray-300"
+                  className="h-11 rounded-lg text-sm border-[#e6dccf] bg-white text-[#1f1410] placeholder:text-[#a08c7e] focus-visible:ring-[#c97e5c] focus-visible:border-[#c97e5c]"
                   disabled={loading}
                   autoFocus
                 />
               </div>
 
               <div>
-                <label className="text-sm font-medium text-gray-700 mb-1.5 block">
+                <label className="text-[13px] font-medium text-[#3d2517] mb-1.5 block tracking-tight">
                   Password
                 </label>
                 <div className="relative">
@@ -127,13 +134,13 @@ const Login = () => {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     required
-                    className="h-11 rounded-lg text-sm border-gray-200 bg-white text-gray-900 placeholder:text-gray-400 pr-10 focus-visible:ring-gray-300"
+                    className="h-11 rounded-lg text-sm border-[#e6dccf] bg-white text-[#1f1410] placeholder:text-[#a08c7e] pr-10 focus-visible:ring-[#c97e5c] focus-visible:border-[#c97e5c]"
                     disabled={loading}
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[#a08c7e] hover:text-[#3d2517]"
                     tabIndex={-1}
                   >
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -148,18 +155,18 @@ const Login = () => {
                     checked={rememberMe}
                     onCheckedChange={(checked) => setRememberMeState(checked === true)}
                     disabled={loading}
-                    className="border-gray-300 data-[state=checked]:bg-gray-900 data-[state=checked]:border-gray-900"
+                    className="border-[#cbb9a8] data-[state=checked]:bg-[#3d2517] data-[state=checked]:border-[#3d2517]"
                   />
                   <label
                     htmlFor="remember-me"
-                    className="text-sm cursor-pointer select-none text-gray-600"
+                    className="text-[13px] cursor-pointer select-none text-[#6b5a50]"
                   >
                     Remember me
                   </label>
                 </div>
                 <Link
                   to="/forgot-password"
-                  className="text-sm font-medium text-gray-600 hover:text-gray-900 hover:underline underline-offset-2"
+                  className="text-[13px] font-medium text-[#6b5a50] hover:text-[#3d2517] hover:underline underline-offset-2 decoration-dotted"
                 >
                   Forgot password?
                 </Link>
@@ -167,78 +174,32 @@ const Login = () => {
 
               <Button
                 type="submit"
-                className="w-full h-11 rounded-lg bg-gray-900 hover:bg-gray-800 text-white font-medium text-sm transition-all group"
+                className="w-full h-12 rounded-lg pl-5 pr-1.5 flex items-center justify-between gap-2 font-medium text-sm bg-[#f1e2d4] hover:bg-[#e8d4c0] text-[#3d2517] transition-transform hover:scale-[1.005] disabled:opacity-60 disabled:hover:scale-100"
                 disabled={loading}
               >
-                {loading ? "Signing in..." : "Continue"}
-                {!loading && <ArrowRight className="w-4 h-4 ml-2 transition-transform group-hover:translate-x-0.5" />}
+                <span>{loading ? "Signing in..." : "Continue"}</span>
+                <span
+                  className="inline-flex items-center justify-center w-8 h-8 rounded-md bg-[#1f1410] text-[#FAF9F7]"
+                  aria-hidden="true"
+                >
+                  →
+                </span>
               </Button>
             </form>
           </div>
 
           {/* Sign Up Link */}
-          <div className="text-center text-sm mt-8 pt-6 border-t border-gray-100">
-            <span className="text-gray-500">Don't have an account? </span>
-            <Link to="/signup" className="font-semibold text-gray-900 hover:underline underline-offset-2">
-              Sign up
+          <div className="text-center text-sm mt-8 pt-6 border-t border-[#e6dccf]">
+            <span className="text-[#6b5a50]">Don&apos;t have an account? </span>
+            <Link to="/signup" className="font-semibold text-[#1f1410] hover:text-[#c97e5c] transition-colors">
+              Sign up →
             </Link>
           </div>
         </div>
       </div>
 
       {/* Right Column - Branding */}
-      <div className="hidden lg:flex lg:w-[45%] bg-[#f9f9f9] p-12 flex-col justify-between relative overflow-hidden border-l border-gray-100">
-        {/* Subtle grid pattern */}
-        <div
-          className="absolute inset-0 opacity-[0.4]"
-          style={{
-            backgroundImage: 'radial-gradient(circle, #d1d5db 1px, transparent 1px)',
-            backgroundSize: '24px 24px',
-          }}
-        />
-
-        {/* Logo */}
-        <div className="relative z-10 flex items-center gap-2.5">
-          <img
-            src="/newlogoP.png"
-            alt=""
-            className="w-7 h-7 object-contain"
-          />
-          <span className="font-semibold text-[15px] tracking-tight text-gray-900">Proply</span>
-        </div>
-
-        {/* Testimonial */}
-        <div className="relative z-10 max-w-md">
-          <div className="text-gray-300 mb-4">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V21z" />
-              <path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z" />
-            </svg>
-          </div>
-          <p className="text-[20px] font-medium text-gray-800 leading-[1.5] mb-6">
-            Proply gives our AI agents a real memory of every customer. Deal context, signals, and history — always there when we need it.
-          </p>
-          <div className="text-sm text-gray-500">
-            Trusted by agencies and consultancies worldwide
-          </div>
-        </div>
-
-        {/* Stats */}
-        <div className="relative z-10 flex gap-12">
-          <div>
-            <div className="text-2xl font-semibold text-gray-900 tracking-tight">AI-native</div>
-            <div className="text-sm text-gray-500 mt-0.5">Memory layer</div>
-          </div>
-          <div>
-            <div className="text-2xl font-semibold text-gray-900 tracking-tight">Real-time</div>
-            <div className="text-sm text-gray-500 mt-0.5">Signal tracking</div>
-          </div>
-          <div>
-            <div className="text-2xl font-semibold text-gray-900 tracking-tight">Every</div>
-            <div className="text-sm text-gray-500 mt-0.5">Contact, synced</div>
-          </div>
-        </div>
-      </div>
+      <NousBrandingPanel />
     </div>
   );
 };

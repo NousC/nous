@@ -5,9 +5,10 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/components/ui/sonner";
-import { ArrowRight, Eye, EyeOff, Pencil } from "lucide-react";
+import { Eye, EyeOff, Pencil } from "lucide-react";
 import { setRememberMe } from "@/lib/supabase";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
+import { NousBrandingPanel } from "./auth-shared/NousBrandingPanel";
 
 const SignupContent = () => {
   const [email, setEmail] = useState("");
@@ -17,7 +18,7 @@ const SignupContent = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMeState] = useState(true);
   const [newsletterConsent, setNewsletterConsent] = useState(true);
-  const [step, setStep] = useState<'signup' | 'verify'>('signup');
+  const [step, setStep] = useState<"signup" | "verify">("signup");
   const [otpCode, setOtpCode] = useState("");
   const [resendCountdown, setResendCountdown] = useState(0);
   const { signUp, signInWithGoogle, verifyOtp } = useAuth();
@@ -26,9 +27,9 @@ const SignupContent = () => {
 
   // Capture affiliate referral code from URL and persist in localStorage
   useEffect(() => {
-    const ref = searchParams.get('ref') || searchParams.get('affiliate');
+    const ref = searchParams.get("ref") || searchParams.get("affiliate");
     if (ref) {
-      localStorage.setItem('proply_affiliate_ref', ref.toUpperCase());
+      localStorage.setItem("proply_affiliate_ref", ref.toUpperCase());
     }
   }, [searchParams]);
 
@@ -58,7 +59,7 @@ const SignupContent = () => {
         return;
       }
       // Otherwise show OTP verification screen
-      setStep('verify');
+      setStep("verify");
       setResendCountdown(30);
       setLoading(false);
     }
@@ -76,7 +77,6 @@ const SignupContent = () => {
       setLoading(false);
     } else {
       toast.success("Email verified! Let's set up your workspace.");
-      // Navigate directly to onboarding - no reliance on TrialCheck
       navigate("/onboarding", { replace: true });
     }
   };
@@ -98,9 +98,9 @@ const SignupContent = () => {
     setLoading(true);
     setRememberMe(rememberMe);
 
-    const ref = searchParams.get('ref') || searchParams.get('affiliate');
+    const ref = searchParams.get("ref") || searchParams.get("affiliate");
     if (ref) {
-      localStorage.setItem('proply_affiliate_ref', ref.toUpperCase());
+      localStorage.setItem("proply_affiliate_ref", ref.toUpperCase());
     }
 
     const { error } = await signInWithGoogle();
@@ -112,24 +112,36 @@ const SignupContent = () => {
   };
 
   // ─── OTP Verification Screen ───
-  if (step === 'verify') {
+  if (step === "verify") {
     return (
-      <div className="min-h-screen font-inter flex bg-white">
-        {/* Left Column - OTP Form */}
-        <div className="flex-1 flex items-center justify-center p-8 lg:p-16">
-          <div className="w-full max-w-[400px] text-center">
+      <div className="min-h-screen font-inter flex bg-[#FAF9F7]">
+        <div
+          className="flex-1 flex items-center justify-center p-8 lg:p-16 relative"
+          style={{
+            backgroundImage:
+              "radial-gradient(circle, rgba(120, 90, 70, 0.12) 1px, transparent 1.4px)",
+            backgroundSize: "18px 18px",
+          }}
+        >
+          <div className="w-full max-w-[420px] text-center relative">
             <div className="mb-8">
-              <h1 className="text-[26px] font-semibold tracking-tight text-gray-900 mb-3">
-                Verify your email
+              <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#8a7568] mb-3">
+                <span className="text-[#c97e5c]">#</span> verify
+              </div>
+              <h1 className="text-[34px] font-bold tracking-[-0.03em] leading-[1.05] text-[#1f1410] mb-3">
+                Check your email.
               </h1>
-              <p className="text-[15px] text-gray-500">
-                Enter the verification code sent to your email
+              <p className="text-[15px] text-[#6b5a50]">
+                We sent a verification code to
               </p>
               <div className="flex items-center justify-center gap-1.5 mt-2">
-                <span className="text-[15px] text-gray-700 font-medium">{email}</span>
+                <span className="text-[15px] text-[#1f1410] font-mono">{email}</span>
                 <button
-                  onClick={() => { setStep('signup'); setOtpCode(""); }}
-                  className="text-gray-400 hover:text-gray-600"
+                  onClick={() => {
+                    setStep("signup");
+                    setOtpCode("");
+                  }}
+                  className="text-[#a08c7e] hover:text-[#3d2517]"
                 >
                   <Pencil className="w-3.5 h-3.5" />
                 </button>
@@ -137,7 +149,7 @@ const SignupContent = () => {
             </div>
 
             {/* OTP Input */}
-            <div className="flex justify-center mb-6">
+            <div className="flex justify-center mb-7">
               <InputOTP
                 maxLength={8}
                 value={otpCode}
@@ -146,67 +158,79 @@ const SignupContent = () => {
               >
                 <InputOTPGroup>
                   {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
-                    <InputOTPSlot key={i} index={i} className="w-11 h-14 text-lg border-gray-200 rounded-lg first:rounded-l-lg last:rounded-r-lg" />
+                    <InputOTPSlot
+                      key={i}
+                      index={i}
+                      className="w-11 h-14 text-lg border-[#e6dccf] bg-white rounded-lg first:rounded-l-lg last:rounded-r-lg"
+                    />
                   ))}
                 </InputOTPGroup>
               </InputOTP>
             </div>
 
             {/* Resend */}
-            <p className="text-sm text-gray-500 mb-6">
-              Didn't receive a code?{" "}
+            <p className="text-sm text-[#6b5a50] mb-7">
+              Didn&apos;t receive a code?{" "}
               {resendCountdown > 0 ? (
-                <span className="text-gray-400">Resend ({resendCountdown})</span>
+                <span className="text-[#a08c7e]">Resend ({resendCountdown})</span>
               ) : (
                 <button
                   onClick={handleResendCode}
-                  className="font-medium text-gray-700 hover:text-gray-900 hover:underline underline-offset-2"
+                  className="font-medium text-[#3d2517] hover:text-[#c97e5c] underline underline-offset-2 decoration-dotted"
                 >
                   Resend
                 </button>
               )}
             </p>
 
-            {/* Continue Button */}
             <Button
               onClick={handleVerifyOtp}
-              className="w-full h-11 rounded-lg bg-gray-900 hover:bg-gray-800 text-white font-medium text-sm transition-all group"
+              className="w-full h-12 rounded-lg pl-5 pr-1.5 flex items-center justify-between gap-2 font-medium text-sm bg-[#f1e2d4] hover:bg-[#e8d4c0] text-[#3d2517] transition-transform hover:scale-[1.005] disabled:opacity-60 disabled:hover:scale-100"
               disabled={loading || otpCode.length !== 8}
             >
-              {loading ? "Verifying..." : "Continue"}
-              {!loading && <ArrowRight className="w-4 h-4 ml-2 transition-transform group-hover:translate-x-0.5" />}
+              <span>{loading ? "Verifying..." : "Continue"}</span>
+              <span
+                className="inline-flex items-center justify-center w-8 h-8 rounded-md bg-[#1f1410] text-[#FAF9F7]"
+                aria-hidden="true"
+              >
+                →
+              </span>
             </Button>
           </div>
         </div>
 
-        {/* Right Column - Branding */}
-        <BrandingPanel />
+        <NousBrandingPanel />
       </div>
     );
   }
 
   // ─── Signup Form Screen ───
   return (
-    <div className="min-h-screen font-inter flex bg-white">
-      {/* Left Column - Sign Up Form */}
-      <div className="flex-1 flex items-center justify-center p-8 lg:p-16">
-        <div className="w-full max-w-[400px]">
+    <div className="min-h-screen font-inter flex bg-[#FAF9F7]">
+      <div
+        className="flex-1 flex items-center justify-center p-8 lg:p-16 relative"
+        style={{
+          backgroundImage:
+            "radial-gradient(circle, rgba(120, 90, 70, 0.12) 1px, transparent 1.4px)",
+          backgroundSize: "18px 18px",
+        }}
+      >
+        <div className="w-full max-w-[420px] relative">
           {/* Mobile Logo */}
-          <div className="flex items-center gap-2.5 mb-12 lg:hidden">
-            <img
-              src="/newlogoP.png"
-              alt="Proply"
-              className="w-8 h-8 object-contain"
-            />
-            <span className="font-semibold text-lg tracking-tight text-gray-900">Proply</span>
+          <div className="flex items-center gap-2 mb-12 lg:hidden">
+            <img src="/nous-logo.svg" alt="" className="w-7 h-7 object-contain" />
+            <span className="font-bold text-[18px] tracking-[-0.02em] text-[#1f1410]">nous</span>
           </div>
 
-          <div className="mb-8">
-            <h1 className="text-[26px] font-semibold tracking-tight text-gray-900 mb-2">
-              Create your account
+          <div className="mb-9">
+            <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#8a7568] mb-3">
+              <span className="text-[#c97e5c]">#</span> create account
+            </div>
+            <h1 className="text-[34px] font-bold tracking-[-0.03em] leading-[1.05] text-[#1f1410] mb-3">
+              Get started for free.
             </h1>
-            <p className="text-[15px] text-gray-500">
-              Start your 7-day free trial. No credit card required.
+            <p className="text-[15px] text-[#6b5a50]">
+              No credit card. Unlimited contacts on the Free tier.
             </p>
           </div>
 
@@ -216,7 +240,7 @@ const SignupContent = () => {
               type="button"
               onClick={handleGoogleSignIn}
               variant="outline"
-              className="w-full h-11 rounded-lg flex items-center justify-center gap-2.5 font-medium text-sm border-gray-200 hover:bg-gray-50 text-gray-700"
+              className="w-full h-11 rounded-lg flex items-center justify-center gap-2.5 font-medium text-sm border-[#e6dccf] bg-white hover:bg-[#f5ede5] text-[#3d2517]"
               disabled={loading}
             >
               <svg className="w-[18px] h-[18px]" viewBox="0 0 24 24">
@@ -228,20 +252,20 @@ const SignupContent = () => {
               Continue with Google
             </Button>
 
-            {/* Divider */}
             <div className="relative py-1">
               <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-gray-200" />
+                <div className="w-full border-t border-[#e6dccf]" />
               </div>
               <div className="relative flex justify-center">
-                <span className="px-3 text-xs text-gray-400 bg-white font-medium">or</span>
+                <span className="px-3 text-[10px] uppercase tracking-[0.12em] text-[#a08c7e] bg-[#FAF9F7] font-mono">
+                  or
+                </span>
               </div>
             </div>
 
-            {/* Email Sign Up Form */}
             <form onSubmit={handleSignup} className="space-y-4">
               <div>
-                <label className="text-sm font-medium text-gray-700 mb-1.5 block">
+                <label className="text-[13px] font-medium text-[#3d2517] mb-1.5 block tracking-tight">
                   Full name
                 </label>
                 <Input
@@ -250,15 +274,15 @@ const SignupContent = () => {
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   required
-                  className="h-11 rounded-lg text-sm border-gray-200 bg-white text-gray-900 placeholder:text-gray-400 focus-visible:ring-gray-300"
+                  className="h-11 rounded-lg text-sm border-[#e6dccf] bg-white text-[#1f1410] placeholder:text-[#a08c7e] focus-visible:ring-[#c97e5c] focus-visible:border-[#c97e5c]"
                   disabled={loading}
                   autoFocus
                 />
               </div>
 
               <div>
-                <label className="text-sm font-medium text-gray-700 mb-1.5 block">
-                  Email address
+                <label className="text-[13px] font-medium text-[#3d2517] mb-1.5 block tracking-tight">
+                  Email
                 </label>
                 <Input
                   type="email"
@@ -266,13 +290,13 @@ const SignupContent = () => {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
-                  className="h-11 rounded-lg text-sm border-gray-200 bg-white text-gray-900 placeholder:text-gray-400 focus-visible:ring-gray-300"
+                  className="h-11 rounded-lg text-sm border-[#e6dccf] bg-white text-[#1f1410] placeholder:text-[#a08c7e] focus-visible:ring-[#c97e5c] focus-visible:border-[#c97e5c]"
                   disabled={loading}
                 />
               </div>
 
               <div>
-                <label className="text-sm font-medium text-gray-700 mb-1.5 block">
+                <label className="text-[13px] font-medium text-[#3d2517] mb-1.5 block tracking-tight">
                   Password
                 </label>
                 <div className="relative">
@@ -283,13 +307,13 @@ const SignupContent = () => {
                     onChange={(e) => setPassword(e.target.value)}
                     required
                     minLength={6}
-                    className="h-11 rounded-lg text-sm border-gray-200 bg-white text-gray-900 placeholder:text-gray-400 pr-10 focus-visible:ring-gray-300"
+                    className="h-11 rounded-lg text-sm border-[#e6dccf] bg-white text-[#1f1410] placeholder:text-[#a08c7e] pr-10 focus-visible:ring-[#c97e5c] focus-visible:border-[#c97e5c]"
                     disabled={loading}
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[#a08c7e] hover:text-[#3d2517]"
                     tabIndex={-1}
                   >
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -304,11 +328,11 @@ const SignupContent = () => {
                     checked={rememberMe}
                     onCheckedChange={(checked) => setRememberMeState(checked === true)}
                     disabled={loading}
-                    className="border-gray-300 data-[state=checked]:bg-gray-900 data-[state=checked]:border-gray-900"
+                    className="border-[#cbb9a8] data-[state=checked]:bg-[#3d2517] data-[state=checked]:border-[#3d2517]"
                   />
                   <label
                     htmlFor="remember-me-signup"
-                    className="text-sm cursor-pointer select-none text-gray-600"
+                    className="text-[13px] cursor-pointer select-none text-[#6b5a50]"
                   >
                     Remember me
                   </label>
@@ -319,107 +343,57 @@ const SignupContent = () => {
                     checked={newsletterConsent}
                     onCheckedChange={(checked) => setNewsletterConsent(checked === true)}
                     disabled={loading}
-                    className="mt-0.5 border-gray-300 data-[state=checked]:bg-gray-900 data-[state=checked]:border-gray-900"
+                    className="mt-0.5 border-[#cbb9a8] data-[state=checked]:bg-[#3d2517] data-[state=checked]:border-[#3d2517]"
                   />
                   <label
                     htmlFor="newsletter-consent"
-                    className="text-sm cursor-pointer select-none text-gray-600 leading-relaxed"
+                    className="text-[13px] cursor-pointer select-none text-[#6b5a50] leading-relaxed"
                   >
-                    Send me product updates and tips via email
+                    Send me product updates and build-in-public notes
                   </label>
                 </div>
               </div>
 
               <Button
                 type="submit"
-                className="w-full h-11 rounded-lg bg-gray-900 hover:bg-gray-800 text-white font-medium text-sm transition-all group"
+                className="w-full h-12 rounded-lg pl-5 pr-1.5 flex items-center justify-between gap-2 font-medium text-sm bg-[#f1e2d4] hover:bg-[#e8d4c0] text-[#3d2517] transition-transform hover:scale-[1.005] disabled:opacity-60 disabled:hover:scale-100"
                 disabled={loading}
               >
-                {loading ? "Creating account..." : "Continue"}
-                {!loading && <ArrowRight className="w-4 h-4 ml-2 transition-transform group-hover:translate-x-0.5" />}
+                <span>{loading ? "Creating account..." : "Create account"}</span>
+                <span
+                  className="inline-flex items-center justify-center w-8 h-8 rounded-md bg-[#1f1410] text-[#FAF9F7]"
+                  aria-hidden="true"
+                >
+                  →
+                </span>
               </Button>
             </form>
           </div>
 
-          {/* Terms */}
-          <p className="text-xs text-center mt-6 text-gray-400 leading-relaxed">
+          <p className="text-xs text-center mt-6 text-[#a08c7e] leading-relaxed">
             By signing up, you agree to our{" "}
-            <Link to="/terms" className="hover:underline underline-offset-2 text-gray-500">Terms of Service</Link>
-            {" "}and{" "}
-            <Link to="/privacy" className="hover:underline underline-offset-2 text-gray-500">Privacy Policy</Link>
+            <Link to="/terms" className="hover:underline underline-offset-2 decoration-dotted text-[#6b5a50]">
+              Terms
+            </Link>{" "}
+            and{" "}
+            <Link to="/privacy" className="hover:underline underline-offset-2 decoration-dotted text-[#6b5a50]">
+              Privacy Policy
+            </Link>
           </p>
 
-          {/* Sign In Link */}
-          <div className="text-center text-sm mt-8 pt-6 border-t border-gray-100">
-            <span className="text-gray-500">Already have an account? </span>
-            <Link to="/login" className="font-semibold text-gray-900 hover:underline underline-offset-2">
-              Sign in
+          <div className="text-center text-sm mt-8 pt-6 border-t border-[#e6dccf]">
+            <span className="text-[#6b5a50]">Already have an account? </span>
+            <Link to="/login" className="font-semibold text-[#1f1410] hover:text-[#c97e5c] transition-colors">
+              Sign in →
             </Link>
           </div>
         </div>
       </div>
 
-      {/* Right Column - Branding */}
-      <BrandingPanel />
+      <NousBrandingPanel />
     </div>
   );
 };
-
-/** Shared right-panel branding used on both signup and OTP screens */
-const BrandingPanel = () => (
-  <div className="hidden lg:flex lg:w-[45%] bg-[#f9f9f9] p-12 flex-col justify-between relative overflow-hidden border-l border-gray-100">
-    {/* Subtle grid pattern */}
-    <div
-      className="absolute inset-0 opacity-[0.4]"
-      style={{
-        backgroundImage: 'radial-gradient(circle, #d1d5db 1px, transparent 1px)',
-        backgroundSize: '24px 24px',
-      }}
-    />
-
-    {/* Logo */}
-    <div className="relative z-10 flex items-center gap-2.5">
-      <img
-        src="/newlogoP.png"
-        alt=""
-        className="w-7 h-7 object-contain"
-      />
-      <span className="font-semibold text-[15px] tracking-tight text-gray-900">Proply</span>
-    </div>
-
-    {/* Testimonial */}
-    <div className="relative z-10 max-w-md">
-      <div className="text-gray-300 mb-4">
-        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-          <path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V21z" />
-          <path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z" />
-        </svg>
-      </div>
-      <p className="text-[20px] font-medium text-gray-800 leading-[1.5] mb-6">
-        Proply gives our AI agents a real memory of every customer. Deal context, signals, and history — always there when we need it.
-      </p>
-      <div className="text-sm text-gray-500">
-        Trusted by agencies and consultancies worldwide
-      </div>
-    </div>
-
-    {/* Stats */}
-    <div className="relative z-10 flex gap-12">
-      <div>
-        <div className="text-2xl font-semibold text-gray-900 tracking-tight">AI-native</div>
-        <div className="text-sm text-gray-500 mt-0.5">Memory layer</div>
-      </div>
-      <div>
-        <div className="text-2xl font-semibold text-gray-900 tracking-tight">Real-time</div>
-        <div className="text-sm text-gray-500 mt-0.5">Signal tracking</div>
-      </div>
-      <div>
-        <div className="text-2xl font-semibold text-gray-900 tracking-tight">Every</div>
-        <div className="text-sm text-gray-500 mt-0.5">Contact, synced</div>
-      </div>
-    </div>
-  </div>
-);
 
 const Signup = () => <SignupContent />;
 

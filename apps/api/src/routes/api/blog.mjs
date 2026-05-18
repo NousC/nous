@@ -4,6 +4,11 @@ import { getSupabaseClient } from '@proply/core';
 export const blogRouter = Router();
 
 // GET /api/blog/articles — public read (used by goproply.com website)
+//
+// The blog_articles table doesn't have an `excerpt` column — it uses
+// `meta_description` and `intro_text` instead. We alias meta_description as
+// `excerpt` in the response so existing clients (goproply.com / proply-site)
+// keep working with the original shape.
 blogRouter.get('/articles', async (req, res) => {
   try {
     const supabase = getSupabaseClient();
@@ -11,17 +16,23 @@ blogRouter.get('/articles', async (req, res) => {
 
     let query = supabase
       .from('blog_articles')
-      .select('id, title, slug, excerpt, cover_image_url, article_type, status, created_at, published_at')
+      .select(
+        'id, title, slug, excerpt:meta_description, cover_image_url, article_type, status, created_at, published_at'
+      )
       .eq('status', 'published')
-      .order('published_at', { ascending: false })
+      .order('published_at', { ascending: false, nullsFirst: false })
       .limit(Number(limit));
 
     if (article_type) query = query.eq('article_type', article_type);
 
     const { data: articles, error } = await query;
-    if (error) return res.status(500).json({ error: 'internal_error' });
+    if (error) {
+      console.error('[blog.articles] Supabase error:', error);
+      return res.status(500).json({ error: 'internal_error' });
+    }
     return res.json({ articles: articles || [] });
   } catch (err) {
+    console.error('[blog.articles] Caught exception:', err);
     return res.status(500).json({ error: 'internal_error' });
   }
 });
