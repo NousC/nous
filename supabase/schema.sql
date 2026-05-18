@@ -312,6 +312,10 @@ CREATE TABLE IF NOT EXISTS contact_activity_log (
   external_id   TEXT,                             -- dedup: source's own event ID
   raw_data      JSONB,
 
+  -- Per-provider engagement IDs after CRM push. Prevents double-pushing on retries
+  -- and gives us back-references like { hubspot: "12345", attio: "rec_abc" }.
+  pushed_to_crms JSONB       NOT NULL DEFAULT '{}'::jsonb,
+
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -705,6 +709,7 @@ VALUES
   ('fireflies',        'Fireflies.ai',            'meetings'),
   ('fathom',           'Fathom',                  'meetings'),
   ('calendly',         'Calendly',                'meetings'),
+  ('cal_com',          'Cal.com',                 'meetings'),
   ('hubspot',          'HubSpot',                 'crm'),
   ('salesforce',       'Salesforce',              'crm'),
   ('pipedrive',        'Pipedrive',               'crm'),

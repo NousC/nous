@@ -95,8 +95,8 @@ export async function logActivity(
   await advancePipelineStage(supabase, contactId, type).catch(() => {});
 
   // Fire-and-forget: push this activity to every enabled CRM connection.
-  // Lives in the API layer (apps/api/src/services/crm/push.mjs) to keep core dependency-free.
-  void notifyCrmPush({ workspaceId, contactId, activityType: type, occurredAt, summary, description, rawData });
+  // activityId enables per-row dedup so retries / replays don't double-post engagements.
+  void notifyCrmPush({ workspaceId, contactId, activityType: type, activityId: data?.id, occurredAt, summary, description, rawData });
 
   return data as { id: string };
 }
@@ -105,6 +105,7 @@ export async function logActivity(
 // registers a handler at startup; other consumers (CLI, tests) are no-ops.
 type CrmPushHandler = (evt: {
   workspaceId: string; contactId: string; activityType: string;
+  activityId?: string | null;
   occurredAt?: string; summary?: string | null; description?: string | null;
   rawData?: Record<string, unknown> | null;
 }) => Promise<void> | void;

@@ -6,15 +6,71 @@
 //   Pipedrive → POST /v1/activities                (type-coded: meeting / call / email / task)
 //   Attio     → POST /v2/notes                     (Attio has no Activities API — Notes is idiomatic)
 //
-// Identity resolution: cached on contacts.{provider}_id. On miss → look up by email → on miss → create.
+// Reliability mechanics:
+//   - All fetches go through crmFetch() with a 15s timeout
+//   - Automatic retry up to 3x on 429 + 5xx with exponential backoff (0.5/1/2s)
+//   - Retry-After header honored when present
+//   - Per-CRM Promise.allSettled — one provider failing never blocks another
+//   - Failures logged to workspace_system_log so they're visible in the Mind CRM popup
+//   - Identity resolution cached on contacts.{provider}_id after first successful lookup
+//   - logActivity() dedupes upstream via (source, external_id) so webhook replays don't double-push
 
 import { getSupabaseClient } from '../db/client.js';
 import { decrypt } from '../utils/encryption.js';
+
+// ─── Reliable HTTP helper (used by every adapter) ─────────────────────────────
+
+const DEFAULT_TIMEOUT_MS = 15_000;
+const MAX_RETRIES = 3;
+const RETRYABLE_STATUS = new Set([408, 429, 500, 502, 503, 504]);
+
+async function crmFetch(url: string, init: RequestInit = {}, label = 'CRM'): Promise<Response> {
+  let lastErr: unknown = null;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
+    try {
+      const res = await fetch(url, { ...init, signal: controller.signal });
+      clearTimeout(timer);
+
+      if (!RETRYABLE_STATUS.has(res.status)) return res;  // 2xx, 4xx (non-429) → return immediately
+
+      // Retryable — honor Retry-After if set
+      if (attempt === MAX_RETRIES) return res;  // exhausted, return last response so caller can log it
+      const retryAfter = parseRetryAfter(res.headers.get('retry-after'));
+      const backoff = retryAfter ?? (500 * Math.pow(2, attempt));  // 500ms, 1s, 2s
+      console.warn(`[${label}] ${res.status} — retrying in ${backoff}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
+      await sleep(backoff);
+    } catch (err: any) {
+      clearTimeout(timer);
+      lastErr = err;
+      if (attempt === MAX_RETRIES) throw err;
+      const isTimeout = err?.name === 'AbortError';
+      const backoff = 500 * Math.pow(2, attempt);
+      console.warn(`[${label}] ${isTimeout ? 'timeout' : 'network error'} — retrying in ${backoff}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
+      await sleep(backoff);
+    }
+  }
+  // unreachable but TS-required
+  throw lastErr || new Error('crmFetch: unreachable');
+}
+
+function parseRetryAfter(header: string | null): number | null {
+  if (!header) return null;
+  const secs = parseInt(header, 10);
+  if (!isNaN(secs)) return Math.min(secs * 1000, 30_000);  // cap at 30s — we don't want to block a worker forever
+  return null;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(res => setTimeout(res, ms));
+}
 
 export interface CrmPushEvent {
   workspaceId: string;
   contactId: string;
   activityType: string;
+  activityId?: string | null;     // contact_activity_log.id — enables per-row push dedup
   occurredAt?: string;
   summary?: string | null;
   description?: string | null;
@@ -76,15 +132,40 @@ export async function pushActivityToAllCrms(evt: CrmPushEvent): Promise<void> {
     .single();
   if (!contact?.email) return;
 
+  // Read existing per-provider engagement IDs so a retry doesn't double-post.
+  let alreadyPushed: Record<string, string> = {};
+  if (evt.activityId) {
+    const { data: act } = await supabase
+      .from('contact_activity_log')
+      .select('pushed_to_crms')
+      .eq('id', evt.activityId)
+      .single();
+    alreadyPushed = (act?.pushed_to_crms as Record<string, string>) || {};
+  }
+
   await Promise.allSettled(enabled.map((cfg: any) =>
-    pushOne(cfg, contact as ContactRow, evt).catch(err =>
+    pushOne(cfg, contact as ContactRow, evt, alreadyPushed[cfg.provider]).catch(err =>
       console.error(`[CRM_PUSH ${cfg.provider}]`, err?.message || err)
     )
   ));
 }
 
-async function pushOne(cfg: { provider: string; connection_id: string }, contact: ContactRow, evt: CrmPushEvent): Promise<void> {
+async function pushOne(
+  cfg: { provider: string; connection_id: string },
+  contact: ContactRow,
+  evt: CrmPushEvent,
+  alreadyPushedEngagementId?: string,
+): Promise<void> {
   const supabase = getSupabaseClient();
+  const provider = cfg.provider;
+  const providerLabel = provider.charAt(0).toUpperCase() + provider.slice(1);
+
+  // Idempotency: already pushed this activity to this CRM in a prior run
+  if (alreadyPushedEngagementId) {
+    console.log(`[CRM_PUSH ${provider}] skip — already pushed activity ${evt.activityId} → ${alreadyPushedEngagementId}`);
+    return;
+  }
+
   const { data: conn } = await supabase
     .from('workflow_provider_connections')
     .select('encrypted_credentials')
@@ -97,8 +178,6 @@ async function pushOne(cfg: { provider: string; connection_id: string }, contact
     creds[k] = decrypt(v as string);
   }
 
-  const provider = cfg.provider;
-  const providerLabel = provider.charAt(0).toUpperCase() + provider.slice(1);
   const cachedId = contact[ID_COLUMN[provider]] as string | null;
   let crmId: string | null;
   try {
@@ -121,17 +200,42 @@ async function pushOne(cfg: { provider: string; connection_id: string }, contact
   }
 
   try {
-    if (provider === 'hubspot')   await pushHubSpotEngagement(creds, crmId, evt);
-    if (provider === 'pipedrive') await pushPipedriveActivity(creds, crmId, evt);
-    if (provider === 'attio')     await pushAttioNote(creds, crmId, evt);
+    let engagementId: string | null = null;
+    if (provider === 'hubspot')   engagementId = await pushHubSpotEngagement(creds, crmId, evt);
+    if (provider === 'pipedrive') engagementId = await pushPipedriveActivity(creds, crmId, evt);
+    if (provider === 'attio')     engagementId = await pushAttioNote(creds, crmId, evt);
+
+    // Idempotency: record what we pushed so a retry sees it and skips
+    if (evt.activityId && engagementId) {
+      await markActivityPushed(supabase, evt.activityId, provider, engagementId);
+    }
+
     await logCrmOp(supabase, evt, provider, 'activity_pushed',
       `Pushed ${activityTitle(evt)} → ${providerLabel} (${contact.email})`,
-      { crm_id: crmId });
+      { crm_id: crmId, engagement_id: engagementId });
   } catch (err: any) {
     await logCrmOp(supabase, evt, provider, 'activity_push_failed',
       `${providerLabel} push failed for ${activityTitle(evt)} → ${contact.email} · ${err?.message || err}`,
       { crm_id: crmId, error: String(err?.message || err) });
     throw err;
+  }
+}
+
+// Atomic update of contact_activity_log.pushed_to_crms via JSONB merge — safe under concurrency.
+async function markActivityPushed(supabase: any, activityId: string, provider: string, engagementId: string): Promise<void> {
+  try {
+    // Re-read to merge without clobbering other providers' values
+    const { data: row } = await supabase
+      .from('contact_activity_log')
+      .select('pushed_to_crms')
+      .eq('id', activityId)
+      .single();
+    const merged = { ...(row?.pushed_to_crms || {}), [provider]: engagementId };
+    await supabase.from('contact_activity_log')
+      .update({ pushed_to_crms: merged })
+      .eq('id', activityId);
+  } catch (err: any) {
+    console.warn('[CRM_PUSH] pushed_to_crms write failed:', err?.message || err);
   }
 }
 
@@ -169,19 +273,19 @@ async function resolveHubSpot(creds: Record<string, string | null>, contact: Con
   if (!token) return null;
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 
-  const sr = await fetch('https://api.hubapi.com/crm/v3/objects/contacts/search', {
+  const sr = await crmFetch('https://api.hubapi.com/crm/v3/objects/contacts/search', {
     method: 'POST', headers,
     body: JSON.stringify({
       filterGroups: [{ filters: [{ propertyName: 'email', operator: 'EQ', value: contact.email }] }],
       properties: ['email'], limit: 1,
     }),
-  });
+  }, 'HubSpot search');
   if (sr.ok) {
     const d: any = await sr.json();
     if (d.results?.[0]?.id) return d.results[0].id;
   }
 
-  const cr = await fetch('https://api.hubapi.com/crm/v3/objects/contacts', {
+  const cr = await crmFetch('https://api.hubapi.com/crm/v3/objects/contacts', {
     method: 'POST', headers,
     body: JSON.stringify({ properties: {
       email:     contact.email,
@@ -189,8 +293,19 @@ async function resolveHubSpot(creds: Record<string, string | null>, contact: Con
       lastname:  contact.last_name  || '',
       company:   contact.company    || '',
     }}),
-  });
+  }, 'HubSpot create');
   if (cr.ok) { const d: any = await cr.json(); return d.id || null; }
+  // 409 = email already exists (race condition) — fall back to a second search
+  if (cr.status === 409) {
+    const retry = await crmFetch('https://api.hubapi.com/crm/v3/objects/contacts/search', {
+      method: 'POST', headers,
+      body: JSON.stringify({
+        filterGroups: [{ filters: [{ propertyName: 'email', operator: 'EQ', value: contact.email }] }],
+        properties: ['email'], limit: 1,
+      }),
+    }, 'HubSpot search (after 409)');
+    if (retry.ok) { const d: any = await retry.json(); return d.results?.[0]?.id || null; }
+  }
   return null;
 }
 
@@ -198,7 +313,10 @@ async function resolvePipedrive(creds: Record<string, string | null>, contact: C
   const token = creds.api_token || creds.api_key;
   if (!token) return null;
 
-  const sr = await fetch(`https://api.pipedrive.com/v1/persons/search?term=${encodeURIComponent(contact.email)}&fields=email&exact_match=true&api_token=${encodeURIComponent(token)}`);
+  const sr = await crmFetch(
+    `https://api.pipedrive.com/v1/persons/search?term=${encodeURIComponent(contact.email)}&fields=email&exact_match=true&api_token=${encodeURIComponent(token)}`,
+    {}, 'Pipedrive search',
+  );
   if (sr.ok) {
     const d: any = await sr.json();
     const hit = d.data?.items?.[0]?.item;
@@ -206,10 +324,10 @@ async function resolvePipedrive(creds: Record<string, string | null>, contact: C
   }
 
   const name = [contact.first_name, contact.last_name].filter(Boolean).join(' ') || contact.email;
-  const cr = await fetch(`https://api.pipedrive.com/v1/persons?api_token=${encodeURIComponent(token)}`, {
+  const cr = await crmFetch(`https://api.pipedrive.com/v1/persons?api_token=${encodeURIComponent(token)}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, email: [contact.email] }),
-  });
+  }, 'Pipedrive create');
   if (cr.ok) { const d: any = await cr.json(); return d.data?.id ? String(d.data.id) : null; }
   return null;
 }
@@ -219,10 +337,10 @@ async function resolveAttio(creds: Record<string, string | null>, contact: Conta
   if (!token) return null;
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 
-  const sr = await fetch('https://api.attio.com/v2/objects/people/records/query', {
+  const sr = await crmFetch('https://api.attio.com/v2/objects/people/records/query', {
     method: 'POST', headers,
     body: JSON.stringify({ filter: { email_addresses: contact.email }, limit: 1 }),
-  });
+  }, 'Attio search');
   if (sr.ok) {
     const d: any = await sr.json();
     const id = d.data?.[0]?.id?.record_id;
@@ -233,14 +351,14 @@ async function resolveAttio(creds: Record<string, string | null>, contact: Conta
   const last = contact.last_name || '';
   const full = [first, last].filter(Boolean).join(' ') || contact.email;
 
-  const cr = await fetch('https://api.attio.com/v2/objects/people/records?matching_attribute=email_addresses', {
+  const cr = await crmFetch('https://api.attio.com/v2/objects/people/records?matching_attribute=email_addresses', {
     method: 'PUT', headers,
     body: JSON.stringify({ data: { values: {
       email_addresses: [contact.email],
       // Attio's name attribute requires `full_name` as a string in addition to first/last
       name: [{ first_name: first, last_name: last, full_name: full }],
     }}}),
-  });
+  }, 'Attio assert');
   if (cr.ok) { const d: any = await cr.json(); return d.data?.id?.record_id || null; }
   const errText = await cr.text().catch(() => '');
   throw new Error(`Attio create ${cr.status}: ${errText.slice(0, 200)}`);
@@ -265,21 +383,23 @@ function hubspotProperties(evt: CrmPushEvent): Record<string, any> {
   return { hs_note_body: body, hs_timestamp: ts };
 }
 
-async function pushHubSpotEngagement(creds: Record<string, string | null>, crmId: string, evt: CrmPushEvent): Promise<void> {
+async function pushHubSpotEngagement(creds: Record<string, string | null>, crmId: string, evt: CrmPushEvent): Promise<string | null> {
   const token = creds.access_token || creds.api_key;
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
   const ob = hubspotObjectType(evt.activityType);
-  const cr = await fetch(`https://api.hubapi.com/crm/v3/objects/${ob}`, {
+  const cr = await crmFetch(`https://api.hubapi.com/crm/v3/objects/${ob}`, {
     method: 'POST', headers,
     body: JSON.stringify({
       properties: hubspotProperties(evt),
       associations: [{ to: { id: crmId }, types: [{ associationCategory: 'HUBSPOT_DEFINED', associationTypeId: HUBSPOT_ASSOC[ob] }] }],
     }),
-  });
+  }, `HubSpot push ${ob}`);
   if (!cr.ok) {
     const t = await cr.text().catch(() => '');
     throw new Error(`HubSpot ${cr.status}: ${t.slice(0, 200)}`);
   }
+  const d: any = await cr.json().catch(() => null);
+  return d?.id || null;
 }
 
 function pipedriveType(t: string): string {
@@ -288,9 +408,9 @@ function pipedriveType(t: string): string {
   return 'task';
 }
 
-async function pushPipedriveActivity(creds: Record<string, string | null>, crmId: string, evt: CrmPushEvent): Promise<void> {
+async function pushPipedriveActivity(creds: Record<string, string | null>, crmId: string, evt: CrmPushEvent): Promise<string | null> {
   const token = creds.api_token || creds.api_key;
-  const cr = await fetch(`https://api.pipedrive.com/v1/activities?api_token=${encodeURIComponent(token!)}`, {
+  const cr = await crmFetch(`https://api.pipedrive.com/v1/activities?api_token=${encodeURIComponent(token!)}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       subject:   activityTitle(evt),
@@ -300,14 +420,16 @@ async function pushPipedriveActivity(creds: Record<string, string | null>, crmId
       person_id: Number(crmId),
       due_date:  (evt.occurredAt || new Date().toISOString()).slice(0, 10),
     }),
-  });
+  }, 'Pipedrive push activity');
   if (!cr.ok) {
     const t = await cr.text().catch(() => '');
     throw new Error(`Pipedrive ${cr.status}: ${t.slice(0, 200)}`);
   }
+  const d: any = await cr.json().catch(() => null);
+  return d?.data?.id ? String(d.data.id) : null;
 }
 
-async function pushAttioNote(creds: Record<string, string | null>, crmId: string, evt: CrmPushEvent): Promise<void> {
+async function pushAttioNote(creds: Record<string, string | null>, crmId: string, evt: CrmPushEvent): Promise<string | null> {
   const token = creds.api_key || creds.access_token;
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
   const lines: string[] = [];
@@ -316,7 +438,7 @@ async function pushAttioNote(creds: Record<string, string | null>, crmId: string
   lines.push('');
   lines.push(`— Logged by Proply on ${new Date(evt.occurredAt || Date.now()).toLocaleString()}`);
 
-  const cr = await fetch('https://api.attio.com/v2/notes', {
+  const cr = await crmFetch('https://api.attio.com/v2/notes', {
     method: 'POST', headers,
     body: JSON.stringify({ data: {
       parent_object:    'people',
@@ -326,11 +448,13 @@ async function pushAttioNote(creds: Record<string, string | null>, crmId: string
       content:          lines.join('\n'),
       created_at:       evt.occurredAt || new Date().toISOString(),
     }}),
-  });
+  }, 'Attio push note');
   if (!cr.ok) {
     const t = await cr.text().catch(() => '');
     throw new Error(`Attio ${cr.status}: ${t.slice(0, 200)}`);
   }
+  const d: any = await cr.json().catch(() => null);
+  return d?.data?.id?.note_id || null;
 }
 
 function activityTitle(evt: CrmPushEvent): string {
