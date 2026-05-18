@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getSupabaseClient, isUUID, isEmail } from '@proply/core';
+import { getSupabaseClient, isUUID, isEmail, logActivity } from '@proply/core';
 import { logMcpOp } from '../../lib/mcpLogger.mjs';
 
 export const captureRouter = Router();
@@ -56,22 +56,22 @@ captureRouter.post('/', async (req, res) => {
     const stageBefore = contact.pipeline_stage || 'identified';
     const now = new Date().toISOString();
 
-    const { data: activity, error } = await supabase
-      .from('contact_activity_log')
-      .insert({
-        workspace_id: req.workspaceId,
-        contact_id: contact.id,
-        activity_type: type,
-        description: description || '',
-        source,
-        occurred_at: occurred_at || now,
-        received_at: now,
-        raw_data: { ...metadata, logged_by: source },
-      })
-      .select('id, activity_type, source, occurred_at')
-      .single();
+    // Route through shared logActivity so the CRM push hook + pipeline-stage advance fire
+    const inserted = await logActivity(supabase, {
+      workspaceId: req.workspaceId,
+      contactId: contact.id,
+      companyId: contact.company_id || null,
+      type,
+      source,
+      externalId: metadata?.external_id || null,
+      occurredAt: occurred_at || now,
+      description: description || '',
+      rawData: { ...metadata, logged_by: source },
+    });
 
-    if (error) throw error;
+    const activity = inserted
+      ? { id: inserted.id, activity_type: type, source, occurred_at: occurred_at || now }
+      : { id: null, activity_type: type, source, occurred_at: occurred_at || now };
 
     // Read updated stage — a DB trigger may have advanced it
     const { data: updated } = await supabase
