@@ -12,23 +12,23 @@ const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY
   : null;
 
 function decrypt(encryptedValue) {
-  if (!ENCRYPTION_KEY || !encryptedValue || typeof encryptedValue !== 'string') return null;
+  if (!encryptedValue || typeof encryptedValue !== 'string') return encryptedValue ?? null;
   const parts = encryptedValue.split(':');
+  // Recognized formats: CBC (iv:data) or legacy GCM (iv:data:tag). Plain strings
+  // (instance_url, scope, token_type) flow through unchanged.
+  const isCBC = parts.length === 2 && /^[0-9a-f]{32}$/i.test(parts[0]);
+  const isGCM = parts.length === 3 && /^[0-9a-f]{32}$/i.test(parts[0]) && /^[0-9a-f]{32}$/i.test(parts[2]);
+  if (!ENCRYPTION_KEY || (!isCBC && !isGCM)) return encryptedValue;
   try {
-    if (parts.length === 2 && /^[0-9a-f]{32}$/i.test(parts[0])) {
-      // AES-256-CBC: iv(16B=32hex):data
+    if (isCBC) {
       const decipher = crypto.createDecipheriv('aes-256-cbc', ENCRYPTION_KEY, Buffer.from(parts[0], 'hex'));
       return decipher.update(parts[1], 'hex', 'utf8') + decipher.final('utf8');
     }
-    if (parts.length === 3 && /^[0-9a-f]{32}$/i.test(parts[0]) && /^[0-9a-f]{32}$/i.test(parts[2])) {
-      // Old AES-256-GCM (api/utils/encryption.js): iv(16B=32hex):data:tag(16B=32hex)
-      const [ivHex, dataHex, tagHex] = parts;
-      const decipher = crypto.createDecipheriv('aes-256-gcm', ENCRYPTION_KEY, Buffer.from(ivHex, 'hex'));
-      decipher.setAuthTag(Buffer.from(tagHex, 'hex'));
-      return decipher.update(dataHex, 'hex', 'utf8') + decipher.final('utf8');
-    }
-    return null;
-  } catch { return null; }
+    const [ivHex, dataHex, tagHex] = parts;
+    const decipher = crypto.createDecipheriv('aes-256-gcm', ENCRYPTION_KEY, Buffer.from(ivHex, 'hex'));
+    decipher.setAuthTag(Buffer.from(tagHex, 'hex'));
+    return decipher.update(dataHex, 'hex', 'utf8') + decipher.final('utf8');
+  } catch { return encryptedValue; }
 }
 
 // GET /api/workflow-providers
@@ -167,6 +167,17 @@ async function testProviderCredentials(provider, credentials) {
       });
       if (r.ok) return { verified: true, message: 'Connected to Fathom' };
       return { verified: false, message: `Fathom returned ${r.status} — check your API key` };
+    }
+    if (p === 'salesforce') {
+      const access = credentials.access_token;
+      const instance = credentials.instance_url;
+      if (!access || !instance) return { verified: false, message: 'Salesforce token or instance URL missing — reconnect via OAuth' };
+      const r = await fetch(`${instance.replace(/\/$/, '')}/services/data/v59.0/sobjects/`, {
+        headers: { Authorization: `Bearer ${access}` },
+      });
+      if (r.ok) return { verified: true, message: `Connected to Salesforce (${new URL(instance).host})` };
+      if (r.status === 401) return { verified: false, message: 'Salesforce token expired — reconnect via OAuth' };
+      return { verified: false, message: `Salesforce returned ${r.status}` };
     }
     if (p === 'calendly') {
       if (!token) return { verified: false, message: 'No credentials provided' };
@@ -348,6 +359,21 @@ workflowProvidersRouter.delete('/connections/:id', verifySupabaseAuth, async (re
     const supabase = getSupabaseClient();
     const { id } = req.params;
     if (!UUID.test(id)) return res.status(400).json({ error: 'invalid_id' });
+
+    // Look up provider + credentials before deleting so we can clean up
+    // external state (Calendly webhook subscription) where applicable.
+    const { data: conn } = await supabase
+      .from('workflow_provider_connections')
+      .select('encrypted_credentials, workflow_providers!inner(name)')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (conn?.workflow_providers?.name === 'calendly') {
+      const pat = decrypt(conn.encrypted_credentials?.api_key || '');
+      const subUri = conn.encrypted_credentials?.webhook_subscription_uri;
+      if (pat && subUri) await unsubscribeCalendlyWebhook(pat, subUri);
+    }
+
     await supabase.from('workflow_provider_connections').delete().eq('id', id);
     return res.json({ ok: true });
   } catch (err) {
@@ -385,7 +411,72 @@ workflowProvidersRouter.get('/slack/channels', verifySupabaseAuth, async (req, r
   }
 });
 
-const NAMED_PROVIDERS = ['apollo', 'instantly', 'lemlist', 'prospeo', 'signalbase'];
+// Providers connectable via the simplified /:name/test + /:name/connect endpoints
+// (used by the Mind popup quick-connect flow). Anything not in this list still works
+// via the generic /connections endpoint used by Settings → Integrations.
+const NAMED_PROVIDERS = ['apollo', 'instantly', 'lemlist', 'prospeo', 'hubspot', 'pipedrive', 'attio', 'calendly'];
+
+function workerBaseUrl() {
+  return (process.env.WORKER_URL
+    || process.env.API_URL
+    || (process.env.API_DOMAIN ? `https://${process.env.API_DOMAIN}` : null)
+    || `http://localhost:${process.env.PORT || 3000}`).replace(/\/+$/, '');
+}
+
+// Subscribes to Calendly's webhook API for invitee.created / invitee.canceled.
+// Returns { subscription_uri, signing_key } on success, or { error } on failure.
+// signing_key is a freshly-generated random 64-char hex we hand to Calendly so
+// they sign every payload with it — we verify on inbound at /inbound/calendly.
+async function subscribeCalendlyWebhook(pat, workspaceId) {
+  try {
+    const meRes = await fetch('https://api.calendly.com/users/me', {
+      headers: { Authorization: `Bearer ${pat}`, 'Content-Type': 'application/json' },
+    });
+    if (!meRes.ok) return { error: `calendly_users_me_failed_${meRes.status}` };
+    const meBody = await meRes.json();
+    const userUri = meBody.resource?.uri;
+    const orgUri  = meBody.resource?.current_organization;
+    if (!userUri || !orgUri) return { error: 'calendly_user_or_org_uri_missing' };
+
+    const callbackUrl = `${workerBaseUrl()}/inbound/calendly/${workspaceId}`;
+    const signingKey  = crypto.randomBytes(32).toString('hex');
+
+    const subRes = await fetch('https://api.calendly.com/webhook_subscriptions', {
+      method:  'POST',
+      headers: { Authorization: `Bearer ${pat}`, 'Content-Type': 'application/json' },
+      body:    JSON.stringify({
+        url:          callbackUrl,
+        events:       ['invitee.created', 'invitee.canceled'],
+        organization: orgUri,
+        user:         userUri,
+        scope:        'user',
+        signing_key:  signingKey,
+      }),
+    });
+
+    if (!subRes.ok) {
+      const errBody = await subRes.json().catch(() => ({}));
+      return { error: `calendly_subscribe_failed_${subRes.status}`, detail: errBody };
+    }
+
+    const subBody = await subRes.json();
+    return { subscription_uri: subBody.resource?.uri, signing_key: signingKey };
+  } catch (err) {
+    return { error: 'calendly_subscribe_exception', message: err.message };
+  }
+}
+
+async function unsubscribeCalendlyWebhook(pat, subscriptionUri) {
+  if (!subscriptionUri) return;
+  try {
+    await fetch(subscriptionUri, {
+      method:  'DELETE',
+      headers: { Authorization: `Bearer ${pat}` },
+    });
+  } catch (err) {
+    console.warn('[CALENDLY_UNSUBSCRIBE]', err.message);
+  }
+}
 
 async function testNamedProvider(name, apiKey) {
   if (!apiKey) return { verified: false, message: 'API key is required' };
@@ -426,12 +517,44 @@ async function testNamedProvider(name, apiKey) {
     return { verified: true, message: 'Prospeo API key verified' };
   }
 
-  if (name === 'signalbase') {
-    const r = await fetch('https://api.signalbase.io/v1/account', {
+  if (name === 'hubspot') {
+    const r = await fetch('https://api.hubapi.com/crm/v3/objects/contacts?limit=1', {
       headers: { Authorization: `Bearer ${apiKey}` },
     });
-    if (r.ok) return { verified: true, message: 'Connected to SignalBase' };
-    return { verified: false, message: `SignalBase returned ${r.status} — check your API key` };
+    if (r.ok) return { verified: true, message: 'Connected to HubSpot' };
+    const e = await r.json().catch(() => ({}));
+    return { verified: false, message: e.message || `HubSpot returned ${r.status} — check your private-app token` };
+  }
+
+  if (name === 'pipedrive') {
+    const r = await fetch(`https://api.pipedrive.com/v1/users/me?api_token=${encodeURIComponent(apiKey)}`);
+    if (r.ok) {
+      const d = await r.json().catch(() => ({}));
+      const name = d.data?.name || d.data?.email || 'Pipedrive user';
+      return { verified: true, message: `Connected as ${name}` };
+    }
+    return { verified: false, message: `Pipedrive returned ${r.status} — check your API token` };
+  }
+
+  if (name === 'attio') {
+    const r = await fetch('https://api.attio.com/v2/self', {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    if (r.ok) return { verified: true, message: 'Connected to Attio' };
+    const e = await r.json().catch(() => ({}));
+    return { verified: false, message: e.message || `Attio returned ${r.status} — check your API key` };
+  }
+
+  if (name === 'calendly') {
+    const r = await fetch('https://api.calendly.com/users/me', {
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    });
+    if (r.ok) {
+      const d = await r.json().catch(() => ({}));
+      const who = d.resource?.name || d.resource?.email || 'Calendly user';
+      return { verified: true, message: `Connected as ${who}` };
+    }
+    return { verified: false, message: `Calendly returned ${r.status} — check your personal access token` };
   }
 
   return { verified: false, message: 'Unknown provider' };
@@ -466,12 +589,28 @@ workflowProvidersRouter.post('/:name/connect', verifySupabaseAuth, async (req, r
       .maybeSingle();
     if (!provider?.id) return res.status(404).json({ error: `provider_not_found: ${name}` });
 
-    const encryptedKey = (() => {
-      if (!ENCRYPTION_KEY) return api_key;
+    const encryptValue = (v) => {
+      if (!ENCRYPTION_KEY || !v) return v;
       const iv = crypto.randomBytes(16);
       const cipher = crypto.createCipheriv('aes-256-cbc', ENCRYPTION_KEY, iv);
-      return iv.toString('hex') + ':' + cipher.update(api_key, 'utf8', 'hex') + cipher.final('hex');
-    })();
+      return iv.toString('hex') + ':' + cipher.update(v, 'utf8', 'hex') + cipher.final('hex');
+    };
+
+    const credentials = { api_key: encryptValue(api_key) };
+
+    // For Calendly, also register a webhook subscription so events fire into
+    // our worker at /inbound/calendly/:workspaceId. Store the subscription URI
+    // (so we can unsubscribe on delete) and the signing key (encrypted, used
+    // by the worker to verify Calendly-Webhook-Signature on every inbound).
+    if (name === 'calendly') {
+      const sub = await subscribeCalendlyWebhook(api_key, workspace_id);
+      if (sub.error) {
+        console.error('[CALENDLY_CONNECT] subscribe failed:', sub.error, sub.detail || sub.message);
+      } else {
+        credentials.webhook_subscription_uri = sub.subscription_uri;
+        credentials.webhook_signing_key      = encryptValue(sub.signing_key);
+      }
+    }
 
     const { data, error } = await supabase
       .from('workflow_provider_connections')
@@ -479,7 +618,7 @@ workflowProvidersRouter.post('/:name/connect', verifySupabaseAuth, async (req, r
         workspace_id,
         provider_id: provider.id,
         name: connName || name,
-        encrypted_credentials: { api_key: encryptedKey },
+        encrypted_credentials: credentials,
         is_verified: true,
         last_test_at: new Date().toISOString(),
       })

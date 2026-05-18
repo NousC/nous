@@ -95,11 +95,12 @@ webhookRouter.post(['/instantly/:workspaceId', '/instantly'], (req, res) => {
   });
 });
 
+// Calendly uses its own signing format (Calendly-Webhook-Signature: t=<ts>,v1=<hmac>)
+// with a per-workspace signing key stored on the connection. Verification lives
+// in the handler so it has DB access to look up the right key.
 webhookRouter.post(['/calendly/:workspaceId', '/calendly'], (req, res) => {
   const workspaceId = req.params.workspaceId || req.query.workspace_id;
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id_required' });
-  const secret = process.env.CALENDLY_WEBHOOK_SECRET;
-  if (secret && !verifyHmac(req, secret)) return res.status(401).json({ error: 'invalid_signature' });
   handleCalendly(req, res, workspaceId).catch(err => {
     console.error('[WEBHOOK/calendly]', err);
     res.status(500).json({ error: 'internal_error' });

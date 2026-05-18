@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
+import { freshAccessToken } from "@/lib/freshToken";
 import {
   Mail, Video, Zap, Calendar, Globe, Activity, Brain, RefreshCw, Search,
   GitBranch, Webhook, ChevronRight, Users, Target, Upload, Linkedin,
@@ -124,10 +125,12 @@ export default function SystemLog() {
     if (!token || !workspaceId) return;
     setLoading(true);
     try {
+      const fresh = await freshAccessToken();
+      if (!fresh) { setLoading(false); return; }
       const params = new URLSearchParams({ workspace_id: workspaceId, days: dateRange, limit: "200" });
       if (source !== "all") params.set("source", source);
       const res = await fetch(`${apiUrl}/api/workspace/system-log?${params}`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${fresh}` },
       });
       if (!res.ok) throw new Error();
       const d = await res.json();

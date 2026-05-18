@@ -3,8 +3,10 @@ import { useAuth } from "@/hooks/useAuth";
 import { useNavigate } from "react-router-dom";
 import { useTheme } from "@/contexts/ThemeContext";
 import { format, isToday, isYesterday, startOfDay, formatDistanceToNow } from "date-fns";
-import { X, ExternalLink, ChevronUp, ChevronDown, ChevronLeft, RefreshCw, Copy, Check, Sun, Moon, LogOut, Plus, ChevronRight, ArrowLeft, Phone, FileText, Mail, MessageSquare, Linkedin, Trash2 } from "lucide-react";
+import { X, ExternalLink, ChevronUp, ChevronDown, ChevronLeft, RefreshCw, Copy, Check, Sun, Moon, LogOut, Plus, ChevronRight, ArrowLeft, Phone, FileText, Mail, MessageSquare, Linkedin, Trash2, Download } from "lucide-react";
 import { systemLogOpName, agentOpName, OP_COLORS } from "@/lib/operationName";
+import { freshAccessToken } from "@/lib/freshToken";
+import { watchOAuthPopup } from "@/lib/oauthPopup";
 import { toast } from "@/components/ui/sonner";
 
 const apiUrl = import.meta.env.VITE_API_URL ?? "";
@@ -1654,9 +1656,28 @@ const MIND_HARDCODED_PROVIDERS: AvailableProvider[] = [
   { id:"lemlist",    name:"lemlist",    display_name:"Lemlist",    logo_url:"/provider-logos/lemlist.svg",    category:"outbound"     },
   { id:"apollo",     name:"apollo",     display_name:"Apollo",     logo_url:"/provider-logos/apollo.svg",     category:"enrichment"   },
   { id:"prospeo",    name:"prospeo",    display_name:"Prospeo",    logo_url:"/provider-logos/prospeo.svg",    category:"enrichment"   },
-  { id:"signalbase", name:"signalbase", display_name:"SignalBase", logo_url:"/provider-logos/signalbase.svg", category:"signals"      },
+  { id:"salesforce", name:"salesforce", display_name:"Salesforce", logo_url:"/provider-logos/salesforce.svg", category:"crm", auth_type:"oauth2", coming_soon: true } as any,
 ];
-const MIND_EXCLUDED = new Set(["assetly","gmail","mailchimp","google_analytics","granola","notion","clickup","openai","gemini","google","fireflies","calendly","rb2b","fathom","anthropic","stripe"]);
+const MIND_EXCLUDED = new Set(["assetly","gmail","mailchimp","google_analytics","granola","notion","clickup","openai","gemini","google","fireflies","calendly","rb2b","fathom","anthropic","stripe","signalbase"]);
+
+// Category display order + labels in the integration picker
+const MIND_CATEGORY_ORDER = ["crm","outbound","enrichment","meetings","communication","database","ai","analytics","productivity","other"] as const;
+const MIND_CATEGORY_LABEL: Record<string,string> = {
+  crm:"CRM", outbound:"Outbound", enrichment:"Enrichment", meetings:"Meetings",
+  communication:"Communication", database:"Database", ai:"AI", analytics:"Analytics",
+  productivity:"Productivity", other:"Other",
+};
+function groupByCategory<T extends { category?: string }>(items: T[]): Array<[string, T[]]> {
+  const buckets = new Map<string, T[]>();
+  for (const it of items) {
+    const cat = (it.category && MIND_CATEGORY_ORDER.includes(it.category as any)) ? it.category : "other";
+    if (!buckets.has(cat)) buckets.set(cat, []);
+    buckets.get(cat)!.push(it);
+  }
+  return MIND_CATEGORY_ORDER
+    .filter(c => buckets.has(c))
+    .map(c => [c, buckets.get(c)!] as [string, T[]]);
+}
 
 function IntegrationsPopup({ integrations, workspaceId, token, onClose }: {
   integrations:IntegrationConn[]; workspaceId:string; token:string; onClose:()=>void;
@@ -1729,17 +1750,16 @@ function IntegrationsPopup({ integrations, workspaceId, token, onClose }: {
       if (!authUrl) { setConnTestResult({ verified: false, message: "No authorization URL returned" }); setConnOAuthLoading(false); return; }
 
       const w = 600, h = 700;
-      const popup = window.open(authUrl, `${connecting.name}OAuth`, `width=${w},height=${h},left=${window.screenX + (window.outerWidth - w) / 2},top=${window.screenY + (window.outerHeight - h) / 2}`);
+      window.open(authUrl, `${connecting.name}OAuth`, `width=${w},height=${h},left=${window.screenX + (window.outerWidth - w) / 2},top=${window.screenY + (window.outerHeight - h) / 2}`);
 
-      const timer = window.setInterval(() => {
-        if (popup?.closed) {
-          window.clearInterval(timer);
+      watchOAuthPopup({
+        onClose: () => {
           setConnOAuthLoading(false);
           setConnSuccess(connecting.display_name);
           setLiveConns(prev => [...prev, { id: Date.now().toString(), name: connName.trim() || connecting.display_name, is_verified: true, provider: { display_name: connecting.display_name, logo_url: connecting.logo_url, category: connecting.category, name: connecting.name, auth_type: connecting.auth_type } }]);
           setTimeout(() => { setConnecting(null); setConnSuccess(null); setTab("connected"); }, 1500);
-        }
-      }, 800);
+        },
+      });
     } catch { setConnTestResult({ verified: false, message: "OAuth failed" }); setConnOAuthLoading(false); }
   };
 
@@ -1858,58 +1878,95 @@ function IntegrationsPopup({ integrations, workspaceId, token, onClose }: {
             ))}
           </div>
 
-          {tab==="connected" && (
-            <div className="divide-y divide-border/10">
-              {connected.length===0&&needsAuth.length===0 && (
-                <div className="px-5 py-8 text-[11px] text-muted-foreground/30 text-center">no integrations connected yet</div>
-              )}
-              {[...connected,...needsAuth].map(conn => {
-                const providerForConnect: AvailableProvider = {
-                  id: conn.provider?.name ?? conn.name,
-                  name: conn.provider?.name ?? conn.name,
-                  display_name: conn.provider?.display_name ?? conn.name,
-                  logo_url: conn.provider?.logo_url,
-                  category: conn.provider?.category,
-                  auth_type: conn.provider?.auth_type,
-                };
-                return (
-                <div key={conn.id} className="flex items-center gap-4 px-5 py-3 hover:bg-muted/10 transition-colors group">
-                  <IntegrationLogo url={conn.provider?.logo_url} name={conn.provider?.display_name??conn.name} />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[11px] text-foreground/80">{conn.provider?.display_name??conn.name}</div>
-                    {conn.provider?.category && <div className="text-[9px] text-muted-foreground/35">{conn.provider.category}</div>}
+          {tab==="connected" && (() => {
+            const allConns = [...connected, ...needsAuth];
+            if (allConns.length === 0) {
+              return <div className="px-5 py-8 text-[11px] text-muted-foreground/30 text-center">no integrations connected yet</div>;
+            }
+            const grouped = groupByCategory(allConns.map(c => ({ ...c, category: c.provider?.category })));
+            return (
+              <div>
+                {grouped.map(([cat, items]) => (
+                  <div key={cat}>
+                    <div className="px-5 pt-3 pb-1 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/40 bg-muted/5 border-y border-border/10">
+                      {MIND_CATEGORY_LABEL[cat]} <span className="text-muted-foreground/25 font-normal ml-1">{items.length}</span>
+                    </div>
+                    <div className="divide-y divide-border/10">
+                      {items.map((conn: any) => {
+                        const providerForConnect: AvailableProvider = {
+                          id: conn.provider?.name ?? conn.name,
+                          name: conn.provider?.name ?? conn.name,
+                          display_name: conn.provider?.display_name ?? conn.name,
+                          logo_url: conn.provider?.logo_url,
+                          category: conn.provider?.category,
+                          auth_type: conn.provider?.auth_type,
+                        };
+                        return (
+                          <div key={conn.id} className="flex items-center gap-4 px-5 py-3 hover:bg-muted/10 transition-colors group">
+                            <IntegrationLogo url={conn.provider?.logo_url} name={conn.provider?.display_name??conn.name} />
+                            <div className="flex-1 min-w-0">
+                              <div className="text-[11px] text-foreground/80">{conn.provider?.display_name??conn.name}</div>
+                              {conn.name && conn.name !== (conn.provider?.display_name??"") && (
+                                <div className="text-[9px] text-muted-foreground/35 truncate">{conn.name}</div>
+                              )}
+                            </div>
+                            <span className={`text-[9px] px-2 py-0.5 border flex-shrink-0 ${conn.is_verified?"text-emerald-500/60 border-emerald-500/20 bg-emerald-500/5":"text-amber-500/60 border-amber-500/20 bg-amber-500/5"}`}>
+                              {conn.is_verified ? "connected" : "needs auth"}
+                            </span>
+                            <button onClick={()=>startConnect(providerForConnect)}
+                              className="text-[9px] text-muted-foreground/30 hover:text-foreground/60 transition-colors opacity-0 group-hover:opacity-100 flex items-center gap-1 flex-shrink-0 ml-2 border border-border/30 px-2 py-0.5 hover:border-border/60">
+                              update
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
-                  <span className={`text-[9px] px-2 py-0.5 border flex-shrink-0 ${conn.is_verified?"text-emerald-500/60 border-emerald-500/20 bg-emerald-500/5":"text-amber-500/60 border-amber-500/20 bg-amber-500/5"}`}>
-                    {conn.is_verified ? "connected" : "needs auth"}
-                  </span>
-                  <button onClick={()=>startConnect(providerForConnect)}
-                    className="text-[9px] text-muted-foreground/30 hover:text-foreground/60 transition-colors opacity-0 group-hover:opacity-100 flex items-center gap-1 flex-shrink-0 ml-2 border border-border/30 px-2 py-0.5 hover:border-border/60">
-                    update
-                  </button>
-                </div>
-                );
-              })}
-            </div>
-          )}
+                ))}
+              </div>
+            );
+          })()}
 
-          {tab==="available" && (
-            <div className="divide-y divide-border/10">
-              {notConnected.map(p => (
-                <div key={p.id} className="flex items-center gap-4 px-5 py-3 hover:bg-muted/10 transition-colors group">
-                  <IntegrationLogo url={p.logo_url} name={p.display_name} />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[11px] text-foreground/70">{p.display_name}</div>
-                    {p.category && <div className="text-[9px] text-muted-foreground/35">{p.category}</div>}
+          {tab==="available" && (() => {
+            if (notConnected.length === 0) {
+              return <div className="px-5 py-8 text-[11px] text-muted-foreground/30 text-center">all providers connected</div>;
+            }
+            const grouped = groupByCategory(notConnected);
+            return (
+              <div>
+                {grouped.map(([cat, items]) => (
+                  <div key={cat}>
+                    <div className="px-5 pt-3 pb-1 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/40 bg-muted/5 border-y border-border/10">
+                      {MIND_CATEGORY_LABEL[cat]} <span className="text-muted-foreground/25 font-normal ml-1">{items.length}</span>
+                    </div>
+                    <div className="divide-y divide-border/10">
+                      {items.map(p => {
+                        const isSoon = (p as any).coming_soon;
+                        return (
+                          <div key={p.id} className={`flex items-center gap-4 px-5 py-3 transition-colors group ${isSoon ? "opacity-60" : "hover:bg-muted/10"}`}>
+                            <IntegrationLogo url={p.logo_url} name={p.display_name} />
+                            <div className="flex-1 min-w-0">
+                              <div className="text-[11px] text-foreground/70">{p.display_name}</div>
+                            </div>
+                            {isSoon ? (
+                              <span className="text-[9px] text-muted-foreground/40 border border-border/30 px-2 py-0.5 flex-shrink-0 uppercase tracking-wider">
+                                coming soon
+                              </span>
+                            ) : (
+                              <button onClick={()=>startConnect(p)}
+                                className="text-[9px] text-violet-400/60 hover:text-violet-400/90 transition-colors opacity-0 group-hover:opacity-100 flex items-center gap-1 flex-shrink-0 border border-violet-500/30 px-2 py-0.5 hover:border-violet-500/60">
+                                connect
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
-                  <button onClick={()=>startConnect(p)}
-                    className="text-[9px] text-violet-400/60 hover:text-violet-400/90 transition-colors opacity-0 group-hover:opacity-100 flex items-center gap-1 flex-shrink-0 border border-violet-500/30 px-2 py-0.5 hover:border-violet-500/60">
-                    connect
-                  </button>
-                </div>
-              ))}
-              {notConnected.length===0 && <div className="px-5 py-8 text-[11px] text-muted-foreground/30 text-center">all providers connected</div>}
-            </div>
-          )}
+                ))}
+              </div>
+            );
+          })()}
 
           {tab==="webhooks" && (
             <div>
@@ -1935,6 +1992,184 @@ function IntegrationsPopup({ integrations, workspaceId, token, onClose }: {
             </div>
           )}
         </>
+      )}
+    </PopupModal>
+  );
+}
+
+// ─── CRM sync popup — surfaces connected CRMs with sync-now + auto-sync ───────
+const CRM_PROVIDER_META: Record<string,{label:string;logo:string}> = {
+  hubspot:    { label: "HubSpot",    logo: "/provider-logos/hubspot.svg"    },
+  salesforce: { label: "Salesforce", logo: "/provider-logos/salesforce.svg" },
+  pipedrive:  { label: "Pipedrive",  logo: "/provider-logos/pipedrive.svg"  },
+  attio:      { label: "Attio",      logo: "/provider-logos/attio.svg"      },
+};
+const CRM_NAMES = Object.keys(CRM_PROVIDER_META);
+
+type CrmConfig = { auto_sync: boolean; last_synced_at: string|null; contacts_synced: number };
+
+function CrmSyncPopup({ integrations, workspaceId, token, onClose, onOpenIntegrations }: {
+  integrations: IntegrationConn[]; workspaceId: string; token: string;
+  onClose: () => void; onOpenIntegrations: () => void;
+}) {
+  const crmConns = integrations.filter(i => CRM_NAMES.includes(i.provider?.name ?? ""));
+  const connectedProviders = new Set(crmConns.map(c => c.provider?.name).filter(Boolean) as string[]);
+
+  const [configs, setConfigs] = useState<Record<string, CrmConfig>>({});
+  const [syncing, setSyncing] = useState<string|null>(null);
+  const [syncResult, setSyncResult] = useState<Record<string,{total:number;imported:number;skipped:number}>>({});
+  const [togglingAuto, setTogglingAuto] = useState<string|null>(null);
+
+  // Load existing sync configs for every connected CRM
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const entries: [string, CrmConfig][] = [];
+      for (const c of crmConns) {
+        const prov = c.provider?.name; if (!prov) continue;
+        try {
+          const r = await fetch(`${apiUrl}/api/crm/sync-config?workspaceId=${workspaceId}&provider=${prov}`, { headers: { Authorization: `Bearer ${token}` } });
+          if (!r.ok) continue;
+          const d = await r.json();
+          if (d.config) entries.push([prov, { auto_sync: !!d.config.auto_sync, last_synced_at: d.config.last_synced_at ?? null, contacts_synced: d.config.contacts_synced ?? 0 }]);
+        } catch {}
+      }
+      if (!cancelled) setConfigs(Object.fromEntries(entries));
+    })();
+    return () => { cancelled = true; };
+  }, [token, workspaceId, crmConns.length]);
+
+  const saveConfig = async (provider: string, connectionId: string, autoSync: boolean) => {
+    const r = await fetch(`${apiUrl}/api/crm/sync-config`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ workspaceId, connectionId, provider, autoSync }),
+    });
+    return r.ok;
+  };
+
+  const handleSync = async (conn: IntegrationConn) => {
+    const provider = conn.provider?.name; if (!provider) return;
+    setSyncing(provider);
+    setSyncResult(prev => ({ ...prev, [provider]: undefined as any }));
+    try {
+      // Ensure config exists before sync-now (server requires a row)
+      if (!configs[provider]) await saveConfig(provider, conn.id, false);
+      const r = await fetch(`${apiUrl}/api/crm/sync-now`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ workspaceId, provider }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.message || d.error || "Sync failed");
+      setSyncResult(prev => ({ ...prev, [provider]: { total: d.total||0, imported: d.imported||0, skipped: d.skipped||0 } }));
+      setConfigs(prev => ({
+        ...prev,
+        [provider]: {
+          auto_sync: prev[provider]?.auto_sync ?? false,
+          last_synced_at: new Date().toISOString(),
+          contacts_synced: (prev[provider]?.contacts_synced ?? 0) + (d.imported ?? 0),
+        },
+      }));
+    } catch {} finally { setSyncing(null); }
+  };
+
+  const handleToggleAuto = async (conn: IntegrationConn, val: boolean) => {
+    const provider = conn.provider?.name; if (!provider) return;
+    setTogglingAuto(provider);
+    const ok = await saveConfig(provider, conn.id, val);
+    if (ok) setConfigs(prev => ({ ...prev, [provider]: { auto_sync: val, last_synced_at: prev[provider]?.last_synced_at ?? null, contacts_synced: prev[provider]?.contacts_synced ?? 0 } }));
+    setTogglingAuto(null);
+  };
+
+  return (
+    <PopupModal label="PROPLY / MIND / CRM" onClose={onClose}>
+      <div className="px-5 py-4 border-b border-border/20">
+        <p className="text-[10px] text-muted-foreground/50 leading-relaxed">
+          Pull contacts from your CRM into Proply. Sync runs on-demand below; auto-sync (daily) requires the background worker.
+        </p>
+      </div>
+
+      {crmConns.length === 0 && (
+        <div className="px-5 py-10 text-center space-y-3">
+          <div className="text-[11px] text-muted-foreground/40">no CRM connected yet</div>
+          <button onClick={onOpenIntegrations}
+            className="text-[10px] px-3 py-1.5 bg-violet-500/20 border border-violet-500/30 text-violet-400/80 hover:bg-violet-500/30 transition-colors inline-flex items-center gap-1.5">
+            <Plus className="h-3 w-3"/>connect a CRM
+          </button>
+        </div>
+      )}
+
+      {crmConns.length > 0 && (
+        <div className="divide-y divide-border/10">
+          {crmConns.map(conn => {
+            const provider = conn.provider?.name as string;
+            const meta = CRM_PROVIDER_META[provider];
+            const cfg = configs[provider];
+            const last = cfg?.last_synced_at ? format(new Date(cfg.last_synced_at), "MMM d, HH:mm") : "never";
+            const result = syncResult[provider];
+            const isSyncing = syncing === provider;
+            return (
+              <div key={conn.id} className="px-5 py-4 space-y-3">
+                <div className="flex items-center gap-3">
+                  <IntegrationLogo url={meta.logo} name={meta.label} size={22}/>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[12px] text-foreground/85">{meta.label}</div>
+                    <div className="text-[9px] text-muted-foreground/40 truncate">{conn.name} · {conn.is_verified ? "connected" : "needs auth"}</div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[10px]">
+                  <div className="text-muted-foreground/40">last sync</div>
+                  <div className="text-foreground/70 tabular-nums">{last}</div>
+                  <div className="text-muted-foreground/40">contacts pulled</div>
+                  <div className="text-foreground/70 tabular-nums">{(cfg?.contacts_synced ?? 0).toLocaleString()}</div>
+                </div>
+
+                {result && (
+                  <div className="text-[10px] px-2.5 py-1.5 border text-emerald-500/70 border-emerald-500/20 bg-emerald-500/5">
+                    Synced {result.total} contacts — {result.imported} new{result.skipped ? `, ${result.skipped} skipped` : ""}
+                  </div>
+                )}
+
+                <div className="flex items-center gap-3">
+                  <button onClick={()=>handleSync(conn)} disabled={isSyncing || !conn.is_verified}
+                    className="text-[10px] px-3 py-1.5 bg-violet-500/20 border border-violet-500/30 text-violet-400/80 hover:bg-violet-500/30 transition-colors disabled:opacity-30 flex items-center gap-1.5">
+                    {isSyncing ? <><RefreshCw className="h-3 w-3 animate-spin"/>syncing…</> : <><Download className="h-3 w-3"/>sync now</>}
+                  </button>
+                  <label className="flex items-center gap-2 text-[10px] text-muted-foreground/60 cursor-pointer">
+                    <input type="checkbox" checked={!!cfg?.auto_sync} disabled={togglingAuto===provider || !conn.is_verified}
+                      onChange={e=>handleToggleAuto(conn, e.target.checked)}
+                      className="h-3 w-3 accent-violet-500"/>
+                    auto-sync daily
+                  </label>
+                </div>
+              </div>
+            );
+          })}
+
+          {/* Coming-soon rows for CRMs the workspace hasn't (yet) connected */}
+          {CRM_NAMES.filter(n => !connectedProviders.has(n)).map(n => {
+            const meta = CRM_PROVIDER_META[n];
+            const isSalesforce = n === 'salesforce';
+            return (
+              <div key={n} className="px-5 py-3 flex items-center gap-3 opacity-60">
+                <IntegrationLogo url={meta.logo} name={meta.label} size={20}/>
+                <div className="flex-1 min-w-0">
+                  <div className="text-[11px] text-foreground/60">{meta.label}</div>
+                </div>
+                {isSalesforce ? (
+                  <span className="text-[9px] text-muted-foreground/40 border border-border/30 px-2 py-0.5 uppercase tracking-wider">coming soon</span>
+                ) : (
+                  <button onClick={onOpenIntegrations}
+                    className="text-[9px] text-violet-400/60 hover:text-violet-400/90 transition-colors border border-violet-500/30 px-2 py-0.5 hover:border-violet-500/60">
+                    connect
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
       )}
     </PopupModal>
   );
@@ -2789,7 +3024,7 @@ function ConnectModal({ onClose }: { onClose: () => void }) {
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
-type Popup = "companies" | "people" | "integrations" | "memories" | "settings" | null;
+type Popup = "companies" | "people" | "crm" | "integrations" | "memories" | "settings" | null;
 
 export default function Mind() {
   const { userData, session } = useAuth();
@@ -2883,9 +3118,11 @@ export default function Mind() {
     if (!workspaceId||!token) return;
     if (!reset) setLoadingMore(true);
     try {
+      const fresh = await freshAccessToken();
+      if (!fresh) { if (!reset) setLoadingMore(false); return; }
       const [sysRes,agentRes] = await Promise.all([
-        fetch(`${apiUrl}/api/workspace/system-log?workspace_id=${workspaceId}&days=7&limit=200&offset=${sysOff}`,{headers:{Authorization:`Bearer ${token}`}}),
-        fetch(`${apiUrl}/api/requests/log?days=7&limit=100&offset=${agentOff}`,{headers:{Authorization:`Bearer ${token}`}}),
+        fetch(`${apiUrl}/api/workspace/system-log?workspace_id=${workspaceId}&days=7&limit=200&offset=${sysOff}`,{headers:{Authorization:`Bearer ${fresh}`}}),
+        fetch(`${apiUrl}/api/requests/log?days=7&limit=100&offset=${agentOff}`,{headers:{Authorization:`Bearer ${fresh}`}}),
       ]);
       const sysData=sysRes.ok?await sysRes.json():{events:[],total:0};
       const agentData=agentRes.ok?await agentRes.json():{requests:[],total:0};
@@ -2975,6 +3212,7 @@ export default function Mind() {
             {([
               {label:"COMPANIES",   value:companies.length,    p:"companies"    as Popup},
               {label:"PEOPLE",      value:allContacts.length,  p:"people"       as Popup},
+              {label:"CRM",         value:integrations.filter(i=>i.is_verified && CRM_NAMES.includes(i.provider?.name ?? "")).length, p:"crm" as Popup},
               {label:"INTEGRATIONS",value:integrations.filter(i=>i.is_verified).length, p:"integrations" as Popup},
               {label:"MEMORIES",    value:memories.length,     p:"memories"     as Popup},
             ]).map(({label,value,p})=>(
@@ -3053,6 +3291,7 @@ export default function Mind() {
 
       {popup==="companies"&&workspaceId&&token&&<CompaniesPopup companies={companies} workspaceId={workspaceId} token={token} onClose={()=>setPopup(null)} onDelete={id=>setCompanies(prev=>prev.filter(c=>c.id!==id))}/>}
       {popup==="people"&&token&&workspaceId&&<PeoplePopup contacts={allContacts} token={token} workspaceId={workspaceId} onClose={()=>{setPopup(null);setPeopleSort(undefined);}} onNavigate={()=>navigate("/people")} defaultSort={peopleSort} onDelete={id=>setAllContacts(prev=>prev.filter(c=>c.id!==id))}/>}
+      {popup==="crm"&&workspaceId&&token&&<CrmSyncPopup integrations={integrations} workspaceId={workspaceId} token={token} onClose={()=>setPopup(null)} onOpenIntegrations={()=>setPopup("integrations")}/>}
       {popup==="integrations"&&workspaceId&&token&&<IntegrationsPopup integrations={integrations} workspaceId={workspaceId} token={token} onClose={()=>setPopup(null)}/>}
       {popup==="memories"&&workspaceId&&token&&<MemoriesPopup memories={memories} categories={memoriesCategories} workspaceId={workspaceId} token={token} onClose={()=>setPopup(null)}/>}
       {popup==="settings"&&<SettingsFullPopup initialTab={settingsTab} onClose={()=>setPopup(null)}/>}

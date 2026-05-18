@@ -94,6 +94,7 @@ import { ProposalFlowSettingsSection } from "@/components/settings/ProposalFlowS
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { Progress } from "@/components/ui/progress";
 import { supabase } from "@/lib/supabase";
+import { watchOAuthPopup } from "@/lib/oauthPopup";
 import { getWorkspaceIcon } from "@/utils/workspaceIcons";
 import {
   CommunityPostCard,
@@ -5642,11 +5643,13 @@ function IntegrationsSection({ session }: { session: any }) {
       const width = 600, height = 700;
       const left = window.screenX + (window.outerWidth - width) / 2;
       const top = window.screenY + (window.outerHeight - height) / 2;
-      const popup = window.open(url, 'LinkedInUnipile', `width=${width},height=${height},left=${left},top=${top}`);
+      window.open(url, 'LinkedInUnipile', `width=${width},height=${height},left=${left},top=${top}`);
 
+      let cleanupWatcher: (() => void) | null = null;
       const onMessage = (e: MessageEvent) => {
         if (e.data?.type !== 'linkedin_auth') return;
         window.removeEventListener('message', onMessage);
+        cleanupWatcher?.();
         setLinkedinConnecting(false);
         if (e.data.success) {
           toast.success('LinkedIn connected!');
@@ -5656,16 +5659,7 @@ function IntegrationsSection({ session }: { session: any }) {
         }
       };
       window.addEventListener('message', onMessage);
-
-      // Fallback: if popup closes without postMessage
-      const poll = window.setInterval(() => {
-        if (popup?.closed) {
-          window.clearInterval(poll);
-          window.removeEventListener('message', onMessage);
-          setLinkedinConnecting(false);
-          fetchLinkedInStatus();
-        }
-      }, 600);
+      cleanupWatcher = watchOAuthPopup({ onClose: () => { window.removeEventListener('message', onMessage); setLinkedinConnecting(false); fetchLinkedInStatus(); } });
     } catch (err: any) {
       toast.error(err.message || 'Failed to connect LinkedIn');
       setLinkedinConnecting(false);
@@ -5723,23 +5717,18 @@ function IntegrationsSection({ session }: { session: any }) {
       const width = 600, height = 700;
       const left = window.screenX + (window.outerWidth - width) / 2;
       const top = window.screenY + (window.outerHeight - height) / 2;
-      const popup = window.open(authorization_url, 'AirtableOAuth', `width=${width},height=${height},left=${left},top=${top}`);
+      window.open(authorization_url, 'AirtableOAuth', `width=${width},height=${height},left=${left},top=${top}`);
+      let cleanupWatcher: (() => void) | null = null;
       const onMsg = (e: MessageEvent) => {
         if (e.data?.type !== 'airtable_auth') return;
         window.removeEventListener('message', onMsg);
+        cleanupWatcher?.();
         setAirtableConnecting(false);
         if (e.data.success) { toast.success('Airtable connected!'); fetchData(); }
         else toast.error(`Airtable connection failed: ${e.data.error || 'unknown error'}`);
       };
       window.addEventListener('message', onMsg);
-      const poll = window.setInterval(() => {
-        if (popup?.closed) {
-          window.clearInterval(poll);
-          window.removeEventListener('message', onMsg);
-          setAirtableConnecting(false);
-          fetchData();
-        }
-      }, 600);
+      cleanupWatcher = watchOAuthPopup({ onClose: () => { window.removeEventListener('message', onMsg); setAirtableConnecting(false); fetchData(); } });
     } catch (err: any) {
       toast.error(err.message || 'Failed to connect Airtable');
       setAirtableConnecting(false);
@@ -5915,33 +5904,14 @@ function IntegrationsSection({ session }: { session: any }) {
       const left = window.screenX + (window.outerWidth - width) / 2;
       const top = window.screenY + (window.outerHeight - height) / 2;
 
-      const popup = window.open(authUrl, popupName, `width=${width},height=${height},left=${left},top=${top}`);
+      window.open(authUrl, popupName, `width=${width},height=${height},left=${left},top=${top}`);
 
-      // Poll for popup close or redirect
-      const pollTimer = window.setInterval(() => {
-        try {
-          if (popup?.location?.href?.includes('/settings') ||
-              popup?.location?.href?.includes('_success=true')) {
-            window.clearInterval(pollTimer);
-            popup?.close();
-            setOauthLoading(false);
-            toast.success(successMessage);
-            setShowAddConnection(false);
-            setSelectedProvider(null);
-            setConnectionName('');
-            fetchData();
-          }
-        } catch (e) {
-          // Cross-origin - popup is on provider domain
-        }
-
-        if (popup?.closed) {
-          window.clearInterval(pollTimer);
+      watchOAuthPopup({
+        onClose: () => {
           setOauthLoading(false);
-          // Refresh to check if connection was created
           fetchData();
-        }
-      }, 500);
+        },
+      });
 
     } catch (error: any) {
       console.error("OAuth initiation error:", error);

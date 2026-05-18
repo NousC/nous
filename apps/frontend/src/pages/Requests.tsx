@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
+import { freshAccessToken } from "@/lib/freshToken";
 import {
   ArrowDownToLine, ArrowUpFromLine, Trash2, Search, Globe, Code2, Webhook,
   Brain, Users, Building2, RefreshCw, ScrollText,
@@ -121,10 +122,12 @@ export default function Requests() {
     if (!token) return;
     setLoading(true);
     try {
+      const fresh = await freshAccessToken();
+      if (!fresh) { setLoading(false); return; }
       const params = new URLSearchParams({ days: dateRange, limit: "100" });
       if (filter !== "all") params.set("op_type", filter);
       const res = await fetch(`${apiUrl}/api/requests/log?${params}`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${fresh}` },
       });
       if (!res.ok) throw new Error();
       const d = await res.json();

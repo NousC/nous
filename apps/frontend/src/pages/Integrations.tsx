@@ -32,6 +32,7 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/components/ui/sonner";
 import { cn } from "@/lib/utils";
+import { watchOAuthPopup } from "@/lib/oauthPopup";
 import { format } from "date-fns";
 import AirtableSyncConfig from "@/components/AirtableSyncConfig";
 import CrmSyncConfig from "@/components/CrmSyncConfig";
@@ -39,7 +40,6 @@ import CrmSyncConfig from "@/components/CrmSyncConfig";
 // ─── Logo helpers ─────────────────────────────────────────────────────────────
 
 const LOCAL_LOGOS: Record<string, string> = {
-  stripe:     "/provider-logos/stripe.svg",
   openai:     "/provider-logos/openai.svg",
   anthropic:  "/provider-logos/anthropic.svg",
   slack:      "/provider-logos/slack.svg",
@@ -149,11 +149,12 @@ const PROVIDER_CAPABILITIES: Record<string, { label: string; action: string }[]>
     { label: "Send direct message",        action: "slack_send_dm"             },
     { label: "Post deal alert",            action: "slack_deal_alert"          },
   ],
-  stripe: [
-    { label: "Get customer",               action: "stripe_get_customer"       },
-    { label: "Create invoice",             action: "stripe_create_invoice"     },
-    { label: "List subscriptions",         action: "stripe_list_subscriptions" },
-    { label: "Get payment history",        action: "stripe_get_payments"       },
+  salesforce: [
+    { label: "Search & fetch contacts",    action: "salesforce_get_contact"    },
+    { label: "Get account",                action: "salesforce_get_account"    },
+    { label: "List opportunities",         action: "salesforce_list_opps"      },
+    { label: "Update opportunity stage",   action: "salesforce_update_opp"     },
+    { label: "Sync contacts to Proply",    action: "salesforce_sync_contacts"  },
   ],
   fathom: [
     { label: "Get site analytics",         action: "fathom_get_analytics"      },
@@ -388,8 +389,8 @@ export default function Integrations() {
   // Airtable sync config modal
   const [airtableSyncConnection, setAirtableSyncConnection] = useState<any>(null);
 
-  // CRM sync config modal (HubSpot, Salesforce)
-  const [crmSyncConnection, setCrmSyncConnection] = useState<{ connection: any; provider: "hubspot" | "salesforce" } | null>(null);
+  // CRM sync config modal (HubSpot, Salesforce, Pipedrive, Attio)
+  const [crmSyncConnection, setCrmSyncConnection] = useState<{ connection: any; provider: "hubspot" | "salesforce" | "pipedrive" | "attio" } | null>(null);
 
   // LinkedIn (Unipile OAuth)
   const [linkedinConnection, setLinkedinConnection] = useState<any>(null);
@@ -426,10 +427,11 @@ export default function Integrations() {
       auth_fields: [{ name: "api_key", label: "API Key", type: "password", placeholder: "Enter your Prospeo API key", description: "Find in Prospeo → Settings → API Key" }],
     },
     {
-      id: "signalbase", name: "signalbase", display_name: "SignalBase",
-      auth_type: "api_key", category: "signals",
-      logo_url: "/provider-logos/signalbase.svg",
-      auth_fields: [{ name: "api_key", label: "API Key", type: "password", placeholder: "Enter your SignalBase API key", description: "Find at trysignalbase.com/workspace/api" }],
+      id: "salesforce", name: "salesforce", display_name: "Salesforce",
+      auth_type: "oauth2", category: "crm",
+      logo_url: "/provider-logos/salesforce.svg",
+      auth_fields: [],
+      coming_soon: true,
     },
   ];
 
@@ -447,7 +449,7 @@ export default function Integrations() {
       if (pr.ok) {
         const d = await pr.json();
         const list = d.providers || d || [];
-        const excluded = ["assetly","gmail","mailchimp","google_analytics","granola","notion","clickup","openai","gemini","google","fireflies","calendly","rb2b","fathom","anthropic","stripe"];
+        const excluded = ["assetly","gmail","mailchimp","google_analytics","granola","notion","clickup","openai","gemini","google","fireflies","calendly","rb2b","fathom","anthropic","stripe","signalbase"];
         const filtered = list.filter((p: any) => p.auth_type !== "none" && !excluded.includes(p.name));
         // HARDCODED_PROVIDERS always win (correct labels/category); strip DB versions of hardcoded names
         const hardcodedNames = new Set(HARDCODED_PROVIDERS.map(h => h.name));
@@ -493,9 +495,11 @@ export default function Integrations() {
       const { url } = await res.json();
       const w = 600, h = 700;
       const popup = window.open(url, "LinkedInOAuth", `width=${w},height=${h},left=${window.screenX + (window.outerWidth - w) / 2},top=${window.screenY + (window.outerHeight - h) / 2}`);
+      let cleanupWatcher: (() => void) | null = null;
       const handler = (e: MessageEvent) => {
         if (e.data?.type === "linkedin_auth") {
           window.removeEventListener("message", handler);
+          cleanupWatcher?.();
           popup?.close();
           setConnectingLinkedIn(false);
           if (e.data.success) { toast.success("LinkedIn connected!"); fetchLinkedIn(); }
@@ -503,9 +507,7 @@ export default function Integrations() {
         }
       };
       window.addEventListener("message", handler);
-      const pollClosed = setInterval(() => {
-        if (popup?.closed) { clearInterval(pollClosed); window.removeEventListener("message", handler); setConnectingLinkedIn(false); fetchLinkedIn(); }
-      }, 800);
+      cleanupWatcher = watchOAuthPopup({ onClose: () => { window.removeEventListener("message", handler); setConnectingLinkedIn(false); fetchLinkedIn(); } });
     } catch { toast.error("Failed to initiate LinkedIn connection"); setConnectingLinkedIn(false); }
   };
 
@@ -711,10 +713,11 @@ export default function Integrations() {
       const popup = window.open(authUrl, `${selectedProvider.name}OAuth`, `width=${w},height=${h},left=${window.screenX + (window.outerWidth - w) / 2},top=${window.screenY + (window.outerHeight - h) / 2}`);
 
       const msgType = `${selectedProvider.name}_auth`;
+      let cleanupWatcher: (() => void) | null = null;
       const msgHandler = (e: MessageEvent) => {
         if (e.data?.type === msgType) {
           window.removeEventListener("message", msgHandler);
-          window.clearInterval(timer);
+          cleanupWatcher?.();
           popup?.close();
           setOauthLoading(false);
           if (e.data.success) { toast.success(`${selectedProvider.display_name} connected!`); closeAdd(); fetchData(); }
@@ -722,21 +725,7 @@ export default function Integrations() {
         }
       };
       window.addEventListener("message", msgHandler);
-
-      const timer = window.setInterval(() => {
-        try {
-          if (popup?.location?.href?.includes("/integrations") || popup?.location?.href?.includes("_success=true")) {
-            window.clearInterval(timer); window.removeEventListener("message", msgHandler);
-            popup?.close(); setOauthLoading(false);
-            toast.success(`${selectedProvider.display_name} connected!`); closeAdd(); fetchData();
-          }
-        } catch {}
-        if (popup?.closed) {
-          window.clearInterval(timer);
-          // Give postMessage 300ms to arrive before tearing down the listener
-          setTimeout(() => { window.removeEventListener("message", msgHandler); setOauthLoading(false); fetchData(); }, 300);
-        }
-      }, 500);
+      cleanupWatcher = watchOAuthPopup({ onClose: () => { window.removeEventListener("message", msgHandler); setOauthLoading(false); fetchData(); } });
     } catch (e: any) { toast.error(e.message || "Failed to initiate OAuth"); setOauthLoading(false); }
   };
 
@@ -897,8 +886,9 @@ export default function Integrations() {
                   key={connection.id}
                   onClick={() => {
                     if (provider?.name === "airtable") return setAirtableSyncConnection(connection);
-                    if (provider?.name === "hubspot") return setCrmSyncConnection({ connection, provider: "hubspot" });
-                    if (provider?.name === "salesforce") return setCrmSyncConnection({ connection, provider: "salesforce" });
+                    if (["hubspot","salesforce","pipedrive","attio"].includes(provider?.name)) {
+                      return setCrmSyncConnection({ connection, provider: provider.name as "hubspot" | "salesforce" | "pipedrive" | "attio" });
+                    }
                     setViewingConnection(connection);
                   }}
                   className="group relative flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-3.5 py-3 hover:border-gray-300 hover:shadow-sm transition-all cursor-pointer"
@@ -907,7 +897,7 @@ export default function Integrations() {
                   <div className="flex-1 min-w-0">
                     <p className="text-[13px] font-semibold text-gray-900 leading-tight truncate">{provider?.display_name}</p>
                     <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-[11px] text-gray-400">{["airtable","hubspot","salesforce"].includes(provider?.name) ? "Click to configure sync" : category}</span>
+                      <span className="text-[11px] text-gray-400">{["airtable","hubspot","salesforce","pipedrive","attio"].includes(provider?.name) ? "Click to configure sync" : category}</span>
                       <span className="text-gray-200">·</span>
                       <span className={cn(
                         "text-[11px] font-medium",
@@ -934,8 +924,8 @@ export default function Integrations() {
                           Configure sync
                         </DropdownMenuItem>
                       )}
-                      {(provider?.name === "hubspot" || provider?.name === "salesforce") && (
-                        <DropdownMenuItem onClick={e => { e.stopPropagation(); setCrmSyncConnection({ connection, provider: provider.name as "hubspot" | "salesforce" }); }}>
+                      {["hubspot","salesforce","pipedrive","attio"].includes(provider?.name) && (
+                        <DropdownMenuItem onClick={e => { e.stopPropagation(); setCrmSyncConnection({ connection, provider: provider.name as "hubspot" | "salesforce" | "pipedrive" | "attio" }); }}>
                           <Database className="h-3.5 w-3.5 mr-2" />
                           Configure sync
                         </DropdownMenuItem>
@@ -1130,16 +1120,24 @@ export default function Integrations() {
                       <div className="grid grid-cols-2 gap-1.5">
                         {provs.map(provider => {
                           const logoSrc = LOCAL_LOGOS[(provider.name || "").toLowerCase()] || provider.logo_url;
+                          const isSoon = (provider as any).coming_soon;
                           return (
                             <button
                               key={provider.id}
-                              onClick={() => { setSelectedProvider(provider); setConnectionName(provider.display_name); }}
-                              className="flex items-center gap-2.5 p-2.5 rounded-xl border border-gray-100 hover:border-gray-300 hover:bg-gray-50 transition-all text-left"
+                              onClick={() => { if (isSoon) return; setSelectedProvider(provider); setConnectionName(provider.display_name); }}
+                              disabled={isSoon}
+                              className={cn(
+                                "flex items-center gap-2.5 p-2.5 rounded-xl border border-gray-100 transition-all text-left",
+                                isSoon ? "opacity-60 cursor-not-allowed" : "hover:border-gray-300 hover:bg-gray-50"
+                              )}
                             >
                               <div className="h-8 w-8 rounded-lg bg-gray-50 border border-gray-100 flex items-center justify-center flex-shrink-0 overflow-hidden">
                                 {logoSrc ? <img src={logoSrc} alt={provider.display_name} className="h-[18px] w-[18px] object-contain" /> : <Link2 className="h-3.5 w-3.5 text-gray-400" />}
                               </div>
-                              <p className="text-[12px] font-medium text-gray-900 truncate">{provider.display_name}</p>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-[12px] font-medium text-gray-900 truncate">{provider.display_name}</p>
+                                {isSoon && <p className="text-[10px] text-gray-400 uppercase tracking-wider">Coming soon</p>}
+                              </div>
                             </button>
                           );
                         })}

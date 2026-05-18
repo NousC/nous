@@ -3,6 +3,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { format, isToday, isYesterday, startOfDay } from "date-fns";
 import { RefreshCw, ChevronDown } from "lucide-react";
 import { systemLogOpName, agentOpName, OP_COLORS, type OpInfo } from "@/lib/operationName";
+import { freshAccessToken } from "@/lib/freshToken";
 
 const apiUrl = import.meta.env.VITE_API_URL ?? "";
 
@@ -78,16 +79,18 @@ export default function Operations() {
     if (!workspaceId || !token) return;
     reset ? setLoading(true) : setLoadingMore(true);
     try {
+      const fresh = await freshAccessToken();
+      if (!fresh) { reset ? setLoading(false) : setLoadingMore(false); return; }
       const days = dateRange === "all" ? "all" : dateRange.replace("d", "");
 
       const [sysRes, agentRes] = await Promise.all([
         fetch(
           `${apiUrl}/api/workspace/system-log?workspace_id=${workspaceId}&days=${days}&limit=200&offset=${sysOff}`,
-          { headers: { Authorization: `Bearer ${token}` } }
+          { headers: { Authorization: `Bearer ${fresh}` } }
         ),
         fetch(
           `${apiUrl}/api/requests/log?days=${days}&limit=100&offset=${agentOff}`,
-          { headers: { Authorization: `Bearer ${token}` } }
+          { headers: { Authorization: `Bearer ${fresh}` } }
         ),
       ]);
 

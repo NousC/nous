@@ -24,7 +24,12 @@ for (const key of REQUIRED) {
 
 // ── Inbound webhook server ────────────────────────────────────────────────────
 const app = express();
-app.use(express.json({ limit: '5mb' }));
+app.use(express.json({
+  limit: '5mb',
+  // Preserve raw body bytes so webhook handlers can verify signatures
+  // (Calendly, Stripe, etc.) against exactly what the sender hashed.
+  verify: (req, _res, buf) => { req.rawBody = buf; },
+}));
 
 app.get('/health', (_req, res) => res.json({ ok: true, service: 'proply-worker' }));
 app.use('/inbound', webhookRouter);
