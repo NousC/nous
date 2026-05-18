@@ -229,15 +229,21 @@ async function resolveAttio(creds: Record<string, string | null>, contact: Conta
     if (id) return id;
   }
 
+  const first = contact.first_name || '';
+  const last = contact.last_name || '';
+  const full = [first, last].filter(Boolean).join(' ') || contact.email;
+
   const cr = await fetch('https://api.attio.com/v2/objects/people/records?matching_attribute=email_addresses', {
     method: 'PUT', headers,
     body: JSON.stringify({ data: { values: {
       email_addresses: [contact.email],
-      name: [{ first_name: contact.first_name || '', last_name: contact.last_name || '' }],
+      // Attio's name attribute requires `full_name` as a string in addition to first/last
+      name: [{ first_name: first, last_name: last, full_name: full }],
     }}}),
   });
   if (cr.ok) { const d: any = await cr.json(); return d.data?.id?.record_id || null; }
-  return null;
+  const errText = await cr.text().catch(() => '');
+  throw new Error(`Attio create ${cr.status}: ${errText.slice(0, 200)}`);
 }
 
 // ─── Push adapters ────────────────────────────────────────────────────────────
