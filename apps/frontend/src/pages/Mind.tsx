@@ -1656,9 +1656,9 @@ const MIND_HARDCODED_PROVIDERS: AvailableProvider[] = [
   { id:"lemlist",    name:"lemlist",    display_name:"Lemlist",    logo_url:"/provider-logos/lemlist.svg",    category:"outbound"     },
   { id:"apollo",     name:"apollo",     display_name:"Apollo",     logo_url:"/provider-logos/apollo.svg",     category:"enrichment"   },
   { id:"prospeo",    name:"prospeo",    display_name:"Prospeo",    logo_url:"/provider-logos/prospeo.svg",    category:"enrichment"   },
-  { id:"salesforce", name:"salesforce", display_name:"Salesforce", logo_url:"/provider-logos/salesforce.svg", category:"crm", auth_type:"oauth2", coming_soon: true } as any,
 ];
-const MIND_EXCLUDED = new Set(["assetly","gmail","mailchimp","google_analytics","granola","notion","clickup","openai","gemini","google","fireflies","calendly","rb2b","fathom","anthropic","stripe","signalbase"]);
+// salesforce hidden until backend OAuth setup is documented & shipped — backend stays wired
+const MIND_EXCLUDED = new Set(["assetly","gmail","mailchimp","google_analytics","granola","notion","clickup","openai","gemini","google","fireflies","calendly","rb2b","fathom","anthropic","stripe","signalbase","salesforce"]);
 
 // Category display order + labels in the integration picker
 const MIND_CATEGORY_ORDER = ["crm","outbound","enrichment","meetings","communication","database","ai","analytics","productivity","other"] as const;
@@ -2005,7 +2005,6 @@ function IntegrationsPopup({ integrations, workspaceId, token, onClose }: {
 // ─── CRM sync popup — surfaces connected CRMs with sync-now + auto-sync ───────
 const CRM_PROVIDER_META: Record<string,{label:string;logo:string}> = {
   hubspot:    { label: "HubSpot",    logo: "/provider-logos/hubspot.svg"    },
-  salesforce: { label: "Salesforce", logo: "/provider-logos/salesforce.svg" },
   pipedrive:  { label: "Pipedrive",  logo: "/provider-logos/pipedrive.svg"  },
   attio:      { label: "Attio",      logo: "/provider-logos/attio.svg"      },
 };
@@ -2184,24 +2183,19 @@ function CrmSyncPopup({ integrations, workspaceId, token, onClose, onOpenIntegra
             );
           })}
 
-          {/* Coming-soon rows for CRMs the workspace hasn't (yet) connected */}
+          {/* CRMs the workspace hasn't connected yet — click-through to Integrations */}
           {CRM_NAMES.filter(n => !connectedProviders.has(n)).map(n => {
             const meta = CRM_PROVIDER_META[n];
-            const isSalesforce = n === 'salesforce';
             return (
               <div key={n} className="px-5 py-3 flex items-center gap-3 opacity-60">
                 <IntegrationLogo url={meta.logo} name={meta.label} size={20}/>
                 <div className="flex-1 min-w-0">
                   <div className="text-[11px] text-foreground/60">{meta.label}</div>
                 </div>
-                {isSalesforce ? (
-                  <span className="text-[9px] text-muted-foreground/40 border border-border/30 px-2 py-0.5 uppercase tracking-wider">coming soon</span>
-                ) : (
-                  <button onClick={onOpenIntegrations}
-                    className="text-[9px] text-violet-400/60 hover:text-violet-400/90 transition-colors border border-violet-500/30 px-2 py-0.5 hover:border-violet-500/60">
-                    connect
-                  </button>
-                )}
+                <button onClick={onOpenIntegrations}
+                  className="text-[9px] text-violet-400/60 hover:text-violet-400/90 transition-colors border border-violet-500/30 px-2 py-0.5 hover:border-violet-500/60">
+                  connect
+                </button>
               </div>
             );
           })}

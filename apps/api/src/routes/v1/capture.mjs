@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getSupabaseClient, isUUID } from '@proply/core';
+import { getSupabaseClient, isUUID, isEmail } from '@proply/core';
 import { logMcpOp } from '../../lib/mcpLogger.mjs';
 
 export const captureRouter = Router();
@@ -15,6 +15,7 @@ captureRouter.post('/', async (req, res) => {
 
     // Resolve contact
     let contact = null;
+    let createdContact = false;
     if (contact_id && isUUID(contact_id)) {
       const { data } = await supabase
         .from('contacts')
@@ -24,13 +25,30 @@ captureRouter.post('/', async (req, res) => {
         .single();
       contact = data;
     } else if (email) {
+      const normalised = email.toLowerCase().trim();
       const { data } = await supabase
         .from('contacts')
         .select('id, pipeline_stage, company_id')
-        .eq('email', email.toLowerCase().trim())
+        .eq('email', normalised)
         .eq('workspace_id', req.workspaceId)
         .single();
       contact = data;
+      // Auto-create on first track for an unknown email so agents don't need to call create_contact first.
+      if (!contact && isEmail(normalised)) {
+        const { data: created, error: createErr } = await supabase
+          .from('contacts')
+          .insert({
+            workspace_id: req.workspaceId,
+            email: normalised,
+            source: source || 'api',
+            pipeline_stage: 'identified',
+          })
+          .select('id, pipeline_stage, company_id')
+          .single();
+        if (createErr) throw createErr;
+        contact = created;
+        createdContact = true;
+      }
     }
 
     if (!contact) return res.status(404).json({ error: 'contact_not_found' });
@@ -73,6 +91,7 @@ captureRouter.post('/', async (req, res) => {
       stage_before: stageBefore,
       stage_after: updated?.pipeline_stage || stageBefore,
       deal_health_score: updated?.deal_health_score ?? null,
+      created_contact: createdContact,
     });
   } catch (err) {
     console.error('[POST /v1/capture]', err);

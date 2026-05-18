@@ -149,13 +149,6 @@ const PROVIDER_CAPABILITIES: Record<string, { label: string; action: string }[]>
     { label: "Send direct message",        action: "slack_send_dm"             },
     { label: "Post deal alert",            action: "slack_deal_alert"          },
   ],
-  salesforce: [
-    { label: "Search & fetch contacts",    action: "salesforce_get_contact"    },
-    { label: "Get account",                action: "salesforce_get_account"    },
-    { label: "List opportunities",         action: "salesforce_list_opps"      },
-    { label: "Update opportunity stage",   action: "salesforce_update_opp"     },
-    { label: "Sync contacts to Proply",    action: "salesforce_sync_contacts"  },
-  ],
   fathom: [
     { label: "Get site analytics",         action: "fathom_get_analytics"      },
     { label: "Get top pages",              action: "fathom_top_pages"          },
@@ -389,8 +382,8 @@ export default function Integrations() {
   // Airtable sync config modal
   const [airtableSyncConnection, setAirtableSyncConnection] = useState<any>(null);
 
-  // CRM sync config modal (HubSpot, Salesforce, Pipedrive, Attio)
-  const [crmSyncConnection, setCrmSyncConnection] = useState<{ connection: any; provider: "hubspot" | "salesforce" | "pipedrive" | "attio" } | null>(null);
+  // CRM sync config modal (HubSpot, Pipedrive, Attio)
+  const [crmSyncConnection, setCrmSyncConnection] = useState<{ connection: any; provider: "hubspot" | "pipedrive" | "attio" } | null>(null);
 
   // LinkedIn (Unipile OAuth)
   const [linkedinConnection, setLinkedinConnection] = useState<any>(null);
@@ -426,13 +419,6 @@ export default function Integrations() {
       logo_url: "/provider-logos/prospeo.svg",
       auth_fields: [{ name: "api_key", label: "API Key", type: "password", placeholder: "Enter your Prospeo API key", description: "Find in Prospeo → Settings → API Key" }],
     },
-    {
-      id: "salesforce", name: "salesforce", display_name: "Salesforce",
-      auth_type: "oauth2", category: "crm",
-      logo_url: "/provider-logos/salesforce.svg",
-      auth_fields: [],
-      coming_soon: true,
-    },
   ];
 
   useEffect(() => {
@@ -449,7 +435,7 @@ export default function Integrations() {
       if (pr.ok) {
         const d = await pr.json();
         const list = d.providers || d || [];
-        const excluded = ["assetly","gmail","mailchimp","google_analytics","granola","notion","clickup","openai","gemini","google","fireflies","calendly","rb2b","fathom","anthropic","stripe","signalbase"];
+        const excluded = ["assetly","gmail","mailchimp","google_analytics","granola","notion","clickup","openai","gemini","google","fireflies","calendly","rb2b","fathom","anthropic","stripe","signalbase","salesforce"];
         const filtered = list.filter((p: any) => p.auth_type !== "none" && !excluded.includes(p.name));
         // HARDCODED_PROVIDERS always win (correct labels/category); strip DB versions of hardcoded names
         const hardcodedNames = new Set(HARDCODED_PROVIDERS.map(h => h.name));
@@ -886,8 +872,8 @@ export default function Integrations() {
                   key={connection.id}
                   onClick={() => {
                     if (provider?.name === "airtable") return setAirtableSyncConnection(connection);
-                    if (["hubspot","salesforce","pipedrive","attio"].includes(provider?.name)) {
-                      return setCrmSyncConnection({ connection, provider: provider.name as "hubspot" | "salesforce" | "pipedrive" | "attio" });
+                    if (["hubspot","pipedrive","attio"].includes(provider?.name)) {
+                      return setCrmSyncConnection({ connection, provider: provider.name as "hubspot" | "pipedrive" | "attio" });
                     }
                     setViewingConnection(connection);
                   }}
@@ -897,7 +883,7 @@ export default function Integrations() {
                   <div className="flex-1 min-w-0">
                     <p className="text-[13px] font-semibold text-gray-900 leading-tight truncate">{provider?.display_name}</p>
                     <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-[11px] text-gray-400">{["airtable","hubspot","salesforce","pipedrive","attio"].includes(provider?.name) ? "Click to configure sync" : category}</span>
+                      <span className="text-[11px] text-gray-400">{["airtable","hubspot","pipedrive","attio"].includes(provider?.name) ? "Click to configure sync" : category}</span>
                       <span className="text-gray-200">·</span>
                       <span className={cn(
                         "text-[11px] font-medium",
@@ -930,8 +916,8 @@ export default function Integrations() {
                           Configure sync
                         </DropdownMenuItem>
                       )}
-                      {["hubspot","salesforce","pipedrive","attio"].includes(provider?.name) && (
-                        <DropdownMenuItem onClick={e => { e.stopPropagation(); setCrmSyncConnection({ connection, provider: provider.name as "hubspot" | "salesforce" | "pipedrive" | "attio" }); }}>
+                      {["hubspot","pipedrive","attio"].includes(provider?.name) && (
+                        <DropdownMenuItem onClick={e => { e.stopPropagation(); setCrmSyncConnection({ connection, provider: provider.name as "hubspot" | "pipedrive" | "attio" }); }}>
                           <Database className="h-3.5 w-3.5 mr-2" />
                           Configure sync
                         </DropdownMenuItem>

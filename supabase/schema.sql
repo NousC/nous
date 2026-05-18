@@ -201,9 +201,10 @@ CREATE TABLE IF NOT EXISTS contacts (
   -- External IDs (one per integration — fastest lookup path)
   hubspot_id    TEXT,
   pipedrive_id  TEXT,
+  attio_id      TEXT,
+  salesforce_id TEXT,
   apollo_id     TEXT,
   rb2b_id       TEXT,
-  attio_id      TEXT,
   crm_record_id TEXT,                             -- generic CRM ID for any source
 
   -- Enrichment
@@ -257,6 +258,9 @@ CREATE INDEX IF NOT EXISTS contacts_pipeline_stage  ON contacts(workspace_id, pi
 CREATE INDEX IF NOT EXISTS contacts_last_activity   ON contacts(workspace_id, last_activity_at DESC NULLS LAST);
 CREATE INDEX IF NOT EXISTS contacts_deal_health     ON contacts(deal_health_score);
 CREATE INDEX IF NOT EXISTS contacts_hubspot_id        ON contacts(hubspot_id)        WHERE hubspot_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS contacts_pipedrive_id      ON contacts(pipedrive_id)      WHERE pipedrive_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS contacts_attio_id          ON contacts(attio_id)          WHERE attio_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS contacts_salesforce_id     ON contacts(salesforce_id)     WHERE salesforce_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS contacts_apollo_id         ON contacts(apollo_id)         WHERE apollo_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS contacts_linkedin_member_id ON contacts(workspace_id, linkedin_member_id) WHERE linkedin_member_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS contacts_rb2b_id         ON contacts(rb2b_id)         WHERE rb2b_id IS NOT NULL;
@@ -702,6 +706,7 @@ VALUES
   ('fathom',           'Fathom',                  'meetings'),
   ('calendly',         'Calendly',                'meetings'),
   ('hubspot',          'HubSpot',                 'crm'),
+  ('salesforce',       'Salesforce',              'crm'),
   ('pipedrive',        'Pipedrive',               'crm'),
   ('attio',            'Attio',                   'crm'),
   ('apollo',           'Apollo.io',               'enrichment'),
@@ -751,8 +756,9 @@ CREATE TABLE IF NOT EXISTS crm_sync_configs (
   id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
   workspace_id    UUID        NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
   connection_id   UUID        REFERENCES workflow_provider_connections(id) ON DELETE SET NULL,
-  provider        TEXT        NOT NULL,   -- 'hubspot' | 'pipedrive' | 'attio'
+  provider        TEXT        NOT NULL,   -- 'hubspot' | 'pipedrive' | 'attio' | 'salesforce'
   auto_sync       BOOLEAN     DEFAULT false,
+  push_activities BOOLEAN     DEFAULT true,  -- push Proply touchpoints → CRM as engagements
   last_synced_at  TIMESTAMPTZ,
   contacts_synced INT         DEFAULT 0,
   created_at      TIMESTAMPTZ DEFAULT now(),

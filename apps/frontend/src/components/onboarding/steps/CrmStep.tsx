@@ -103,7 +103,7 @@ export function CrmStep({
 
       {/* Coming soon */}
       <p className="text-[11px] text-gray-400">
-        More CRMs coming soon — Salesforce, Attio, Zoho
+        More CRMs coming soon — Zoho, Close
       </p>
 
       {/* Continue Button */}

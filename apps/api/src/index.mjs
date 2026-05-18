@@ -1,5 +1,9 @@
 import express from 'express';
 import cors from 'cors';
+import { registerCrmPushHandler, pushActivityToAllCrms } from '@proply/core';
+
+// Wire activity logging → CRM push at module load time
+registerCrmPushHandler(pushActivityToAllCrms);
 
 import { verifyApiKey } from './middleware/apiKey.mjs';
 import { verifySupabaseAuth } from './middleware/supabaseAuth.mjs';
@@ -37,6 +41,7 @@ import { systemLogRouter } from './routes/api/systemLog.mjs';
 import { oauthGoogleRouter } from './routes/api/oauthGoogle.mjs';
 import { oauthAirtableRouter } from './routes/api/oauthAirtable.mjs';
 import { oauthSlackRouter } from './routes/api/oauthSlack.mjs';
+import { oauthSalesforceRouter } from './routes/api/oauthSalesforce.mjs';
 
 // /api/admin — Admin routes
 import { blogRouter } from './routes/api/blog.mjs';
@@ -101,6 +106,7 @@ app.use('/api/linkedin',              verifySupabaseAuth, linkedinRouter);
 app.use('/api/oauth/google',                         oauthGoogleRouter);
 app.use('/api/oauth/slack',                          oauthSlackRouter);
 app.use('/api/workflow-providers/airtable/oauth',    oauthAirtableRouter);
+app.use('/api/workflow-providers/salesforce/oauth',  oauthSalesforceRouter);
 
 // ── /api/roadmap, /api/updates, /api/blog, /api/changelog — Public ───────────
 app.use('/api/roadmap',           roadmapRouter);

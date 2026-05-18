@@ -48,9 +48,17 @@ export async function listContacts(
     if (idList.length) query = query.in('id', idList);
   }
 
-  query = (sort === 'score' || sort === 'deal_health_score' || sort === 'connection_score')
-    ? query.order('deal_health_score', { ascending: false, nullsFirst: false })
-    : query.order('last_activity_at', { ascending: false, nullsFirst: false });
+  if (sort === 'score' || sort === 'deal_health_score' || sort === 'connection_score') {
+    query = query.order('deal_health_score', { ascending: false, nullsFirst: false });
+  } else if (sort === 'urgency') {
+    // Urgency = high-ICP contacts that have gone cold (or were never touched) rank first.
+    // ICP score DESC, then oldest/never-touched first within the same ICP tier.
+    query = query
+      .order('icp_score', { ascending: false, nullsFirst: false })
+      .order('last_activity_at', { ascending: true, nullsFirst: true });
+  } else {
+    query = query.order('last_activity_at', { ascending: false, nullsFirst: false });
+  }
 
   if (search?.trim()) {
     const q = `%${search.trim()}%`;
@@ -138,12 +146,12 @@ export async function getContactByIdentifier(
     supabase.from('contact_activity_log')
       .select('activity_type').eq('contact_id', row.id).gte('occurred_at', thirtyDaysAgo),
     supabase.from('workspace_memories')
-      .select('category, content, metadata').eq('workspace_id', workspaceId).eq('is_active', true)
+      .select('category, content, metadata, created_at').eq('workspace_id', workspaceId).eq('is_active', true)
       .filter('metadata->>contact_id', 'eq', row.id)
       .order('created_at', { ascending: false }).limit(20),
     row.company_id
       ? supabase.from('workspace_memories')
-          .select('category, content, metadata').eq('workspace_id', workspaceId).eq('is_active', true)
+          .select('category, content, metadata, created_at').eq('workspace_id', workspaceId).eq('is_active', true)
           .filter('metadata->>company_id', 'eq', row.company_id)
           .order('created_at', { ascending: false }).limit(20)
       : Promise.resolve({ data: [] }),
@@ -155,8 +163,8 @@ export async function getContactByIdentifier(
   }, {});
 
   const facts = [
-    ...(contactMems || []).map(m => ({ scope: 'contact' as const, category: m.category, content: m.content, graph_layer: (m.metadata?.graph_layer ?? 'private') as 'private' | 'public' })),
-    ...(companyMemResult.data || []).map(m => ({ scope: 'company' as const, category: m.category, content: m.content, graph_layer: (m.metadata?.graph_layer ?? 'private') as 'private' | 'public' })),
+    ...(contactMems || []).map(m => ({ scope: 'contact' as const, category: m.category, content: m.content, written_at: m.created_at ? (m.created_at as string).split('T')[0] : null, graph_layer: (m.metadata?.graph_layer ?? 'private') as 'private' | 'public' })),
+    ...(companyMemResult.data || []).map(m => ({ scope: 'company' as const, category: m.category, content: m.content, written_at: m.created_at ? (m.created_at as string).split('T')[0] : null, graph_layer: (m.metadata?.graph_layer ?? 'private') as 'private' | 'public' })),
   ];
 
   const channels = (() => {

@@ -1319,7 +1319,7 @@ export default function People() {
   const [importResult, setImportResult] = useState<{ created: number; updated: number; skipped: number } | null>(null);
   const [showImportModal, setShowImportModal] = useState(false);
   const [dragOver, setDragOver]        = useState(false);
-  const [crmImporting, setCrmImporting] = useState<'hubspot' | 'salesforce' | null>(null);
+  const [crmImporting, setCrmImporting] = useState<'hubspot' | null>(null);
   const [crmImportResult, setCrmImportResult] = useState<{ provider: string; imported: number } | null>(null);
   const importRef = useRef<HTMLInputElement>(null);
   const [importStep, setImportStep]       = useState<'upload' | 'mapping' | 'scanning'>('upload');
@@ -1804,7 +1804,7 @@ export default function People() {
     if (file) parseCSVFile(file);
   };
 
-  const handleCrmImport = async (provider: 'hubspot' | 'salesforce') => {
+  const handleCrmImport = async (provider: 'hubspot') => {
     if (!session?.access_token || !workspaceId) return;
     setCrmImporting(provider);
     setCrmImportResult(null);
@@ -2165,7 +2165,6 @@ export default function People() {
                   <div className="flex gap-2">
                     {[
                       { provider: 'hubspot' as const, logo: '/provider-logos/hubspot.svg', label: 'HubSpot' },
-                      { provider: 'salesforce' as const, logo: '/provider-logos/salesforce.svg', label: 'Salesforce' },
                     ].map(({ provider, logo, label }) => (
                       <button
                         key={provider}

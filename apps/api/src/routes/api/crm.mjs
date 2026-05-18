@@ -10,13 +10,17 @@ const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY
   : null;
 
 function decryptCred(encryptedValue) {
-  if (!ENCRYPTION_KEY || !encryptedValue) return null;
+  if (!encryptedValue || typeof encryptedValue !== 'string') return encryptedValue ?? null;
+  // Detect our `iv(32hex):data(hex)` format. If not encrypted, return as-is so
+  // OAuth metadata stored in plaintext (instance_url, scope, token_type) passes through.
+  const parts = encryptedValue.split(':');
+  if (!ENCRYPTION_KEY || parts.length !== 2 || !/^[0-9a-f]{32}$/i.test(parts[0])) {
+    return encryptedValue;
+  }
   try {
-    const [ivHex, encrypted] = encryptedValue.split(':');
-    const iv = Buffer.from(ivHex, 'hex');
-    const decipher = crypto.createDecipheriv('aes-256-cbc', ENCRYPTION_KEY, iv);
-    return decipher.update(encrypted, 'hex', 'utf8') + decipher.final('utf8');
-  } catch { return null; }
+    const decipher = crypto.createDecipheriv('aes-256-cbc', ENCRYPTION_KEY, Buffer.from(parts[0], 'hex'));
+    return decipher.update(parts[1], 'hex', 'utf8') + decipher.final('utf8');
+  } catch { return encryptedValue; }
 }
 
 async function fetchHubSpotRecords(accessToken, type, search) {
@@ -60,6 +64,67 @@ async function fetchPipedriveRecords(apiToken, type, search) {
     if (type === 'contact') return { id: String(r.id), name: r.name || '(No name)', email: r.email?.[0]?.value || r.primary_email || null, company: r.org_name || r.organization?.name || null, ownerName: r.owner_name || null };
     if (type === 'company') return { id: String(r.id), name: r.name || '(No name)', domain: r.cc_email || null, industry: null, city: r.address_city || null, country: r.address_country || null };
     return { id: String(r.id), name: r.title || '(No name)', dealValue: r.value || null, dealCurrency: r.currency || '$', dealStage: r.stage_name || r.stage?.name || null, ownerName: r.owner_name || null };
+  });
+}
+
+// Salesforce uses SOQL against the org-specific `instance_url` returned at OAuth time.
+async function fetchSalesforceRecords(creds, type, search) {
+  const accessToken = creds.access_token;
+  const instanceUrl = creds.instance_url;
+  if (!accessToken || !instanceUrl) throw new Error('Salesforce credentials missing access_token or instance_url');
+
+  const base = instanceUrl.replace(/\/$/, '');
+  const apiVersion = 'v59.0';
+
+  // Light SOQL-injection guard: escape single quotes
+  const esc = (s) => String(s || '').replace(/'/g, "\\'");
+
+  const queries = {
+    contact: search
+      ? `SELECT Id, FirstName, LastName, Email, Phone, Account.Name, Owner.Name FROM Contact WHERE Name LIKE '%${esc(search)}%' OR Email LIKE '%${esc(search)}%' LIMIT 100`
+      : `SELECT Id, FirstName, LastName, Email, Phone, Account.Name, Owner.Name FROM Contact ORDER BY LastModifiedDate DESC LIMIT 100`,
+    company: search
+      ? `SELECT Id, Name, Website, Industry, BillingCity, BillingCountry, Phone FROM Account WHERE Name LIKE '%${esc(search)}%' LIMIT 100`
+      : `SELECT Id, Name, Website, Industry, BillingCity, BillingCountry, Phone FROM Account ORDER BY LastModifiedDate DESC LIMIT 100`,
+    deal: search
+      ? `SELECT Id, Name, Amount, StageName, CloseDate, Owner.Name FROM Opportunity WHERE Name LIKE '%${esc(search)}%' LIMIT 100`
+      : `SELECT Id, Name, Amount, StageName, CloseDate, Owner.Name FROM Opportunity ORDER BY LastModifiedDate DESC LIMIT 100`,
+  };
+  const soql = queries[type];
+  if (!soql) throw new Error(`Unsupported Salesforce record type: ${type}`);
+
+  const url = `${base}/services/data/${apiVersion}/query?q=${encodeURIComponent(soql)}`;
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!res.ok) {
+    // Surface token expiry distinctly so callers can refresh
+    if (res.status === 401) throw new Error('Salesforce 401 — token expired or revoked');
+    throw new Error(`Salesforce ${res.status}`);
+  }
+  const d = await res.json();
+  return (d.records || []).map(r => {
+    if (type === 'contact') return {
+      id: r.Id,
+      name: [r.FirstName, r.LastName].filter(Boolean).join(' ') || '(No name)',
+      email: r.Email || null,
+      company: r.Account?.Name || null,
+      ownerName: r.Owner?.Name || null,
+    };
+    if (type === 'company') return {
+      id: r.Id,
+      name: r.Name || '(No name)',
+      domain: r.Website || null,
+      industry: r.Industry || null,
+      city: r.BillingCity || null,
+      country: r.BillingCountry || null,
+    };
+    return {
+      id: r.Id,
+      name: r.Name || '(No name)',
+      dealValue: r.Amount != null ? Number(r.Amount) : null,
+      dealCurrency: '$',
+      dealStage: r.StageName || null,
+      ownerName: r.Owner?.Name || null,
+    };
   });
 }
 
@@ -124,6 +189,22 @@ async function fetchDealContactEmails(provider, creds, dealId) {
     });
   }
 
+  if (provider === 'salesforce') {
+    const access = creds.access_token;
+    const inst = creds.instance_url;
+    if (!access || !inst) return [];
+    const soql = `SELECT Contact.Id, Contact.FirstName, Contact.LastName, Contact.Email FROM OpportunityContactRole WHERE OpportunityId = '${String(dealId).replace(/'/g, "\\'")}' LIMIT 25`;
+    const r = await fetch(`${inst.replace(/\/$/, '')}/services/data/v59.0/query?q=${encodeURIComponent(soql)}`, {
+      headers: { Authorization: `Bearer ${access}` },
+    });
+    if (!r.ok) return [];
+    const d = await r.json();
+    return (d.records || []).flatMap(row => {
+      const c = row.Contact || {};
+      return c.Email ? [{ email: c.Email, name: [c.FirstName, c.LastName].filter(Boolean).join(' ') }] : [];
+    });
+  }
+
   return [];
 }
 
@@ -178,11 +259,26 @@ crmRouter.get('/sync-config', verifySupabaseAuth, async (req, res) => {
 crmRouter.post('/sync-config', verifySupabaseAuth, async (req, res) => {
   try {
     const supabase = getSupabaseClient();
-    const { workspaceId, connectionId, provider, autoSync } = req.body;
+    const { workspaceId, connectionId, provider, autoSync, pushActivities } = req.body;
     if (!workspaceId || !connectionId || !provider) return res.status(400).json({ error: 'missing fields' });
-    const { data, error } = await supabase.from('crm_sync_configs').upsert({
-      workspace_id: workspaceId, connection_id: connectionId, provider, auto_sync: autoSync === true, updated_at: new Date().toISOString(),
-    }, { onConflict: 'workspace_id,provider' }).select().single();
+
+    // Fetch existing so we only overwrite fields that were actually sent
+    const { data: existing } = await supabase.from('crm_sync_configs')
+      .select('auto_sync, push_activities')
+      .eq('workspace_id', workspaceId).eq('provider', provider).maybeSingle();
+
+    const payload = {
+      workspace_id:    workspaceId,
+      connection_id:   connectionId,
+      provider,
+      auto_sync:       typeof autoSync       === 'boolean' ? autoSync       : (existing?.auto_sync       ?? false),
+      push_activities: typeof pushActivities === 'boolean' ? pushActivities : (existing?.push_activities ?? true),
+      updated_at:      new Date().toISOString(),
+    };
+
+    const { data, error } = await supabase.from('crm_sync_configs').upsert(payload, {
+      onConflict: 'workspace_id,provider',
+    }).select().single();
     if (error) throw error;
     return res.json({ ok: true, config: data });
   } catch (err) {
@@ -190,7 +286,8 @@ crmRouter.post('/sync-config', verifySupabaseAuth, async (req, res) => {
   }
 });
 
-// POST /api/crm/sync-now
+// POST /api/crm/sync-now — pulls every contact from the provider and upserts into Proply.
+// Runs inline (small CRMs finish in seconds; bigger ones can be moved to the worker later).
 crmRouter.post('/sync-now', verifySupabaseAuth, async (req, res) => {
   try {
     const supabase = getSupabaseClient();
@@ -203,10 +300,65 @@ crmRouter.post('/sync-now', verifySupabaseAuth, async (req, res) => {
     const { data: conn } = await supabase.from('workflow_provider_connections').select('encrypted_credentials').eq('id', cfg.connection_id).single();
     if (!conn) return res.status(404).json({ error: 'Connection not found' });
 
-    // Return acknowledgement — actual sync runs async in the worker
-    return res.json({ ok: true, message: 'Sync triggered' });
+    const creds = {};
+    for (const [k, v] of Object.entries(conn.encrypted_credentials || {})) {
+      creds[k] = decryptCred(v);
+    }
+    const firstCred = Object.values(creds).find(Boolean);
+
+    let contacts = [];
+    try {
+      if (provider === 'hubspot') {
+        const token = creds.access_token || creds.api_key || firstCred;
+        if (!token) return res.status(400).json({ error: 'missing_credentials' });
+        contacts = await fetchHubSpotRecords(token, 'contact');
+      } else if (provider === 'pipedrive') {
+        const token = creds.api_token || creds.api_key || firstCred;
+        if (!token) return res.status(400).json({ error: 'missing_credentials' });
+        contacts = await fetchPipedriveRecords(token, 'contact');
+      } else if (provider === 'attio') {
+        const token = creds.api_key || creds.access_token || firstCred;
+        if (!token) return res.status(400).json({ error: 'missing_credentials' });
+        contacts = await fetchAttioRecords(token, 'contact');
+      } else if (provider === 'salesforce') {
+        if (!creds.access_token || !creds.instance_url) return res.status(400).json({ error: 'missing_credentials' });
+        contacts = await fetchSalesforceRecords(creds, 'contact');
+      } else {
+        return res.status(400).json({ error: `unsupported_provider: ${provider}` });
+      }
+    } catch (err) {
+      return res.status(502).json({ error: 'provider_fetch_failed', message: err.message });
+    }
+
+    let imported = 0;
+    let skipped = 0;
+    for (const r of contacts) {
+      if (!r.email) { skipped++; continue; }
+      try {
+        const before = await supabase
+          .from('contacts')
+          .select('id')
+          .eq('workspace_id', workspaceId)
+          .eq('email', r.email.toLowerCase().trim())
+          .maybeSingle();
+        const created = await upsertContactForImport(supabase, workspaceId, provider, {
+          email: r.email, name: r.name, company: r.company,
+        });
+        if (created && !before.data) imported++;
+      } catch { skipped++; }
+    }
+
+    const total = contacts.length;
+    await supabase.from('crm_sync_configs').update({
+      last_synced_at:  new Date().toISOString(),
+      contacts_synced: (cfg.contacts_synced || 0) + imported,
+      updated_at:      new Date().toISOString(),
+    }).eq('id', cfg.id);
+
+    return res.json({ ok: true, total, imported, skipped });
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    console.error('[POST /api/crm/sync-now]', err);
+    return res.status(500).json({ error: 'internal_error', message: err.message });
   }
 });
 
@@ -240,6 +392,9 @@ crmRouter.get('/records', verifySupabaseAuth, async (req, res) => {
       const token = creds.api_key || creds.access_token || firstCred;
       if (!token) return res.status(400).json({ error: 'missing_credentials' });
       records = await fetchAttioRecords(token, type, search);
+    } else if (provider === 'salesforce') {
+      if (!creds.access_token || !creds.instance_url) return res.status(400).json({ error: 'missing_credentials' });
+      records = await fetchSalesforceRecords(creds, type, search);
     }
 
     return res.json({ records });

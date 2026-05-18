@@ -12,12 +12,13 @@ interface Props {
   workspaceId: string;
   connectionId: string;
   connectionName: string;
-  provider: "hubspot" | "salesforce";
+  provider: "hubspot" | "pipedrive" | "attio";
 }
 
 const PROVIDER_META = {
   hubspot:    { label: "HubSpot",    logo: "/provider-logos/hubspot.svg"    },
-  salesforce: { label: "Salesforce", logo: "/provider-logos/salesforce.svg" },
+  pipedrive:  { label: "Pipedrive",  logo: "/provider-logos/pipedrive.svg"  },
+  attio:      { label: "Attio",      logo: "/provider-logos/attio.svg"      },
 };
 
 export default function CrmSyncConfig({ open, onClose, workspaceId, connectionId, provider }: Props) {

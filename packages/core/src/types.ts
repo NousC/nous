@@ -52,6 +52,7 @@ export interface MemoryFact {
   scope: MemoryScope;
   category: MemoryCategory;
   content: string;
+  written_at: string | null;
   graph_layer: 'private' | 'public';
 }
 
@@ -87,7 +88,7 @@ export interface ListContactsParams {
   company_id?: string;
   ids?: string;
   filter?: 'hot' | 'engaged';
-  sort?: 'recent' | 'score' | 'deal_health_score' | 'connection_score';
+  sort?: 'recent' | 'score' | 'deal_health_score' | 'connection_score' | 'urgency';
   limit?: number;
   offset?: number;
   linkedin_url?: string;

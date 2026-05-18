@@ -29,7 +29,7 @@ import { validateConfig, get, post, patch, del } from "./client.js";
 
 // Activity types with known direction
 const ALWAYS_OUT = new Set(["email_sent", "follow_up_sent", "proposal_sent"]);
-const ALWAYS_IN  = new Set(["website_visit", "content_download", "trial_started"]);
+const ALWAYS_IN  = new Set(["website_visit", "content_download", "trial_started", "email_reply", "linkedin_replied"]);
 const OUT_SOURCES = new Set(["agent", "mcp", "sdk", "api"]);
 
 function actDir(a) {
@@ -189,10 +189,13 @@ server.tool(
     }
 
     // ── Facts — capped at 5, newest first with relative age ──────────────────
-    const facts = c.facts ?? [];
-    if (facts.length) {
-      const shown = facts.slice(0, 5);
-      const extra = facts.length - shown.length;
+    const allFacts = c.facts ?? [];
+    const contactFacts = allFacts.filter(f => f.scope !== "company");
+    const companyFacts = allFacts.filter(f => f.scope === "company");
+
+    if (contactFacts.length) {
+      const shown = contactFacts.slice(0, 5);
+      const extra = contactFacts.length - shown.length;
       lines.push(`\nFacts${extra > 0 ? ` (+${extra} more)` : ""}:`);
       for (const f of shown) {
         const age = f.written_at ? ` · ${relAge(f.written_at)}` : "";
@@ -200,11 +203,11 @@ server.tool(
       }
     }
 
-    const companyFacts = c.company_facts ?? [];
     if (companyFacts.length) {
       lines.push(`\nCompany facts:`);
       for (const f of companyFacts) {
-        lines.push(`  [${f.category}] ${f.content}`);
+        const age = f.written_at ? ` · ${relAge(f.written_at)}` : "";
+        lines.push(`  [${f.category}] ${f.content}${age}`);
       }
     }
 
@@ -244,7 +247,7 @@ server.tool(
     type: z.enum([
       "email_sent", "email_reply",
       "call_held", "meeting_held",
-      "linkedin_message", "linkedin_connected",
+      "linkedin_message", "linkedin_connected", "linkedin_replied",
       "follow_up_sent", "proposal_sent",
       "website_visit", "content_download", "trial_started",
       "manual_note",
@@ -266,6 +269,10 @@ server.tool(
     const result = await post("/v1/track", body);
 
     const parts = [`Logged \`${type}\`${description ? `: "${description}"` : ""}.`];
+
+    if (result.created_contact) {
+      parts.push(`(New contact created — contact_id: ${result.contact_id})`);
+    }
 
     if (result.stage_after && result.stage_before && result.stage_after !== result.stage_before) {
       parts.push(`Stage advanced: ${result.stage_before} → ${result.stage_after}.`);
@@ -410,7 +417,11 @@ server.tool(
 
     const lines = results.map(r => {
       const age = r.written_at ? ` · ${relAge(r.written_at)}` : "";
-      return `  [${r.category}]${age} ${r.content}`;
+      const scope = r.scope === "contact" && r.contact_id ? ` · contact:${r.contact_id}`
+                  : r.scope === "company" && r.company_id ? ` · company:${r.company_id}`
+                  : r.scope === "workspace"               ? ` · workspace`
+                  : "";
+      return `  [${r.category}]${age}${scope} ${r.content}`;
     });
 
     return {
@@ -438,7 +449,7 @@ server.tool(
     limit: z.number().min(1).max(50).optional().describe("Max contacts to return (default 20)"),
   },
   async ({ stage, filter, limit = 20 }) => {
-    const params = { limit: 50 }; // fetch more so urgency sort is meaningful
+    const params = { limit, sort: "urgency" };
     if (stage)  params.pipeline_stage = stage;
     if (filter) params.filter = filter;
 
@@ -450,18 +461,11 @@ server.tool(
       return { content: [{ type: "text", text: stage ? `No contacts in stage "${stage}".` : "No contacts found." }] };
     }
 
-    // Urgency sort: high ICP score, penalised by days since last touch
     const daysSince = c => c.last_activity_at
       ? Math.floor((Date.now() - new Date(c.last_activity_at).getTime()) / 86400000)
       : 999;
 
-    contacts.sort((a, b) => {
-      const ua = (a.icp_score ?? 0) - Math.min(daysSince(a) * 1.5, 50);
-      const ub = (b.icp_score ?? 0) - Math.min(daysSince(b) * 1.5, 50);
-      return ub - ua;
-    });
-
-    const shown = contacts.slice(0, limit);
+    const shown = contacts;
 
     const lines = shown.map(c => {
       const name    = c.name || c.email;

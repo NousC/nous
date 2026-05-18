@@ -6,3 +6,5 @@ export * from './db/companies.js';
 export * from './db/activities.js';
 export * from './utils/identity.js';
 export * from './utils/linkedin.js';
+export * from './utils/encryption.js';
+export * from './services/crmPush.js';

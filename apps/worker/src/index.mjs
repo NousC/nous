@@ -6,12 +6,17 @@
 
 import express from 'express';
 import cron from 'node-cron';
-import { getSupabaseClient } from '@proply/core';
+import { getSupabaseClient, registerCrmPushHandler, pushActivityToAllCrms } from '@proply/core';
 import { pollAllWorkspaces } from './pollers/calendar.mjs';
 import { pollAllSlackWorkspaces } from './pollers/slack.mjs';
 import { pollAllGmailWorkspaces } from './pollers/gmail.mjs';
 import { pollAllSmtpWorkspaces } from './pollers/smtp.mjs';
 import { webhookRouter } from './webhooks/index.mjs';
+
+// Wire webhook-driven activity logging → CRM push at module load.
+// Worker is where most logActivity() calls originate (Instantly/Lemlist replies,
+// Fireflies/Fathom meetings, LinkedIn messages, Calendly bookings, etc.)
+registerCrmPushHandler(pushActivityToAllCrms);
 
 // ── Validate required env vars ────────────────────────────────────────────────
 const REQUIRED = ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'];

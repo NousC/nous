@@ -23,6 +23,9 @@ export interface SearchResult {
   content: string;
   similarity: number;
   written_at: string | null;
+  scope: 'contact' | 'company' | 'workspace';
+  contact_id: string | null;
+  company_id: string | null;
 }
 
 export async function listMemories(
@@ -156,6 +159,9 @@ export async function searchMemories(
 
   const { data, error } = await supabase.rpc('search_workspace_memories', rpcParams);
 
+  const scopeFor = (md: Record<string, unknown> | null | undefined): SearchResult['scope'] =>
+    md?.contact_id ? 'contact' : md?.company_id ? 'company' : 'workspace';
+
   if (error) {
     // Fallback: plain text search
     let q = supabase
@@ -170,20 +176,46 @@ export async function searchMemories(
     if (params.company_id) q = q.filter('metadata->>company_id', 'eq', params.company_id);
 
     const { data: fallback } = await q;
-    return (fallback || []).map(r => ({
-      id: r.id,
-      category: r.category,
-      content: r.content,
-      similarity: 1,
-      written_at: r.created_at,
-    }));
+    return (fallback || []).map(r => {
+      const md = r.metadata as Record<string, unknown> | null;
+      return {
+        id: r.id,
+        category: r.category,
+        content: r.content,
+        similarity: 1,
+        written_at: r.created_at,
+        scope: scopeFor(md),
+        contact_id: (md?.contact_id as string) ?? null,
+        company_id: (md?.company_id as string) ?? null,
+      };
+    });
   }
 
-  return (data || []).map((r: Record<string, unknown>) => ({
-    id: r.id as string,
-    category: r.category as MemoryCategory,
-    content: r.content as string,
-    similarity: r.similarity as number,
-    written_at: (r.created_at as string) || null,
-  }));
+  // RPC returns id/category/content/similarity/created_at — fetch metadata in one batch.
+  const rows = (data || []) as Record<string, unknown>[];
+  const ids = rows.map(r => r.id as string).filter(Boolean);
+  const metaById = new Map<string, Record<string, unknown>>();
+  if (ids.length) {
+    const { data: metaRows } = await supabase
+      .from('workspace_memories')
+      .select('id, metadata')
+      .in('id', ids);
+    for (const m of metaRows || []) {
+      metaById.set(m.id as string, (m.metadata as Record<string, unknown>) || {});
+    }
+  }
+
+  return rows.map(r => {
+    const md = metaById.get(r.id as string) || {};
+    return {
+      id: r.id as string,
+      category: r.category as MemoryCategory,
+      content: r.content as string,
+      similarity: r.similarity as number,
+      written_at: (r.created_at as string) || null,
+      scope: scopeFor(md),
+      contact_id: (md.contact_id as string) ?? null,
+      company_id: (md.company_id as string) ?? null,
+    };
+  });
 }
