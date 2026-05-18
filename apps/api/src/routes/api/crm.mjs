@@ -355,9 +355,31 @@ crmRouter.post('/sync-now', verifySupabaseAuth, async (req, res) => {
       updated_at:      new Date().toISOString(),
     }).eq('id', cfg.id);
 
+    // Telemetry: surface this run in the Live Op Log + per-CRM activity panel
+    const providerLabel = provider.charAt(0).toUpperCase() + provider.slice(1);
+    await supabase.from('workspace_system_log').insert({
+      workspace_id: workspaceId,
+      source: provider,
+      event_type: 'sync_complete',
+      summary: `Pulled ${total} contacts from ${providerLabel} — ${imported} new, ${skipped} skipped`,
+      metadata: { total, imported, skipped, trigger: 'manual' },
+    }).then(() => {}, () => {});
+
     return res.json({ ok: true, total, imported, skipped });
   } catch (err) {
     console.error('[POST /api/crm/sync-now]', err);
+    // Best-effort failure log
+    try {
+      const supabase2 = getSupabaseClient();
+      const provider2 = req.body?.provider || 'unknown';
+      await supabase2.from('workspace_system_log').insert({
+        workspace_id: req.body?.workspaceId,
+        source: provider2,
+        event_type: 'sync_failed',
+        summary: `${provider2} sync failed — ${err.message}`,
+        metadata: { error: err.message, trigger: 'manual' },
+      });
+    } catch {}
     return res.status(500).json({ error: 'internal_error', message: err.message });
   }
 });

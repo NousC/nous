@@ -98,20 +98,61 @@ async function pushOne(cfg: { provider: string; connection_id: string }, contact
   }
 
   const provider = cfg.provider;
+  const providerLabel = provider.charAt(0).toUpperCase() + provider.slice(1);
   const cachedId = contact[ID_COLUMN[provider]] as string | null;
-  const crmId = cachedId || await resolveCrmContact(provider, creds, contact);
+  let crmId: string | null;
+  try {
+    crmId = cachedId || await resolveCrmContact(provider, creds, contact);
+  } catch (err: any) {
+    await logCrmOp(supabase, evt, provider, 'identity_failed',
+      `${providerLabel}: identity lookup failed for ${contact.email} — ${err?.message || err}`);
+    return;
+  }
   if (!crmId) {
-    console.warn(`[CRM_PUSH ${provider}] could not resolve contact for ${contact.email}`);
+    await logCrmOp(supabase, evt, provider, 'identity_failed',
+      `${providerLabel}: no contact match for ${contact.email}`);
     return;
   }
 
   if (!cachedId) {
     await supabase.from('contacts').update({ [ID_COLUMN[provider]]: crmId }).eq('id', contact.id);
+    await logCrmOp(supabase, evt, provider, 'contact_resolved',
+      `${providerLabel}: linked ${contact.email} → ${crmId}`, { crm_id: crmId });
   }
 
-  if (provider === 'hubspot')   return pushHubSpotEngagement(creds, crmId, evt);
-  if (provider === 'pipedrive') return pushPipedriveActivity(creds, crmId, evt);
-  if (provider === 'attio')     return pushAttioNote(creds, crmId, evt);
+  try {
+    if (provider === 'hubspot')   await pushHubSpotEngagement(creds, crmId, evt);
+    if (provider === 'pipedrive') await pushPipedriveActivity(creds, crmId, evt);
+    if (provider === 'attio')     await pushAttioNote(creds, crmId, evt);
+    await logCrmOp(supabase, evt, provider, 'activity_pushed',
+      `Pushed ${activityTitle(evt)} → ${providerLabel} (${contact.email})`,
+      { crm_id: crmId });
+  } catch (err: any) {
+    await logCrmOp(supabase, evt, provider, 'activity_push_failed',
+      `${providerLabel} push failed for ${activityTitle(evt)} → ${contact.email} · ${err?.message || err}`,
+      { crm_id: crmId, error: String(err?.message || err) });
+    throw err;
+  }
+}
+
+// Best-effort write to workspace_system_log. Failures here never bubble up — the activity
+// already succeeded; missing telemetry shouldn't break the user-facing flow.
+async function logCrmOp(
+  supabase: any, evt: CrmPushEvent, provider: string, eventType: string,
+  summary: string, metadata: Record<string, unknown> = {},
+): Promise<void> {
+  try {
+    await supabase.from('workspace_system_log').insert({
+      workspace_id: evt.workspaceId,
+      source: provider,
+      event_type: eventType,
+      summary,
+      contact_id: evt.contactId,
+      metadata: { activity_type: evt.activityType, ...metadata },
+    });
+  } catch (err: any) {
+    console.warn('[CRM_PUSH] system_log write failed:', err?.message || err);
+  }
 }
 
 // ─── Identity resolution ──────────────────────────────────────────────────────

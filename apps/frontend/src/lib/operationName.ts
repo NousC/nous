@@ -99,6 +99,19 @@ export function systemLogOpName(
   if (s === "import") return { name: "contact.import.run", color: "teal" };
   if (s === "pipeline") return { name: "pipeline.stage.transition", color: "orange" };
 
+  // CRM ops — same provider used by inbound webhooks and outbound push/sync
+  if (s === "hubspot" || s === "pipedrive" || s === "attio" || s === "salesforce") {
+    const color: OpColor = s === "hubspot" ? "orange" : s === "pipedrive" ? "emerald" : s === "attio" ? "violet" : "sky";
+    if (e === "activity_pushed")       return { name: `${s}.activity.pushed`,   color };
+    if (e === "activity_push_failed")  return { name: `${s}.activity.failed`,   color: "pink" };
+    if (e === "contact_resolved")      return { name: `${s}.contact.resolved`,  color };
+    if (e === "contact_created_in_crm")return { name: `${s}.contact.created`,   color };
+    if (e === "identity_failed")       return { name: `${s}.identity.failed`,   color: "pink" };
+    if (e === "sync_complete")         return { name: `${s}.sync.complete`,     color };
+    if (e === "sync_failed")           return { name: `${s}.sync.failed`,       color: "pink" };
+    if (e === "webhook_received")      return { name: `${s}.webhook.ingest`,    color };
+  }
+
   if (s === "memory" || s === "system") {
     if (e === "enrichment_run")      return { name: "identity.enrich.run",      color: "violet" };
     if (e === "icp_scored")          return { name: "identity.icp.score",        color: "violet" };

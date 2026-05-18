@@ -2028,6 +2028,27 @@ function CrmSyncPopup({ integrations, workspaceId, token, onClose, onOpenIntegra
   const [togglingAuto, setTogglingAuto] = useState<string|null>(null);
   const [togglingPush, setTogglingPush] = useState<string|null>(null);
 
+  // Per-CRM recent ops feed (last 15 events for each provider)
+  type CrmOp = { id: string; ts: string; event_type: string; summary: string|null; metadata?: any };
+  const [ops, setOps] = useState<Record<string, CrmOp[]>>({});
+
+  const loadOps = useCallback(async () => {
+    if (!crmConns.length) return;
+    const out: Record<string, CrmOp[]> = {};
+    await Promise.all(crmConns.map(async c => {
+      const prov = c.provider?.name; if (!prov) return;
+      try {
+        const r = await fetch(`${apiUrl}/api/workspace/system-log?workspace_id=${workspaceId}&source=${prov}&days=7&limit=15`, { headers: { Authorization: `Bearer ${token}` } });
+        if (!r.ok) return;
+        const d = await r.json();
+        out[prov] = (d.events ?? []).map((e: any) => ({ id: e.id, ts: e.occurred_at, event_type: e.event_type, summary: e.summary, metadata: e.metadata }));
+      } catch {}
+    }));
+    setOps(out);
+  }, [token, workspaceId, crmConns.map(c => c.provider?.name).join(',')]);
+
+  useEffect(() => { loadOps(); const iv = setInterval(loadOps, 10_000); return () => clearInterval(iv); }, [loadOps]);
+
   // Load existing sync configs for every connected CRM
   useEffect(() => {
     let cancelled = false;
@@ -2085,6 +2106,8 @@ function CrmSyncPopup({ integrations, workspaceId, token, onClose, onOpenIntegra
           contacts_synced: (prev[provider]?.contacts_synced ?? 0) + (d.imported ?? 0),
         },
       }));
+      // Surface the sync_complete event right away
+      loadOps();
     } catch {} finally { setSyncing(null); }
   };
 
@@ -2118,7 +2141,7 @@ function CrmSyncPopup({ integrations, workspaceId, token, onClose, onOpenIntegra
     <PopupModal label="PROPLY / MIND / CRM" onClose={onClose}>
       <div className="px-5 py-4 border-b border-border/20">
         <p className="text-[10px] text-muted-foreground/50 leading-relaxed">
-          Pull contacts from your CRM into Proply. Sync runs on-demand below; auto-sync (daily) requires the background worker.
+          Live feed of what Proply is doing with each connected CRM — activity pushes, contact resolutions, sync runs. Browse the records themselves in your CRM.
         </p>
       </div>
 
@@ -2182,26 +2205,44 @@ function CrmSyncPopup({ integrations, workspaceId, token, onClose, onOpenIntegra
                     push activities
                   </label>
                 </div>
+
+                {/* Recent ops — last 15 events for this provider, refreshes every 10s */}
+                <div>
+                  <div className="text-[9px] text-muted-foreground/40 uppercase tracking-wider mb-1.5">recent activity</div>
+                  {(ops[provider]?.length ?? 0) === 0 ? (
+                    <div className="text-[10px] text-muted-foreground/30 italic">no recent activity — push or sync something to populate</div>
+                  ) : (
+                    <div className="space-y-0.5">
+                      {ops[provider]!.slice(0, 8).map(o => {
+                        const failed = o.event_type.includes('failed');
+                        return (
+                          <div key={o.id} className="flex items-baseline gap-3 group">
+                            <span className="text-[9px] text-muted-foreground/40 w-[68px] flex-shrink-0 tabular-nums">{format(new Date(o.ts), "HH:mm:ss")}</span>
+                            <span className={`text-[10px] flex-1 truncate ${failed ? "text-red-400/80" : "text-foreground/70"}`} title={o.summary ?? undefined}>
+                              {o.summary || o.event_type}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               </div>
             );
           })}
 
-          {/* CRMs the workspace hasn't connected yet — click-through to Integrations */}
-          {CRM_NAMES.filter(n => !connectedProviders.has(n)).map(n => {
-            const meta = CRM_PROVIDER_META[n];
-            return (
-              <div key={n} className="px-5 py-3 flex items-center gap-3 opacity-60">
-                <IntegrationLogo url={meta.logo} name={meta.label} size={20}/>
-                <div className="flex-1 min-w-0">
-                  <div className="text-[11px] text-foreground/60">{meta.label}</div>
-                </div>
-                <button onClick={onOpenIntegrations}
-                  className="text-[9px] text-violet-400/60 hover:text-violet-400/90 transition-colors border border-violet-500/30 px-2 py-0.5 hover:border-violet-500/60">
-                  connect
-                </button>
-              </div>
-            );
-          })}
+          {/* If some CRMs are connected but not all, give a subtle path to add more */}
+          {connectedProviders.size < CRM_NAMES.length && (
+            <div className="px-5 py-3 flex items-center justify-between">
+              <span className="text-[10px] text-muted-foreground/40">
+                {CRM_NAMES.length - connectedProviders.size} more {CRM_NAMES.length - connectedProviders.size === 1 ? "CRM" : "CRMs"} available
+              </span>
+              <button onClick={onOpenIntegrations}
+                className="text-[10px] text-violet-400/60 hover:text-violet-400/90 transition-colors border border-violet-500/30 px-2.5 py-1 hover:border-violet-500/60 flex items-center gap-1.5">
+                <Plus className="h-3 w-3"/>add CRM
+              </button>
+            </div>
+          )}
         </div>
       )}
     </PopupModal>

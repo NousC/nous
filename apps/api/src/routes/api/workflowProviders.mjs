@@ -108,14 +108,15 @@ workflowProvidersRouter.post('/connections', verifySupabaseAuth, async (req, res
 
     const { data, error } = await supabase
       .from('workflow_provider_connections')
-      .insert({ workspace_id, provider_id, name: name || 'Connection', encrypted_credentials, is_verified: false })
+      .insert({ workspace_id, provider_id, name: name || 'Connection', encrypted_credentials, created_by: req.internalUserId, is_verified: false })
       .select('id, workspace_id, provider_id, name, created_at, is_verified')
       .single();
 
     if (error) throw error;
     return res.json({ connection: data });
   } catch (err) {
-    return res.status(500).json({ error: 'internal_error' });
+    console.error('[POST /api/workflow-providers/connections]', err.message, err.code);
+    return res.status(500).json({ error: 'internal_error', message: err.message });
   }
 });
 
@@ -640,6 +641,7 @@ workflowProvidersRouter.post('/:name/connect', verifySupabaseAuth, async (req, r
         provider_id: provider.id,
         name: connName || name,
         encrypted_credentials: credentials,
+        created_by: req.internalUserId,
         is_verified: true,
         last_test_at: new Date().toISOString(),
       })
@@ -649,6 +651,7 @@ workflowProvidersRouter.post('/:name/connect', verifySupabaseAuth, async (req, r
     if (error) throw error;
     return res.json({ connection: data });
   } catch (err) {
+    console.error(`[POST /:name/connect ${req.params.name}]`, err.message, err.code);
     return res.status(500).json({ error: 'internal_error', message: err.message });
   }
 });
