@@ -1913,6 +1913,11 @@ function IntegrationsPopup({ integrations, workspaceId, token, onClose }: {
                             <span className={`text-[9px] px-2 py-0.5 border flex-shrink-0 ${conn.is_verified?"text-emerald-500/60 border-emerald-500/20 bg-emerald-500/5":"text-amber-500/60 border-amber-500/20 bg-amber-500/5"}`}>
                               {conn.is_verified ? "connected" : "needs auth"}
                             </span>
+                            {conn.provider?.name === "calendly" && conn.webhook_registered && (
+                              <span title="Calendly webhook auto-registered — bookings and cancellations flow into your CRM automatically." className="text-[9px] px-2 py-0.5 border border-emerald-500/20 bg-emerald-500/5 text-emerald-500/60 flex-shrink-0">
+                                webhook ✓
+                              </span>
+                            )}
                             <button onClick={()=>startConnect(providerForConnect)}
                               className="text-[9px] text-muted-foreground/30 hover:text-foreground/60 transition-colors opacity-0 group-hover:opacity-100 flex items-center gap-1 flex-shrink-0 ml-2 border border-border/30 px-2 py-0.5 hover:border-border/60">
                               update
@@ -2006,7 +2011,7 @@ const CRM_PROVIDER_META: Record<string,{label:string;logo:string}> = {
 };
 const CRM_NAMES = Object.keys(CRM_PROVIDER_META);
 
-type CrmConfig = { auto_sync: boolean; last_synced_at: string|null; contacts_synced: number };
+type CrmConfig = { auto_sync: boolean; push_activities: boolean; last_synced_at: string|null; contacts_synced: number };
 
 function CrmSyncPopup({ integrations, workspaceId, token, onClose, onOpenIntegrations }: {
   integrations: IntegrationConn[]; workspaceId: string; token: string;
@@ -2019,6 +2024,7 @@ function CrmSyncPopup({ integrations, workspaceId, token, onClose, onOpenIntegra
   const [syncing, setSyncing] = useState<string|null>(null);
   const [syncResult, setSyncResult] = useState<Record<string,{total:number;imported:number;skipped:number}>>({});
   const [togglingAuto, setTogglingAuto] = useState<string|null>(null);
+  const [togglingPush, setTogglingPush] = useState<string|null>(null);
 
   // Load existing sync configs for every connected CRM
   useEffect(() => {
@@ -2031,7 +2037,12 @@ function CrmSyncPopup({ integrations, workspaceId, token, onClose, onOpenIntegra
           const r = await fetch(`${apiUrl}/api/crm/sync-config?workspaceId=${workspaceId}&provider=${prov}`, { headers: { Authorization: `Bearer ${token}` } });
           if (!r.ok) continue;
           const d = await r.json();
-          if (d.config) entries.push([prov, { auto_sync: !!d.config.auto_sync, last_synced_at: d.config.last_synced_at ?? null, contacts_synced: d.config.contacts_synced ?? 0 }]);
+          if (d.config) entries.push([prov, {
+            auto_sync:       !!d.config.auto_sync,
+            push_activities: d.config.push_activities !== false,  // default true if unset
+            last_synced_at:  d.config.last_synced_at ?? null,
+            contacts_synced: d.config.contacts_synced ?? 0,
+          }]);
         } catch {}
       }
       if (!cancelled) setConfigs(Object.fromEntries(entries));
@@ -2039,11 +2050,11 @@ function CrmSyncPopup({ integrations, workspaceId, token, onClose, onOpenIntegra
     return () => { cancelled = true; };
   }, [token, workspaceId, crmConns.length]);
 
-  const saveConfig = async (provider: string, connectionId: string, autoSync: boolean) => {
+  const saveConfig = async (provider: string, connectionId: string, patch: { autoSync?: boolean; pushActivities?: boolean }) => {
     const r = await fetch(`${apiUrl}/api/crm/sync-config`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ workspaceId, connectionId, provider, autoSync }),
+      body: JSON.stringify({ workspaceId, connectionId, provider, ...patch }),
     });
     return r.ok;
   };
@@ -2054,7 +2065,7 @@ function CrmSyncPopup({ integrations, workspaceId, token, onClose, onOpenIntegra
     setSyncResult(prev => ({ ...prev, [provider]: undefined as any }));
     try {
       // Ensure config exists before sync-now (server requires a row)
-      if (!configs[provider]) await saveConfig(provider, conn.id, false);
+      if (!configs[provider]) await saveConfig(provider, conn.id, { autoSync: false, pushActivities: true });
       const r = await fetch(`${apiUrl}/api/crm/sync-now`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -2066,8 +2077,9 @@ function CrmSyncPopup({ integrations, workspaceId, token, onClose, onOpenIntegra
       setConfigs(prev => ({
         ...prev,
         [provider]: {
-          auto_sync: prev[provider]?.auto_sync ?? false,
-          last_synced_at: new Date().toISOString(),
+          auto_sync:       prev[provider]?.auto_sync ?? false,
+          push_activities: prev[provider]?.push_activities ?? true,
+          last_synced_at:  new Date().toISOString(),
           contacts_synced: (prev[provider]?.contacts_synced ?? 0) + (d.imported ?? 0),
         },
       }));
@@ -2077,9 +2089,27 @@ function CrmSyncPopup({ integrations, workspaceId, token, onClose, onOpenIntegra
   const handleToggleAuto = async (conn: IntegrationConn, val: boolean) => {
     const provider = conn.provider?.name; if (!provider) return;
     setTogglingAuto(provider);
-    const ok = await saveConfig(provider, conn.id, val);
-    if (ok) setConfigs(prev => ({ ...prev, [provider]: { auto_sync: val, last_synced_at: prev[provider]?.last_synced_at ?? null, contacts_synced: prev[provider]?.contacts_synced ?? 0 } }));
+    const ok = await saveConfig(provider, conn.id, { autoSync: val });
+    if (ok) setConfigs(prev => ({ ...prev, [provider]: {
+      auto_sync:       val,
+      push_activities: prev[provider]?.push_activities ?? true,
+      last_synced_at:  prev[provider]?.last_synced_at ?? null,
+      contacts_synced: prev[provider]?.contacts_synced ?? 0,
+    }}));
     setTogglingAuto(null);
+  };
+
+  const handleTogglePush = async (conn: IntegrationConn, val: boolean) => {
+    const provider = conn.provider?.name; if (!provider) return;
+    setTogglingPush(provider);
+    const ok = await saveConfig(provider, conn.id, { pushActivities: val });
+    if (ok) setConfigs(prev => ({ ...prev, [provider]: {
+      auto_sync:       prev[provider]?.auto_sync ?? false,
+      push_activities: val,
+      last_synced_at:  prev[provider]?.last_synced_at ?? null,
+      contacts_synced: prev[provider]?.contacts_synced ?? 0,
+    }}));
+    setTogglingPush(null);
   };
 
   return (
@@ -2132,7 +2162,7 @@ function CrmSyncPopup({ integrations, workspaceId, token, onClose, onOpenIntegra
                   </div>
                 )}
 
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                   <button onClick={()=>handleSync(conn)} disabled={isSyncing || !conn.is_verified}
                     className="text-[10px] px-3 py-1.5 bg-violet-500/20 border border-violet-500/30 text-violet-400/80 hover:bg-violet-500/30 transition-colors disabled:opacity-30 flex items-center gap-1.5">
                     {isSyncing ? <><RefreshCw className="h-3 w-3 animate-spin"/>syncing…</> : <><Download className="h-3 w-3"/>sync now</>}
@@ -2142,6 +2172,12 @@ function CrmSyncPopup({ integrations, workspaceId, token, onClose, onOpenIntegra
                       onChange={e=>handleToggleAuto(conn, e.target.checked)}
                       className="h-3 w-3 accent-violet-500"/>
                     auto-sync daily
+                  </label>
+                  <label className="flex items-center gap-2 text-[10px] text-muted-foreground/60 cursor-pointer" title="Push Proply touchpoints (meetings, replies, signed proposals) to this CRM as native engagements.">
+                    <input type="checkbox" checked={cfg?.push_activities !== false} disabled={togglingPush===provider || !conn.is_verified}
+                      onChange={e=>handleTogglePush(conn, e.target.checked)}
+                      className="h-3 w-3 accent-violet-500"/>
+                    push activities
                   </label>
                 </div>
               </div>

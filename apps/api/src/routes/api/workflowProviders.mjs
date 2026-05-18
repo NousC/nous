@@ -78,8 +78,10 @@ workflowProvidersRouter.get('/connections', verifySupabaseAuth, async (req, res)
           else hints[key] = '••••••••';
         }
       }
+      // Non-secret status flags derived from encrypted_credentials before stripping.
+      const webhook_registered = !!conn.encrypted_credentials?.webhook_subscription_uri;
       const { encrypted_credentials: _, ...rest } = conn;
-      return { ...rest, credential_hints: hints };
+      return { ...rest, credential_hints: hints, webhook_registered };
     });
 
     return res.json({ connections: processed });

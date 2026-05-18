@@ -906,6 +906,12 @@ export default function Integrations() {
                       )}>
                         {retestingConnection === connection.id ? "Testing…" : connection.is_verified ? "Connected" : "Unverified"}
                       </span>
+                      {provider?.name === "calendly" && connection.webhook_registered && (
+                        <>
+                          <span className="text-gray-200">·</span>
+                          <span className="text-[11px] font-medium text-emerald-600" title="Calendly webhook subscription auto-registered. Booking/cancellation events flow into your CRM automatically.">Webhook ✓</span>
+                        </>
+                      )}
                     </div>
                   </div>
                   <DropdownMenu>

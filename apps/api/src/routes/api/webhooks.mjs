@@ -77,13 +77,15 @@ webhooksRouter.get('/urls', async (req, res) => {
     || (process.env.API_DOMAIN ? `https://${process.env.API_DOMAIN}` : null)
     || `http://localhost:${process.env.PORT || 3000}`;
   const b = base.replace(/\/+$/, '');
+  // Only providers that require the user to paste a URL into a third-party UI
+  // appear here. Calendly is auto-registered via its API on connect — its URL
+  // is intentionally omitted to avoid the appearance that manual setup is needed.
   const urls = [
     { source: 'linkedin',  url: `${b}/inbound/linkedin?workspace_id=${workspaceId}&secret=YOUR_LINKEDIN_WEBHOOK_SECRET` },
     { source: 'rb2b',      url: `${b}/inbound/rb2b/${workspaceId}` },
     { source: 'instantly', url: `${b}/inbound/instantly/${workspaceId}` },
     { source: 'fireflies', url: `${b}/inbound/fireflies/${workspaceId}` },
     { source: 'fathom',    url: `${b}/inbound/fathom/${workspaceId}` },
-    { source: 'calendly',  url: `${b}/inbound/calendly/${workspaceId}` },
   ];
   return res.json({ urls });
 });
