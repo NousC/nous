@@ -2093,6 +2093,8 @@ export default function People() {
               const LABELS: Record<string, string> = {
                 gmail: 'Gmail', smtp: 'Email (SMTP)', linkedin: 'LinkedIn',
                 instantly: 'Instantly', slack: 'Slack',
+                fireflies: 'Fireflies', fathom: 'Fathom',
+                calendly: 'Calendly', cal_com: 'Cal.com',
               };
               const totalFound = enrichProgress?.contacts.reduce((sum, c) =>
                 sum + Object.values(c.sources).reduce((s, src) => s + (src.count || 0), 0), 0) ?? 0;
