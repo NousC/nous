@@ -105,10 +105,15 @@ export async function handleCalendly(req, res, workspaceId) {
 
   const occurredAt = startTime ? new Date(startTime).toISOString() : new Date().toISOString();
 
-  // Use invitee URI slug as stable external ID for dedup
-  const uriSlug = inviteeUri?.split('/').pop() || null;
-  const externalId = uriSlug
-    ? `calendly_${isCanceled ? 'cancel' : 'book'}_${uriSlug}`
+  // Dedup key: event UUID (shared by webhook + scanCalendly backfill, so a
+  // booking discovered via backfill and later cancelled via webhook resolve
+  // to the same event in the activity log).
+  const eventUri = eventObj.uri || invitee.event || null;
+  const eventUuid = eventUri?.split('/').pop()
+    || inviteeUri?.split('/').slice(-3, -2)[0]
+    || null;
+  const externalId = eventUuid
+    ? `calendly_${isCanceled ? 'cancel' : 'book'}_event_${eventUuid}`
     : `calendly_${isCanceled ? 'cancel' : 'book'}_${email}_${occurredAt.slice(0, 10)}`;
 
   await logActivity(supabase, {

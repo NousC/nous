@@ -607,6 +607,69 @@ async function scanFathom(supabase, workspaceId, contact, apiKey) {
   }
 }
 
+// ── Calendly ──────────────────────────────────────────────────────────────────
+
+async function fetchCalendlyUserUri(pat) {
+  try {
+    const res = await fetch('https://api.calendly.com/users/me', {
+      headers: { Authorization: `Bearer ${pat}`, 'Content-Type': 'application/json' },
+    });
+    if (!res.ok) return null;
+    const body = await res.json();
+    return body.resource?.uri || null;
+  } catch { return null; }
+}
+
+async function scanCalendly(supabase, workspaceId, contact, pat, userUri) {
+  if (!contact.email || !pat || !userUri) return 0;
+  try {
+    const url = new URL('https://api.calendly.com/scheduled_events');
+    url.searchParams.set('invitee_email', contact.email);
+    url.searchParams.set('user', userUri);
+    url.searchParams.set('count', '100');
+    // No status filter — fetch both active and canceled so dedup mirrors webhook.
+
+    const res = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${pat}`, 'Content-Type': 'application/json' },
+    });
+    if (!res.ok) return 0;
+    const data = await res.json();
+    const events = data.collection || [];
+
+    let logged = 0;
+    for (const ev of events) {
+      const eventUuid = ev.uri?.split('/').pop();
+      if (!eventUuid) continue;
+      const isCanceled = ev.status === 'canceled';
+      const occurredAt = ev.start_time || new Date().toISOString();
+
+      const r = await logActivity(supabase, {
+        workspaceId,
+        contactId:   contact.id,
+        companyId:   contact.company_id || null,
+        type:        isCanceled ? 'meeting_cancelled' : 'meeting_scheduled',
+        source:      'calendly',
+        externalId:  `calendly_${isCanceled ? 'cancel' : 'book'}_event_${eventUuid}`,
+        occurredAt,
+        description: isCanceled ? `Cancelled: ${ev.name}` : `Booked: ${ev.name}`,
+        rawData:     {
+          meeting_name: ev.name,
+          start_time:   ev.start_time,
+          end_time:     ev.end_time,
+          event_uri:    ev.uri,
+          status:       ev.status,
+        },
+      });
+      if (r) logged++;
+    }
+    console.log(`[ENRICH_CALENDLY] ${contact.email}: ${logged} logged`);
+    return logged;
+  } catch (e) {
+    console.error(`[ENRICH_CALENDLY] ${contact.email}:`, e.message);
+    return 0;
+  }
+}
+
 // ── Main export ───────────────────────────────────────────────────────────────
 
 export async function enrichContactHistory(supabase, workspaceId, contactIds, jobId = null) {
@@ -633,6 +696,10 @@ export async function enrichContactHistory(supabase, workspaceId, contactIds, jo
     ? decrypt(connections.fireflies.encrypted_credentials.api_key) : null;
   const fathomKey      = connections.fathom?.encrypted_credentials?.api_key
     ? decrypt(connections.fathom.encrypted_credentials.api_key) : null;
+  const calendlyPat    = connections.calendly?.encrypted_credentials?.api_key
+    ? decrypt(connections.calendly.encrypted_credentials.api_key) : null;
+  // Resolved once per run — needed as a query param on every /scheduled_events call.
+  const calendlyUserUri = calendlyPat ? await fetchCalendlyUserUri(calendlyPat) : null;
 
   // Pre-fetch LinkedIn attendee map once for the whole batch
   let attendeeMap = { byUrl: new Map(), byMemberId: new Map(), connectedAt: new Map(), connectedAtByMemberId: new Map() };
@@ -656,6 +723,7 @@ export async function enrichContactHistory(supabase, workspaceId, contactIds, jo
           slack:     makeSource(!!slackConn),
           fireflies: makeSource(!!firefliesKey),
           fathom:    makeSource(!!fathomKey),
+          calendly:  makeSource(!!calendlyPat && !!calendlyUserUri),
         },
       })),
       done: false,
@@ -736,6 +804,13 @@ export async function enrichContactHistory(supabase, workspaceId, contactIds, jo
         const n = await scanFathom(supabase, workspaceId, contact, fathomKey);
         setSource(contact.id, 'fathom', 'done', n);
         logScanEvent('fathom', n, contactName);
+        count += n;
+      }
+      if (calendlyPat && calendlyUserUri) {
+        setSource(contact.id, 'calendly', 'scanning');
+        const n = await scanCalendly(supabase, workspaceId, contact, calendlyPat, calendlyUserUri);
+        setSource(contact.id, 'calendly', 'done', n);
+        logScanEvent('calendly', n, contactName);
         count += n;
       }
 
