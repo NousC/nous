@@ -1,6 +1,6 @@
 # Enrichment History Backfill
 
-When a contact is added to Proply — via CSV import, CRM sync, or any other bulk source — their activity history starts empty. The history backfill fixes this immediately by scanning every connected integration for prior interactions and logging them as `contact_activity_log` entries. This means pipeline stages and deal health scores are accurate from day one, not after weeks of passive signal accumulation.
+When a contact is added to Nous — via CSV import, CRM sync, or any other bulk source — their activity history starts empty. The history backfill fixes this immediately by scanning every connected integration for prior interactions and logging them as `contact_activity_log` entries. This means pipeline stages and deal health scores are accurate from day one, not after weeks of passive signal accumulation.
 
 ---
 

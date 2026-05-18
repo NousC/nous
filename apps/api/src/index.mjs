@@ -1,6 +1,6 @@
 import express from 'express';
 import cors from 'cors';
-import { registerCrmPushHandler, pushActivityToAllCrms } from '@proply/core';
+import { registerCrmPushHandler, pushActivityToAllCrms } from '@nous/core';
 
 // Wire activity logging → CRM push at module load time
 registerCrmPushHandler(pushActivityToAllCrms);
@@ -141,7 +141,7 @@ export { app };
 // deployments). Safe to run on every boot.
 async function bootstrapProviders() {
   try {
-    const { getSupabaseClient } = await import('@proply/core');
+    const { getSupabaseClient } = await import('@nous/core');
     const supabase = getSupabaseClient();
     await supabase
       .from('workflow_providers')
@@ -166,5 +166,5 @@ import { fileURLToPath } from 'url';
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const PORT = process.env.PORT ?? 3000;
   bootstrapProviders();
-  app.listen(PORT, () => console.log(`Proply API running on :${PORT}`));
+  app.listen(PORT, () => console.log(`Nous API running on :${PORT}`));
 }

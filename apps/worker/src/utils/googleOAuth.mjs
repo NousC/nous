@@ -9,7 +9,7 @@ export async function refreshGoogleToken(encryptedCredentials) {
     throw new Error('invalid_credentials: encrypted_credentials is missing or not an object');
   }
   if (!process.env.ENCRYPTION_KEY) {
-    throw new Error('ENCRYPTION_KEY not set — add it to proply.env');
+    throw new Error('ENCRYPTION_KEY not set — add it to nous.env');
   }
   const creds = {};
   for (const [key, value] of Object.entries(encryptedCredentials)) {

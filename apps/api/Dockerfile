@@ -16,8 +16,8 @@ COPY apps/api ./apps/api
 COPY packages/core ./packages/core
 COPY tsconfig.base.json ./
 
-# Build @proply/core
-RUN pnpm --filter @proply/core run build
+# Build @nous/core
+RUN pnpm --filter @nous/core run build
 
 EXPOSE 3000
 CMD ["node", "apps/api/src/index.mjs"]

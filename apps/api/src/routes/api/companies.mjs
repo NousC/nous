@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getSupabaseClient } from '@proply/core';
+import { getSupabaseClient } from '@nous/core';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
 import { enrichCompany } from '../../services/enrichment.mjs';
 

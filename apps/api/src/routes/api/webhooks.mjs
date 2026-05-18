@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getSupabaseClient } from '@proply/core';
+import { getSupabaseClient } from '@nous/core';
 
 export const webhooksRouter = Router();
 
@@ -78,7 +78,7 @@ webhooksRouter.get('/urls', async (req, res) => {
     || `http://localhost:${process.env.PORT || 3000}`;
   const b = base.replace(/\/+$/, '');
   // Each entry is either paste-required (user copies the URL into the tool's
-  // webhook UI) or auto_registered (Proply registers the subscription via the
+  // webhook UI) or auto_registered (Nous registers the subscription via the
   // provider's API on connect — URL is shown for transparency/debugging only).
   const urls = [
     { source: 'linkedin',  url: `${b}/inbound/linkedin?workspace_id=${workspaceId}&secret=YOUR_LINKEDIN_WEBHOOK_SECRET` },

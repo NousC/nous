@@ -218,7 +218,7 @@ export function AppSidebar() {
             {/* Docs link — points to external documentation */}
             <li>
               <a
-                href={import.meta.env.VITE_DOCS_URL || "https://github.com/bennetglinder1/proply-crm"}
+                href={import.meta.env.VITE_DOCS_URL || "https://github.com/bennetglinder1/nous"}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="group flex w-full items-center rounded-lg px-2.5 py-1.5 transition-all duration-150 hover:bg-gray-100/70 dark:hover:bg-white/8"

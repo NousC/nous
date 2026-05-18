@@ -20,7 +20,7 @@ ARG VITE_POSTHOG_KEY
 ARG VITE_GOOGLE_ANALYTICS_ID
 ARG VITE_DOCS_URL
 
-RUN pnpm --filter @proply/frontend build
+RUN pnpm --filter @nous/frontend build
 
 # Stage 2: nginx to serve static files + proxy /api/* to the api service
 FROM nginx:1.27-alpine

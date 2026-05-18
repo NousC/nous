@@ -1,4 +1,4 @@
-import { getSupabaseClient } from '@proply/core';
+import { getSupabaseClient } from '@nous/core';
 
 /**
  * Middleware to verify admin access.

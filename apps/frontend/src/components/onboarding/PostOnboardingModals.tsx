@@ -14,7 +14,7 @@ export function PostOnboardingModals({ show, onDismiss }: PostOnboardingModalsPr
   const [isVisible, setIsVisible] = useState(false);
 
   // Read onboarding context from localStorage
-  const companyName = localStorage.getItem("proply_onboarding_company_name") || "your company";
+  const companyName = localStorage.getItem("nous_onboarding_company_name") || "your company";
 
   useEffect(() => {
     if (show) {
@@ -30,7 +30,7 @@ export function PostOnboardingModals({ show, onDismiss }: PostOnboardingModalsPr
     setIsVisible(false);
     setTimeout(() => {
       setShowWelcome(false);
-      localStorage.removeItem("proply_onboarding_company_name");
+      localStorage.removeItem("nous_onboarding_company_name");
       onDismiss();
     }, 200);
   };
@@ -53,14 +53,14 @@ export function PostOnboardingModals({ show, onDismiss }: PostOnboardingModalsPr
           {/* Logo top left */}
           <img
             src="/newlogoP.png"
-            alt="Proply"
+            alt="Nous"
             className="h-8 w-auto mb-5"
           />
 
           {/* Message style content */}
           <div className="space-y-4 text-[14px] text-gray-700 leading-relaxed">
             <p>
-              Hey, I'm <span className="font-semibold text-gray-900">Proply</span> — your AI sales assistant. I've already gotten started for you!
+              Hey, I'm <span className="font-semibold text-gray-900">Nous</span> — your AI sales assistant. I've already gotten started for you!
             </p>
 
             <p className="font-medium text-gray-900">
@@ -92,7 +92,7 @@ export function PostOnboardingModals({ show, onDismiss }: PostOnboardingModalsPr
                   <span>
                     Watch the{" "}
                     <a
-                      href="https://www.tella.tv/video/how-to-get-started-with-proply-1-0ioe"
+                      href="https://www.tella.tv/video/how-to-get-started-with-nous-1-0ioe"
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-1 text-emerald-600 hover:text-emerald-700 font-medium underline underline-offset-2"
@@ -114,7 +114,7 @@ export function PostOnboardingModals({ show, onDismiss }: PostOnboardingModalsPr
               className="w-full h-11 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[14px] font-medium transition-all duration-200"
             >
               <a
-                href="https://www.tella.tv/video/how-to-get-started-with-proply-1-0ioe"
+                href="https://www.tella.tv/video/how-to-get-started-with-nous-1-0ioe"
                 target="_blank"
                 rel="noopener noreferrer"
               >

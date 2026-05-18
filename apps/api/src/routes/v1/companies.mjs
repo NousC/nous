@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getSupabaseClient, getCompanyProfile } from '@proply/core';
+import { getSupabaseClient, getCompanyProfile } from '@nous/core';
 import { logMcpOp } from '../../lib/mcpLogger.mjs';
 
 export const companiesRouter = Router();

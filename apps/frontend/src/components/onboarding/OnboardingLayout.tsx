@@ -27,7 +27,7 @@ export function OnboardingLayout({
         <div className="max-w-7xl mx-auto flex justify-center">
           <img
             src="/newlogoP.png"
-            alt="Proply"
+            alt="Nous"
             className="h-10 w-auto"
           />
         </div>

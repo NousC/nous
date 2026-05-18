@@ -1,13 +1,13 @@
 import { Router } from 'express';
-import { getSupabaseClient } from '@proply/core';
+import { getSupabaseClient } from '@nous/core';
 
 export const blogRouter = Router();
 
-// GET /api/blog/articles — public read (used by goproply.com website)
+// GET /api/blog/articles — public read (used by opennous.cloud website)
 //
 // The blog_articles table doesn't have an `excerpt` column — it uses
 // `meta_description` and `intro_text` instead. We alias meta_description as
-// `excerpt` in the response so existing clients (goproply.com / proply-site)
+// `excerpt` in the response so existing clients (opennous.cloud / nous-site)
 // keep working with the original shape.
 blogRouter.get('/articles', async (req, res) => {
   try {

@@ -2,16 +2,16 @@ import { useState, useEffect, CSSProperties } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Moon, Sun, Github } from "lucide-react";
 import { SEOHead } from "@/components/SEOHead";
-import { ProplyLegalFooter } from "@/components/landing/ProplyLegalFooter";
+import { NousLegalFooter } from "@/components/landing/NousLegalFooter";
 
 const WEBHOOK_URL = "https://primary-production-5015.up.railway.app/webhook/890c81a9-0654-4028-9b54-41d10b477378";
 const BUILD_START = new Date("2026-04-19");
 
 function useFonts() {
   useEffect(() => {
-    if (document.getElementById("proply-fonts")) return;
+    if (document.getElementById("nous-fonts")) return;
     const link = document.createElement("link");
-    link.id = "proply-fonts";
+    link.id = "nous-fonts";
     link.rel = "stylesheet";
     link.href = "https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&family=Inter:wght@300;400;500&display=swap";
     document.head.appendChild(link);
@@ -65,7 +65,7 @@ const WaitlistModal = ({ isOpen, onClose, t }: { isOpen: boolean; onClose: () =>
     try {
       const res = await fetch("/api/waitlist", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, email, company }) });
       if (res.ok) {
-        fetch(WEBHOOK_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, email, company, source: "proply_waitlist", submittedAt: new Date().toISOString() }) }).catch(() => {});
+        fetch(WEBHOOK_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, email, company, source: "nous_waitlist", submittedAt: new Date().toISOString() }) }).catch(() => {});
         setStatus("success");
       } else setStatus("error");
     } catch { setStatus("error"); }
@@ -133,8 +133,8 @@ const LeftNav = ({ t, onToggleDark, onOpenWaitlist }: { t: Theme; onToggleDark: 
   return (
     <nav style={{ position: "fixed", left: 0, top: 0, bottom: 0, width: "172px", display: "flex", flexDirection: "column", padding: "30px 38px", zIndex: 200, pointerEvents: "none" }}>
       <Link to="/" style={{ pointerEvents: "auto", display: "flex", alignItems: "center", gap: "7px", textDecoration: "none" }}>
-        <img src="/newlogoP.png" alt="Proply" style={{ height: "15px", filter: t.dark ? "brightness(0) invert(1) opacity(0.6)" : "brightness(0) saturate(0) opacity(0.65)" }} />
-        <span style={{ fontFamily: "Instrument Serif, Georgia, serif", fontSize: "16px", color: t.text, letterSpacing: "-0.02em" }}>proply</span>
+        <img src="/newlogoP.png" alt="Nous" style={{ height: "15px", filter: t.dark ? "brightness(0) invert(1) opacity(0.6)" : "brightness(0) saturate(0) opacity(0.65)" }} />
+        <span style={{ fontFamily: "Instrument Serif, Georgia, serif", fontSize: "16px", color: t.text, letterSpacing: "-0.02em" }}>nous</span>
       </Link>
 
       <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", gap: "1px", pointerEvents: "auto" }}>
@@ -167,7 +167,7 @@ const RIGHT_LOWER = [
   { label: "Updates",         href: "/updates" },
   { label: "Convictions",     href: "/convictions" },
   { label: "Journal",          href: "/journal" },
-  { label: "Proply research", href: "https://github.com/proply-gtm/proply-research" },
+  { label: "Nous research", href: "https://github.com/nous-gtm/nous-research" },
 ];
 
 const RightNav = ({ t, onOpenWaitlist }: { t: Theme; onOpenWaitlist: () => void }) => {
@@ -210,10 +210,10 @@ const RightNav = ({ t, onOpenWaitlist }: { t: Theme; onOpenWaitlist: () => void 
 
       <div style={{ position: "absolute", bottom: "30px", right: "38px", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "10px", pointerEvents: "auto" }}>
         <div style={{ display: "flex", gap: "12px", color: t.muted }}>
-          <a href="https://github.com/proply-gtm" target="_blank" rel="noreferrer" style={{ color: t.muted, display: "flex" }}>
+          <a href="https://github.com/nous-gtm" target="_blank" rel="noreferrer" style={{ color: t.muted, display: "flex" }}>
             <Github size={14} />
           </a>
-          <a href="https://www.linkedin.com/company/goproply/" target="_blank" rel="noreferrer" style={{ color: t.muted, display: "flex" }}>
+          <a href="https://www.linkedin.com/company/opennous/" target="_blank" rel="noreferrer" style={{ color: t.muted, display: "flex" }}>
             <LiIcon size={14} />
           </a>
         </div>
@@ -226,13 +226,13 @@ const RightNav = ({ t, onOpenWaitlist }: { t: Theme; onOpenWaitlist: () => void 
 };
 
 // ─── Layout ───────────────────────────────────────────────────────────
-interface ProplyPageLayoutProps {
+interface NousPageLayoutProps {
   seoTitle: string;
   seoDescription: string;
   children: (theme: Theme) => React.ReactNode;
 }
 
-export function ProplyPageLayout({ seoTitle, seoDescription, children }: ProplyPageLayoutProps) {
+export function NousPageLayout({ seoTitle, seoDescription, children }: NousPageLayoutProps) {
   const [dark, setDark] = useState(false);
   const [waitlistOpen, setWaitlistOpen] = useState(false);
   const t = mkTheme(dark);
@@ -252,7 +252,7 @@ export function ProplyPageLayout({ seoTitle, seoDescription, children }: ProplyP
           {children(t)}
         </div>
       </main>
-      <ProplyLegalFooter scheme={dark ? "dark" : "light"} />
+      <NousLegalFooter scheme={dark ? "dark" : "light"} />
     </div>
   );
 }

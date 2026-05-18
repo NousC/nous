@@ -16,7 +16,7 @@ function skip(name, fn) {
 // Import after env is loaded by helpers
 let supabase;
 skip('Supabase client connects successfully', async () => {
-  const { getSupabaseClient } = await import('@proply/core');
+  const { getSupabaseClient } = await import('@nous/core');
   supabase = getSupabaseClient();
   assert.ok(supabase, 'client should be created');
 });

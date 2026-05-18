@@ -1,12 +1,12 @@
 import { Router } from 'express';
-import { getSupabaseClient } from '@proply/core';
+import { getSupabaseClient } from '@nous/core';
 
 export const adminChangelogRouter = Router();
 export const publicChangelogRouter = Router();
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// GET /api/changelog/entries — public read (used by goproply.com website)
+// GET /api/changelog/entries — public read (used by opennous.cloud website)
 publicChangelogRouter.get('/', async (req, res) => {
   try {
     const supabase = getSupabaseClient();

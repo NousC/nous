@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
-import { getSupabaseClient } from '@proply/core';
+import { getSupabaseClient } from '@nous/core';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
 import { ensureUserAndTeam } from '../../lib/auth.mjs';
 import { enrichContact } from '../../services/enrichment.mjs';
@@ -75,7 +75,7 @@ contactsApiRouter.get('/:id', verifySupabaseAuth, async (req, res) => {
 
     const activities = (activityRows || [])
       .filter(a => !SYSTEM_TYPES.has(a.activity_type) && a.activity_type !== 'stage_changed')
-      .map(a => ({ id: a.id, activity_type: a.activity_type, title: a.description || a.activity_type?.replace(/_/g, ' ') || 'Activity', subtitle: a.summary || null, source: a.source || 'proply', created_at: a.occurred_at || a.created_at, raw_data: a.raw_data || null }));
+      .map(a => ({ id: a.id, activity_type: a.activity_type, title: a.description || a.activity_type?.replace(/_/g, ' ') || 'Activity', subtitle: a.summary || null, source: a.source || 'nous', created_at: a.occurred_at || a.created_at, raw_data: a.raw_data || null }));
 
     let company = null;
     if (contact.company_id) {

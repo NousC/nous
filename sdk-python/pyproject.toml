@@ -3,21 +3,21 @@ requires = ["setuptools>=42", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "proply"
+name = "nous"
 version = "1.0.0"
-description = "Official Python SDK for the Proply contact memory API"
+description = "Official Python SDK for the Nous contact memory API"
 license = "MIT"
 requires-python = ">=3.9"
-keywords = ["proply", "ai", "agents", "crm", "memory", "sdk"]
+keywords = ["nous", "ai", "agents", "crm", "memory", "sdk"]
 dependencies = [
   "httpx>=0.27.0",
 ]
 
 [project.urls]
-Homepage = "https://goproply.com"
-Repository = "https://github.com/bennetglinder1/proply-crm"
-Documentation = "https://docs.goproply.com"
+Homepage = "https://opennous.cloud"
+Repository = "https://github.com/bennetglinder1/nous"
+Documentation = "https://docs.opennous.cloud"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["proply*"]
+include = ["nous*"]

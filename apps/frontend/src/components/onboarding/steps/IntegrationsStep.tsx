@@ -26,7 +26,7 @@ const INTEGRATIONS: IntegrationDef[] = [
     apiKeyPlaceholder: "pat-na1-...",
     steps: [
       "Go to Settings → Integrations → Private Apps",
-      "Create a private app named \"Proply\"",
+      "Create a private app named \"Nous\"",
       "Grant scopes: crm.objects.contacts.read, crm.objects.deals.read",
       "Copy the access token",
     ],

@@ -1,14 +1,14 @@
 import { Router } from 'express';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
-import { getSupabaseClient } from '@proply/core';
+import { getSupabaseClient } from '@nous/core';
 import { resolveContact } from '../../services/enrichment.mjs';
 
 export const signalsRouter = Router();
 export const publicSignalsRouter = Router();
 
 function signalToken(workspaceId) {
-  const secret = process.env.SIGNAL_HMAC_SECRET || 'proply-signals';
+  const secret = process.env.SIGNAL_HMAC_SECRET || 'nous-signals';
   return createHmac('sha256', secret).update(workspaceId).digest('hex').slice(0, 32);
 }
 

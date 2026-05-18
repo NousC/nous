@@ -52,7 +52,7 @@ export function CrmStep({
           Connect your CRM
         </h1>
         <p className="text-gray-500 text-[14px] font-light">
-          Proply pulls deal context to create personalized proposals
+          Nous pulls deal context to create personalized proposals
         </p>
       </div>
 

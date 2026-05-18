@@ -17,13 +17,13 @@ jobs:
         include:
           - name: api
             dockerfile: apps/api/Dockerfile
-            image: ghcr.io/goproply/proply-crm
+            image: ghcr.io/opennous/nous
           - name: worker
             dockerfile: apps/worker/Dockerfile
-            image: ghcr.io/goproply/proply-crm-worker
+            image: ghcr.io/opennous/nous-worker
           - name: frontend
             dockerfile: apps/frontend/Dockerfile
-            image: ghcr.io/goproply/proply-crm-frontend
+            image: ghcr.io/opennous/nous-frontend
 
     steps:
       - uses: actions/checkout@v4

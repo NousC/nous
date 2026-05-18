@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getSupabaseClient, isUUID, isEmail, logActivity } from '@proply/core';
+import { getSupabaseClient, isUUID, isEmail, logActivity } from '@nous/core';
 import { logMcpOp } from '../../lib/mcpLogger.mjs';
 
 export const captureRouter = Router();

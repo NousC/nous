@@ -1,8 +1,8 @@
-interface ProplyLegalFooterProps {
+interface NousLegalFooterProps {
   scheme?: "dark" | "light";
 }
 
-export function ProplyLegalFooter({ scheme = "dark" }: ProplyLegalFooterProps) {
+export function NousLegalFooter({ scheme = "dark" }: NousLegalFooterProps) {
   const isDark = scheme === "dark";
 
   const textColor = isDark ? "rgba(200,216,236,0.55)" : "rgba(12,24,39,0.45)";
@@ -21,7 +21,7 @@ export function ProplyLegalFooter({ scheme = "dark" }: ProplyLegalFooterProps) {
     <footer style={{ background: "transparent", borderTop: border, padding: "22px 64px" }}>
       <div style={{ maxWidth: "1040px", margin: "0 auto", display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
         <p style={{ fontFamily: "JetBrains Mono, monospace", fontSize: "11px", color: copyright, letterSpacing: "0.02em" }}>
-          © {new Date().getFullYear()} Proply. All rights reserved.
+          © {new Date().getFullYear()} Nous. All rights reserved.
         </p>
         <div style={{ display: "flex", gap: "24px", flexWrap: "wrap" }}>
           {links.map(({ label, href }) => (

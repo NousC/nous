@@ -103,7 +103,7 @@ export function PersonalInfoStep({
           Let's get to know you
         </h1>
         <p className="text-gray-500 text-[14px] font-light">
-          Tell us a bit about yourself to personalize your Proply experience
+          Tell us a bit about yourself to personalize your Nous experience
         </p>
       </div>
 

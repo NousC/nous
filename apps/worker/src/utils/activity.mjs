@@ -1,7 +1,7 @@
-// Wrapper around @proply/core logActivity that auto-fires signal extraction.
-// All worker webhook handlers import logActivity from here, not from @proply/core directly.
+// Wrapper around @nous/core logActivity that auto-fires signal extraction.
+// All worker webhook handlers import logActivity from here, not from @nous/core directly.
 
-import { logActivity as _logActivity } from '@proply/core';
+import { logActivity as _logActivity } from '@nous/core';
 import { extractAfterActivity } from '../signals/index.mjs';
 
 export async function logActivity(supabase, params) {

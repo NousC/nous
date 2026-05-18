@@ -4,7 +4,7 @@
 // Dedup via externalId (gmail_MSGID).
 
 import { google } from 'googleapis';
-import { getSupabaseClient } from '@proply/core';
+import { getSupabaseClient } from '@nous/core';
 import { logActivity } from '../utils/activity.mjs';
 import { refreshGoogleToken } from '../utils/googleOAuth.mjs';
 

@@ -1,5 +1,5 @@
 {
-  "name": "@proply/api",
+  "name": "@nous/api",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.2",
-    "@proply/core": "workspace:*",
+    "@nous/core": "workspace:*",
     "cors": "^2.8.5",
     "express": "^4.19.0",
     "googleapis": "^144.0.0",

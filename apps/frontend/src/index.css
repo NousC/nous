@@ -906,7 +906,7 @@
   }
 
   /* Hide the powered by footer when printing */
-  a[href*="goproply.com"] {
+  a[href*="opennous.cloud"] {
     display: none !important;
   }
 

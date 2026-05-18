@@ -38,7 +38,7 @@ export function MeetingNotesStep({
           Connect your meeting notes
         </h1>
         <p className="text-gray-500 text-[14px] font-light">
-          Proply turns your meeting transcripts into ready-to-send proposals
+          Nous turns your meeting transcripts into ready-to-send proposals
         </p>
       </div>
 

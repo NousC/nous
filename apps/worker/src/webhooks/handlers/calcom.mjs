@@ -6,7 +6,7 @@
 // the secret up per-workspace from workflow_provider_connections.
 
 import crypto from 'crypto';
-import { getSupabaseClient } from '@proply/core';
+import { getSupabaseClient } from '@nous/core';
 import { decrypt } from '../../utils/encryption.mjs';
 import { logActivity } from '../../utils/activity.mjs';
 import { resolveContact } from '../../utils/resolveContact.mjs';

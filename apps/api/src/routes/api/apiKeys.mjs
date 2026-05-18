@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import crypto from 'crypto';
-import { getSupabaseClient, isUUID } from '@proply/core';
+import { getSupabaseClient, isUUID } from '@nous/core';
 
 export const apiKeysRouter = Router();
 

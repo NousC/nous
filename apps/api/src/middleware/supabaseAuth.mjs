@@ -1,4 +1,4 @@
-import { getSupabaseClient } from '@proply/core';
+import { getSupabaseClient } from '@nous/core';
 
 export async function verifySupabaseAuth(req, res, next) {
   const token = req.headers.authorization?.startsWith('Bearer ')

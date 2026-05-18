@@ -2,7 +2,7 @@
 // Waterfall: external_id → email → linkedin_url → name+email heal → create
 // Used by all webhook handlers except LinkedIn (which has its own linkedin_member_id step).
 
-import { getSupabaseClient } from '@proply/core';
+import { getSupabaseClient } from '@nous/core';
 import { enrichContact } from './enrichContact.mjs';
 
 // ── Company upsert ────────────────────────────────────────────────────────────

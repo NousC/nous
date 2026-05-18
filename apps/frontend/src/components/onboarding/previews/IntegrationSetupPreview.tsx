@@ -30,7 +30,7 @@ const INTEGRATION_CONFIGS: Record<string, IntegrationConfig> = {
     id: "fireflies",
     name: "Fireflies.ai",
     logo: "https://www.google.com/s2/favicons?domain=fireflies.ai&sz=128",
-    description: "Connect your Fireflies account so Proply can access your meeting transcripts.",
+    description: "Connect your Fireflies account so Nous can access your meeting transcripts.",
     steps: [
       "Log in to your Fireflies.ai account",
       "Go to Settings → Integrations → API & Webhooks",
@@ -46,7 +46,7 @@ const INTEGRATION_CONFIGS: Record<string, IntegrationConfig> = {
     id: "fathom",
     name: "Fathom",
     logo: "https://www.google.com/s2/favicons?domain=fathom.video&sz=128",
-    description: "Connect your Fathom account so Proply can access your meeting recordings and summaries.",
+    description: "Connect your Fathom account so Nous can access your meeting recordings and summaries.",
     steps: [
       "Log in to your Fathom account",
       "Go to Settings → API",
@@ -62,12 +62,12 @@ const INTEGRATION_CONFIGS: Record<string, IntegrationConfig> = {
     id: "hubspot",
     name: "HubSpot",
     logo: "https://www.google.com/s2/favicons?domain=hubspot.com&sz=128",
-    description: "Connect HubSpot so Proply can pull deal and contact data into your proposals.",
+    description: "Connect HubSpot so Nous can pull deal and contact data into your proposals.",
     steps: [
       "Log in to your HubSpot account",
       "Go to Settings → Integrations → Private Apps",
       "Click \"Create a private app\"",
-      "Name it \"Proply\" and select scopes: crm.objects.contacts.read, crm.objects.deals.read",
+      "Name it \"Nous\" and select scopes: crm.objects.contacts.read, crm.objects.deals.read",
       "Click \"Create app\" and copy the access token",
       "Paste the token below",
     ],
@@ -80,7 +80,7 @@ const INTEGRATION_CONFIGS: Record<string, IntegrationConfig> = {
     id: "pipedrive",
     name: "Pipedrive",
     logo: "https://www.google.com/s2/favicons?domain=pipedrive.com&sz=128",
-    description: "Connect Pipedrive so Proply can pull deal and contact data into your proposals.",
+    description: "Connect Pipedrive so Nous can pull deal and contact data into your proposals.",
     steps: [
       "Log in to your Pipedrive account",
       "Click your profile picture → Company settings",

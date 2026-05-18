@@ -1,15 +1,15 @@
 import { Router } from 'express';
 import crypto from 'crypto';
-import { getSupabaseClient } from '@proply/core';
+import { getSupabaseClient } from '@nous/core';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
 import { ensureUserAndTeam } from '../../lib/auth.mjs';
 
 async function sendInviteEmail({ to, inviterName, teamName, token }) {
   const key = process.env.RESEND_API_KEY;
   if (!key) return;
-  const appDomain = process.env.APP_DOMAIN || 'app.goproply.com';
+  const appDomain = process.env.APP_DOMAIN || 'app.opennous.cloud';
   const link = `https://${appDomain}/accept-invitation?token=${token}`;
-  const from = process.env.RESEND_FROM_EMAIL || 'Proply <noreply@goproply.com>';
+  const from = process.env.RESEND_FROM_EMAIL || 'Nous <noreply@opennous.cloud>';
   try {
     await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -17,11 +17,11 @@ async function sendInviteEmail({ to, inviterName, teamName, token }) {
       body: JSON.stringify({
         from,
         to: [to],
-        subject: `You've been invited to join ${teamName} on Proply`,
+        subject: `You've been invited to join ${teamName} on Nous`,
         html: `
           <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;color:#111">
             <p style="margin:0 0 16px">Hi,</p>
-            <p style="margin:0 0 24px"><strong>${inviterName}</strong> has invited you to join <strong>${teamName}</strong> on Proply — the AI-powered CRM.</p>
+            <p style="margin:0 0 24px"><strong>${inviterName}</strong> has invited you to join <strong>${teamName}</strong> on Nous — the AI-powered CRM.</p>
             <a href="${link}" style="display:inline-block;background:#0d9488;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-size:14px;font-weight:600">Accept Invitation</a>
             <p style="margin:24px 0 0;color:#666;font-size:13px">This link expires in 7 days. If you weren't expecting this email, you can safely ignore it.</p>
           </div>

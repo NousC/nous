@@ -1,4 +1,4 @@
-// Proply Worker — background signal ingestion and scheduled pollers.
+// Nous Worker — background signal ingestion and scheduled pollers.
 //
 // Runs two things:
 //   1. A lightweight HTTP server for inbound webhooks (LinkedIn, Fireflies, RB2B, etc.)
@@ -6,7 +6,7 @@
 
 import express from 'express';
 import cron from 'node-cron';
-import { getSupabaseClient, registerCrmPushHandler, pushActivityToAllCrms } from '@proply/core';
+import { getSupabaseClient, registerCrmPushHandler, pushActivityToAllCrms } from '@nous/core';
 import { pollAllWorkspaces } from './pollers/calendar.mjs';
 import { pollAllSlackWorkspaces } from './pollers/slack.mjs';
 import { pollAllGmailWorkspaces } from './pollers/gmail.mjs';
@@ -36,7 +36,7 @@ app.use(express.json({
   verify: (req, _res, buf) => { req.rawBody = buf; },
 }));
 
-app.get('/health', (_req, res) => res.json({ ok: true, service: 'proply-worker' }));
+app.get('/health', (_req, res) => res.json({ ok: true, service: 'nous-worker' }));
 app.use('/inbound', webhookRouter);
 
 const PORT = process.env.WORKER_PORT ?? 3001;
