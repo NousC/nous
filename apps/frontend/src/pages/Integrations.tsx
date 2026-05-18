@@ -672,8 +672,15 @@ export default function Integrations() {
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
           body: JSON.stringify({ workspace_id: workspaceId, name: connectionName.trim(), api_key: credentials.api_key }),
         });
-        if (res.ok) { toast.success(`${selectedProvider.display_name} connected`); closeAdd(); fetchData(); }
-        else throw new Error((await res.json()).error || "Failed to save");
+        if (res.ok) {
+          const body = await res.json().catch(() => ({}));
+          // `note` surfaces partial-success info — e.g. Calendly Free plan
+          // can't register webhooks. Show as info toast so the user knows.
+          if (body.note) toast.info(body.note);
+          toast.success(`${selectedProvider.display_name} connected`);
+          closeAdd();
+          fetchData();
+        } else throw new Error((await res.json()).error || "Failed to save");
         return;
       }
       const res = await fetch(`${apiUrl}/api/workflow-providers/connections`, {

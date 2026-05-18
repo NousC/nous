@@ -1809,6 +1809,12 @@ function IntegrationsPopup({ integrations, workspaceId, token, onClose }: {
         body: JSON.stringify({ workspace_id: workspaceId, name: connName.trim()||connecting.display_name, api_key: connApiKey }),
       });
       if (res.ok) {
+        const body = await res.json().catch(() => ({}));
+        // Backend returns a `note` when the connection saved but something
+        // downstream couldn't complete — e.g. Calendly Free plans can't
+        // register webhooks. Surface it so users aren't left wondering why
+        // bookings don't show up in real time.
+        if (body.note) toast.info(body.note);
         setConnSuccess(connecting.display_name);
         // Optimistically add to live connections
         setLiveConns(prev => [...prev, { id: Date.now().toString(), name: connName.trim()||connecting.display_name, is_verified: true, provider: { display_name: connecting.display_name, logo_url: connecting.logo_url, category: connecting.category, name: connecting.name } }]);
