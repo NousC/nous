@@ -542,6 +542,7 @@ function ActivityIcon({ source, type }: { source: string | null; type: string })
   if (s === "granola"         || t.includes("granola"))           return logo("/provider-logos/granola.svg");
   if (s === "fathom"          || t.includes("fathom"))            return logo("/provider-logos/fathom.svg");
   if (s === "calendly"        || t.includes("calendly"))          return logo("/provider-logos/calendly.svg");
+  if (s === "cal_com"         || s === "cal.com" || t.includes("cal.com")) return logo("/provider-logos/cal_com.svg");
   if (s === "apollo"          || t.includes("apollo"))            return logo("/provider-logos/apollo.svg");
   if (t.includes("meeting")   || t.includes("call"))              return <Phone className="w-3.5 h-3.5 text-muted-foreground/45 flex-shrink-0" />;
   if (t.includes("note")      || t.includes("manual"))            return <FileText className="w-3.5 h-3.5 text-muted-foreground/45 flex-shrink-0" />;
@@ -1633,6 +1634,8 @@ const LOGO_FALLBACK: Record<string, string> = {
   fireflies: "/provider-logos/fireflies.svg",
   fathom: "/provider-logos/fathom.svg",
   calendly: "/provider-logos/calendly.svg",
+  cal_com: "/provider-logos/cal_com.svg",
+  "cal.com": "/provider-logos/cal_com.svg",
 };
 
 function IntegrationLogo({ url, name, size=28 }: { url?: string; name: string; size?: number }) {
@@ -1659,6 +1662,7 @@ const MIND_HARDCODED_PROVIDERS: AvailableProvider[] = [
   { id:"prospeo",    name:"prospeo",    display_name:"Prospeo",    logo_url:"/provider-logos/prospeo.svg",    category:"enrichment"   },
   { id:"fireflies", name:"fireflies", display_name:"Fireflies.ai", logo_url:"/provider-logos/fireflies.svg", category:"meetings"     },
   { id:"fathom",    name:"fathom",    display_name:"Fathom",       logo_url:"/provider-logos/fathom.svg",    category:"meetings"     },
+  { id:"cal_com",   name:"cal_com",   display_name:"Cal.com",      logo_url:"/provider-logos/cal_com.svg",   category:"meetings"     },
 ];
 // salesforce hidden until backend OAuth setup is documented & shipped — backend stays wired
 const MIND_EXCLUDED = new Set(["assetly","gmail","mailchimp","google_analytics","granola","notion","clickup","openai","gemini","google","rb2b","anthropic","stripe","signalbase","salesforce"]);
@@ -1916,8 +1920,8 @@ function IntegrationsPopup({ integrations, workspaceId, token, onClose }: {
                             <span className={`text-[9px] px-2 py-0.5 border flex-shrink-0 ${conn.is_verified?"text-emerald-500/60 border-emerald-500/20 bg-emerald-500/5":"text-amber-500/60 border-amber-500/20 bg-amber-500/5"}`}>
                               {conn.is_verified ? "connected" : "needs auth"}
                             </span>
-                            {conn.provider?.name === "calendly" && conn.webhook_registered && (
-                              <span title="Calendly webhook auto-registered — bookings and cancellations flow into your CRM automatically." className="text-[9px] px-2 py-0.5 border border-emerald-500/20 bg-emerald-500/5 text-emerald-500/60 flex-shrink-0">
+                            {(conn.provider?.name === "calendly" || conn.provider?.name === "cal_com") && conn.webhook_registered && (
+                              <span title="Webhook auto-registered — bookings and cancellations flow into your CRM automatically." className="text-[9px] px-2 py-0.5 border border-emerald-500/20 bg-emerald-500/5 text-emerald-500/60 flex-shrink-0">
                                 webhook ✓
                               </span>
                             )}

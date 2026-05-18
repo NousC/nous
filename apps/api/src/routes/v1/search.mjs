@@ -15,7 +15,7 @@ searchRouter.post('/', async (req, res) => {
       limit: limit ? parseInt(limit) : undefined,
     });
     const count = results.length;
-    logMcpOp(req.workspaceId, { clientType: req.clientType,
+    logMcpOp(req, {
       eventType: 'memory_search',
       summary: `"${q}" → ${count} result${count !== 1 ? 's' : ''}`,
     });

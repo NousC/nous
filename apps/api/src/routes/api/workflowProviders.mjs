@@ -79,7 +79,10 @@ workflowProvidersRouter.get('/connections', verifySupabaseAuth, async (req, res)
         }
       }
       // Non-secret status flags derived from encrypted_credentials before stripping.
-      const webhook_registered = !!conn.encrypted_credentials?.webhook_subscription_uri;
+      // Calendly stores subscription_uri, Cal.com stores webhook_id — either means registered.
+      const webhook_registered =
+        !!conn.encrypted_credentials?.webhook_subscription_uri
+        || !!conn.encrypted_credentials?.webhook_id;
       const { encrypted_credentials: _, ...rest } = conn;
       return { ...rest, credential_hints: hints, webhook_registered };
     });
@@ -377,6 +380,12 @@ workflowProvidersRouter.delete('/connections/:id', verifySupabaseAuth, async (re
       if (pat && subUri) await unsubscribeCalendlyWebhook(pat, subUri);
     }
 
+    if (conn?.workflow_providers?.name === 'cal_com') {
+      const pat = decrypt(conn.encrypted_credentials?.api_key || '');
+      const wid = conn.encrypted_credentials?.webhook_id;
+      if (pat && wid) await unsubscribeCalComWebhook(pat, wid);
+    }
+
     await supabase.from('workflow_provider_connections').delete().eq('id', id);
     return res.json({ ok: true });
   } catch (err) {
@@ -417,7 +426,9 @@ workflowProvidersRouter.get('/slack/channels', verifySupabaseAuth, async (req, r
 // Providers connectable via the simplified /:name/test + /:name/connect endpoints
 // (used by the Mind popup quick-connect flow). Anything not in this list still works
 // via the generic /connections endpoint used by Settings → Integrations.
-const NAMED_PROVIDERS = ['apollo', 'instantly', 'lemlist', 'prospeo', 'hubspot', 'pipedrive', 'attio', 'calendly', 'fireflies', 'fathom'];
+const NAMED_PROVIDERS = ['apollo', 'instantly', 'lemlist', 'prospeo', 'hubspot', 'pipedrive', 'attio', 'calendly', 'fireflies', 'fathom', 'cal_com'];
+
+const CAL_COM_API_VERSION = '2026-05-01';
 
 function workerBaseUrl() {
   return (process.env.WORKER_URL
@@ -478,6 +489,58 @@ async function unsubscribeCalendlyWebhook(pat, subscriptionUri) {
     });
   } catch (err) {
     console.warn('[CALENDLY_UNSUBSCRIBE]', err.message);
+  }
+}
+
+// Cal.com webhook subscription — POST /v2/webhooks. Triggers covered:
+// BOOKING_CREATED, BOOKING_CANCELLED, BOOKING_RESCHEDULED.
+// Signature on inbound: x-cal-signature-256: <hex_hmac_sha256(body, secret)>
+async function subscribeCalComWebhook(pat, workspaceId) {
+  try {
+    const callbackUrl = `${workerBaseUrl()}/inbound/cal_com/${workspaceId}`;
+    const signingKey  = crypto.randomBytes(32).toString('hex');
+
+    const res = await fetch('https://api.cal.com/v2/webhooks', {
+      method:  'POST',
+      headers: {
+        Authorization:     `Bearer ${pat}`,
+        'Content-Type':    'application/json',
+        'cal-api-version': CAL_COM_API_VERSION,
+      },
+      body: JSON.stringify({
+        active:        true,
+        subscriberUrl: callbackUrl,
+        triggers:      ['BOOKING_CREATED', 'BOOKING_CANCELLED', 'BOOKING_RESCHEDULED'],
+        secret:        signingKey,
+      }),
+    });
+
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      return { error: `cal_com_subscribe_failed_${res.status}`, detail: errBody };
+    }
+
+    const body = await res.json();
+    // Cal.com v2 wraps payloads in `data`. Webhook ID may live at body.data.id
+    // or body.id depending on version — accept both.
+    const webhookId = body?.data?.id ?? body?.id ?? null;
+    if (!webhookId) return { error: 'cal_com_webhook_id_missing', detail: body };
+
+    return { webhook_id: String(webhookId), signing_key: signingKey };
+  } catch (err) {
+    return { error: 'cal_com_subscribe_exception', message: err.message };
+  }
+}
+
+async function unsubscribeCalComWebhook(pat, webhookId) {
+  if (!webhookId) return;
+  try {
+    await fetch(`https://api.cal.com/v2/webhooks/${webhookId}`, {
+      method:  'DELETE',
+      headers: { Authorization: `Bearer ${pat}`, 'cal-api-version': CAL_COM_API_VERSION },
+    });
+  } catch (err) {
+    console.warn('[CAL_COM_UNSUBSCRIBE]', err.message);
   }
 }
 
@@ -579,6 +642,22 @@ async function testNamedProvider(name, apiKey) {
     return { verified: false, message: `Fathom returned ${r.status} — check your API key` };
   }
 
+  if (name === 'cal_com') {
+    const r = await fetch('https://api.cal.com/v2/me', {
+      headers: {
+        Authorization:     `Bearer ${apiKey}`,
+        'cal-api-version': CAL_COM_API_VERSION,
+      },
+    });
+    if (r.ok) {
+      const d = await r.json().catch(() => ({}));
+      const me = d.data || d;
+      const who = me.email || me.username || me.name || 'Cal.com user';
+      return { verified: true, message: `Connected as ${who}` };
+    }
+    return { verified: false, message: `Cal.com returned ${r.status} — check your API key` };
+  }
+
   return { verified: false, message: 'Unknown provider' };
 }
 
@@ -641,6 +720,19 @@ workflowProvidersRouter.post('/:name/connect', verifySupabaseAuth, async (req, r
       } else {
         credentials.webhook_subscription_uri = sub.subscription_uri;
         credentials.webhook_signing_key      = encryptValue(sub.signing_key);
+      }
+    }
+
+    // Cal.com — same auto-subscribe pattern. webhook_id (string) is what we
+    // pass to DELETE /v2/webhooks/<id> on cleanup.
+    if (name === 'cal_com') {
+      const sub = await subscribeCalComWebhook(api_key, workspace_id);
+      if (sub.error) {
+        console.error('[CAL_COM_CONNECT] subscribe failed:', sub.error, sub.detail || sub.message);
+        webhookNote = `Connected, but webhook subscription failed: ${sub.detail?.message || sub.message || sub.error}`;
+      } else {
+        credentials.webhook_id          = sub.webhook_id;
+        credentials.webhook_signing_key = encryptValue(sub.signing_key);
       }
     }
 

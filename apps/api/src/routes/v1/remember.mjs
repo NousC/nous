@@ -86,7 +86,7 @@ rememberRouter.post('/', async (req, res) => {
         .eq('workspace_id', req.workspaceId);
     }
 
-    logMcpOp(req.workspaceId, { clientType: req.clientType,
+    logMcpOp(req, {
       eventType: 'memory_write',
       summary: `[${category}] ${resolvedContent.slice(0, 80)}${resolvedContent.length > 80 ? '…' : ''}${supersededId ? ' · superseded' : ''}`,
       contactId: resolvedContactId || null,

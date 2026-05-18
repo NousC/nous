@@ -20,7 +20,7 @@ memoriesRouter.get('/', async (req, res) => {
     });
     const count = memories.length;
     const cat = req.query.category;
-    logMcpOp(req.workspaceId, { clientType: req.clientType,
+    logMcpOp(req, {
       eventType: 'workspace_memory_read',
       summary: `${count} workspace fact${count !== 1 ? 's' : ''}${cat ? ` · ${cat}` : ''}`,
     });

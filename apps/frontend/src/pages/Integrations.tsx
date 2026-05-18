@@ -431,6 +431,12 @@ export default function Integrations() {
       logo_url: "/provider-logos/fathom.svg",
       auth_fields: [{ name: "api_key", label: "API Key", type: "password", placeholder: "Enter your Fathom API key", description: "Find in Fathom → Settings → Integrations → API Keys" }],
     },
+    {
+      id: "cal_com", name: "cal_com", display_name: "Cal.com",
+      auth_type: "api_key", category: "meetings",
+      logo_url: "/provider-logos/cal_com.svg",
+      auth_fields: [{ name: "api_key", label: "API Key", type: "password", placeholder: "Enter your Cal.com API key (cal_live_...)", description: "Find in Cal.com → Settings → Developer → API Keys" }],
+    },
   ];
 
   useEffect(() => {
@@ -904,10 +910,10 @@ export default function Integrations() {
                       )}>
                         {retestingConnection === connection.id ? "Testing…" : connection.is_verified ? "Connected" : "Unverified"}
                       </span>
-                      {provider?.name === "calendly" && connection.webhook_registered && (
+                      {(provider?.name === "calendly" || provider?.name === "cal_com") && connection.webhook_registered && (
                         <>
                           <span className="text-gray-200">·</span>
-                          <span className="text-[11px] font-medium text-emerald-600" title="Calendly webhook subscription auto-registered. Booking/cancellation events flow into your CRM automatically.">Webhook ✓</span>
+                          <span className="text-[11px] font-medium text-emerald-600" title="Webhook subscription auto-registered. Booking/cancellation events flow into your CRM automatically.">Webhook ✓</span>
                         </>
                       )}
                     </div>

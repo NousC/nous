@@ -10,6 +10,7 @@ import { handleFathom } from './handlers/fathom.mjs';
 import { handleRB2B } from './handlers/rb2b.mjs';
 import { handleInstantly } from './handlers/instantly.mjs';
 import { handleCalendly } from './handlers/calendly.mjs';
+import { handleCalCom } from './handlers/calcom.mjs';
 import { handleStripe } from './handlers/stripe.mjs';
 
 export const webhookRouter = Router();
@@ -103,6 +104,16 @@ webhookRouter.post(['/calendly/:workspaceId', '/calendly'], (req, res) => {
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id_required' });
   handleCalendly(req, res, workspaceId).catch(err => {
     console.error('[WEBHOOK/calendly]', err);
+    res.status(500).json({ error: 'internal_error' });
+  });
+});
+
+// Cal.com — signature verification in handler (x-cal-signature-256, per-workspace secret)
+webhookRouter.post(['/cal_com/:workspaceId', '/cal_com'], (req, res) => {
+  const workspaceId = req.params.workspaceId || req.query.workspace_id;
+  if (!workspaceId) return res.status(400).json({ error: 'workspace_id_required' });
+  handleCalCom(req, res, workspaceId).catch(err => {
+    console.error('[WEBHOOK/cal_com]', err);
     res.status(500).json({ error: 'internal_error' });
   });
 });

@@ -670,6 +670,64 @@ async function scanCalendly(supabase, workspaceId, contact, pat, userUri) {
   }
 }
 
+// ── Cal.com ───────────────────────────────────────────────────────────────────
+
+const CAL_COM_API_VERSION = '2026-05-01';
+
+async function scanCalCom(supabase, workspaceId, contact, pat) {
+  if (!contact.email || !pat) return 0;
+  try {
+    const url = new URL('https://api.cal.com/v2/bookings');
+    url.searchParams.set('attendeeEmail', contact.email);
+    url.searchParams.set('limit', '100');
+
+    const res = await fetch(url.toString(), {
+      headers: {
+        Authorization:     `Bearer ${pat}`,
+        'cal-api-version': CAL_COM_API_VERSION,
+      },
+    });
+    if (!res.ok) return 0;
+
+    const body = await res.json();
+    // v2 wraps in `data`. The bookings list may be `data.bookings` or just `data`.
+    const list = body?.data?.bookings || body?.data || body?.bookings || [];
+
+    let logged = 0;
+    for (const b of list) {
+      const bookingUid = b.uid || b.bookingUid;
+      if (!bookingUid) continue;
+      const isCanceled = (b.status || '').toLowerCase() === 'cancelled';
+      const occurredAt = b.start || b.startTime || new Date().toISOString();
+      const title = b.title || b.eventType?.title || 'Meeting';
+
+      const r = await logActivity(supabase, {
+        workspaceId,
+        contactId:   contact.id,
+        companyId:   contact.company_id || null,
+        type:        isCanceled ? 'meeting_cancelled' : 'meeting_scheduled',
+        source:      'cal_com',
+        externalId:  `cal_com_${isCanceled ? 'cancel' : 'book'}_${bookingUid}`,
+        occurredAt,
+        description: isCanceled ? `Cancelled: ${title}` : `Booked: ${title}`,
+        rawData:     {
+          meeting_name: title,
+          start_time:   b.start || b.startTime,
+          end_time:     b.end   || b.endTime,
+          booking_uid:  bookingUid,
+          status:       b.status,
+        },
+      });
+      if (r) logged++;
+    }
+    console.log(`[ENRICH_CAL_COM] ${contact.email}: ${logged} logged`);
+    return logged;
+  } catch (e) {
+    console.error(`[ENRICH_CAL_COM] ${contact.email}:`, e.message);
+    return 0;
+  }
+}
+
 // ── Main export ───────────────────────────────────────────────────────────────
 
 export async function enrichContactHistory(supabase, workspaceId, contactIds, jobId = null) {
@@ -700,6 +758,8 @@ export async function enrichContactHistory(supabase, workspaceId, contactIds, jo
     ? decrypt(connections.calendly.encrypted_credentials.api_key) : null;
   // Resolved once per run — needed as a query param on every /scheduled_events call.
   const calendlyUserUri = calendlyPat ? await fetchCalendlyUserUri(calendlyPat) : null;
+  const calComPat      = connections.cal_com?.encrypted_credentials?.api_key
+    ? decrypt(connections.cal_com.encrypted_credentials.api_key) : null;
 
   // Pre-fetch LinkedIn attendee map once for the whole batch
   let attendeeMap = { byUrl: new Map(), byMemberId: new Map(), connectedAt: new Map(), connectedAtByMemberId: new Map() };
@@ -724,6 +784,7 @@ export async function enrichContactHistory(supabase, workspaceId, contactIds, jo
           fireflies: makeSource(!!firefliesKey),
           fathom:    makeSource(!!fathomKey),
           calendly:  makeSource(!!calendlyPat && !!calendlyUserUri),
+          cal_com:   makeSource(!!calComPat),
         },
       })),
       done: false,
@@ -811,6 +872,13 @@ export async function enrichContactHistory(supabase, workspaceId, contactIds, jo
         const n = await scanCalendly(supabase, workspaceId, contact, calendlyPat, calendlyUserUri);
         setSource(contact.id, 'calendly', 'done', n);
         logScanEvent('calendly', n, contactName);
+        count += n;
+      }
+      if (calComPat) {
+        setSource(contact.id, 'cal_com', 'scanning');
+        const n = await scanCalCom(supabase, workspaceId, contact, calComPat);
+        setSource(contact.id, 'cal_com', 'done', n);
+        logScanEvent('cal_com', n, contactName);
         count += n;
       }
 

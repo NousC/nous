@@ -135,9 +135,29 @@ app.use((err, _req, res, _next) => {
 
 export { app };
 
+// Idempotent provider seed — adds new providers that ship after the initial
+// schema.sql was applied. Safe to run on every boot.
+async function bootstrapProviders() {
+  try {
+    const { getSupabaseClient } = await import('@proply/core');
+    const supabase = getSupabaseClient();
+    await supabase
+      .from('workflow_providers')
+      .upsert(
+        [
+          { name: 'cal_com', display_name: 'Cal.com', category: 'meetings' },
+        ],
+        { onConflict: 'name', ignoreDuplicates: true }
+      );
+  } catch (err) {
+    console.warn('[BOOTSTRAP] provider seed skipped:', err.message);
+  }
+}
+
 // Only start the server when run directly, not when imported by tests
 import { fileURLToPath } from 'url';
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const PORT = process.env.PORT ?? 3000;
+  bootstrapProviders();
   app.listen(PORT, () => console.log(`Proply API running on :${PORT}`));
 }

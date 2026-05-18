@@ -28,7 +28,7 @@ contactsRouter.get('/', async (req, res) => {
     });
     const count = (result.contacts ?? []).length;
     const stage = req.query.pipeline_stage || req.query.stage;
-    logMcpOp(req.workspaceId, { clientType: req.clientType,
+    logMcpOp(req, {
       eventType: 'contact_list',
       summary: `${count} contact${count !== 1 ? 's' : ''}${stage ? ` · ${stage}` : ''}`,
     });
@@ -53,7 +53,7 @@ contactsRouter.get('/:id', async (req, res) => {
       contact.pipeline_stage,
       contact.icp_score != null ? `ICP ${contact.icp_score}` : null,
     ].filter(Boolean);
-    logMcpOp(req.workspaceId, { clientType: req.clientType,
+    logMcpOp(req, {
       eventType: 'contact_read',
       summary: [...nameParts, ...scoreParts].join(' · '),
       contactId: contact.id || contact.contact_id,
@@ -193,7 +193,7 @@ contactsRouter.post('/', async (req, res) => {
       email, first_name, last_name, company, job_title, phone, linkedin_url, notes,
     });
     const nameParts = [contact.name || email, job_title, company].filter(Boolean);
-    logMcpOp(req.workspaceId, { clientType: req.clientType,
+    logMcpOp(req, {
       eventType: 'contact_create',
       summary: nameParts.join(' · '),
       contactId: contact.id,
@@ -212,7 +212,7 @@ contactsRouter.patch('/:id', async (req, res) => {
     const contact = await updateContact(getSupabaseClient(), req.workspaceId, req.params.id, req.body);
     if (!contact) return res.status(404).json({ error: 'contact_not_found' });
     const changed = Object.keys(req.body).filter(k => req.body[k] != null).join(', ');
-    logMcpOp(req.workspaceId, { clientType: req.clientType,
+    logMcpOp(req, {
       eventType: 'contact_update',
       summary: `${contact.name || contact.email} · updated ${changed}`,
       contactId: contact.id,
@@ -229,7 +229,7 @@ contactsRouter.delete('/:id', async (req, res) => {
   try {
     const result = await deleteContact(getSupabaseClient(), req.workspaceId, req.params.id);
     if (!result) return res.status(404).json({ error: 'contact_not_found' });
-    logMcpOp(req.workspaceId, { clientType: req.clientType,
+    logMcpOp(req, {
       eventType: 'contact_delete',
       summary: result.email || req.params.id,
     });

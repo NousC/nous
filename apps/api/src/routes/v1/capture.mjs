@@ -80,7 +80,7 @@ captureRouter.post('/', async (req, res) => {
       .eq('id', contact.id)
       .single();
 
-    logMcpOp(req.workspaceId, { clientType: req.clientType,
+    logMcpOp(req, {
       eventType: 'activity_track',
       summary: `${type}${description ? `: ${description.slice(0, 70)}` : ''}`,
       contactId: contact.id,
