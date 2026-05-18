@@ -1643,7 +1643,9 @@ const LOGO_FALLBACK: Record<string, string> = {
 const DARK_LOGOS = new Set(["apollo", "cal_com", "calcom", "cal.com", "notion", "linear", "anthropic"]);
 
 function IntegrationLogo({ url, name, size=28 }: { url?: string; name: string; size?: number }) {
-  const key = name.toLowerCase().replace(/[^a-z._]/g, "");
+  // Keep digits — provider names like rb2b would otherwise be normalised to "rbb"
+  // and miss the LOGO_FALLBACK lookup.
+  const key = name.toLowerCase().replace(/[^a-z0-9._]/g, "");
   const src = url || LOGO_FALLBACK[key] || LOGO_FALLBACK[key.split(".")[0]];
   const isDark = DARK_LOGOS.has(key) || DARK_LOGOS.has(key.split(".")[0]);
   if (src) {
