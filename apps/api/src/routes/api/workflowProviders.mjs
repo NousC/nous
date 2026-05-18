@@ -624,19 +624,31 @@ workflowProvidersRouter.post('/:name/connect', verifySupabaseAuth, async (req, r
     // our worker at /inbound/calendly/:workspaceId. Store the subscription URI
     // (so we can unsubscribe on delete) and the signing key (encrypted, used
     // by the worker to verify Calendly-Webhook-Signature on every inbound).
+    //
+    // Calendly gates this API to paid tiers (Standard+). Free accounts get
+    // 403 — we still save the connection so backfill scans work; the user
+    // just won't get realtime booking notifications.
+    let webhookNote = null;
     if (name === 'calendly') {
       const sub = await subscribeCalendlyWebhook(api_key, workspace_id);
       if (sub.error) {
         console.error('[CALENDLY_CONNECT] subscribe failed:', sub.error, sub.detail || sub.message);
+        const planGated = sub.detail?.message?.toLowerCase().includes('upgrade')
+          || sub.error?.includes('403');
+        webhookNote = planGated
+          ? 'Connected. Note: Calendly webhook subscriptions require a Standard plan or higher — realtime booking notifications are disabled, but past meetings still backfill on CSV import.'
+          : `Connected, but webhook subscription failed: ${sub.detail?.message || sub.message || sub.error}`;
       } else {
         credentials.webhook_subscription_uri = sub.subscription_uri;
         credentials.webhook_signing_key      = encryptValue(sub.signing_key);
       }
     }
 
+    // Upsert (not insert) — re-saving the same provider name updates instead
+    // of failing with a unique-constraint violation.
     const { data, error } = await supabase
       .from('workflow_provider_connections')
-      .insert({
+      .upsert({
         workspace_id,
         provider_id: provider.id,
         name: connName || name,
@@ -644,12 +656,12 @@ workflowProvidersRouter.post('/:name/connect', verifySupabaseAuth, async (req, r
         created_by: req.internalUserId,
         is_verified: true,
         last_test_at: new Date().toISOString(),
-      })
+      }, { onConflict: 'workspace_id,provider_id,name' })
       .select('id, workspace_id, provider_id, name, created_at, is_verified')
       .single();
 
     if (error) throw error;
-    return res.json({ connection: data });
+    return res.json({ connection: data, note: webhookNote });
   } catch (err) {
     console.error(`[POST /:name/connect ${req.params.name}]`, err.message, err.code);
     return res.status(500).json({ error: 'internal_error', message: err.message });
