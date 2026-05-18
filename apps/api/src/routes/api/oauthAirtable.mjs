@@ -34,7 +34,7 @@ oauthAirtableRouter.get('/authorize', verifySupabaseAuth, async (req, res) => {
 
   const { verifier, challenge } = pkce();
   const state = crypto.randomBytes(32).toString('hex');
-  states.set(state, { workspaceId: workspace_id, userId: req.supabaseUser.id, verifier, timestamp: Date.now() });
+  states.set(state, { workspaceId: workspace_id, userId: req.internalUserId, verifier, timestamp: Date.now() });
 
   const url = new URL('https://airtable.com/oauth2/v1/authorize');
   url.searchParams.set('client_id',              (process.env.AIRTABLE_CLIENT_ID || '').trim());

@@ -29,7 +29,7 @@ oauthGoogleRouter.get('/gmail/authorize', verifySupabaseAuth, async (req, res) =
   if (!process.env.GOOGLE_CLIENT_ID) return res.status(500).json({ error: 'google_oauth_not_configured' });
 
   const state = crypto.randomBytes(32).toString('hex');
-  oauthStates.set(state, { workspaceId, connectionName, userId: req.supabaseUser.id, timestamp: Date.now() });
+  oauthStates.set(state, { workspaceId, connectionName, userId: req.internalUserId, timestamp: Date.now() });
 
   const authUrl = makeOAuth2Client().generateAuthUrl({
     access_type: 'offline',

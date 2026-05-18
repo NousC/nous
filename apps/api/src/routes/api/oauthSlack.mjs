@@ -32,7 +32,7 @@ oauthSlackRouter.get('/authorize', verifySupabaseAuth, async (req, res) => {
   oauthStates.set(state, {
     workspaceId,
     connectionName: connectionName || 'Slack',
-    userId: req.supabaseUser.id,
+    userId: req.internalUserId,
     timestamp: Date.now(),
   });
 

@@ -44,6 +44,7 @@ export async function verifySupabaseAuth(req, res, next) {
   }
 
   if (!internalUserId) internalUserId = user.id;
+  req.internalUserId = internalUserId;
 
   // Resolve workspace from query param or body (accept both camelCase and snake_case)
   const workspaceId = req.query.workspaceId || req.query.workspace_id || req.body?.workspaceId || req.body?.workspace_id;
