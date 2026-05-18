@@ -416,7 +416,7 @@ workflowProvidersRouter.get('/slack/channels', verifySupabaseAuth, async (req, r
 // Providers connectable via the simplified /:name/test + /:name/connect endpoints
 // (used by the Mind popup quick-connect flow). Anything not in this list still works
 // via the generic /connections endpoint used by Settings → Integrations.
-const NAMED_PROVIDERS = ['apollo', 'instantly', 'lemlist', 'prospeo', 'hubspot', 'pipedrive', 'attio', 'calendly'];
+const NAMED_PROVIDERS = ['apollo', 'instantly', 'lemlist', 'prospeo', 'hubspot', 'pipedrive', 'attio', 'calendly', 'fireflies', 'fathom'];
 
 function workerBaseUrl() {
   return (process.env.WORKER_URL
@@ -557,6 +557,25 @@ async function testNamedProvider(name, apiKey) {
       return { verified: true, message: `Connected as ${who}` };
     }
     return { verified: false, message: `Calendly returned ${r.status} — check your personal access token` };
+  }
+
+  if (name === 'fireflies') {
+    const r = await fetch('https://api.fireflies.ai/graphql', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body:    JSON.stringify({ query: '{ user { name email } }' }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (d.data?.user?.email) return { verified: true, message: `Connected as ${d.data.user.email}` };
+    return { verified: false, message: d.errors?.[0]?.message || 'Invalid Fireflies API key' };
+  }
+
+  if (name === 'fathom') {
+    const r = await fetch('https://api.fathom.ai/external/v1/meetings?limit=1', {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    if (r.ok) return { verified: true, message: 'Connected to Fathom' };
+    return { verified: false, message: `Fathom returned ${r.status} — check your API key` };
   }
 
   return { verified: false, message: 'Unknown provider' };

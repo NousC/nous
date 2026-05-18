@@ -1631,6 +1631,7 @@ const LOGO_FALLBACK: Record<string, string> = {
   instantly: "/provider-logos/instantly.svg",
   rb2b: "/provider-logos/rb2b.svg",
   fireflies: "/provider-logos/fireflies.svg",
+  fathom: "/provider-logos/fathom.svg",
   calendly: "/provider-logos/calendly.svg",
 };
 
@@ -1656,9 +1657,11 @@ const MIND_HARDCODED_PROVIDERS: AvailableProvider[] = [
   { id:"lemlist",    name:"lemlist",    display_name:"Lemlist",    logo_url:"/provider-logos/lemlist.svg",    category:"outbound"     },
   { id:"apollo",     name:"apollo",     display_name:"Apollo",     logo_url:"/provider-logos/apollo.svg",     category:"enrichment"   },
   { id:"prospeo",    name:"prospeo",    display_name:"Prospeo",    logo_url:"/provider-logos/prospeo.svg",    category:"enrichment"   },
+  { id:"fireflies", name:"fireflies", display_name:"Fireflies.ai", logo_url:"/provider-logos/fireflies.svg", category:"meetings"     },
+  { id:"fathom",    name:"fathom",    display_name:"Fathom",       logo_url:"/provider-logos/fathom.svg",    category:"meetings"     },
 ];
 // salesforce hidden until backend OAuth setup is documented & shipped — backend stays wired
-const MIND_EXCLUDED = new Set(["assetly","gmail","mailchimp","google_analytics","granola","notion","clickup","openai","gemini","google","fireflies","calendly","rb2b","fathom","anthropic","stripe","signalbase","salesforce"]);
+const MIND_EXCLUDED = new Set(["assetly","gmail","mailchimp","google_analytics","granola","notion","clickup","openai","gemini","google","rb2b","anthropic","stripe","signalbase","salesforce"]);
 
 // Category display order + labels in the integration picker
 const MIND_CATEGORY_ORDER = ["crm","outbound","enrichment","meetings","communication","database","ai","analytics","productivity","other"] as const;

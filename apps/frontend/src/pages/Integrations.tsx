@@ -419,6 +419,18 @@ export default function Integrations() {
       logo_url: "/provider-logos/prospeo.svg",
       auth_fields: [{ name: "api_key", label: "API Key", type: "password", placeholder: "Enter your Prospeo API key", description: "Find in Prospeo → Settings → API Key" }],
     },
+    {
+      id: "fireflies", name: "fireflies", display_name: "Fireflies.ai",
+      auth_type: "api_key", category: "meetings",
+      logo_url: "/provider-logos/fireflies.svg",
+      auth_fields: [{ name: "api_key", label: "API Key", type: "password", placeholder: "Enter your Fireflies API key", description: "Find in Fireflies → Settings → Developer Settings → API Key" }],
+    },
+    {
+      id: "fathom", name: "fathom", display_name: "Fathom",
+      auth_type: "api_key", category: "meetings",
+      logo_url: "/provider-logos/fathom.svg",
+      auth_fields: [{ name: "api_key", label: "API Key", type: "password", placeholder: "Enter your Fathom API key", description: "Find in Fathom → Settings → Integrations → API Keys" }],
+    },
   ];
 
   useEffect(() => {
@@ -435,7 +447,7 @@ export default function Integrations() {
       if (pr.ok) {
         const d = await pr.json();
         const list = d.providers || d || [];
-        const excluded = ["assetly","gmail","mailchimp","google_analytics","granola","notion","clickup","openai","gemini","google","fireflies","calendly","rb2b","fathom","anthropic","stripe","signalbase","salesforce"];
+        const excluded = ["assetly","gmail","mailchimp","google_analytics","granola","notion","clickup","openai","gemini","google","rb2b","anthropic","stripe","signalbase","salesforce"];
         const filtered = list.filter((p: any) => p.auth_type !== "none" && !excluded.includes(p.name));
         // HARDCODED_PROVIDERS always win (correct labels/category); strip DB versions of hardcoded names
         const hardcodedNames = new Set(HARDCODED_PROVIDERS.map(h => h.name));
