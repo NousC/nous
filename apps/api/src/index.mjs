@@ -135,8 +135,10 @@ app.use((err, _req, res, _next) => {
 
 export { app };
 
-// Idempotent provider seed — adds new providers that ship after the initial
-// schema.sql was applied. Safe to run on every boot.
+// Idempotent provider seed — both adds new providers and normalizes the
+// category/display_name for existing ones that may have shipped with the
+// wrong values (e.g. apollo originally seeded as 'analytics' on some
+// deployments). Safe to run on every boot.
 async function bootstrapProviders() {
   try {
     const { getSupabaseClient } = await import('@proply/core');
@@ -145,9 +147,14 @@ async function bootstrapProviders() {
       .from('workflow_providers')
       .upsert(
         [
-          { name: 'cal_com', display_name: 'Cal.com', category: 'meetings' },
+          { name: 'cal_com',   display_name: 'Cal.com',      category: 'meetings'   },
+          { name: 'apollo',    display_name: 'Apollo.io',    category: 'enrichment' },
+          { name: 'prospeo',   display_name: 'Prospeo',      category: 'enrichment' },
+          { name: 'fireflies', display_name: 'Fireflies.ai', category: 'meetings'   },
+          { name: 'fathom',    display_name: 'Fathom',       category: 'meetings'   },
+          { name: 'calendly',  display_name: 'Calendly',     category: 'meetings'   },
         ],
-        { onConflict: 'name', ignoreDuplicates: true }
+        { onConflict: 'name' }   // overwrite — fixes stale categories on every boot
       );
   } catch (err) {
     console.warn('[BOOTSTRAP] provider seed skipped:', err.message);

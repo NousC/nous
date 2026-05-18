@@ -1638,10 +1638,25 @@ const LOGO_FALLBACK: Record<string, string> = {
   "cal.com": "/provider-logos/cal_com.svg",
 };
 
+// Logos whose marks are predominantly black/dark — they need a light tile
+// underneath them on Mind's dark theme or they're invisible.
+const DARK_LOGOS = new Set(["apollo", "cal_com", "calcom", "cal.com", "notion", "linear", "anthropic"]);
+
 function IntegrationLogo({ url, name, size=28 }: { url?: string; name: string; size?: number }) {
-  const key = name.toLowerCase().replace(/[^a-z.]/g, "");
+  const key = name.toLowerCase().replace(/[^a-z._]/g, "");
   const src = url || LOGO_FALLBACK[key] || LOGO_FALLBACK[key.split(".")[0]];
+  const isDark = DARK_LOGOS.has(key) || DARK_LOGOS.has(key.split(".")[0]);
   if (src) {
+    if (isDark) {
+      return (
+        <div className="rounded bg-white flex items-center justify-center flex-shrink-0 border border-border/20"
+          style={{ width: size, height: size }}>
+          <img src={src} alt={name} className="object-contain"
+            style={{ width: size * 0.7, height: size * 0.7 }}
+            onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />
+        </div>
+      );
+    }
     return <img src={src} alt={name} className="rounded object-contain flex-shrink-0"
       style={{ width: size, height: size }}
       onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />;

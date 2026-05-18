@@ -5598,7 +5598,7 @@ function IntegrationsSection({ session }: { session: any }) {
         const providersData = await providersRes.json();
         // Show all providers that require authentication (excluding internal and deprecated providers)
         const providersList = providersData.providers || providersData || [];
-        const excludedProviders = ['assetly', 'gmail', 'mailchimp', 'google_analytics', 'granola', 'notion', 'clickup', 'openai', 'gemini', 'google'];
+        const excludedProviders = ['assetly', 'gmail', 'mailchimp', 'google_analytics', 'granola', 'notion', 'clickup', 'openai', 'gemini', 'google', 'stripe', 'anthropic', 'signalbase'];
         setProviders(providersList.filter((p: any) => p.auth_type !== 'none' && !excludedProviders.includes(p.name)));
       }
 

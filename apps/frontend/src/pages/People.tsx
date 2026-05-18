@@ -40,6 +40,7 @@ import {
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/sonner";
+import AirtableSyncConfig from "@/components/AirtableSyncConfig";
 
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -1321,6 +1322,8 @@ export default function People() {
   const [dragOver, setDragOver]        = useState(false);
   const [crmImporting, setCrmImporting] = useState<'hubspot' | null>(null);
   const [crmImportResult, setCrmImportResult] = useState<{ provider: string; imported: number } | null>(null);
+  const [airtableSyncConn, setAirtableSyncConn] = useState<{ id: string; name: string } | null>(null);
+  const [openingAirtable, setOpeningAirtable] = useState(false);
   const importRef = useRef<HTMLInputElement>(null);
   const [importStep, setImportStep]       = useState<'upload' | 'mapping' | 'scanning'>('upload');
   const [enrichJobId, setEnrichJobId]     = useState<string | null>(null);
@@ -1829,6 +1832,31 @@ export default function People() {
     }
   };
 
+  // Open the Airtable sync config dialog (base/table picker + push rules).
+  // If there's no Airtable connection yet, route to /integrations to set one up first.
+  const handleAirtableImport = async () => {
+    if (!session?.access_token || !workspaceId) return;
+    setOpeningAirtable(true);
+    try {
+      const r = await fetch(`${apiUrl}/api/workflow-providers/connections?workspace_id=${workspaceId}`, {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      const d = await r.json();
+      const conn = (d.connections || []).find((c: any) => c.provider?.name === 'airtable');
+      if (!conn) {
+        toast.error('Connect Airtable first in Integrations');
+        window.location.href = '/integrations';
+        return;
+      }
+      setAirtableSyncConn({ id: conn.id, name: conn.name });
+      setShowImportModal(false);
+    } catch {
+      toast.error('Failed to open Airtable importer');
+    } finally {
+      setOpeningAirtable(false);
+    }
+  };
+
   // ── Delete selected ──────────────────────────────────────────────────────────
   const deleteChecked = async () => {
     if (!session?.access_token || checked.size === 0 || deleting) return;
@@ -2186,6 +2214,26 @@ export default function People() {
                     ))}
                   </div>
                   <p className="text-[11px] text-gray-400 mt-1.5">Connect a CRM first in <a href="/integrations" className="text-teal-600 hover:underline">Integrations</a> to import contacts.</p>
+                </div>
+
+                {/* Database import */}
+                <div className="mt-4">
+                  <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-2">Database</p>
+                  <button
+                    onClick={handleAirtableImport}
+                    disabled={openingAirtable}
+                    className="flex items-center gap-2 w-full px-3 py-2.5 rounded-xl border border-gray-200 bg-gray-50 hover:border-gray-300 hover:bg-white transition-all disabled:opacity-50"
+                  >
+                    {openingAirtable
+                      ? <Loader2 className="h-4 w-4 animate-spin text-gray-400 shrink-0" />
+                      : <img src="/provider-logos/airtable.svg" alt="Airtable" className="h-4 w-4 object-contain shrink-0" />
+                    }
+                    <span className="text-[12px] font-medium text-gray-700">
+                      {openingAirtable ? 'Opening…' : 'Airtable'}
+                    </span>
+                    <span className="ml-auto text-[11px] text-gray-400">pick base &amp; table →</span>
+                  </button>
+                  <p className="text-[11px] text-gray-400 mt-1.5">Pull contacts from any Airtable base. Connect Airtable first in <a href="/integrations" className="text-teal-600 hover:underline">Integrations</a>.</p>
                 </div>
               </div>
             ) : (
@@ -2556,6 +2604,16 @@ export default function People() {
           </div>
         )}
       </div>
+
+      {airtableSyncConn && workspaceId && (
+        <AirtableSyncConfig
+          open={!!airtableSyncConn}
+          onClose={() => { setAirtableSyncConn(null); fetchPeople(); }}
+          workspaceId={workspaceId}
+          connectionId={airtableSyncConn.id}
+          connectionName={airtableSyncConn.name}
+        />
+      )}
     </div>
   );
 }
