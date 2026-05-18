@@ -244,7 +244,7 @@ const WEBHOOK_SOURCES: {
     hint: "Integrations → Webhooks → Add webhook → select triggers below",
     events: [
       { label: "Meeting Transcribed", description: "Transcript is ready after a meeting" },
-      { label: "Meeting Summarized",  description: "AI summary is ready — Proply logs activity for all participants" },
+      { label: "Meeting Summarized",  description: "AI summary is ready — Nous logs activity for all participants" },
     ],
     eventBody: `{
   "meetingId": "ff_abc123",
@@ -262,7 +262,7 @@ const WEBHOOK_SOURCES: {
     logo: "/provider-logos/calendly.svg", category: "meetings",
     hint: "Integrations & apps → API & Webhooks → Webhook Subscriptions → New Webhook",
     events: [
-      { label: "Invitee Created", description: "Someone books a meeting — Proply logs meeting_scheduled for matching contact" },
+      { label: "Invitee Created", description: "Someone books a meeting — Nous logs meeting_scheduled for matching contact" },
     ],
     eventBody: `{
   "event": "invitee.created",
@@ -291,7 +291,7 @@ const WEBHOOK_SOURCES: {
       { label: "Contact Created",          description: "New contact created in HubSpot" },
       { label: "Contact Property Changed", description: "Lifecycle stage or owner changed" },
       { label: "Deal Created",             description: "New deal → moves contact to Evaluating" },
-      { label: "Deal Property Changed",    description: "Deal stage update synced to Proply" },
+      { label: "Deal Property Changed",    description: "Deal stage update synced to Nous" },
     ],
     eventBody: `[{
   "subscriptionType": "contact.propertyChange",
@@ -306,7 +306,7 @@ const WEBHOOK_SOURCES: {
     logo: "/provider-logos/rb2b.svg", category: "intelligence",
     hint: "Integrations → Webhooks → paste URL",
     events: [
-      { label: "Visitor Identified", description: "RB2B de-anonymised a website visitor — Proply creates the contact" },
+      { label: "Visitor Identified", description: "RB2B de-anonymised a website visitor — Nous creates the contact" },
     ],
     eventBody: `{
   "person": {
@@ -326,7 +326,7 @@ const WEBHOOK_SOURCES: {
     logo: "/provider-logos/fathom.svg", category: "meetings",
     hint: "Settings → Webhooks → Add Webhook",
     events: [
-      { label: "Meeting Recorded", description: "Recording is ready — Proply logs meeting_held for all participants" },
+      { label: "Meeting Recorded", description: "Recording is ready — Nous logs meeting_held for all participants" },
     ],
     eventBody: `{
   "title": "Discovery call with Acme",
@@ -709,10 +709,10 @@ export default function Integrations() {
       if (!resp.ok) {
         const body = await resp.json().catch(() => ({}));
         const notConfigured: Record<string, string> = {
-          google_oauth_not_configured: "Gmail requires Google OAuth setup — add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to proply.env. See docs → Providers → Gmail.",
-          slack_not_configured:        "Slack requires OAuth setup — add SLACK_CLIENT_ID and SLACK_CLIENT_SECRET to proply.env. See docs → Providers → Slack.",
-          airtable_not_configured:     "Airtable requires OAuth setup — add AIRTABLE_CLIENT_ID and AIRTABLE_CLIENT_SECRET to proply.env. See docs → Providers → Airtable.",
-          linkedin_not_configured:     "LinkedIn requires Unipile setup — add UNIPILE_API_KEY and UNIPILE_DSN to proply.env. See docs → Providers → LinkedIn.",
+          google_oauth_not_configured: "Gmail requires Google OAuth setup — add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to nous.env. See docs → Providers → Gmail.",
+          slack_not_configured:        "Slack requires OAuth setup — add SLACK_CLIENT_ID and SLACK_CLIENT_SECRET to nous.env. See docs → Providers → Slack.",
+          airtable_not_configured:     "Airtable requires OAuth setup — add AIRTABLE_CLIENT_ID and AIRTABLE_CLIENT_SECRET to nous.env. See docs → Providers → Airtable.",
+          linkedin_not_configured:     "LinkedIn requires Unipile setup — add UNIPILE_API_KEY and UNIPILE_DSN to nous.env. See docs → Providers → LinkedIn.",
         };
         throw new Error(notConfigured[body.error] || body.message || "Failed to initiate OAuth");
       }
@@ -785,7 +785,7 @@ export default function Integrations() {
           ? { ...c, encrypted_credentials: { ...c.encrypted_credentials, use_for_enrichment: enabled } }
           : c
       ));
-      toast.success(enabled ? "Using your Apollo credits for enrichment" : "Switched to Proply's built-in enrichment");
+      toast.success(enabled ? "Using your Apollo credits for enrichment" : "Switched to Nous's built-in enrichment");
     } catch { toast.error("Failed to update enrichment setting"); }
     finally { setTogglingEnrichment(false); }
   };
@@ -1358,7 +1358,7 @@ export default function Integrations() {
 
                     {/* Events subscribed */}
                     <div>
-                      <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest mb-2">Events Proply listens for</p>
+                      <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest mb-2">Events Nous listens for</p>
                       <div className="flex flex-wrap gap-1.5">
                         {w.events.map(ev => (
                           <span key={ev.label} className="px-2.5 py-1 bg-gray-100 text-gray-700 text-[12px] font-medium rounded-lg">{ev.label}</span>
@@ -1466,7 +1466,7 @@ export default function Integrations() {
                         <p className="text-[11px] text-gray-500 mt-0.5 leading-relaxed">
                           {viewingConnection.encrypted_credentials?.use_for_enrichment
                             ? "On — enrichment uses your Apollo credits"
-                            : "Off — enrichment uses your connected Prospeo key (or Proply's built-in)"}
+                            : "Off — enrichment uses your connected Prospeo key (or Nous's built-in)"}
                         </p>
                       </div>
                       <Switch
@@ -1491,7 +1491,7 @@ export default function Integrations() {
                   <div className="rounded-xl border border-gray-200 bg-gray-50 p-3.5">
                     <p className="text-[12px] font-semibold text-gray-800">SignalBase signals active</p>
                     <p className="text-[11px] text-gray-500 mt-0.5 leading-relaxed">
-                      After every contact enrichment, Proply scans SignalBase for job changes, funding rounds, and hiring signals at their company and logs them as activity.
+                      After every contact enrichment, Nous scans SignalBase for job changes, funding rounds, and hiring signals at their company and logs them as activity.
                     </p>
                   </div>
                 )}

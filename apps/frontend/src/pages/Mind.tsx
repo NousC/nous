@@ -907,7 +907,7 @@ function CompaniesPopup({ companies, workspaceId, token, onClose, onDelete }: { 
       { id:"memory",    label:"Memory",    count:coMems.length },
     ];
     return (
-      <PopupModal label="PROPLY / MIND / COMPANIES" onClose={onClose}>
+      <PopupModal label="NOUS / MIND / COMPANIES" onClose={onClose}>
         <div className="flex" style={{ height:"70vh" }}>
           {/* Main area */}
           <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
@@ -1040,7 +1040,7 @@ function CompaniesPopup({ companies, workspaceId, token, onClose, onDelete }: { 
   }
 
   return (
-    <PopupModal label="PROPLY / MIND / COMPANIES" onClose={onClose}>
+    <PopupModal label="NOUS / MIND / COMPANIES" onClose={onClose}>
       {/* Toolbar */}
       <div className="flex items-center gap-4 px-5 py-2.5 border-b border-border/20">
         <input value={q} onChange={e=>{setQ(e.target.value);setPage(0);}} placeholder="search companies..." autoFocus
@@ -1281,7 +1281,7 @@ function PeopleImportModal({ workspaceId, token, onClose, onDone }: {
         style={{ maxWidth, fontFamily:"'JetBrains Mono',monospace" }}
         onClick={e=>e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-3 border-b border-border/40 flex-shrink-0">
-          <span className="text-[9px] text-muted-foreground/40 tracking-widest">PROPLY / MIND / PEOPLE / IMPORT</span>
+          <span className="text-[9px] text-muted-foreground/40 tracking-widest">NOUS / MIND / PEOPLE / IMPORT</span>
           <button onClick={onClose} className="text-muted-foreground/40 hover:text-foreground/70 transition-colors"><X className="h-3.5 w-3.5"/></button>
         </div>
 
@@ -1514,7 +1514,7 @@ function PeoplePopup({ contacts, onClose, token, onNavigate, workspaceId, defaul
 
   if (detail) {
     return (
-      <PopupModal label="PROPLY / MIND / PEOPLE" onClose={onClose}>
+      <PopupModal label="NOUS / MIND / PEOPLE" onClose={onClose}>
         <PeopleDetail contact={detail} token={token} onBack={() => setDetail(null)} />
       </PopupModal>
     );
@@ -1523,7 +1523,7 @@ function PeoplePopup({ contacts, onClose, token, onNavigate, workspaceId, defaul
   return (
     <>
       {showImport && <PeopleImportModal workspaceId={workspaceId} token={token} onClose={()=>setShowImport(false)} onDone={()=>setShowImport(false)}/>}
-      <PopupModal label="PROPLY / MIND / PEOPLE" onClose={onClose}>
+      <PopupModal label="NOUS / MIND / PEOPLE" onClose={onClose}>
         {/* Toolbar */}
         <div className="flex items-center gap-3 px-5 py-2.5 border-b border-border/20">
           <input value={q} onChange={e=>handleSearch(e.target.value)} placeholder="search people..." autoFocus
@@ -1828,7 +1828,7 @@ function IntegrationsPopup({ integrations, workspaceId, token, onClose }: {
   };
 
   return (
-    <PopupModal label="PROPLY / MIND / INTEGRATIONS" onClose={onClose}>
+    <PopupModal label="NOUS / MIND / INTEGRATIONS" onClose={onClose}>
       {/* Inline connect panel */}
       {connecting ? (
         <div className="px-6 py-5">
@@ -2017,7 +2017,7 @@ function IntegrationsPopup({ integrations, workspaceId, token, onClose }: {
                       <div className={`text-[9px] truncate font-mono ${w.auto_registered ? "text-muted-foreground/25" : "text-muted-foreground/40"}`}>{w.url}</div>
                     </div>
                     {w.auto_registered ? (
-                      <span title="Proply auto-registers this webhook when you connect the integration. URL shown for debugging only — no copy/paste needed."
+                      <span title="Nous auto-registers this webhook when you connect the integration. URL shown for debugging only — no copy/paste needed."
                         className="text-[9px] px-2 py-0.5 border border-emerald-500/20 bg-emerald-500/5 text-emerald-500/70 flex-shrink-0 flex items-center gap-1">
                         <Check className="h-3 w-3" /> auto-registered
                       </span>
@@ -2172,10 +2172,10 @@ function CrmSyncPopup({ integrations, workspaceId, token, onClose, onOpenIntegra
   };
 
   return (
-    <PopupModal label="PROPLY / MIND / CRM" onClose={onClose}>
+    <PopupModal label="NOUS / MIND / CRM" onClose={onClose}>
       <div className="px-5 py-4 border-b border-border/20">
         <p className="text-[10px] text-muted-foreground/50 leading-relaxed">
-          Live feed of what Proply is doing with each connected CRM — activity pushes, contact resolutions, sync runs. Browse the records themselves in your CRM.
+          Live feed of what Nous is doing with each connected CRM — activity pushes, contact resolutions, sync runs. Browse the records themselves in your CRM.
         </p>
       </div>
 
@@ -2232,7 +2232,7 @@ function CrmSyncPopup({ integrations, workspaceId, token, onClose, onOpenIntegra
                       className="h-3 w-3 accent-violet-500"/>
                     auto-sync daily
                   </label>
-                  <label className="flex items-center gap-2 text-[10px] text-muted-foreground/60 cursor-pointer" title="Push Proply touchpoints (meetings, replies, signed proposals) to this CRM as native engagements.">
+                  <label className="flex items-center gap-2 text-[10px] text-muted-foreground/60 cursor-pointer" title="Push Nous touchpoints (meetings, replies, signed proposals) to this CRM as native engagements.">
                     <input type="checkbox" checked={cfg?.push_activities !== false} disabled={togglingPush===provider || !conn.is_verified}
                       onChange={e=>handleTogglePush(conn, e.target.checked)}
                       className="h-3 w-3 accent-violet-500"/>
@@ -2329,7 +2329,7 @@ function MemoryUploadModal({ workspaceId, token, onClose, onDone }: {
       <div className="bg-background border border-border shadow-2xl w-full mx-4" style={{ maxWidth:460, fontFamily:"'JetBrains Mono',monospace" }}
         onClick={e=>e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-3 border-b border-border/40">
-          <span className="text-[9px] text-muted-foreground/40 tracking-widest">PROPLY / MIND / MEMORIES / UPLOAD</span>
+          <span className="text-[9px] text-muted-foreground/40 tracking-widest">NOUS / MIND / MEMORIES / UPLOAD</span>
           <button onClick={onClose} className="text-muted-foreground/40 hover:text-foreground/70 transition-colors"><X className="h-3.5 w-3.5"/></button>
         </div>
         <div className="px-5 py-4 space-y-4">
@@ -2406,7 +2406,7 @@ function MemoriesPopup({ memories, categories, workspaceId, token, onClose }: {
   return (
     <>
       {showUpload && <MemoryUploadModal workspaceId={workspaceId} token={token} onClose={()=>setShowUpload(false)} onDone={()=>setShowUpload(false)} />}
-      <PopupModal label="PROPLY / MIND / MEMORIES" onClose={onClose}>
+      <PopupModal label="NOUS / MIND / MEMORIES" onClose={onClose}>
         {/* search + categories */}
         <div className="border-b border-border/20 px-5 py-3 space-y-3">
           <input value={q} onChange={e=>setQ(e.target.value)} placeholder="search facts..." autoFocus
@@ -2782,7 +2782,7 @@ function SettingsFullPopup({ onClose, initialTab = "profile" }: { onClose: () =>
   ];
 
   return (
-    <PopupModal label="PROPLY / MIND / SETTINGS" onClose={onClose}>
+    <PopupModal label="NOUS / MIND / SETTINGS" onClose={onClose}>
       <div className="flex" style={{ height: "70vh" }}>
         {/* Left nav */}
         <div className="w-40 flex-shrink-0 border-r border-border/20 py-4 flex flex-col">
@@ -3096,8 +3096,8 @@ function CopyButton({ text }: { text: string }) {
     </button>
   );
 }
-const MCP_CONFIG=`{\n  "mcpServers": {\n    "proply": {\n      "command": "npx",\n      "args": ["-y", "@goproply/mcp"],\n      "env": { "PROPLY_API_KEY": "your-api-key" }\n    }\n  }\n}`;
-const SDK_SNIPPET=`npm install @proply/sdk\n\nimport { Proply } from '@proply/sdk';\nconst proply = new Proply('your-api-key');\n\nconst contact = await proply.contacts.get('email@example.com');`;
+const MCP_CONFIG=`{\n  "mcpServers": {\n    "nous": {\n      "command": "npx",\n      "args": ["-y", "@opennous/mcp"],\n      "env": { "NOUS_API_KEY": "your-api-key" }\n    }\n  }\n}`;
+const SDK_SNIPPET=`npm install @nous/sdk\n\nimport { Nous } from '@nous/sdk';\nconst nous = new Nous('your-api-key');\n\nconst contact = await nous.contacts.get('email@example.com');`;
 
 function ConnectModal({ onClose }: { onClose: () => void }) {
   const [tab,setTab]=useState<"mcp"|"sdk">("mcp");
@@ -3107,7 +3107,7 @@ function ConnectModal({ onClose }: { onClose: () => void }) {
         <button onClick={onClose} className="absolute top-3 right-3 text-muted-foreground/40 hover:text-foreground/70 transition-colors"><X className="h-4 w-4"/></button>
         <div className="p-6 space-y-5">
           <div>
-            <div className="text-muted-foreground/40 text-[9px] tracking-widest mb-1">PROPLY / MIND / CONNECT</div>
+            <div className="text-muted-foreground/40 text-[9px] tracking-widest mb-1">NOUS / MIND / CONNECT</div>
             <div className="text-foreground text-sm">Connect an agent to the Mind</div>
           </div>
           <div className="flex gap-1">
@@ -3184,8 +3184,8 @@ export default function Mind() {
       if (popup === "settings") setSettingsTab("profile");
       setPopup(popup as Popup);
     };
-    window.addEventListener("proply:open-popup", handler);
-    return () => window.removeEventListener("proply:open-popup", handler);
+    window.addEventListener("nous:open-popup", handler);
+    return () => window.removeEventListener("nous:open-popup", handler);
   }, []);
 
   const memoriesCategories = useMemo(() => {

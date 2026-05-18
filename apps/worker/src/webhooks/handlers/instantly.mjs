@@ -3,7 +3,7 @@
 // reply_received creates new contacts (a reply = strong intent signal).
 // All other events are update-only.
 
-import { getSupabaseClient } from '@proply/core';
+import { getSupabaseClient } from '@nous/core';
 import { logActivity } from '../../utils/activity.mjs';
 import { resolveContact } from '../../utils/resolveContact.mjs';
 

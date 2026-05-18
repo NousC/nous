@@ -29,7 +29,7 @@ const SignupContent = () => {
   useEffect(() => {
     const ref = searchParams.get("ref") || searchParams.get("affiliate");
     if (ref) {
-      localStorage.setItem("proply_affiliate_ref", ref.toUpperCase());
+      localStorage.setItem("nous_affiliate_ref", ref.toUpperCase());
     }
   }, [searchParams]);
 
@@ -100,7 +100,7 @@ const SignupContent = () => {
 
     const ref = searchParams.get("ref") || searchParams.get("affiliate");
     if (ref) {
-      localStorage.setItem("proply_affiliate_ref", ref.toUpperCase());
+      localStorage.setItem("nous_affiliate_ref", ref.toUpperCase());
     }
 
     const { error } = await signInWithGoogle();

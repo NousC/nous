@@ -6,8 +6,8 @@ import {
   createContact,
   updateContact,
   deleteContact,
-} from '@proply/core';
-import { identifierType } from '@proply/core';
+} from '@nous/core';
+import { identifierType } from '@nous/core';
 import { logMcpOp } from '../../lib/mcpLogger.mjs';
 
 export const contactsRouter = Router();

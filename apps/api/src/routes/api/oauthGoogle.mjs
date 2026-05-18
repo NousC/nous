@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import crypto from 'crypto';
 import { google } from 'googleapis';
-import { getSupabaseClient } from '@proply/core';
+import { getSupabaseClient } from '@nous/core';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
 import { encrypt } from '../../utils/crypto.mjs';
 
@@ -48,7 +48,7 @@ oauthGoogleRouter.get('/gmail/authorize', verifySupabaseAuth, async (req, res) =
 
 // GET /api/oauth/google/callback  — no auth, redirect from Google
 oauthGoogleRouter.get('/callback', async (req, res) => {
-  const frontendUrl = process.env.APP_URL || `https://${process.env.APP_DOMAIN}` || 'https://app.goproply.com';
+  const frontendUrl = process.env.APP_URL || `https://${process.env.APP_DOMAIN}` || 'https://app.opennous.cloud';
   const { code, state, error: oauthError } = req.query;
 
   if (oauthError) return res.redirect(`${frontendUrl}/oauth-callback.html?oauth_error=${oauthError}`);

@@ -67,7 +67,7 @@ export function CompanyDocsPreview({ pendingFiles, setPendingFiles }: CompanyDoc
         {/* Header */}
         <div className="px-6 pt-6 pb-4">
           <h3 className="text-[15px] font-medium text-gray-900">Company Documents</h3>
-          <p className="text-[13px] text-gray-400 mt-0.5">Upload files Proply can reference when generating content</p>
+          <p className="text-[13px] text-gray-400 mt-0.5">Upload files Nous can reference when generating content</p>
         </div>
 
         {/* Drop Zone */}

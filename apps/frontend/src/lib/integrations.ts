@@ -526,7 +526,7 @@ export const INTEGRATIONS: Integration[] = [
     logo: "https://www.google.com/s2/favicons?domain=outlook.com&sz=128",
     category: "Email",
     description: "Connect Outlook to ingest email threads as contact activity signals for GTM agents.",
-    longDescription: "Microsoft Outlook is the email platform used by most enterprise GTM teams. By connecting Outlook, Proply reads your email history per contact and surfaces it as structured memory — so agents always know what was said, when, and what the next step should be.",
+    longDescription: "Microsoft Outlook is the email platform used by most enterprise GTM teams. By connecting Outlook, Nous reads your email history per contact and surfaces it as structured memory — so agents always know what was said, when, and what the next step should be.",
     keyBenefits: [
       "Auto-log email threads as contact activity signals",
       "Agents read email history before every interaction",
@@ -545,7 +545,7 @@ export const INTEGRATIONS: Integration[] = [
     setupSteps: [
       {
         title: "Connect via Microsoft OAuth",
-        description: "Click Connect and authorize Proply to read your Outlook mail. Uses Microsoft's standard OAuth 2.0 — your credentials are never stored."
+        description: "Click Connect and authorize Nous to read your Outlook mail. Uses Microsoft's standard OAuth 2.0 — your credentials are never stored."
       },
       {
         title: "Select contacts to sync",
@@ -559,7 +559,7 @@ export const INTEGRATIONS: Integration[] = [
     apiDocLink: "https://learn.microsoft.com/en-us/graph/api/resources/mail-api-overview",
     faqs: [
       {
-        question: "What permissions does Proply request?",
+        question: "What permissions does Nous request?",
         answer: "We request Mail.Read (read-only) and User.Read. We never send email on your behalf and never modify your mailbox."
       },
       {
@@ -568,7 +568,7 @@ export const INTEGRATIONS: Integration[] = [
       },
       {
         question: "Is my email data secure?",
-        answer: "All tokens are encrypted at rest using AES-256-GCM. We only read the threads associated with contacts already in your Proply workspace."
+        answer: "All tokens are encrypted at rest using AES-256-GCM. We only read the threads associated with contacts already in your Nous workspace."
       }
     ]
   },

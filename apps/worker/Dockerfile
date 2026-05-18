@@ -13,6 +13,6 @@ COPY apps/worker ./apps/worker
 COPY packages/core ./packages/core
 COPY tsconfig.base.json ./
 
-RUN pnpm --filter @proply/core run build
+RUN pnpm --filter @nous/core run build
 
 CMD ["node", "apps/worker/src/index.mjs"]

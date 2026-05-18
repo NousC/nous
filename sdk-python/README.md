@@ -1,19 +1,19 @@
-# proply · Python SDK
+# nous · Python SDK
 
-Official Python SDK for the [Proply](https://goproply.com) API — GTM data infrastructure for agents.
+Official Python SDK for the [Nous](https://opennous.cloud) API — GTM data infrastructure for agents.
 
 ## Install
 
 ```bash
-pip install proply
+pip install nous
 ```
 
 ## Usage
 
 ```python
-from proply import ProplyClient
+from nous import NousClient
 
-client = ProplyClient(api_key="your-api-key")
+client = NousClient(api_key="your-api-key")
 
 # Get full contact profile before acting
 contact = client.get_contact("sarah@acme.com")
@@ -37,16 +37,16 @@ results = client.search("budget concerns")
 Set your API key via env var or pass directly:
 
 ```bash
-export PROPLY_API_KEY=your-api-key
+export NOUS_API_KEY=your-api-key
 ```
 
 ```python
-client = ProplyClient()  # picks up PROPLY_API_KEY automatically
+client = NousClient()  # picks up NOUS_API_KEY automatically
 ```
 
 ## Docs
 
-Full API reference: [docs.goproply.com](https://docs.goproply.com)
+Full API reference: [docs.opennous.cloud](https://docs.opennous.cloud)
 
 ## License
 

@@ -22,7 +22,7 @@ const endpoints: Endpoint[] = [
     method: "POST",
     path: "/api/agent",
     title: "Agent",
-    description: "Send a message to the Proply agent. It creates proposals, sends for signing, manages contacts — all from one endpoint.",
+    description: "Send a message to the Nous agent. It creates proposals, sends for signing, manages contacts — all from one endpoint.",
     category: "Agent",
     sectionId: "agent",
   },

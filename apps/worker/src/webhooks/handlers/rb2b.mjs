@@ -1,6 +1,6 @@
 // RB2B webhook handler — receives de-anonymized website visitor data (public graph signal).
 
-import { getSupabaseClient } from '@proply/core';
+import { getSupabaseClient } from '@nous/core';
 import { logActivity } from '../../utils/activity.mjs';
 import { resolveContact } from '../../utils/resolveContact.mjs';
 

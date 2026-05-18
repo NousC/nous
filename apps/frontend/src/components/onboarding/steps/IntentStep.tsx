@@ -6,19 +6,19 @@ const USE_CASES = [
   {
     id: "sdk",
     label: "Build smarter agents from scratch",
-    desc: "Integrate Proply via SDK into your custom agent stack",
+    desc: "Integrate Nous via SDK into your custom agent stack",
     icon: Code2,
   },
   {
     id: "mcp",
     label: "Connect to my existing agents",
-    desc: "Use the MCP server to plug Proply into Claude or N8N",
+    desc: "Use the MCP server to plug Nous into Claude or N8N",
     icon: Plug,
   },
   {
     id: "gtm",
     label: "Equip my GTM team with AI context",
-    desc: "Use Proply as an internal memory layer for your sales team",
+    desc: "Use Nous as an internal memory layer for your sales team",
     icon: Users,
   },
 ];
@@ -50,7 +50,7 @@ export function IntentStep({
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-2xl font-semibold text-gray-900">How will you use Proply?</h1>
+        <h1 className="text-2xl font-semibold text-gray-900">How will you use Nous?</h1>
         <p className="text-sm text-gray-500 mt-1">This helps us tailor your setup experience.</p>
       </div>
 

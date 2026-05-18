@@ -20,7 +20,7 @@ const USE_CASES = [
 ];
 
 const TOTAL_STEPS = 3;
-const STORAGE_KEY = "proply_onboarding_v4";
+const STORAGE_KEY = "nous_onboarding_v4";
 const API_URL = import.meta.env.VITE_API_URL ?? "";
 
 // ─── CSV helpers ─────────────────────────────────────────────────────────────
@@ -80,14 +80,14 @@ function BrandingPanel() {
         }}
       />
       <div className="relative z-10 flex items-center gap-2.5">
-        <img src="/newlogoP.png" alt="Proply" className="h-8 w-auto" />
+        <img src="/newlogoP.png" alt="Nous" className="h-8 w-auto" />
       </div>
       <div className="relative z-10 max-w-sm">
         <svg className="w-8 h-8 text-gray-600 mb-5" fill="currentColor" viewBox="0 0 24 24">
           <path d="M14.017 21v-7.391c0-5.704 3.748-9.57 8.983-10.609l.995 2.151c-2.432.917-3.995 3.638-3.995 5.849h4v10h-9.983zm-14.017 0v-7.391c0-5.704 3.748-9.57 8.983-10.609l.995 2.151c-2.432.917-3.995 3.638-3.995 5.849h3.983v10h-9.966z" />
         </svg>
         <p className="text-[19px] font-medium text-white leading-[1.55] mb-6">
-          Proply gives our AI agents the sales context they need — contacts, company history, deal signals. It's the memory layer we were missing.
+          Nous gives our AI agents the sales context they need — contacts, company history, deal signals. It's the memory layer we were missing.
         </p>
         <div className="text-sm text-gray-400">
           Trusted by GTM teams and AI builders worldwide
@@ -144,7 +144,7 @@ function Step1Welcome({
     <div className="space-y-7">
       <div>
         <h1 className="text-[26px] font-semibold text-gray-900 leading-tight">
-          Welcome to Proply,<br />let's get to know you
+          Welcome to Nous,<br />let's get to know you
         </h1>
         <p className="text-sm text-gray-500 mt-1.5">
           This helps us set up your AI memory layer correctly.
@@ -261,7 +261,7 @@ function Step2ApiKey({ onNext, onSkip }: Step2ApiKeyProps) {
         </div>
         <h1 className="text-[26px] font-semibold text-gray-900">Create your API key</h1>
         <p className="text-sm text-gray-500 mt-1.5">
-          Your API key lets agents connect to Proply's memory. Create one now so you're ready to build.
+          Your API key lets agents connect to Nous's memory. Create one now so you're ready to build.
         </p>
       </div>
 
@@ -389,7 +389,7 @@ function Step3Contacts({ onNext, onSkip, session, workspaceId }: Step3ContactsPr
       <div>
         <h1 className="text-[26px] font-semibold text-gray-900">Import your contacts</h1>
         <p className="text-sm text-gray-500 mt-1.5">
-          Seed Proply's memory with your existing pipeline. Upload a CSV from your CRM or spreadsheet.
+          Seed Nous's memory with your existing pipeline. Upload a CSV from your CRM or spreadsheet.
         </p>
       </div>
 
@@ -491,7 +491,7 @@ function LoadingScreen({ companyName }: { companyName: string }) {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-[#f5f5f5]">
       <div className="flex flex-col items-center gap-6 w-full max-w-[320px]">
-        <img src="/newlogoP.png" alt="Proply" className="h-10 w-auto" />
+        <img src="/newlogoP.png" alt="Nous" className="h-10 w-auto" />
         <div className="w-full">
           <div className="h-1 bg-gray-200 rounded-full overflow-hidden">
             <div
@@ -576,8 +576,8 @@ export default function Onboarding({ testMode = false }: OnboardingProps) {
         body: JSON.stringify({}),
       });
       localStorage.removeItem(STORAGE_KEY);
-      localStorage.setItem("proply_just_onboarded", "true");
-      localStorage.setItem("proply_onboarding_company_name", companyName.trim());
+      localStorage.setItem("nous_just_onboarded", "true");
+      localStorage.setItem("nous_onboarding_company_name", companyName.trim());
       refreshUserData().catch(console.error);
     } catch { /* non-blocking */ }
     setTimeout(() => navigate("/", { replace: true }), 3200);
@@ -593,7 +593,7 @@ export default function Onboarding({ testMode = false }: OnboardingProps) {
     <div className="min-h-screen flex bg-white">
       <div className="flex-1 flex flex-col">
         <header className="px-8 py-6 flex items-center justify-between">
-          <img src="/newlogoP.png" alt="Proply" className="h-8 w-auto" />
+          <img src="/newlogoP.png" alt="Nous" className="h-8 w-auto" />
           <StepProgress current={step} total={TOTAL_STEPS} />
         </header>
 

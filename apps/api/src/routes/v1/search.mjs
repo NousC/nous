@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getSupabaseClient, searchMemories } from '@proply/core';
+import { getSupabaseClient, searchMemories } from '@nous/core';
 import { logMcpOp } from '../../lib/mcpLogger.mjs';
 
 export const searchRouter = Router();

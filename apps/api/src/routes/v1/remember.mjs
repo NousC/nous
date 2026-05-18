@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import OpenAI from 'openai';
-import { getSupabaseClient, saveMemory } from '@proply/core';
+import { getSupabaseClient, saveMemory } from '@nous/core';
 import { logMcpOp } from '../../lib/mcpLogger.mjs';
 
 export const rememberRouter = Router();

@@ -2,7 +2,7 @@
 // Uses a user token (xoxp-) stored by the Slack OAuth flow.
 // Dedup is handled by externalId (slack_msg_CHANNEL_TS).
 
-import { getSupabaseClient } from '@proply/core';
+import { getSupabaseClient } from '@nous/core';
 import { logActivity } from '../utils/activity.mjs';
 import { decrypt } from '../utils/encryption.mjs';
 

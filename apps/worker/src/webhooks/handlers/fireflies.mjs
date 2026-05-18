@@ -1,7 +1,7 @@
 // Fireflies.ai webhook handler — ported from assetly-blueprint/server/webhooks.mjs
 // Receives meeting transcripts, resolves all participants, logs meeting_held activities.
 
-import { getSupabaseClient } from '@proply/core';
+import { getSupabaseClient } from '@nous/core';
 import { logActivity } from '../../utils/activity.mjs';
 import { resolveContact } from '../../utils/resolveContact.mjs';
 

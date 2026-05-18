@@ -1,15 +1,15 @@
 /**
- * Proply API Client
+ * Nous API Client
  * Thin HTTP wrapper that handles auth, workspace context, and error handling.
  */
 
-const API_URL = process.env.PROPLY_API_URL || "https://api.goproply.com";
-const API_KEY = process.env.PROPLY_API_KEY;
+const API_URL = process.env.NOUS_API_URL || "https://api.opennous.cloud";
+const API_KEY = process.env.NOUS_API_KEY;
 
 export function validateConfig() {
   if (!API_KEY) {
     throw new Error(
-      "PROPLY_API_KEY is required. Get yours at goproply.com → Settings → API Keys"
+      "NOUS_API_KEY is required. Get yours at opennous.cloud → Settings → API Keys"
     );
   }
 }
@@ -28,7 +28,7 @@ async function request(method, path, { body, query } = {}) {
   const headers = {
     Authorization: `Bearer ${API_KEY}`,
     "Content-Type": "application/json",
-    "X-Proply-Client": "mcp",
+    "X-Nous-Client": "mcp",
   };
 
   const res = await fetch(url.toString(), {
@@ -45,7 +45,7 @@ async function request(method, path, { body, query } = {}) {
     } catch {
       errorMessage = res.statusText;
     }
-    throw new Error(`Proply API error (${res.status}): ${errorMessage}`);
+    throw new Error(`Nous API error (${res.status}): ${errorMessage}`);
   }
 
   // Some endpoints return empty 204

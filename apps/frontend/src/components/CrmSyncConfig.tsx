@@ -119,7 +119,7 @@ export default function CrmSyncConfig({ open, onClose, workspaceId, connectionId
 
           <div className="rounded-lg border border-gray-100 bg-gray-50/60 px-3 py-2.5 space-y-1">
             <p className="text-[12px] text-gray-500">
-              Proply pulls contacts from {meta.label} by email, then writes pipeline stage and deal health score back.
+              Nous pulls contacts from {meta.label} by email, then writes pipeline stage and deal health score back.
             </p>
           </div>
 

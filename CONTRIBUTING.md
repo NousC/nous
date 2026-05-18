@@ -1,4 +1,4 @@
-# Contributing to Proply CRM
+# Contributing to Nous CRM
 
 Thanks for your interest in contributing! Before you start, please read this.
 
@@ -10,13 +10,13 @@ Thanks for your interest in contributing! Before you start, please read this.
 
 ## Development setup
 
-See the [developer guide](https://docs.goproply.com/developer-guide) for full setup instructions.
+See the [developer guide](https://docs.opennous.cloud/developer-guide) for full setup instructions.
 
 **Short version:**
 ```bash
-git clone https://github.com/bennetglinder1/proply-crm.git
-cd proply-crm
-cp proply.env.example proply.env
+git clone https://github.com/bennetglinder1/nous.git
+cd nous
+cp nous.env.example nous.env
 pnpm install
 pnpm dev
 ```

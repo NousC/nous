@@ -1,4 +1,4 @@
-import { getSupabaseClient } from '@proply/core';
+import { getSupabaseClient } from '@nous/core';
 
 // Shared in-memory auth cache (5 min TTL)
 const authCache = new Map();

@@ -138,7 +138,7 @@ export function APIDocsLayout({ children }: APIDocsLayoutProps) {
         <div className="p-6">
           <div className="mb-8">
             <h2 className="text-lg font-semibold text-gray-900">API Reference</h2>
-            <p className="text-sm text-gray-500 mt-1">Build with Proply</p>
+            <p className="text-sm text-gray-500 mt-1">Build with Nous</p>
           </div>
 
           <nav className="space-y-6">

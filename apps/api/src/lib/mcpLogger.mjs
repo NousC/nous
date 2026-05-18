@@ -1,4 +1,4 @@
-import { getSupabaseClient } from '@proply/core';
+import { getSupabaseClient } from '@nous/core';
 
 // Logs an SDK/MCP/API operation to workspace_system_log.
 // Accepts the Express req so we can attribute the call to a specific api_key_id —

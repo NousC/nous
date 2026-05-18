@@ -4,7 +4,7 @@
 // ============================================================
 
 import Anthropic from '@anthropic-ai/sdk';
-import { logActivity } from '@proply/core';
+import { logActivity } from '@nous/core';
 import { decrypt } from '../utils/encryption.js';
 
 async function logSysEvent(supabase, workspaceId, source, eventType, summary, contactId, metadata) {
@@ -260,7 +260,7 @@ async function mergeContact(supabase, existing, incoming) {
 
 
 // ── Contact enrichment dispatcher ────────────────────────────────────────────
-// Priority: Apollo BYOK (if toggled on) → Prospeo BYOK → Proply's built-in Prospeo key
+// Priority: Apollo BYOK (if toggled on) → Prospeo BYOK → Nous's built-in Prospeo key
 
 export async function enrichContact(supabase, contact, { apolloKey = undefined } = {}) {
   if (!contact.email && !contact.linkedin_url) return;
