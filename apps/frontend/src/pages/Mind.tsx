@@ -1690,7 +1690,7 @@ function IntegrationsPopup({ integrations, workspaceId, token, onClose }: {
   integrations:IntegrationConn[]; workspaceId:string; token:string; onClose:()=>void;
 }) {
   const [dbProviders, setDbProviders] = useState<AvailableProvider[]>([]);
-  const [webhookUrls, setWebhookUrls] = useState<{source:string;url:string}[]>([]);
+  const [webhookUrls, setWebhookUrls] = useState<{source:string;url:string;auto_registered?:boolean}[]>([]);
   const [tab, setTab] = useState<"connected"|"available"|"webhooks">("connected");
   const [copied, setCopied] = useState<string|null>(null);
   // Inline connect state
@@ -1983,20 +1983,27 @@ function IntegrationsPopup({ integrations, workspaceId, token, onClose }: {
           {tab==="webhooks" && (
             <div>
               <div className="px-5 py-3 border-b border-border/10 text-[9px] text-muted-foreground/30">
-                Paste these URLs into your tools to push signals in automatically.
+                Paste these URLs into your tools to push signals in. Providers marked <span className="text-emerald-500/70">auto-registered</span> are wired up for you when you save the connection — no action needed.
               </div>
               <div className="divide-y divide-border/10">
                 {webhookUrls.map(w => (
                   <div key={w.source} className="flex items-center gap-4 px-5 py-3">
                     <IntegrationLogo name={w.source} />
                     <div className="flex-1 min-w-0">
-                      <div className="text-[10px] text-foreground/70 capitalize mb-0.5">{w.source}</div>
-                      <div className="text-[9px] text-muted-foreground/40 truncate font-mono">{w.url}</div>
+                      <div className="text-[10px] text-foreground/70 capitalize mb-0.5">{w.source.replace(/_/g," ")}</div>
+                      <div className={`text-[9px] truncate font-mono ${w.auto_registered ? "text-muted-foreground/25" : "text-muted-foreground/40"}`}>{w.url}</div>
                     </div>
-                    <button onClick={()=>copyUrl(w.url, w.source)}
-                      className="text-[9px] text-muted-foreground/40 hover:text-foreground/70 transition-colors flex items-center gap-1 flex-shrink-0">
-                      {copied===w.source ? <><Check className="h-3 w-3 text-emerald-500"/>copied</> : <><Copy className="h-3 w-3"/>copy</>}
-                    </button>
+                    {w.auto_registered ? (
+                      <span title="Proply auto-registers this webhook when you connect the integration. URL shown for debugging only — no copy/paste needed."
+                        className="text-[9px] px-2 py-0.5 border border-emerald-500/20 bg-emerald-500/5 text-emerald-500/70 flex-shrink-0 flex items-center gap-1">
+                        <Check className="h-3 w-3" /> auto-registered
+                      </span>
+                    ) : (
+                      <button onClick={()=>copyUrl(w.url, w.source)}
+                        className="text-[9px] text-muted-foreground/40 hover:text-foreground/70 transition-colors flex items-center gap-1 flex-shrink-0">
+                        {copied===w.source ? <><Check className="h-3 w-3 text-emerald-500"/>copied</> : <><Copy className="h-3 w-3"/>copy</>}
+                      </button>
+                    )}
                   </div>
                 ))}
                 {webhookUrls.length===0 && <div className="px-5 py-8 text-[11px] text-muted-foreground/30 text-center">no webhook URLs configured</div>}
