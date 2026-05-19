@@ -251,7 +251,7 @@ export default function AcceptInvitation() {
             <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-8 md:p-10 space-y-6 text-center">
               <div className="flex items-center justify-center gap-2 mb-4">
                 <img src="/nous-logo.svg" alt="Nous" className="w-8 h-8" />
-                <span className="font-semibold text-xl text-[#2D2D2D]">Assetly</span>
+                <span className="font-semibold text-xl text-[#2D2D2D]">Nous</span>
             </div>
               <h1 className="text-2xl font-bold text-[#2D2D2D]">Invitation Error</h1>
               <p className="text-gray-600">{error}</p>
@@ -280,7 +280,7 @@ export default function AcceptInvitation() {
               <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-8 md:p-10 space-y-6">
                 <div className="flex items-center justify-center gap-2">
                   <img src="/nous-logo.svg" alt="Nous" className="w-8 h-8" />
-                  <span className="font-semibold text-xl text-[#2D2D2D]">Assetly</span>
+                  <span className="font-semibold text-xl text-[#2D2D2D]">Nous</span>
                 </div>
                 <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-800">
                   <Mail className="h-4 w-4 inline mr-2" />
@@ -303,7 +303,7 @@ export default function AcceptInvitation() {
             <div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-8 md:p-10 space-y-6">
               <div className="flex items-center justify-center gap-2">
                 <img src="/nous-logo.svg" alt="Nous" className="w-8 h-8" />
-                <span className="font-semibold text-xl text-[#2D2D2D]">Assetly</span>
+                <span className="font-semibold text-xl text-[#2D2D2D]">Nous</span>
               </div>
               
               {error && (
@@ -344,7 +344,7 @@ export default function AcceptInvitation() {
             {/* Logo - Inside Card */}
             <div className="flex items-center justify-center gap-2">
               <img src="/nous-logo.svg" alt="Nous" className="w-8 h-8" />
-              <span className="font-semibold text-xl text-[#2D2D2D]">Assetly</span>
+              <span className="font-semibold text-xl text-[#2D2D2D]">Nous</span>
             </div>
 
             {/* Invitation Header */}
@@ -481,7 +481,7 @@ export default function AcceptInvitation() {
       {/* Footer */}
       <div className="pb-6 px-6">
         <div className="text-left text-xs text-gray-500 space-x-4">
-          <span>© 2025 Assetly</span>
+          <span>© 2025 Nous</span>
           <a href="/help" className="hover:underline">Help Center</a>
           <a href="/terms" className="hover:underline">Terms and Conditions</a>
           <a href="/privacy" className="hover:underline">Privacy policy</a>

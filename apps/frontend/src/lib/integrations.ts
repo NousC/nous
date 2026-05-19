@@ -30,7 +30,7 @@ export const INTEGRATIONS: Integration[] = [
     logo: "https://www.google.com/s2/favicons?domain=pipedrive.com&sz=128",
     category: "Sales & CRM",
     description: "Connect Pipedrive to automatically generate documents when deals progress through your pipeline.",
-    longDescription: "Pipedrive is the sales-first CRM built by salespeople for salespeople. By integrating Pipedrive with Assetly, you can automatically generate proposals, contracts, and NDAs when deals move to specific stages, saving hours of manual document creation.",
+    longDescription: "Pipedrive is the sales-first CRM built by salespeople for salespeople. By integrating Pipedrive with Nous, you can automatically generate proposals, contracts, and NDAs when deals move to specific stages, saving hours of manual document creation.",
     keyBenefits: [
       "Auto-generate proposals when deals reach specific stages",
       "Personalize documents with Pipedrive contact and deal data",
@@ -53,7 +53,7 @@ export const INTEGRATIONS: Integration[] = [
     setupSteps: [
       {
         title: "Connect Pipedrive",
-        description: "Authorize Assetly to access your Pipedrive account through our secure OAuth connection."
+        description: "Authorize Nous to access your Pipedrive account through our secure OAuth connection."
       },
       {
         title: "Select Trigger Stage",
@@ -70,8 +70,8 @@ export const INTEGRATIONS: Integration[] = [
     ],
     faqs: [
       {
-        question: "How does Assetly connect to Pipedrive?",
-        answer: "Assetly connects to Pipedrive through a secure OAuth integration. Simply click 'Connect' and authorize Assetly to access your Pipedrive data."
+        question: "How does Nous connect to Pipedrive?",
+        answer: "Nous connects to Pipedrive through a secure OAuth integration. Simply click 'Connect' and authorize Nous to access your Pipedrive data."
       },
       {
         question: "Can I use custom fields from Pipedrive?",
@@ -83,15 +83,15 @@ export const INTEGRATIONS: Integration[] = [
       },
       {
         question: "Can I attach generated documents back to the Pipedrive deal?",
-        answer: "Yes, Assetly automatically attaches the generated PDF to the corresponding deal in Pipedrive as a file. Your sales team can find the document directly in the deal's Files tab without leaving Pipedrive."
+        answer: "Yes, Nous automatically attaches the generated PDF to the corresponding deal in Pipedrive as a file. Your sales team can find the document directly in the deal's Files tab without leaving Pipedrive."
       },
       {
-        question: "Does Assetly support multiple Pipedrive pipelines?",
+        question: "Does Nous support multiple Pipedrive pipelines?",
         answer: "Absolutely. You can create separate automation workflows for each pipeline. This is useful if you have different document templates for different sales processes — for instance, one pipeline for new business proposals and another for renewal contracts."
       },
       {
-        question: "Is my Pipedrive data secure with Assetly?",
-        answer: "Yes, security is a top priority. Assetly uses OAuth 2.0 for authentication so your Pipedrive credentials are never stored. All data is encrypted in transit and at rest, and we only access the specific deal and contact data needed to generate your documents."
+        question: "Is my Pipedrive data secure with Nous?",
+        answer: "Yes, security is a top priority. Nous uses OAuth 2.0 for authentication so your Pipedrive credentials are never stored. All data is encrypted in transit and at rest, and we only access the specific deal and contact data needed to generate your documents."
       }
     ]
   },
@@ -102,7 +102,7 @@ export const INTEGRATIONS: Integration[] = [
     logo: "https://www.google.com/s2/favicons?domain=hubspot.com&sz=128",
     category: "Sales & CRM",
     description: "Automatically generate proposals, contracts, and reports when deals move through your HubSpot pipeline.",
-    longDescription: "HubSpot is the leading all-in-one CRM platform for scaling businesses. By integrating HubSpot with Assetly, you can automatically generate personalized proposals, contracts, onboarding documents, and reports whenever deals progress through your pipeline stages — eliminating manual document creation and accelerating your sales cycle.",
+    longDescription: "HubSpot is the leading all-in-one CRM platform for scaling businesses. By integrating HubSpot with Nous, you can automatically generate personalized proposals, contracts, onboarding documents, and reports whenever deals progress through your pipeline stages — eliminating manual document creation and accelerating your sales cycle.",
     keyBenefits: [
       "Auto-generate documents when deals change stages",
       "Pull contact, company, and deal properties into templates",
@@ -125,7 +125,7 @@ export const INTEGRATIONS: Integration[] = [
     setupSteps: [
       {
         title: "Connect HubSpot",
-        description: "Authorize Assetly to access your HubSpot account through a secure OAuth connection."
+        description: "Authorize Nous to access your HubSpot account through a secure OAuth connection."
       },
       {
         title: "Select Pipeline & Stage",
@@ -142,12 +142,12 @@ export const INTEGRATIONS: Integration[] = [
     ],
     faqs: [
       {
-        question: "How does Assetly connect to HubSpot?",
-        answer: "Assetly connects to HubSpot via a secure OAuth 2.0 integration. Click 'Connect', authorize access, and Assetly will be able to read your deal, contact, and company data to populate document templates."
+        question: "How does Nous connect to HubSpot?",
+        answer: "Nous connects to HubSpot via a secure OAuth 2.0 integration. Click 'Connect', authorize access, and Nous will be able to read your deal, contact, and company data to populate document templates."
       },
       {
         question: "Can I use HubSpot custom properties in my documents?",
-        answer: "Yes, all standard and custom properties from contacts, companies, and deals are available as template variables in Assetly."
+        answer: "Yes, all standard and custom properties from contacts, companies, and deals are available as template variables in Nous."
       },
       {
         question: "Does it work with multiple HubSpot pipelines?",
@@ -155,7 +155,7 @@ export const INTEGRATIONS: Integration[] = [
       },
       {
         question: "Can generated documents be attached back to HubSpot?",
-        answer: "Yes, Assetly automatically attaches the generated PDF to the corresponding deal record in HubSpot so your team can access it without leaving the CRM."
+        answer: "Yes, Nous automatically attaches the generated PDF to the corresponding deal record in HubSpot so your team can access it without leaving the CRM."
       }
     ]
   },
@@ -166,7 +166,7 @@ export const INTEGRATIONS: Integration[] = [
     logo: "https://www.google.com/s2/favicons?domain=attio.com&sz=128",
     category: "Sales & CRM",
     description: "Generate documents automatically from Attio records when deals progress through your pipeline.",
-    longDescription: "Attio is the next-generation CRM built for modern teams who need flexibility and powerful data modeling. Integrating Attio with Assetly lets you automatically generate proposals, contracts, and reports based on your Attio records and pipeline stages — turning your CRM data into polished documents without lifting a finger.",
+    longDescription: "Attio is the next-generation CRM built for modern teams who need flexibility and powerful data modeling. Integrating Attio with Nous lets you automatically generate proposals, contracts, and reports based on your Attio records and pipeline stages — turning your CRM data into polished documents without lifting a finger.",
     keyBenefits: [
       "Trigger document generation from Attio pipeline stage changes",
       "Pull data from any Attio object or attribute into templates",
@@ -189,7 +189,7 @@ export const INTEGRATIONS: Integration[] = [
     setupSteps: [
       {
         title: "Connect Attio",
-        description: "Authorize Assetly to access your Attio workspace through a secure API connection."
+        description: "Authorize Nous to access your Attio workspace through a secure API connection."
       },
       {
         title: "Choose Pipeline Trigger",
@@ -206,20 +206,20 @@ export const INTEGRATIONS: Integration[] = [
     ],
     faqs: [
       {
-        question: "How does Assetly integrate with Attio?",
-        answer: "Assetly connects to Attio via a secure API integration. Once connected, Assetly can read your records, objects, and pipeline data to dynamically populate document templates."
+        question: "How does Nous integrate with Attio?",
+        answer: "Nous connects to Attio via a secure API integration. Once connected, Nous can read your records, objects, and pipeline data to dynamically populate document templates."
       },
       {
         question: "Can I use custom Attio attributes in documents?",
-        answer: "Yes, all standard and custom attributes from any Attio object are available as template variables in Assetly."
+        answer: "Yes, all standard and custom attributes from any Attio object are available as template variables in Nous."
       },
       {
         question: "Does it support Attio's flexible data model?",
-        answer: "Yes. Assetly adapts to however you've structured your Attio workspace — whether you use custom objects, lists, or relationship attributes, they're all available for document generation."
+        answer: "Yes. Nous adapts to however you've structured your Attio workspace — whether you use custom objects, lists, or relationship attributes, they're all available for document generation."
       },
       {
         question: "Is my Attio data secure?",
-        answer: "Absolutely. Assetly uses secure API authentication, encrypts all data in transit and at rest, and only accesses the specific record data needed to generate your documents."
+        answer: "Absolutely. Nous uses secure API authentication, encrypts all data in transit and at rest, and only accesses the specific record data needed to generate your documents."
       }
     ]
   },
@@ -230,7 +230,7 @@ export const INTEGRATIONS: Integration[] = [
     logo: "https://www.google.com/s2/favicons?domain=fireflies.ai&sz=128",
     category: "Productivity",
     description: "Turn discovery call transcripts from Fireflies.ai into personalized sales proposals automatically.",
-    longDescription: "Fireflies.ai is an AI meeting assistant that records, transcribes, and summarizes your meetings. By integrating Fireflies with Assetly, you can automatically turn discovery call transcripts into polished, personalized sales proposals — extracting key requirements, pain points, and budget from the conversation and generating a ready-to-send proposal without any manual work.",
+    longDescription: "Fireflies.ai is an AI meeting assistant that records, transcribes, and summarizes your meetings. By integrating Fireflies with Nous, you can automatically turn discovery call transcripts into polished, personalized sales proposals — extracting key requirements, pain points, and budget from the conversation and generating a ready-to-send proposal without any manual work.",
     keyBenefits: [
       "Turn discovery calls into proposals in minutes, not hours",
       "Extract client requirements and pain points automatically",
@@ -253,7 +253,7 @@ export const INTEGRATIONS: Integration[] = [
     setupSteps: [
       {
         title: "Connect Fireflies.ai",
-        description: "Authorize Assetly to access your Fireflies.ai account and meeting data."
+        description: "Authorize Nous to access your Fireflies.ai account and meeting data."
       },
       {
         title: "Select Meeting Triggers",
@@ -270,8 +270,8 @@ export const INTEGRATIONS: Integration[] = [
     ],
     faqs: [
       {
-        question: "How does Assetly connect to Fireflies.ai?",
-        answer: "Assetly connects to Fireflies.ai through a secure API integration. Once connected, Assetly can access your meeting transcripts, summaries, and action items to populate document templates."
+        question: "How does Nous connect to Fireflies.ai?",
+        answer: "Nous connects to Fireflies.ai through a secure API integration. Once connected, Nous can access your meeting transcripts, summaries, and action items to populate document templates."
       },
       {
         question: "Can I choose which meetings trigger document generation?",
@@ -283,7 +283,7 @@ export const INTEGRATIONS: Integration[] = [
       },
       {
         question: "Can I turn a sales call into a proposal automatically?",
-        answer: "Yes — set up a workflow that triggers on sales call recordings, extracts key requirements and client details from the transcript, and generates a personalized proposal using your Assetly template."
+        answer: "Yes — set up a workflow that triggers on sales call recordings, extracts key requirements and client details from the transcript, and generates a personalized proposal using your Nous template."
       }
     ]
   },
@@ -294,7 +294,7 @@ export const INTEGRATIONS: Integration[] = [
     logo: "https://www.google.com/s2/favicons?domain=fathom.video&sz=128",
     category: "Productivity",
     description: "Pull meeting transcripts, summaries, and action items from Fathom into your AI chat and proposals.",
-    longDescription: "Fathom is an AI meeting assistant that records, transcribes, and summarizes your video calls. By integrating Fathom with Assetly, your AI chat can automatically search through past meetings to pull in context — extracting key requirements, decisions, and action items to generate proposals and documents grounded in what was actually discussed.",
+    longDescription: "Fathom is an AI meeting assistant that records, transcribes, and summarizes your video calls. By integrating Fathom with Nous, your AI chat can automatically search through past meetings to pull in context — extracting key requirements, decisions, and action items to generate proposals and documents grounded in what was actually discussed.",
     keyBenefits: [
       "Search meeting transcripts directly from AI chat",
       "Pull client requirements and decisions into proposals automatically",
@@ -321,7 +321,7 @@ export const INTEGRATIONS: Integration[] = [
       },
       {
         title: "Connect Fathom",
-        description: "In Assetly, go to Settings > Integrations and add your Fathom API key."
+        description: "In Nous, go to Settings > Integrations and add your Fathom API key."
       },
       {
         title: "Use in Chat",
@@ -329,13 +329,13 @@ export const INTEGRATIONS: Integration[] = [
       },
       {
         title: "Set Up Webhooks (Optional)",
-        description: "Configure a Fathom webhook to notify Assetly when new meeting content is ready, enabling automatic document generation."
+        description: "Configure a Fathom webhook to notify Nous when new meeting content is ready, enabling automatic document generation."
       }
     ],
     faqs: [
       {
-        question: "How does Assetly connect to Fathom?",
-        answer: "Assetly connects to Fathom through a secure API key integration. Enter your Fathom API key in Settings > Integrations, and Assetly will be able to search your meeting recordings, transcripts, and summaries."
+        question: "How does Nous connect to Fathom?",
+        answer: "Nous connects to Fathom through a secure API key integration. Enter your Fathom API key in Settings > Integrations, and Nous will be able to search your meeting recordings, transcripts, and summaries."
       },
       {
         question: "What meeting data can I access through the integration?",
@@ -347,7 +347,7 @@ export const INTEGRATIONS: Integration[] = [
       },
       {
         question: "Can I trigger document generation from Fathom webhooks?",
-        answer: "Yes. Fathom can send a webhook when new meeting content is ready. You can configure this to automatically trigger proposal or document generation in Assetly based on the meeting data."
+        answer: "Yes. Fathom can send a webhook when new meeting content is ready. You can configure this to automatically trigger proposal or document generation in Nous based on the meeting data."
       }
     ]
   },
@@ -358,7 +358,7 @@ export const INTEGRATIONS: Integration[] = [
     logo: "https://www.google.com/s2/favicons?domain=stripe.com&sz=128",
     category: "Payments",
     description: "Generate invoices, receipts, and financial documents automatically when payments are processed.",
-    longDescription: "Stripe is the leading payment processing platform for internet businesses. Integrate Stripe with Assetly to automatically generate professional invoices, receipts, and financial reports when payments are processed, subscriptions are created, or billing events occur.",
+    longDescription: "Stripe is the leading payment processing platform for internet businesses. Integrate Stripe with Nous to automatically generate professional invoices, receipts, and financial reports when payments are processed, subscriptions are created, or billing events occur.",
     keyBenefits: [
       "Auto-generate invoices when payments are received",
       "Create branded receipts for successful transactions",
@@ -381,7 +381,7 @@ export const INTEGRATIONS: Integration[] = [
     setupSteps: [
       {
         title: "Connect Stripe",
-        description: "Authorize Assetly to receive webhooks from your Stripe account."
+        description: "Authorize Nous to receive webhooks from your Stripe account."
       },
       {
         title: "Select Events",
@@ -414,7 +414,7 @@ export const INTEGRATIONS: Integration[] = [
     logo: "https://www.google.com/s2/favicons?domain=slack.com&sz=128",
     category: "Productivity",
     description: "Send generated documents to Slack channels and receive notifications when documents are signed.",
-    longDescription: "Slack is the leading business communication platform. Integrate Slack with Assetly to automatically share generated documents in channels, receive notifications when documents are signed, and keep your team informed about document workflows.",
+    longDescription: "Slack is the leading business communication platform. Integrate Slack with Nous to automatically share generated documents in channels, receive notifications when documents are signed, and keep your team informed about document workflows.",
     keyBenefits: [
       "Share generated documents directly to Slack channels",
       "Get notified when documents are viewed or signed",
@@ -437,7 +437,7 @@ export const INTEGRATIONS: Integration[] = [
     setupSteps: [
       {
         title: "Connect Slack",
-        description: "Authorize Assetly to post messages to your Slack workspace."
+        description: "Authorize Nous to post messages to your Slack workspace."
       },
       {
         title: "Select Channels",
@@ -455,7 +455,7 @@ export const INTEGRATIONS: Integration[] = [
     faqs: [
       {
         question: "Can I send documents to private channels?",
-        answer: "Yes, you can send documents to any channel that Assetly has been invited to, including private channels."
+        answer: "Yes, you can send documents to any channel that Nous has been invited to, including private channels."
       },
       {
         question: "What notifications can I receive in Slack?",
@@ -470,7 +470,7 @@ export const INTEGRATIONS: Integration[] = [
     logo: "https://www.google.com/s2/favicons?domain=clickup.com&sz=128",
     category: "Productivity",
     description: "Generate documents from ClickUp tasks and attach them automatically to your projects.",
-    longDescription: "ClickUp is the all-in-one productivity platform. Connect ClickUp with Assetly to automatically generate documents when tasks reach certain statuses, attach generated files to tasks, and streamline your project documentation workflows.",
+    longDescription: "ClickUp is the all-in-one productivity platform. Connect ClickUp with Nous to automatically generate documents when tasks reach certain statuses, attach generated files to tasks, and streamline your project documentation workflows.",
     keyBenefits: [
       "Generate documents from task data automatically",
       "Attach documents directly to ClickUp tasks",
@@ -493,7 +493,7 @@ export const INTEGRATIONS: Integration[] = [
     setupSteps: [
       {
         title: "Connect ClickUp",
-        description: "Authorize Assetly to access your ClickUp workspace."
+        description: "Authorize Nous to access your ClickUp workspace."
       },
       {
         title: "Select Workspace",

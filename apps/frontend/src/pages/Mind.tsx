@@ -1682,7 +1682,7 @@ const MIND_HARDCODED_PROVIDERS: AvailableProvider[] = [
   { id:"cal_com",   name:"cal_com",   display_name:"Cal.com",      logo_url:"/provider-logos/cal_com.svg",   category:"meetings"     },
 ];
 // salesforce hidden until backend OAuth setup is documented & shipped — backend stays wired
-const MIND_EXCLUDED = new Set(["assetly","gmail","mailchimp","google_analytics","granola","notion","clickup","openai","gemini","google","rb2b","anthropic","stripe","signalbase","salesforce"]);
+const MIND_EXCLUDED = new Set(["assetly","nous","gmail","mailchimp","google_analytics","granola","notion","clickup","openai","gemini","google","rb2b","anthropic","stripe","signalbase","salesforce"]);
 
 // Category display order + labels in the integration picker
 const MIND_CATEGORY_ORDER = ["crm","outbound","enrichment","meetings","communication","database","ai","analytics","productivity","other"] as const;

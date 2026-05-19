@@ -110,7 +110,7 @@ interface ContactsAnalytics {
   industryBreakdown: { industry: string; count: number }[];
 }
 
-// Assetly teal/green color palette
+// Nous teal/green color palette
 const COLORS = {
   created: "#94a3b8",
   sent: "#0d9488",    // Teal 600

@@ -118,7 +118,7 @@ export function CompanyKnowledgeStep({
           Set up your company knowledge
         </h1>
         <p className="text-gray-500 text-[14px] font-light">
-          Help Assetly understand your brand and generate better content
+          Help Nous understand your brand and generate better content
         </p>
       </div>
 

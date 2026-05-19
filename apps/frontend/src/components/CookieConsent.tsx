@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
-const COOKIE_CONSENT_KEY = 'assetly_cookie_consent';
+const COOKIE_CONSENT_KEY = 'nous_cookie_consent';
 
 type ConsentType = 'all' | 'essential' | null;
 

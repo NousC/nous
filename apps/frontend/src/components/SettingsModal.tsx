@@ -5598,7 +5598,7 @@ function IntegrationsSection({ session }: { session: any }) {
         const providersData = await providersRes.json();
         // Show all providers that require authentication (excluding internal and deprecated providers)
         const providersList = providersData.providers || providersData || [];
-        const excludedProviders = ['assetly', 'gmail', 'mailchimp', 'google_analytics', 'granola', 'notion', 'clickup', 'openai', 'gemini', 'google', 'stripe', 'anthropic', 'signalbase'];
+        const excludedProviders = ['assetly', 'nous', 'gmail', 'mailchimp', 'google_analytics', 'granola', 'notion', 'clickup', 'openai', 'gemini', 'google', 'stripe', 'anthropic', 'signalbase'];
         setProviders(providersList.filter((p: any) => p.auth_type !== 'none' && !excludedProviders.includes(p.name)));
       }
 
@@ -6514,7 +6514,7 @@ function IntegrationsSection({ session }: { session: any }) {
                   {selectedProvider.name === 'stripe' && (
                     <div className="rounded-lg bg-muted/40 px-3 py-2.5 space-y-1">
                       <p className="text-[11px] font-medium text-muted-foreground">Webhook endpoint</p>
-                      <code className="text-[11px] bg-background px-2 py-1 rounded block">*.assetly.ai</code>
+                      <code className="text-[11px] bg-background px-2 py-1 rounded block">*.opennous.cloud</code>
                     </div>
                   )}
 
@@ -7419,7 +7419,7 @@ function ProfileSection({
                     const url = window.URL.createObjectURL(blob);
                     const a = document.createElement('a');
                     a.href = url;
-                    a.download = `assetly-data-export-${Date.now()}.json`;
+                    a.download = `nous-data-export-${Date.now()}.json`;
                     document.body.appendChild(a);
                     a.click();
                     window.URL.revokeObjectURL(url);

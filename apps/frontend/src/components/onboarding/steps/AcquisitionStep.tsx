@@ -75,7 +75,7 @@ export function AcquisitionStep({
           How did you hear about us?
         </h1>
         <p className="text-gray-500 text-[14px] font-light">
-          This helps us understand how people discover Assetly
+          This helps us understand how people discover Nous
         </p>
       </div>
 
