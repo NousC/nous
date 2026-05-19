@@ -10,6 +10,7 @@ import { decrypt } from '../../utils/encryption.mjs';
 import { logActivity } from '../../utils/activity.mjs';
 import { resolveContact } from '../../utils/resolveContact.mjs';
 import { enqueueForRetry } from '../../utils/webhookInbox.mjs';
+import { logSysEvent } from '../../utils/systemLog.mjs';
 
 async function loadCalComSigningKey(supabase, workspaceId) {
   const { data: conn } = await supabase
@@ -80,6 +81,13 @@ export async function reprocessCalCom(supabase, workspaceId, body) {
       booking_uid:  bookingUid,
       trigger,
     },
+  });
+
+  await logSysEvent(supabase, {
+    workspaceId, source: 'cal_com', eventType: 'webhook_received',
+    summary:    isCanceled ? `Cancelled: ${title} (${email})` : `Booked: ${title} (${email})`,
+    contactId:  contact.id,
+    metadata:   { type: trigger.toLowerCase(), email },
   });
 
   return { contactId: contact.id, type: isCanceled ? 'meeting_cancelled' : 'meeting_scheduled' };

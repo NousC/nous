@@ -12,6 +12,7 @@ import { decrypt } from '../../utils/encryption.mjs';
 import { logActivity } from '../../utils/activity.mjs';
 import { resolveContact } from '../../utils/resolveContact.mjs';
 import { enqueueForRetry } from '../../utils/webhookInbox.mjs';
+import { logSysEvent } from '../../utils/systemLog.mjs';
 
 const REPLAY_WINDOW_SEC = 5 * 60;
 
@@ -98,6 +99,13 @@ export async function reprocessCalendly(supabase, workspaceId, body) {
     occurredAt,
     description: isCanceled ? `Cancelled: ${meetingName}` : `Booked: ${meetingName}`,
     rawData:     { meeting_name: meetingName, start_time: startTime, end_time: endTime, invitee_uri: inviteeUri },
+  });
+
+  await logSysEvent(supabase, {
+    workspaceId, source: 'calendly', eventType: 'webhook_received',
+    summary:    isCanceled ? `Cancelled: ${meetingName} (${email})` : `Booked: ${meetingName} (${email})`,
+    contactId:  contact.id,
+    metadata:   { type: isCanceled ? 'booking_cancelled' : 'booking_created', email },
   });
 
   return { contactId: contact.id, type: isCanceled ? 'meeting_cancelled' : 'meeting_scheduled' };

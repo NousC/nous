@@ -7,6 +7,7 @@ import { getSupabaseClient } from '@nous/core';
 import { logActivity } from '../../utils/activity.mjs';
 import { resolveContact } from '../../utils/resolveContact.mjs';
 import { enqueueForRetry } from '../../utils/webhookInbox.mjs';
+import { logSysEvent } from '../../utils/systemLog.mjs';
 
 function verifyFathomSignature(secret, rawBody, webhookId, webhookTimestamp, signatureHeader) {
   if (!secret || !signatureHeader || !webhookId || !webhookTimestamp) return true; // skip if not configured
@@ -66,6 +67,13 @@ export async function reprocessFathom(supabase, workspaceId, payload) {
   }
 
   console.log(`[FATHOM_WEBHOOK] workspace=${workspaceId} logged=${logged}`);
+
+  await logSysEvent(supabase, {
+    workspaceId, source: 'fathom', eventType: 'webhook_received',
+    summary:    `Meeting recording: ${title} — ${logged} contact${logged === 1 ? '' : 's'} updated`,
+    metadata:   { title, logged },
+  });
+
   return { logged };
 }
 
