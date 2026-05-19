@@ -17,14 +17,19 @@ contactsApiRouter.get('/', verifySupabaseAuth, async (req, res) => {
   try {
     const supabase = getSupabaseClient();
     const { workspaceId, search, limit = 50, offset = 0, filter, source, sort, status } = req.query;
-    const { user } = await ensureUserAndTeam(req.user);
     if (!workspaceId) return res.status(400).json({ error: 'workspace_id_required' });
     if (!UUID.test(workspaceId)) return res.status(400).json({ error: 'invalid_workspace_id' });
 
-    const { data: membership } = await supabase.from('workspace_members').select('workspace_id').eq('workspace_id', workspaceId).eq('user_id', user.id).single();
-    if (!membership) return res.status(403).json({ error: 'workspace_not_found_or_unauthorized' });
+    // verifySupabaseAuth already validated workspace membership (cached for
+    // 60s) — the redundant ensureUserAndTeam + workspace_members check that
+    // used to live here added ~50-100ms of DB roundtrips for no extra safety.
+    // `req.workspaceId` is set by the middleware iff membership passed.
+    if (req.workspaceId !== workspaceId) return res.status(403).json({ error: 'workspace_not_found_or_unauthorized' });
 
-    let query = supabase.from('contacts').select('*', { count: 'exact' }).eq('workspace_id', workspaceId);
+    // No `count: 'exact'` — it triggers a separate COUNT query that can take
+    // longer than the data fetch itself on large tables. Nobody reads .total
+    // from this endpoint's response in the current frontend.
+    let query = supabase.from('contacts').select('*').eq('workspace_id', workspaceId);
     if (filter && filter !== 'all') query = query.eq('pipeline_stage', filter);
     if (status) query = query.eq('status', status);
     if (source) query = query.eq('source', source);
@@ -39,10 +44,10 @@ contactsApiRouter.get('/', verifySupabaseAuth, async (req, res) => {
     const off = parseInt(offset) || 0;
     query = query.range(off, off + lim - 1);
 
-    const { data: raw, error, count } = await query;
+    const { data: raw, error } = await query;
     if (error) throw error;
 
-    return res.json({ contacts: raw || [], total: count || 0, limit: lim, offset: off });
+    return res.json({ contacts: raw || [], limit: lim, offset: off });
   } catch (err) {
     return res.status(500).json({ error: 'internal_error', ...(process.env.NODE_ENV !== 'production' && { detail: String(err.message) }) });
   }
