@@ -2626,7 +2626,7 @@ export default function Mind() {
   const [integrations, setIntegrations] = useState<IntegrationConn[]>([]);
   const [memories,     setMemories]     = useState<MemoryFact[]>([]);
   const [ops,          setOps]          = useState<LiveOp[]>([]);
-  const [totalOps,     setTotalOps]     = useState(0);
+  const [lifetimeOps,  setLifetimeOps]  = useState(0);
   const [isOnline,     setIsOnline]     = useState(false);
   const [opsExpanded,  setOpsExpanded]  = useState(false);
   const [loadingMore,  setLoadingMore]  = useState(false);
@@ -2758,9 +2758,11 @@ export default function Mind() {
     try {
       const fresh = await freshAccessToken();
       if (!fresh) { if (!reset) setLoadingMore(false); return; }
-      const [sysRes,agentRes] = await Promise.all([
+      const [sysRes,agentRes,lifeSysRes,lifeAgentRes] = await Promise.all([
         fetch(`${apiUrl}/api/workspace/system-log?workspace_id=${workspaceId}&days=7&limit=200&offset=${sysOff}`,{headers:{Authorization:`Bearer ${fresh}`}}),
         fetch(`${apiUrl}/api/requests/log?days=7&limit=100&offset=${agentOff}`,{headers:{Authorization:`Bearer ${fresh}`}}),
+        reset ? fetch(`${apiUrl}/api/workspace/system-log?workspace_id=${workspaceId}&days=all&limit=1`,{headers:{Authorization:`Bearer ${fresh}`}}) : Promise.resolve(null),
+        reset ? fetch(`${apiUrl}/api/requests/log?days=all&limit=1`,{headers:{Authorization:`Bearer ${fresh}`}})                                      : Promise.resolve(null),
       ]);
       const sysData=sysRes.ok?await sysRes.json():{events:[],total:0};
       const agentData=agentRes.ok?await agentRes.json():{requests:[],total:0};
@@ -2769,7 +2771,11 @@ export default function Mind() {
       const merged=[...sysOps,...agentOps].filter(op=>op.ts&&!isNaN(new Date(op.ts).getTime())).sort((a,b)=>new Date(b.ts).getTime()-new Date(a.ts).getTime());
       const dedup=(arr:LiveOp[])=>{ const seen=new Set<string>(); return arr.filter(o=>{ if(seen.has(o.id)) return false; seen.add(o.id); return true; }); };
       setOps(prev=>reset?dedup(merged):dedup([...prev,...merged]));
-      if (reset) setTotalOps((sysData.total??0)+(agentData.total??0));
+      if (reset) {
+        const lifeSys   = lifeSysRes   && lifeSysRes.ok   ? await lifeSysRes.json()   : { total: 0 };
+        const lifeAgent = lifeAgentRes && lifeAgentRes.ok ? await lifeAgentRes.json() : { total: 0 };
+        setLifetimeOps((lifeSys.total ?? 0) + (lifeAgent.total ?? 0));
+      }
       setSysOffset(sysOff+sysOps.length); setAgentOffset(agentOff+agentOps.length);
       setHasMore(sysOps.length===200||agentOps.length===100);
       if (reset) { const t5=Date.now()-5*60*1000; setIsOnline(agentOps.some(o=>new Date(o.ts).getTime()>t5)); }
@@ -2845,7 +2851,7 @@ export default function Mind() {
             <button onClick={()=>setOpsExpanded(e=>!e)}
               className="text-left group transition-opacity opacity-70 hover:opacity-100">
               <div className="text-muted-foreground/40 text-[9px] tracking-widest mb-0.5 group-hover:text-muted-foreground/70">TOTAL OPS</div>
-              <div className="text-foreground/70 tabular-nums text-[11px] group-hover:text-foreground">{(totalOps>0?totalOps:ops.length).toLocaleString()}</div>
+              <div className="text-foreground/70 tabular-nums text-[11px] group-hover:text-foreground">{(lifetimeOps>0?lifetimeOps:ops.length).toLocaleString()}</div>
             </button>
             {([
               {label:"COMPANIES",   value:companies.length,    p:"companies"    as Popup},
@@ -2871,7 +2877,7 @@ export default function Mind() {
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"/>LIVE OP LOG
             </span>
             <div className="flex items-center gap-3">
-              <span className="text-[10px] text-muted-foreground/60 tabular-nums">{(totalOps>0?totalOps:ops.length).toLocaleString()} ops total</span>
+              <span className="text-[10px] text-muted-foreground/60 tabular-nums">{(lifetimeOps>0?lifetimeOps:ops.length).toLocaleString()} ops total</span>
               <button onClick={()=>setOpsExpanded(e=>!e)}
                 className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded border border-border/60 hover:border-border">
                 {opsExpanded?<><ChevronDown className="h-3 w-3"/>collapse</>:<><ChevronUp className="h-3 w-3"/>expand</>}
