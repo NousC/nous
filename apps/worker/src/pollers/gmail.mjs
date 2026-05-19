@@ -134,7 +134,22 @@ async function pollWorkspace(supabase, conn) {
     }
   }
 
-  if (logged) console.log(`[GMAIL_POLL] workspace=${conn.workspace_id}: ${logged} emails logged`);
+  console.log(`[GMAIL_POLL] workspace=${conn.workspace_id}: ${logged} emails logged`);
+
+  // Surface the scan in the Live Op Log (workspace_system_log → operationName.ts → gmail.scan.complete)
+  try {
+    await supabase.from('workspace_system_log').insert({
+      workspace_id: conn.workspace_id,
+      source:       'gmail',
+      event_type:   'scan_complete',
+      summary:      `Gmail scan: ${logged} email${logged === 1 ? '' : 's'} logged`,
+      metadata:     { processed: logged, lookback_ms: LOOKBACK_MS },
+      occurred_at:  new Date().toISOString(),
+    });
+  } catch (e) {
+    console.warn('[GMAIL_POLL] system_log insert failed:', e.message);
+  }
+
   return logged;
 }
 
