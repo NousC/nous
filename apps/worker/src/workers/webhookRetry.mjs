@@ -36,13 +36,17 @@ export async function processWebhookInbox() {
   const supabase = getSupabaseClient();
   let processed = 0, failed = 0;
   try {
-    const { data: pending } = await supabase
+    const { data: pending, error } = await supabase
       .from('webhook_inbox')
       .select('*')
       .eq('status', 'pending')
       .lte('next_attempt_at', new Date().toISOString())
       .order('received_at', { ascending: true })
       .limit(BATCH_SIZE);
+
+    // Migration not yet applied — skip silently so we don't spam logs.
+    if (error?.code === '42P01') return;
+    if (error) throw error;
 
     if (!pending?.length) return;
 
