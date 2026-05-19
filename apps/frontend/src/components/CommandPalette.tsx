@@ -21,7 +21,6 @@ const NAV_ITEMS = [
   { id: "integrations", label: "Integrations", sublabel: "Connected services",   path: undefined,     popup: "integrations" },
   { id: "memories",     label: "Memories",     sublabel: "Agent memory store",   path: undefined,     popup: "memories" },
   { id: "settings",     label: "Settings",     sublabel: "Workspace & billing",  path: undefined,     popup: "settings" },
-  { id: "operations",   label: "Operations",   sublabel: "Live op log",          path: "/operations", popup: undefined },
   { id: "developer",    label: "Developer",    sublabel: "API keys & docs",      path: "/developer",  popup: undefined },
 ];
 

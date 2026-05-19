@@ -25,7 +25,6 @@ const lazyWithErrorBoundary = (importFn: () => Promise<any>) => {
 };
 
 const Mind            = lazyWithErrorBoundary(() => import("@/pages/Mind"));
-const Operations      = lazyWithErrorBoundary(() => import("@/pages/Operations"));
 const DeveloperPortal = lazyWithErrorBoundary(() => import("@/pages/DeveloperPortal"));
 const Inbox           = lazyWithErrorBoundary(() => import("@/pages/Inbox"));
 const Reporting       = lazyWithErrorBoundary(() => import("@/pages/AdvancedAnalytics"));
@@ -96,8 +95,9 @@ export function AppRoutes() {
       <Route path="*" element={
         <StandardLayout>
           <Routes>
-            <Route path="/operations" element={<Suspense fallback={<MinimalLoader />}><Operations /></Suspense>} />
-            <Route path="/requests" element={<Suspense fallback={<MinimalLoader />}><Operations /></Suspense>} />
+            {/* Live Op Log now lives inside Mind (/) — redirect stale links. */}
+            <Route path="/operations" element={<Navigate to="/" replace />} />
+            <Route path="/requests"   element={<Navigate to="/" replace />} />
             <Route path="/developer" element={<Suspense fallback={<MinimalLoader />}><DeveloperPortal /></Suspense>} />
             <Route path="/billing" element={<Suspense fallback={<MinimalLoader />}><DeveloperPortal /></Suspense>} />
             <Route path="/usage" element={<Suspense fallback={<MinimalLoader />}><DeveloperPortal /></Suspense>} />
