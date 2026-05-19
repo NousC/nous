@@ -6,8 +6,8 @@
 import { getSupabaseClient } from '@nous/core';
 import { logActivity } from '../../utils/activity.mjs';
 import { resolveContact } from '../../utils/resolveContact.mjs';
+import { enqueueForRetry } from '../../utils/webhookInbox.mjs';
 
-// Map Instantly event types to CRM activity types
 const EVENT_TYPE_MAP = {
   reply_received:     'email_received',
   email_replied:      'email_received',
@@ -17,11 +17,8 @@ const EVENT_TYPE_MAP = {
   unsubscribed:       'email_bounced',
 };
 
-export async function handleInstantly(req, res, workspaceId) {
-  const supabase = getSupabaseClient();
-  const body = req.body;
-
-  // Instantly can send either top-level fields or nested under event_data
+export async function reprocessInstantly(supabase, workspaceId, body) {
+  body = body || {};
   const eventType  = body.event_type  || body.event  || body.type || '';
   const leadEmail  = (body.lead_email || body.email  || body.lead?.email || '').toLowerCase().trim();
   const firstName  = body.lead_first_name || body.first_name || null;
@@ -33,13 +30,10 @@ export async function handleInstantly(req, res, workspaceId) {
 
   console.log(`[INSTANTLY_WEBHOOK] event=${eventType} email=${leadEmail}`);
 
-  if (!leadEmail) return res.status(400).json({ error: 'lead_email_required' });
+  if (!leadEmail) throw new Error('lead_email_required');
 
   const activityType = EVENT_TYPE_MAP[eventType];
-  if (!activityType) {
-    console.log(`[INSTANTLY_WEBHOOK] unhandled event: ${eventType}`);
-    return res.json({ ok: true, skipped: `unhandled event: ${eventType}` });
-  }
+  if (!activityType) return { skipped: `unhandled event: ${eventType}` };
 
   const isReply = eventType === 'reply_received' || eventType === 'email_replied';
 
@@ -48,9 +42,9 @@ export async function handleInstantly(req, res, workspaceId) {
     first_name: firstName,
     last_name:  lastName,
     source:     'instantly',
-  }, { createIfMissing: isReply }); // replies create contact — sent/opened/bounced do not
+  }, { createIfMissing: isReply });
 
-  if (!contact) return res.json({ ok: true, skipped: 'contact not found' });
+  if (!contact) return { skipped: 'contact not found' };
 
   const externalId = messageId
     ? `instantly_${messageId}`
@@ -71,5 +65,17 @@ export async function handleInstantly(req, res, workspaceId) {
     rawData:     { event_type: eventType, campaign_id: campaignId, campaign_name: campaignName },
   });
 
-  return res.json({ ok: true, contactId: contact.id, type: activityType });
+  return { contactId: contact.id, type: activityType };
+}
+
+export async function handleInstantly(req, res, workspaceId) {
+  const supabase = getSupabaseClient();
+  try {
+    const result = await reprocessInstantly(supabase, workspaceId, req.body);
+    return res.json({ ok: true, ...result });
+  } catch (err) {
+    console.error('[INSTANTLY_WEBHOOK] processing failed, queuing for retry:', err.message);
+    await enqueueForRetry(supabase, { workspaceId, source: 'instantly', req, err });
+    return res.status(200).json({ ok: true, queued: true });
+  }
 }

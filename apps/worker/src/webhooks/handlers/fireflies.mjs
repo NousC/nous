@@ -4,24 +4,22 @@
 import { getSupabaseClient } from '@nous/core';
 import { logActivity } from '../../utils/activity.mjs';
 import { resolveContact } from '../../utils/resolveContact.mjs';
+import { enqueueForRetry } from '../../utils/webhookInbox.mjs';
 
 async function extractMeetingFacts(title, participants) {
   const names = participants.map(p => p.name || p.email).filter(Boolean).join(', ');
   return `Meeting: ${title || 'Untitled'}${names ? ` — participants: ${names}` : ''}`;
 }
 
-export async function handleFireflies(req, res, workspaceId) {
-  const supabase = getSupabaseClient();
-  const { meetingId, title, participants = [], meeting_attendees = [], transcript_url, duration, summary: transcriptSummary } = req.body;
+export async function reprocessFireflies(supabase, workspaceId, body) {
+  const { meetingId, title, participants = [], meeting_attendees = [], transcript_url, duration, summary: transcriptSummary } = body || {};
 
-  if (!meetingId) return res.status(400).json({ error: 'meetingId_required' });
+  if (!meetingId) throw new Error('meetingId_required');
 
   const allParticipants = [...participants, ...meeting_attendees];
-  if (!allParticipants.length) return res.json({ ok: true, logged: 0 });
+  if (!allParticipants.length) return { logged: 0 };
 
-  // Build a rich summary for signal extraction — include transcript summary if available
-  const meetingSummary = transcriptSummary
-    || await extractMeetingFacts(title, allParticipants);
+  const meetingSummary = transcriptSummary || await extractMeetingFacts(title, allParticipants);
 
   let logged = 0;
   for (const participant of allParticipants) {
@@ -29,11 +27,8 @@ export async function handleFireflies(req, res, workspaceId) {
     const full_name = participant.name || null;
     if (!email && !full_name) continue;
 
-    // Update-only — Fireflies never bootstraps new contacts
     const { contact } = await resolveContact(supabase, workspaceId, {
-      email,
-      full_name,
-      source: 'fireflies',
+      email, full_name, source: 'fireflies',
     }, { createIfMissing: false });
 
     if (!contact) continue;
@@ -53,5 +48,17 @@ export async function handleFireflies(req, res, workspaceId) {
     if (result) logged++;
   }
 
-  return res.json({ ok: true, logged });
+  return { logged };
+}
+
+export async function handleFireflies(req, res, workspaceId) {
+  const supabase = getSupabaseClient();
+  try {
+    const result = await reprocessFireflies(supabase, workspaceId, req.body);
+    return res.json({ ok: true, ...result });
+  } catch (err) {
+    console.error('[FIREFLIES_WEBHOOK] processing failed, queuing for retry:', err.message);
+    await enqueueForRetry(supabase, { workspaceId, source: 'fireflies', req, err });
+    return res.status(200).json({ ok: true, queued: true });
+  }
 }

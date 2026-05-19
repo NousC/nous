@@ -2,14 +2,14 @@
 // BOOKING_RESCHEDULED events and logs meeting activities.
 //
 // Signature: x-cal-signature-256 is the hex HMAC-SHA256 of the raw request body
-// keyed with the secret we supplied to Cal.com at subscription time. We look
-// the secret up per-workspace from workflow_provider_connections.
+// keyed with the secret we supplied to Cal.com at subscription time.
 
 import crypto from 'crypto';
 import { getSupabaseClient } from '@nous/core';
 import { decrypt } from '../../utils/encryption.mjs';
 import { logActivity } from '../../utils/activity.mjs';
 import { resolveContact } from '../../utils/resolveContact.mjs';
+import { enqueueForRetry } from '../../utils/webhookInbox.mjs';
 
 async function loadCalComSigningKey(supabase, workspaceId) {
   const { data: conn } = await supabase
@@ -24,45 +24,18 @@ async function loadCalComSigningKey(supabase, workspaceId) {
   catch { return null; }
 }
 
-export async function handleCalCom(req, res, workspaceId) {
-  const supabase = getSupabaseClient();
-
-  const signingKey = await loadCalComSigningKey(supabase, workspaceId);
-  if (!signingKey) {
-    console.warn(`[CAL_COM_WEBHOOK] no signing key on file for workspace ${workspaceId} — rejecting`);
-    return res.status(401).json({ error: 'no_signing_key' });
-  }
-
-  const sig = req.headers['x-cal-signature-256'];
-  if (!sig || typeof sig !== 'string') return res.status(401).json({ error: 'missing_signature' });
-
-  const rawBody = req.rawBody ? req.rawBody.toString('utf8') : JSON.stringify(req.body);
-  const expected = crypto.createHmac('sha256', signingKey).update(rawBody).digest('hex');
-
-  // Cal.com sends the hex digest directly (no "sha256=" prefix). Accept the
-  // prefixed form too in case that changes — strip it before comparison.
-  const sigHex = sig.replace(/^sha256=/i, '').trim();
-  let sigBuf, expBuf;
-  try { sigBuf = Buffer.from(sigHex, 'hex'); expBuf = Buffer.from(expected, 'hex'); }
-  catch { return res.status(401).json({ error: 'invalid_signature' }); }
-  if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
-    return res.status(401).json({ error: 'invalid_signature' });
-  }
-
-  const body = req.body || {};
+export async function reprocessCalCom(supabase, workspaceId, body) {
+  body = body || {};
   const trigger = body.triggerEvent || body.event || '';
   const payload = body.payload || body;
 
   console.log(`[CAL_COM_WEBHOOK] trigger=${trigger}`);
 
   const known = ['BOOKING_CREATED', 'BOOKING_CANCELLED', 'BOOKING_RESCHEDULED'];
-  if (!known.includes(trigger)) {
-    return res.json({ ok: true, skipped: `unhandled trigger: ${trigger}` });
-  }
+  if (!known.includes(trigger)) return { skipped: `unhandled trigger: ${trigger}` };
 
   const isCanceled = trigger === 'BOOKING_CANCELLED';
 
-  // Cal.com payload includes attendees[] — first one is typically the booker.
   const attendees = Array.isArray(payload.attendees) ? payload.attendees : [];
   const primary   = attendees[0] || {};
   const email     = (primary.email || '').toLowerCase().trim();
@@ -72,7 +45,7 @@ export async function handleCalCom(req, res, workspaceId) {
   const title     = payload.title || payload.eventType?.title || 'Meeting';
   const bookingUid = payload.uid || payload.bookingUid || null;
 
-  if (!email) return res.status(400).json({ error: 'attendee_email_required' });
+  if (!email) throw new Error('attendee_email_required');
 
   const nameParts = name.trim().split(/\s+/).filter(Boolean);
 
@@ -83,12 +56,10 @@ export async function handleCalCom(req, res, workspaceId) {
     source:     'cal_com',
   }, { createIfMissing: !isCanceled });
 
-  if (!contact) return res.json({ ok: true, skipped: isCanceled ? 'contact not found' : 'could not create contact' });
+  if (!contact) return { skipped: isCanceled ? 'contact not found' : 'could not create contact' };
 
   const occurredAt = startTime ? new Date(startTime).toISOString() : new Date().toISOString();
 
-  // External ID keyed on booking uid — same key used by scanCalCom backfill
-  // so a meeting discovered both ways dedupes cleanly.
   const externalId = bookingUid
     ? `cal_com_${isCanceled ? 'cancel' : 'book'}_${bookingUid}`
     : `cal_com_${isCanceled ? 'cancel' : 'book'}_${email}_${occurredAt.slice(0, 10)}`;
@@ -111,5 +82,38 @@ export async function handleCalCom(req, res, workspaceId) {
     },
   });
 
-  return res.json({ ok: true, contactId: contact.id, type: isCanceled ? 'meeting_cancelled' : 'meeting_scheduled' });
+  return { contactId: contact.id, type: isCanceled ? 'meeting_cancelled' : 'meeting_scheduled' };
+}
+
+export async function handleCalCom(req, res, workspaceId) {
+  const supabase = getSupabaseClient();
+
+  const signingKey = await loadCalComSigningKey(supabase, workspaceId);
+  if (!signingKey) {
+    console.warn(`[CAL_COM_WEBHOOK] no signing key on file for workspace ${workspaceId} — rejecting`);
+    return res.status(401).json({ error: 'no_signing_key' });
+  }
+
+  const sig = req.headers['x-cal-signature-256'];
+  if (!sig || typeof sig !== 'string') return res.status(401).json({ error: 'missing_signature' });
+
+  const rawBody = req.rawBody ? req.rawBody.toString('utf8') : JSON.stringify(req.body);
+  const expected = crypto.createHmac('sha256', signingKey).update(rawBody).digest('hex');
+
+  const sigHex = sig.replace(/^sha256=/i, '').trim();
+  let sigBuf, expBuf;
+  try { sigBuf = Buffer.from(sigHex, 'hex'); expBuf = Buffer.from(expected, 'hex'); }
+  catch { return res.status(401).json({ error: 'invalid_signature' }); }
+  if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
+    return res.status(401).json({ error: 'invalid_signature' });
+  }
+
+  try {
+    const result = await reprocessCalCom(supabase, workspaceId, req.body);
+    return res.json({ ok: true, ...result });
+  } catch (err) {
+    console.error('[CAL_COM_WEBHOOK] processing failed, queuing for retry:', err.message);
+    await enqueueForRetry(supabase, { workspaceId, source: 'cal_com', req, err });
+    return res.status(200).json({ ok: true, queued: true });
+  }
 }

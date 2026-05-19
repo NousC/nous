@@ -3,12 +3,12 @@
 import { getSupabaseClient } from '@nous/core';
 import { logActivity } from '../../utils/activity.mjs';
 import { resolveContact } from '../../utils/resolveContact.mjs';
+import { enqueueForRetry } from '../../utils/webhookInbox.mjs';
 
-export async function handleRB2B(req, res, workspaceId) {
-  const supabase = getSupabaseClient();
-  const { email, linkedin_url, first_name, last_name, company, job_title, page_url } = req.body;
+export async function reprocessRB2B(supabase, workspaceId, body) {
+  const { email, linkedin_url, first_name, last_name, company, job_title, page_url } = body || {};
 
-  if (!email && !linkedin_url) return res.status(400).json({ error: 'email_or_linkedin_required' });
+  if (!email && !linkedin_url) throw new Error('email_or_linkedin_required');
 
   const { contact } = await resolveContact(supabase, workspaceId, {
     email,
@@ -20,7 +20,7 @@ export async function handleRB2B(req, res, workspaceId) {
     source: 'rb2b',
   }, { createIfMissing: !!(email || linkedin_url) });
 
-  if (!contact) return res.json({ ok: true, skipped: true });
+  if (!contact) return { skipped: true };
 
   await logActivity(supabase, {
     workspaceId,
@@ -33,5 +33,17 @@ export async function handleRB2B(req, res, workspaceId) {
     rawData:     { page_url, linkedin_url },
   });
 
-  return res.json({ ok: true });
+  return { ok: true };
+}
+
+export async function handleRB2B(req, res, workspaceId) {
+  const supabase = getSupabaseClient();
+  try {
+    const result = await reprocessRB2B(supabase, workspaceId, req.body);
+    return res.json({ ok: true, ...result });
+  } catch (err) {
+    console.error('[RB2B_WEBHOOK] processing failed, queuing for retry:', err.message);
+    await enqueueForRetry(supabase, { workspaceId, source: 'rb2b', req, err });
+    return res.status(200).json({ ok: true, queued: true });
+  }
 }
