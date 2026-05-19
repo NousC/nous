@@ -1,6 +1,5 @@
 <div align="center">
-  <img src=".github/assets/logo-dark.png#gh-dark-mode-only" alt="Nous" height="60" />
-  <img src=".github/assets/logo-light.png#gh-light-mode-only" alt="Nous" height="60" />
+  <img src=".github/assets/logo.svg" alt="Nous" height="80" />
 </div>
 
 <div align="center">
@@ -24,7 +23,7 @@
   <a href="https://docs.opennous.cloud/public-api/introduction">Public API</a> ·
   <a href="https://docs.opennous.cloud/mcp/introduction">MCP Server</a> ·
   <a href="https://www.npmjs.com/package/@opennous/sdk">Node.js SDK</a> ·
-  <a href="https://pypi.org/project/nous/">Python SDK</a> ·
+  <a href="https://pypi.org/project/opennous/">Python SDK</a> ·
   <a href="https://discord.gg/npa59RTgs">Discord</a>
 </div>
 
