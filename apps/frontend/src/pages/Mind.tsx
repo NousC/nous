@@ -72,6 +72,15 @@ interface IntegrationConn {
   provider: { display_name: string; logo_url?: string; category?: string; name?: string; auth_type?: string } | null;
 }
 
+interface AuthField {
+  name: string;
+  label: string;
+  type?: "text" | "password" | "number";
+  placeholder?: string;
+  description?: string;
+  optional?: boolean;
+}
+
 interface AvailableProvider {
   id: string;
   name: string;
@@ -80,6 +89,7 @@ interface AvailableProvider {
   category?: string;
   description?: string;
   auth_type?: string;
+  auth_fields?: AuthField[];
 }
 
 interface MemoryFact {
@@ -1680,6 +1690,19 @@ const MIND_HARDCODED_PROVIDERS: AvailableProvider[] = [
   { id:"fireflies", name:"fireflies", display_name:"Fireflies.ai", logo_url:"/provider-logos/fireflies.svg", category:"meetings"     },
   { id:"fathom",    name:"fathom",    display_name:"Fathom",       logo_url:"/provider-logos/fathom.svg",    category:"meetings"     },
   { id:"cal_com",   name:"cal_com",   display_name:"Cal.com",      logo_url:"/provider-logos/cal_com.svg",   category:"meetings"     },
+  {
+    id:"smtp", name:"smtp", display_name:"Custom SMTP / IMAP",
+    logo_url:"/provider-logos/smtp.svg", category:"communication",
+    auth_type: "credentials",
+    auth_fields: [
+      { name: "host",      label: "Mail server host",      type: "text",     placeholder: "smtp.yourdomain.com",  description: "Your provider's SMTP host. We derive the IMAP host automatically (smtp. → imap.)." },
+      { name: "port",      label: "SMTP port",             type: "text",     placeholder: "587",                   description: "587 (STARTTLS) or 465 (SSL). Leave blank for 587.", optional: true },
+      { name: "username",  label: "Email address",         type: "text",     placeholder: "you@yourdomain.com",   description: "The mailbox we poll for incoming messages." },
+      { name: "password",  label: "Password",              type: "password", placeholder: "app-specific password", description: "For Gmail / Outlook, generate an app password — login password won't work." },
+      { name: "imap_host", label: "IMAP host (optional)",  type: "text",     placeholder: "imap.yourdomain.com",  description: "Only fill in if your IMAP host doesn't match the smtp. → imap. pattern.", optional: true },
+      { name: "imap_port", label: "IMAP port (optional)",  type: "text",     placeholder: "993",                   description: "Defaults to 993 (SSL).", optional: true },
+    ],
+  },
 ];
 // salesforce hidden until backend OAuth setup is documented & shipped — backend stays wired
 const MIND_EXCLUDED = new Set(["assetly","nous","gmail","mailchimp","google_analytics","granola","notion","clickup","openai","gemini","google","rb2b","anthropic","stripe","signalbase","salesforce"]);
@@ -1712,7 +1735,10 @@ function IntegrationsPopup({ integrations, workspaceId, token, onClose }: {
   const [copied, setCopied] = useState<string|null>(null);
   // Inline connect state
   const [connecting, setConnecting] = useState<AvailableProvider|null>(null);
+  // Single-field providers use connApiKey; multi-field providers use connCreds.
+  // Kept separate for back-compat; switched on the provider's auth_fields.
   const [connApiKey, setConnApiKey] = useState("");
+  const [connCreds, setConnCreds] = useState<Record<string,string>>({});
   const [connName, setConnName] = useState("");
   const [connTesting, setConnTesting] = useState(false);
   const [connTestResult, setConnTestResult] = useState<{verified:boolean;message:string}|null>(null);
@@ -1750,7 +1776,7 @@ function IntegrationsPopup({ integrations, workspaceId, token, onClose }: {
     p?.auth_type === "oauth2" || ["airtable","notion","google_analytics","slack","gmail","granola","salesforce"].includes(p?.name ?? "");
 
   const startConnect = (p: AvailableProvider) => {
-    setConnecting(p); setConnApiKey(""); setConnName(p.display_name);
+    setConnecting(p); setConnApiKey(""); setConnCreds({}); setConnName(p.display_name);
     setConnTestResult(null); setConnSuccess(null); setConnOAuthLoading(false);
   };
 
@@ -1787,16 +1813,45 @@ function IntegrationsPopup({ integrations, workspaceId, token, onClose }: {
     } catch { setConnTestResult({ verified: false, message: "OAuth failed" }); setConnOAuthLoading(false); }
   };
 
+  // True when the provider has more than just an api_key field. Those
+  // providers go through the generic /connections endpoints instead of the
+  // /:name/connect path that only accepts api_key.
+  const isMultiField = !!connecting?.auth_fields && connecting.auth_fields.length > 0
+    && !(connecting.auth_fields.length === 1 && connecting.auth_fields[0].name === "api_key");
+
+  const credsComplete = () => {
+    if (!connecting) return false;
+    if (!isMultiField) return !!connApiKey.trim();
+    return (connecting.auth_fields || [])
+      .filter(f => !f.optional)
+      .every(f => (connCreds[f.name] || "").trim() !== "");
+  };
+
   const testConnection = async () => {
-    if (!connecting || !connApiKey.trim()) return;
+    if (!connecting || !credsComplete()) return;
     setConnTesting(true); setConnTestResult(null);
     try {
-      const res = await fetch(`${apiUrl}/api/workflow-providers/${connecting.name}/test`, {
-        method:"POST", headers:{"Content-Type":"application/json", Authorization:`Bearer ${token}`},
-        body: JSON.stringify({ api_key: connApiKey }),
-      });
+      let res: Response;
+      if (isMultiField) {
+        // Generic test path — needs provider_id resolved from /workflow-providers
+        const provRes = await fetch(`${apiUrl}/api/workflow-providers`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const provData = await provRes.json().catch(() => ({}));
+        const provider = (provData.providers || []).find((p: any) => p.name === connecting.name);
+        if (!provider?.id) throw new Error(`Provider ${connecting.name} not found`);
+        res = await fetch(`${apiUrl}/api/workflow-providers/connections/test`, {
+          method:"POST", headers:{"Content-Type":"application/json", Authorization:`Bearer ${token}`},
+          body: JSON.stringify({ provider_id: provider.id, credentials: connCreds }),
+        });
+      } else {
+        res = await fetch(`${apiUrl}/api/workflow-providers/${connecting.name}/test`, {
+          method:"POST", headers:{"Content-Type":"application/json", Authorization:`Bearer ${token}`},
+          body: JSON.stringify({ api_key: connApiKey }),
+        });
+      }
       setConnTestResult(await res.json());
-    } catch { setConnTestResult({ verified:false, message:"Connection failed" }); }
+    } catch (e: any) { setConnTestResult({ verified:false, message: e.message || "Connection failed" }); }
     finally { setConnTesting(false); }
   };
 
@@ -1804,10 +1859,24 @@ function IntegrationsPopup({ integrations, workspaceId, token, onClose }: {
     if (!connecting || !connTestResult?.verified) return;
     setConnSaving(true);
     try {
-      const res = await fetch(`${apiUrl}/api/workflow-providers/${connecting.name}/connect`, {
-        method:"POST", headers:{"Content-Type":"application/json", Authorization:`Bearer ${token}`},
-        body: JSON.stringify({ workspace_id: workspaceId, name: connName.trim()||connecting.display_name, api_key: connApiKey }),
-      });
+      let res: Response;
+      if (isMultiField) {
+        const provRes = await fetch(`${apiUrl}/api/workflow-providers`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const provData = await provRes.json().catch(() => ({}));
+        const provider = (provData.providers || []).find((p: any) => p.name === connecting.name);
+        if (!provider?.id) throw new Error(`Provider ${connecting.name} not found`);
+        res = await fetch(`${apiUrl}/api/workflow-providers/connections`, {
+          method:"POST", headers:{"Content-Type":"application/json", Authorization:`Bearer ${token}`},
+          body: JSON.stringify({ workspace_id: workspaceId, provider_id: provider.id, name: connName.trim()||connecting.display_name, credentials: connCreds, is_verified: true }),
+        });
+      } else {
+        res = await fetch(`${apiUrl}/api/workflow-providers/${connecting.name}/connect`, {
+          method:"POST", headers:{"Content-Type":"application/json", Authorization:`Bearer ${token}`},
+          body: JSON.stringify({ workspace_id: workspaceId, name: connName.trim()||connecting.display_name, api_key: connApiKey }),
+        });
+      }
       if (res.ok) {
         const body = await res.json().catch(() => ({}));
         // Backend returns a `note` when the connection saved but something
@@ -1867,20 +1936,39 @@ function IntegrationsPopup({ integrations, workspaceId, token, onClose }: {
                 <input value={connName} onChange={e=>setConnName(e.target.value)}
                   className="w-full bg-muted/20 border border-border/40 text-[11px] text-foreground px-2.5 py-1.5 outline-none focus:border-violet-500/40"/>
               </div>
-              <div>
-                <div className="text-[9px] text-muted-foreground/35 mb-1">API KEY</div>
-                <input type="password" value={connApiKey} onChange={e=>setConnApiKey(e.target.value)}
-                  placeholder="Enter API key…"
-                  onKeyDown={e=>{if(e.key==="Enter")testConnection();}}
-                  className="w-full bg-muted/20 border border-border/40 text-[11px] text-foreground px-2.5 py-1.5 outline-none focus:border-violet-500/40 placeholder:text-muted-foreground/25"/>
-              </div>
+
+              {isMultiField ? (
+                (connecting?.auth_fields || []).map(f => (
+                  <div key={f.name}>
+                    <div className="text-[9px] text-muted-foreground/35 mb-1 uppercase tracking-wider">{f.label}{f.optional ? <span className="text-muted-foreground/25 normal-case ml-1.5">(optional)</span> : null}</div>
+                    <input
+                      type={f.type === "password" ? "password" : "text"}
+                      value={connCreds[f.name] || ""}
+                      onChange={e => setConnCreds(prev => ({ ...prev, [f.name]: e.target.value }))}
+                      placeholder={f.placeholder || ""}
+                      onKeyDown={e => { if (e.key === "Enter" && credsComplete()) testConnection(); }}
+                      className="w-full bg-muted/20 border border-border/40 text-[11px] text-foreground px-2.5 py-1.5 outline-none focus:border-violet-500/40 placeholder:text-muted-foreground/25"
+                    />
+                    {f.description && <p className="text-[9px] text-muted-foreground/35 mt-1">{f.description}</p>}
+                  </div>
+                ))
+              ) : (
+                <div>
+                  <div className="text-[9px] text-muted-foreground/35 mb-1">API KEY</div>
+                  <input type="password" value={connApiKey} onChange={e=>setConnApiKey(e.target.value)}
+                    placeholder="Enter API key…"
+                    onKeyDown={e=>{if(e.key==="Enter")testConnection();}}
+                    className="w-full bg-muted/20 border border-border/40 text-[11px] text-foreground px-2.5 py-1.5 outline-none focus:border-violet-500/40 placeholder:text-muted-foreground/25"/>
+                </div>
+              )}
+
               {connTestResult && (
                 <div className={`text-[10px] px-3 py-2 border ${connTestResult.verified?"text-emerald-500/70 border-emerald-500/20 bg-emerald-500/5":"text-red-400/70 border-red-500/20 bg-red-500/5"}`}>
                   {connTestResult.message}
                 </div>
               )}
               <div className="flex items-center gap-3 pt-1">
-                <button onClick={testConnection} disabled={connTesting||!connApiKey.trim()}
+                <button onClick={testConnection} disabled={connTesting||!credsComplete()}
                   className="text-[10px] px-4 py-1.5 border border-border/40 text-muted-foreground/60 hover:border-border hover:text-foreground transition-colors disabled:opacity-30 flex items-center gap-1.5">
                   {connTesting?<><RefreshCw className="h-3 w-3 animate-spin"/>testing…</>:"test connection"}
                 </button>
