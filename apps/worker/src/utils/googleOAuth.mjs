@@ -11,9 +11,20 @@ export async function refreshGoogleToken(encryptedCredentials) {
   if (!process.env.ENCRYPTION_KEY) {
     throw new Error('ENCRYPTION_KEY not set — add it to nous.env');
   }
+
+  // Only token-secret fields are encrypted at rest. Other fields (scope, email,
+  // expiry_date, token_type, etc.) are stored as plaintext metadata. The old code
+  // decrypted+re-encrypted every string field which scrambled non-secret values
+  // like `scope` — breaking downstream filters that look for substrings in scope.
+  const ENCRYPTED_FIELDS = new Set(['access_token', 'refresh_token', 'id_token']);
   const creds = {};
   for (const [key, value] of Object.entries(encryptedCredentials)) {
-    creds[key] = typeof value === 'string' ? decrypt(value) : value;
+    if (ENCRYPTED_FIELDS.has(key) && typeof value === 'string') {
+      try { creds[key] = decrypt(value); }
+      catch { creds[key] = value; } // already plaintext — preserve as-is
+    } else {
+      creds[key] = value;
+    }
   }
 
   // Resolve expiry from either field name + format we might find:
@@ -48,11 +59,16 @@ export async function refreshGoogleToken(encryptedCredentials) {
   const { credentials: refreshed } = await oauth2Client.refreshAccessToken();
   const merged = { ...creds, ...refreshed };
 
-  // Re-encrypt updated credentials for storage
+  // Re-encrypt ONLY the token-secret fields on write-back. Everything else
+  // (scope, email, expiry_date, token_type, id_token vs not) stays as-is.
   const { encrypt } = await import('./encryption.mjs');
   const updatedCredentials = {};
   for (const [key, value] of Object.entries(merged)) {
-    updatedCredentials[key] = typeof value === 'string' ? encrypt(value) : value;
+    if (ENCRYPTED_FIELDS.has(key) && typeof value === 'string') {
+      updatedCredentials[key] = encrypt(value);
+    } else {
+      updatedCredentials[key] = value;
+    }
   }
 
   return { credentials: merged, needsUpdate: true, updatedCredentials };
