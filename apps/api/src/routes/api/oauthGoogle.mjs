@@ -69,27 +69,59 @@ oauthGoogleRouter.get('/callback', async (req, res) => {
     const { data: provider } = await supabase.from('workflow_providers').select('id').eq('name', 'gmail_oauth').single();
     if (!provider) throw new Error('Gmail OAuth provider not found in database');
 
-    const { data: connection, error: insertErr } = await supabase
-      .from('workflow_provider_connections')
-      .insert({
-        workspace_id: stateData.workspaceId,
-        provider_id: provider.id,
-        name: stateData.connectionName,
-        encrypted_credentials: {
-          access_token:  encrypt(tokens.access_token),
-          refresh_token: encrypt(tokens.refresh_token),
-          token_expiry:  new Date(tokens.expiry_date).toISOString(),
-          email:         userInfo.email,
-          scope:         tokens.scope,
-        },
-        created_by: stateData.userId,
-        is_verified: true,
-        last_test_at: new Date().toISOString(),
-      })
-      .select('id')
-      .single();
+    const credentials = {
+      access_token:  encrypt(tokens.access_token),
+      refresh_token: encrypt(tokens.refresh_token),
+      // Store as unix-ms number to match what googleapis' refreshAccessToken() returns.
+      // Field name MUST be expiry_date (not token_expiry) — refreshGoogleToken reads this exact key.
+      expiry_date:   tokens.expiry_date,
+      email:         userInfo.email,
+      scope:         tokens.scope,
+    };
 
-    if (insertErr) throw insertErr;
+    // Upsert by (workspace_id, provider_id) so reconnect overwrites the stale row
+    // instead of failing on the unique constraint. If a row already exists, we
+    // update credentials + last_test_at; otherwise we insert.
+    const { data: existing } = await supabase
+      .from('workflow_provider_connections')
+      .select('id')
+      .eq('workspace_id', stateData.workspaceId)
+      .eq('provider_id', provider.id)
+      .maybeSingle();
+
+    let connection;
+    if (existing) {
+      const { data, error } = await supabase
+        .from('workflow_provider_connections')
+        .update({
+          encrypted_credentials: credentials,
+          name: stateData.connectionName,
+          is_verified: true,
+          last_test_at: new Date().toISOString(),
+        })
+        .eq('id', existing.id)
+        .select('id')
+        .single();
+      if (error) throw error;
+      connection = data;
+      console.log('[GOOGLE_OAUTH] Updated existing connection:', existing.id);
+    } else {
+      const { data, error } = await supabase
+        .from('workflow_provider_connections')
+        .insert({
+          workspace_id: stateData.workspaceId,
+          provider_id: provider.id,
+          name: stateData.connectionName,
+          encrypted_credentials: credentials,
+          created_by: stateData.userId,
+          is_verified: true,
+          last_test_at: new Date().toISOString(),
+        })
+        .select('id')
+        .single();
+      if (error) throw error;
+      connection = data;
+    }
 
     console.log('[GOOGLE_OAUTH] Connected:', userInfo.email, 'connection:', connection.id);
     return res.redirect(`${frontendUrl}/oauth-callback.html?oauth_success=true&connection_id=${connection.id}`);
