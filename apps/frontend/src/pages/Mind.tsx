@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspense } from "react";
 import { useAuth } from "@/hooks/useAuth";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { useTheme } from "@/contexts/ThemeContext";
 import { format, isToday, isYesterday, startOfDay, formatDistanceToNow } from "date-fns";
 import { X, ExternalLink, ChevronUp, ChevronDown, ChevronLeft, RefreshCw, Copy, Check, Sun, Moon, LogOut, Plus, ChevronRight, ArrowLeft, Phone, FileText, Mail, MessageSquare, Linkedin, Trash2, Download } from "lucide-react";
@@ -2584,7 +2584,19 @@ export default function Mind() {
   const [hasMore,      setHasMore]      = useState(true);
   const [showConnect,  setShowConnect]  = useState(false);
   const [settingsTab,  setSettingsTab]  = useState<SettingsTab>("profile");
-  const [popup,        setPopup]        = useState<Popup>(null);
+  // popup state is derived from the URL — /settings opens the Settings
+  // popup, /people opens People, etc. Deep links + browser back/forward
+  // work as expected. setPopup just navigates; rendering stays on Mind.
+  const location = useLocation();
+  const popup = useMemo<Popup>(() => {
+    const slug = location.pathname.replace(/^\//, "").split("/")[0];
+    return (["companies","people","crm","integrations","memories","settings"] as const).includes(slug as any)
+      ? (slug as Popup)
+      : null;
+  }, [location.pathname]);
+  const setPopup = useCallback((p: Popup) => {
+    navigate(p ? `/${p}` : "/");
+  }, [navigate]);
   const [pulse,        setPulse]        = useState(0);
   const [peopleSort,   setPeopleSort]   = useState<{col:"lastActivity"|"deal"|null;dir:"asc"|"desc"}|undefined>(undefined);
 
@@ -2754,7 +2766,7 @@ export default function Mind() {
               {label:"INTEGRATIONS",value:integrations.filter(i=>i.is_verified).length, p:"integrations" as Popup},
               {label:"MEMORIES",    value:memories.length,     p:"memories"     as Popup},
             ]).map(({label,value,p})=>(
-              <button key={label} onClick={()=>setPopup(q=>q===p?null:p)}
+              <button key={label} onClick={()=>setPopup(popup===p?null:p)}
                 className={`text-left group transition-opacity ${popup===p?"opacity-100":"opacity-70 hover:opacity-100"}`}>
                 <div className="text-muted-foreground/40 text-[9px] tracking-widest mb-0.5 group-hover:text-muted-foreground/70">{label}</div>
                 <div className="text-foreground/70 tabular-nums text-[11px] group-hover:text-foreground">{value.toLocaleString()}</div>
