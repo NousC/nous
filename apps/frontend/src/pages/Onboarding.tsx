@@ -80,7 +80,7 @@ function BrandingPanel() {
         }}
       />
       <div className="relative z-10 flex items-center gap-2.5">
-        <img src="/newlogoP.png" alt="Nous" className="h-8 w-auto" />
+        <img src="/nous-logo.svg" alt="Nous" className="h-8 w-auto" />
       </div>
       <div className="relative z-10 max-w-sm">
         <svg className="w-8 h-8 text-gray-600 mb-5" fill="currentColor" viewBox="0 0 24 24">
@@ -491,7 +491,7 @@ function LoadingScreen({ companyName }: { companyName: string }) {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-[#f5f5f5]">
       <div className="flex flex-col items-center gap-6 w-full max-w-[320px]">
-        <img src="/newlogoP.png" alt="Nous" className="h-10 w-auto" />
+        <img src="/nous-logo.svg" alt="Nous" className="h-10 w-auto" />
         <div className="w-full">
           <div className="h-1 bg-gray-200 rounded-full overflow-hidden">
             <div
@@ -593,7 +593,7 @@ export default function Onboarding({ testMode = false }: OnboardingProps) {
     <div className="min-h-screen flex bg-white">
       <div className="flex-1 flex flex-col">
         <header className="px-8 py-6 flex items-center justify-between">
-          <img src="/newlogoP.png" alt="Nous" className="h-8 w-auto" />
+          <img src="/nous-logo.svg" alt="Nous" className="h-8 w-auto" />
           <StepProgress current={step} total={TOTAL_STEPS} />
         </header>
 
