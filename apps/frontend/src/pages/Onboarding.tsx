@@ -1,11 +1,11 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/components/ui/sonner";
 import {
-  Check, Copy, Eye, EyeOff, Loader2, Upload,
-  FileText, Key, RefreshCw,
+  Check, Copy, Eye, EyeOff, Key, RefreshCw, ExternalLink, Sparkles,
 } from "lucide-react";
+import { PeopleImportPanel } from "@/components/contacts/PeopleImportModal";
 
 // ─── Option sets ─────────────────────────────────────────────────────────────
 const USE_CASES = [
@@ -23,48 +23,8 @@ const STORAGE_KEY = "nous_onboarding_v6";
 const API_URL    = import.meta.env.VITE_API_URL ?? "";
 const MONO       = { fontFamily: "'JetBrains Mono',monospace" };
 
-// ─── CSV helpers ─────────────────────────────────────────────────────────────
-function parseCSV(text: string): Record<string, string>[] {
-  const lines = text.trim().split(/\r?\n/);
-  if (lines.length < 2) return [];
-  const headers = lines[0].split(",").map(h => h.trim().toLowerCase().replace(/['"]/g, ""));
-  return lines.slice(1).filter(l => l.trim()).map(line => {
-    const values: string[] = [];
-    let cur = "", inQ = false;
-    for (const ch of line) {
-      if (ch === '"') { inQ = !inQ; }
-      else if (ch === "," && !inQ) { values.push(cur.trim().replace(/^"|"$/g, "")); cur = ""; }
-      else { cur += ch; }
-    }
-    values.push(cur.trim().replace(/^"|"$/g, ""));
-    const row: Record<string, string> = {};
-    headers.forEach((h, i) => { row[h] = values[i] || ""; });
-    return row;
-  });
-}
-
-function normalizeRow(raw: Record<string, string>): Record<string, string> {
-  const get = (...keys: string[]) => keys.map(k => raw[k]).find(v => v) || "";
-  const SERVER_FIELDS = [
-    "email", "first_name", "last_name", "company", "domain", "phone",
-    "job_title", "deal_stage", "linkedin_url", "notes", "seniority",
-    "department", "pipeline_stage", "crm_record_id", "source",
-  ];
-  const row: Record<string, string> = {};
-  SERVER_FIELDS.forEach(f => { if (raw[f]) row[f] = raw[f]; });
-  if (!row.email)        row.email        = get("email address", "e-mail");
-  if (!row.first_name)   row.first_name   = get("firstname", "first name", "given name");
-  if (!row.last_name)    row.last_name    = get("lastname", "last name", "surname");
-  if (!row.company)      row.company      = get("company name", "organization", "account");
-  if (!row.job_title)    row.job_title    = get("title", "position", "role");
-  if (!row.phone)        row.phone        = get("phone number", "mobile", "telephone");
-  if (!row.linkedin_url) row.linkedin_url = get("linkedin", "linkedin profile");
-  if (!row.domain)       row.domain       = get("website", "company domain");
-  return row;
-}
-
 // ─── Tiny primitives ─────────────────────────────────────────────────────────
-function Label({ children, optional }: { children: React.ReactNode; optional?: boolean }) {
+function FieldLabel({ children, optional }: { children: React.ReactNode; optional?: boolean }) {
   return (
     <div className="text-[9px] text-muted-foreground/40 tracking-widest mb-1.5">
       {children}
@@ -86,18 +46,24 @@ function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
   );
 }
 
+function StepTitle({ title, desc }: { title: string; desc: string }) {
+  return (
+    <div>
+      <h2 className="text-[13px] font-medium text-foreground leading-tight">{title}</h2>
+      <p className="text-[10px] text-muted-foreground/45 leading-relaxed mt-1">{desc}</p>
+    </div>
+  );
+}
+
 function ChipGroup({
-  options, value, onChange, single = false,
+  options, value, onChange,
 }: {
   options: { id: string; label: string }[];
   value: string[];
   onChange: (v: string[]) => void;
-  single?: boolean;
 }) {
-  const toggle = (id: string) => {
-    if (single) { onChange(value[0] === id ? [] : [id]); return; }
+  const toggle = (id: string) =>
     onChange(value.includes(id) ? value.filter(x => x !== id) : [...value, id]);
-  };
   return (
     <div className="flex flex-wrap gap-1.5">
       {options.map(({ id, label }) => {
@@ -110,7 +76,7 @@ function ChipGroup({
             className={`text-[10px] px-2.5 py-1 border transition-colors ${
               selected
                 ? "border-violet-500/50 text-violet-400/80 bg-violet-500/10"
-                : "border-border/40 text-muted-foreground/40 hover:border-border/70"
+                : "border-border/40 text-muted-foreground/50 hover:border-border/70"
             }`}
           >
             {label}
@@ -122,13 +88,18 @@ function ChipGroup({
 }
 
 function PrimaryButton({
-  onClick, disabled, loading, children,
-}: { onClick: () => void; disabled?: boolean; loading?: boolean; children: React.ReactNode }) {
+  onClick, disabled, loading, children, full = true,
+}: { onClick: () => void; disabled?: boolean; loading?: boolean; children: React.ReactNode; full?: boolean }) {
   return (
     <button
       onClick={onClick}
       disabled={disabled || loading}
-      className="w-full flex items-center justify-center gap-2 text-[11px] py-2 bg-violet-500/20 border border-violet-500/30 text-violet-400/80 hover:bg-violet-500/30 transition-colors disabled:opacity-30"
+      className={
+        (full ? "w-full " : "") +
+        "flex items-center justify-center gap-2 text-[11px] py-2 px-4 " +
+        "bg-violet-500/20 border border-violet-500/30 text-violet-400/80 hover:bg-violet-500/30 " +
+        "transition-colors disabled:opacity-30"
+      }
     >
       {loading ? <RefreshCw className="h-3 w-3 animate-spin" /> : null}
       {children}
@@ -164,15 +135,13 @@ function StepWelcome({
 }) {
   return (
     <div className="space-y-5">
-      <div>
-        <div className="text-[11px] text-foreground/70 mb-1">welcome to nous</div>
-        <p className="text-[10px] text-muted-foreground/40 leading-relaxed">
-          a few details so your memory layer knows what you're building.
-        </p>
-      </div>
+      <StepTitle
+        title="Welcome to Nous"
+        desc="A few details so your memory layer knows what you're building."
+      />
 
       <div>
-        <Label>company</Label>
+        <FieldLabel>company</FieldLabel>
         <TextInput
           value={companyName}
           onChange={e => setCompanyName(e.target.value)}
@@ -182,7 +151,7 @@ function StepWelcome({
       </div>
 
       <div>
-        <Label optional>website</Label>
+        <FieldLabel optional>website</FieldLabel>
         <TextInput
           value={website}
           onChange={e => setWebsite(e.target.value)}
@@ -192,12 +161,8 @@ function StepWelcome({
       </div>
 
       <div>
-        <Label>what are you building?</Label>
-        <ChipGroup
-          options={USE_CASES}
-          value={useCases}
-          onChange={setUseCases}
-        />
+        <FieldLabel>what are you building?</FieldLabel>
+        <ChipGroup options={USE_CASES} value={useCases} onChange={setUseCases} />
       </div>
 
       <PrimaryButton onClick={onNext} disabled={!companyName.trim()} loading={isLoading}>
@@ -207,120 +172,47 @@ function StepWelcome({
   );
 }
 
-// ─── Step 2: Import contacts ─────────────────────────────────────────────────
+// ─── Step 2: Import contacts (real column-mapping importer) ──────────────────
 function StepImport({
-  onNext, onSkip, onBack, session, workspaceId, testMode,
+  onAdvance, onBack, onSkip, session, workspaceId, testMode,
 }: {
-  onNext: () => void; onSkip: () => void; onBack: () => void;
-  session: any; workspaceId: string | undefined; testMode?: boolean;
+  onAdvance: () => void;
+  onBack: () => void;
+  onSkip: () => void;
+  session: any;
+  workspaceId: string | undefined;
+  testMode?: boolean;
 }) {
-  const [isDragging, setIsDragging] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
-  const [result, setResult] = useState<{ created: number; updated: number } | null>(null);
-  const [fileName, setFileName] = useState("");
-  const fileRef = useRef<HTMLInputElement>(null);
-
-  const handleFile = async (file: File) => {
-    if (!file.name.toLowerCase().endsWith(".csv")) { toast.error("please upload a CSV file"); return; }
-    setFileName(file.name);
-    setIsUploading(true);
-    try {
-      const text = await file.text();
-      const rows = parseCSV(text).map(normalizeRow).filter(r => r.email);
-      if (!rows.length) { toast.error("no rows with a valid email column"); return; }
-      if (testMode) {
-        await new Promise(r => setTimeout(r, 500));
-        setResult({ created: rows.length, updated: 0 });
-        return;
-      }
-      if (!workspaceId) { toast.error("no workspace found"); return; }
-      const res = await fetch(`${API_URL}/api/contacts/import`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
-        body: JSON.stringify({ workspaceId, rows }),
-      });
-      if (!res.ok) throw new Error((await res.json()).message || "import failed");
-      const data = await res.json();
-      setResult({ created: data.created ?? 0, updated: data.updated ?? 0 });
-    } catch (e: any) {
-      toast.error(e.message || "failed to import contacts");
-    } finally {
-      setIsUploading(false);
-    }
-  };
-
   return (
-    <div className="space-y-5">
-      <div>
-        <div className="text-[11px] text-foreground/70 mb-1">import contacts</div>
-        <p className="text-[10px] text-muted-foreground/40 leading-relaxed">
-          drop a CSV from your CRM, or skip — we'll seed a demo set.
-        </p>
+    <div className="space-y-4">
+      <StepTitle
+        title="Bring your contacts in"
+        desc="Drop a CSV and map columns to Nous fields. Skip to start with demo data."
+      />
+
+      <div className="border border-border/30 -mx-5">
+        <PeopleImportPanel
+          workspaceId={workspaceId ?? ""}
+          token={session?.access_token ?? ""}
+          onDone={onAdvance}
+          onClose={onAdvance}
+          testMode={testMode}
+        />
       </div>
 
-      {result ? (
-        <div className="border border-emerald-500/30 bg-emerald-500/5 px-4 py-3">
-          <div className="flex items-center gap-2 text-[11px] text-emerald-500/80">
-            <Check className="h-3 w-3" />
-            <span>{result.created} contacts {testMode ? "parsed (test mode)" : "imported"}</span>
-          </div>
-          {result.updated > 0 && (
-            <div className="text-[9px] text-muted-foreground/40 mt-1">{result.updated} existing updated</div>
-          )}
-          <div className="text-[9px] text-muted-foreground/30 mt-0.5 truncate">{fileName}</div>
-        </div>
-      ) : (
-        <div
-          onClick={() => !isUploading && fileRef.current?.click()}
-          onDragOver={e => { e.preventDefault(); setIsDragging(true); }}
-          onDragLeave={() => setIsDragging(false)}
-          onDrop={e => {
-            e.preventDefault();
-            setIsDragging(false);
-            const f = e.dataTransfer.files[0];
-            if (f) handleFile(f);
-          }}
-          className={`flex flex-col items-center justify-center h-32 border border-dashed cursor-pointer transition-colors ${
-            isUploading
-              ? "border-border/30 bg-muted/10 cursor-default"
-              : isDragging
-                ? "border-violet-500/60 bg-violet-500/5"
-                : "border-border/40 hover:border-border/70 hover:bg-muted/10"
-          }`}
+      <div className="flex items-center justify-between pt-1">
+        <button
+          onClick={onBack}
+          className="text-[10px] text-muted-foreground/40 hover:text-foreground/60 transition-colors"
         >
-          <input
-            ref={fileRef}
-            type="file"
-            accept=".csv"
-            className="hidden"
-            onChange={e => { const f = e.target.files?.[0]; e.target.value = ""; if (f) handleFile(f); }}
-          />
-          {isUploading ? (
-            <div className="text-center">
-              <RefreshCw className="h-4 w-4 text-muted-foreground/40 mx-auto animate-spin mb-2" />
-              <p className="text-[10px] text-muted-foreground/40">importing…</p>
-            </div>
-          ) : (
-            <div className="text-center">
-              <Upload className="h-4 w-4 text-muted-foreground/25 mx-auto mb-2" />
-              <p className="text-[10px] text-muted-foreground/40">
-                drop CSV or <span className="text-violet-400/70">click to upload</span>
-              </p>
-              <p className="text-[9px] text-muted-foreground/25 mt-0.5">
-                email, first_name, last_name, company, job_title
-              </p>
-            </div>
-          )}
-        </div>
-      )}
-
-      <div className="flex gap-2">
-        <GhostButton onClick={onBack}>back</GhostButton>
-        <div className="flex-1">
-          <PrimaryButton onClick={result ? onNext : onSkip} disabled={isUploading}>
-            {result ? "continue" : "skip — use demo data"}
-          </PrimaryButton>
-        </div>
+          ← back
+        </button>
+        <button
+          onClick={onSkip}
+          className="text-[10px] text-violet-400/70 hover:text-violet-400 transition-colors"
+        >
+          skip — use demo data
+        </button>
       </div>
     </div>
   );
@@ -349,19 +241,17 @@ function StepCreateKey({
 
   return (
     <div className="space-y-5">
-      <div>
-        <div className="text-[11px] text-foreground/70 mb-1">create your api key</div>
-        <p className="text-[10px] text-muted-foreground/40 leading-relaxed">
-          {apiKey
-            ? "save this somewhere safe — you won't see the full key again."
-            : "generate a key so your agents and integrations can talk to nous."}
-        </p>
-      </div>
+      <StepTitle
+        title="Create your API key"
+        desc={apiKey
+          ? "Save this somewhere safe — you won't see the full key again."
+          : "Generate a key so your agents and integrations can talk to Nous."}
+      />
 
       {!apiKey ? (
         <>
           <div>
-            <Label>key name</Label>
+            <FieldLabel>key name</FieldLabel>
             <TextInput
               value={keyName}
               onChange={e => setKeyName(e.target.value)}
@@ -381,7 +271,7 @@ function StepCreateKey({
           <div className="border border-emerald-500/30 bg-emerald-500/5 px-3 py-2.5">
             <div className="flex items-center gap-2 mb-2 text-[10px] text-emerald-500/80">
               <Check className="h-3 w-3" />
-              <span className="tracking-widest">key created</span>
+              <span className="tracking-widest">KEY CREATED</span>
             </div>
             <div className="flex items-center gap-2">
               <input
@@ -407,8 +297,8 @@ function StepCreateKey({
               </button>
             </div>
           </div>
-          <p className="text-[9px] text-muted-foreground/30 leading-relaxed">
-            you can revoke or rotate this any time from settings.
+          <p className="text-[9px] text-muted-foreground/35 leading-relaxed">
+            You can revoke or rotate this any time from settings.
           </p>
         </div>
       )}
@@ -419,6 +309,29 @@ function StepCreateKey({
           <PrimaryButton onClick={onFinish} disabled={!apiKey}>
             open workspace
           </PrimaryButton>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Finishing: loading screen with tip ──────────────────────────────────────
+function FinishingScreen() {
+  return (
+    <div className="py-2">
+      <div className="flex flex-col items-center justify-center py-6">
+        <RefreshCw className="h-5 w-5 animate-spin text-violet-400/70 mb-3" />
+        <h2 className="text-[13px] font-medium text-foreground/80">Setting up your workspace</h2>
+        <p className="text-[10px] text-muted-foreground/40 mt-1">just a moment…</p>
+      </div>
+
+      <div className="border border-violet-500/20 bg-violet-500/5 px-4 py-3">
+        <div className="flex items-start gap-2">
+          <Sparkles className="h-3 w-3 text-violet-400/80 mt-0.5 flex-shrink-0" />
+          <p className="text-[10px] text-foreground/65 leading-relaxed">
+            <span className="text-violet-400/90 font-medium tracking-wide">Tip — </span>
+            click the <span className="text-foreground/80">mind status</span> indicator (it'll be offline) to set up your MCP server or SDK integration.
+          </p>
         </div>
       </div>
     </div>
@@ -444,21 +357,19 @@ interface OnboardingProps {
   testMode?: boolean;
 }
 
-type StepIdx = 1 | 2 | 3;
+type Phase = 1 | 2 | 3 | "finishing";
 
 export default function Onboarding({ testMode = false }: OnboardingProps) {
   const navigate = useNavigate();
   const { session, userData, refreshUserData } = useAuth();
 
-  const [step, setStep] = useState<StepIdx>(1);
+  const [phase, setPhase] = useState<Phase>(1);
   const [stepLoading, setStepLoading] = useState(false);
 
-  // step 1
   const [companyName, setCompanyName] = useState("");
   const [website, setWebsite] = useState("");
   const [useCases, setUseCases] = useState<string[]>([]);
 
-  // step 3
   const [apiKey, setApiKey] = useState<string | null>(null);
   const [generatingKey, setGeneratingKey] = useState(false);
 
@@ -473,7 +384,7 @@ export default function Onboarding({ testMode = false }: OnboardingProps) {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (!saved) return;
       const p = JSON.parse(saved);
-      if (p.step)         setStep(p.step);
+      if (p.phase && p.phase !== "finishing") setPhase(p.phase);
       if (p.companyName)  setCompanyName(p.companyName);
       if (p.website)      setWebsite(p.website);
       if (p.useCases)     setUseCases(p.useCases);
@@ -481,8 +392,9 @@ export default function Onboarding({ testMode = false }: OnboardingProps) {
   }, []);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ step, companyName, website, useCases }));
-  }, [step, companyName, website, useCases]);
+    if (phase === "finishing") return;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ phase, companyName, website, useCases }));
+  }, [phase, companyName, website, useCases]);
 
   const auth = { Authorization: `Bearer ${session?.access_token}`, "Content-Type": "application/json" };
 
@@ -503,7 +415,7 @@ export default function Onboarding({ testMode = false }: OnboardingProps) {
       } catch { /* non-blocking */ }
     }
     setStepLoading(false);
-    setStep(2);
+    setPhase(2);
   };
 
   const generateApiKey = async (name: string) => {
@@ -534,10 +446,13 @@ export default function Onboarding({ testMode = false }: OnboardingProps) {
   };
 
   const finish = async () => {
+    setPhase("finishing");
     if (testMode) {
+      await new Promise(r => setTimeout(r, 2800));
       toast.success("test run complete — restarting");
       localStorage.removeItem(STORAGE_KEY);
-      setStep(1); setApiKey(null);
+      setApiKey(null);
+      setPhase(1);
       return;
     }
     try {
@@ -549,10 +464,16 @@ export default function Onboarding({ testMode = false }: OnboardingProps) {
       localStorage.removeItem(STORAGE_KEY);
       localStorage.setItem("nous_just_onboarded", "true");
       localStorage.setItem("nous_onboarding_company_name", companyName.trim());
+      await new Promise(r => setTimeout(r, 1400));
       refreshUserData().catch(console.error);
     } catch { /* non-blocking */ }
     navigate("/", { replace: true });
   };
+
+  // Modal widens when the importer panel needs space for column mapping.
+  const maxWidth = phase === 2 ? 580 : 460;
+  const stepLabel = phase === "finishing" ? "WRAP" : `${phase} OF ${TOTAL_STEPS}`;
+  const currentDot = phase === "finishing" ? 3 : phase;
 
   return (
     <div
@@ -561,13 +482,13 @@ export default function Onboarding({ testMode = false }: OnboardingProps) {
     >
       <div
         className="bg-background border border-border shadow-2xl w-full mx-4 flex flex-col"
-        style={{ maxWidth: 460, ...MONO }}
+        style={{ maxWidth, ...MONO }}
       >
         {/* breadcrumb header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-border/40">
           <div className="flex items-center gap-2">
             <span className="text-[9px] text-muted-foreground/40 tracking-widest">
-              NOUS / ONBOARDING / {step} OF {TOTAL_STEPS}
+              NOUS / ONBOARDING / {stepLabel}
             </span>
             {testMode && (
               <span className="text-[9px] text-amber-500/70 tracking-widest border border-amber-500/30 px-1.5 py-0.5">
@@ -575,12 +496,12 @@ export default function Onboarding({ testMode = false }: OnboardingProps) {
               </span>
             )}
           </div>
-          <StepBar current={step} total={TOTAL_STEPS} />
+          <StepBar current={currentDot} total={TOTAL_STEPS} />
         </div>
 
         {/* body */}
         <div className="px-5 py-5">
-          {step === 1 && (
+          {phase === 1 && (
             <StepWelcome
               companyName={companyName} setCompanyName={setCompanyName}
               website={website} setWebsite={setWebsite}
@@ -588,34 +509,41 @@ export default function Onboarding({ testMode = false }: OnboardingProps) {
               onNext={submitStep1} isLoading={stepLoading}
             />
           )}
-          {step === 2 && (
+          {phase === 2 && (
             <StepImport
               session={session}
               workspaceId={userData?.workspace?.id}
               testMode={testMode}
-              onNext={() => setStep(3)}
-              onSkip={() => setStep(3)}
-              onBack={() => setStep(1)}
+              onAdvance={() => setPhase(3)}
+              onBack={() => setPhase(1)}
+              onSkip={() => setPhase(3)}
             />
           )}
-          {step === 3 && (
+          {phase === 3 && (
             <StepCreateKey
               apiKey={apiKey}
               generateKey={generateApiKey}
               generating={generatingKey}
               onFinish={finish}
-              onBack={() => setStep(2)}
+              onBack={() => setPhase(2)}
             />
           )}
+          {phase === "finishing" && <FinishingScreen />}
         </div>
 
         {/* footer */}
-        <div className="border-t border-border/20 px-5 py-2.5 flex justify-between items-center text-[9px] text-muted-foreground/30">
-          <span>step {step} of {TOTAL_STEPS}</span>
-          <span className="flex items-center gap-1">
-            <FileText className="h-2.5 w-2.5" />
-            <span>docs.opennous.cloud</span>
+        <div className="border-t border-border/20 px-5 py-2.5 flex justify-between items-center text-[9px] text-muted-foreground/35">
+          <span>
+            {phase === "finishing" ? "finishing up" : `step ${phase} of ${TOTAL_STEPS}`}
           </span>
+          <a
+            href="https://docs.opennous.cloud"
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-1 hover:text-muted-foreground/70 transition-colors"
+          >
+            docs.opennous.cloud <ExternalLink className="h-2.5 w-2.5" />
+          </a>
         </div>
       </div>
     </div>

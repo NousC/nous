@@ -65,85 +65,86 @@ async function pollWorkspace(supabase, conn) {
   });
 
   const messages = listRes.data.messages || [];
-  if (!messages.length) return 0;
-
-  // Collect all external email addresses across all messages
-  const msgDetails = [];
-  for (const { id } of messages) {
-    try {
-      const { data: msg } = await gmail.users.messages.get({
-        userId: 'me', id, format: 'metadata',
-        metadataHeaders: ['From', 'To', 'Cc', 'Subject', 'Date'],
-      });
-      msgDetails.push(msg);
-    } catch { /* skip inaccessible messages */ }
-  }
-
-  if (!msgDetails.length) return 0;
-
-  // Collect unique external emails
-  const externalEmails = new Set();
-  for (const msg of msgDetails) {
-    const headers = msg.payload?.headers || [];
-    const from = parseAddresses(extractHeader(headers, 'From'));
-    const to   = parseAddresses(extractHeader(headers, 'To'));
-    const cc   = parseAddresses(extractHeader(headers, 'Cc'));
-    for (const email of [...from, ...to, ...cc]) {
-      if (email && email !== ownerEmail) externalEmails.add(email);
-    }
-  }
-
-  if (!externalEmails.size) return 0;
-
-  // Match existing contacts only
-  const { data: contacts } = await supabase.from('contacts').select('id, email, company_id')
-    .eq('workspace_id', conn.workspace_id).in('email', [...externalEmails]);
-  const contactByEmail = new Map((contacts || []).map(c => [c.email.toLowerCase(), c]));
-  if (!contactByEmail.size) return 0;
-
+  const fetched = messages.length;
   let logged = 0;
-  for (const msg of msgDetails) {
-    const headers  = msg.payload?.headers || [];
-    const fromAddr = parseAddresses(extractHeader(headers, 'From'))[0] || null;
-    const toAddrs  = parseAddresses(extractHeader(headers, 'To'));
-    const subject  = extractHeader(headers, 'Subject') || '(no subject)';
-    const dateStr  = extractHeader(headers, 'Date');
-    const occurredAt = dateStr ? new Date(dateStr).toISOString() : new Date().toISOString();
-    const snippet  = msg.snippet?.slice(0, 300) || null;
 
-    const isOutbound = fromAddr === ownerEmail;
-    const counterparts = isOutbound ? toAddrs : [fromAddr].filter(Boolean);
+  if (fetched > 0) {
+    const msgDetails = [];
+    for (const { id } of messages) {
+      try {
+        const { data: msg } = await gmail.users.messages.get({
+          userId: 'me', id, format: 'metadata',
+          metadataHeaders: ['From', 'To', 'Cc', 'Subject', 'Date'],
+        });
+        msgDetails.push(msg);
+      } catch { /* skip inaccessible messages */ }
+    }
 
-    for (const email of counterparts) {
-      const contact = contactByEmail.get(email);
-      if (!contact) continue;
+    // Collect unique external emails
+    const externalEmails = new Set();
+    for (const msg of msgDetails) {
+      const headers = msg.payload?.headers || [];
+      const from = parseAddresses(extractHeader(headers, 'From'));
+      const to   = parseAddresses(extractHeader(headers, 'To'));
+      const cc   = parseAddresses(extractHeader(headers, 'Cc'));
+      for (const email of [...from, ...to, ...cc]) {
+        if (email && email !== ownerEmail) externalEmails.add(email);
+      }
+    }
 
-      const result = await logActivity(supabase, {
-        workspaceId: conn.workspace_id,
-        contactId:   contact.id,
-        companyId:   contact.company_id || null,
-        type:        isOutbound ? 'email_sent' : 'email_received',
-        source:      'gmail',
-        externalId:  `gmail_${msg.id}_${contact.id}`,
-        occurredAt,
-        description: snippet || (isOutbound ? `Email sent: ${subject}` : `Email received: ${subject}`),
-        summary:     snippet,
-        rawData:     { message_id: msg.id, subject, from: fromAddr, to: toAddrs },
-      });
-      if (result) logged++;
+    if (externalEmails.size > 0) {
+      // Match existing contacts only
+      const { data: contacts } = await supabase.from('contacts').select('id, email, company_id')
+        .eq('workspace_id', conn.workspace_id).in('email', [...externalEmails]);
+      const contactByEmail = new Map((contacts || []).map(c => [c.email.toLowerCase(), c]));
+
+      if (contactByEmail.size > 0) {
+        for (const msg of msgDetails) {
+          const headers  = msg.payload?.headers || [];
+          const fromAddr = parseAddresses(extractHeader(headers, 'From'))[0] || null;
+          const toAddrs  = parseAddresses(extractHeader(headers, 'To'));
+          const subject  = extractHeader(headers, 'Subject') || '(no subject)';
+          const dateStr  = extractHeader(headers, 'Date');
+          const occurredAt = dateStr ? new Date(dateStr).toISOString() : new Date().toISOString();
+          const snippet  = msg.snippet?.slice(0, 300) || null;
+
+          const isOutbound = fromAddr === ownerEmail;
+          const counterparts = isOutbound ? toAddrs : [fromAddr].filter(Boolean);
+
+          for (const email of counterparts) {
+            const contact = contactByEmail.get(email);
+            if (!contact) continue;
+
+            const result = await logActivity(supabase, {
+              workspaceId: conn.workspace_id,
+              contactId:   contact.id,
+              companyId:   contact.company_id || null,
+              type:        isOutbound ? 'email_sent' : 'email_received',
+              source:      'gmail',
+              externalId:  `gmail_${msg.id}_${contact.id}`,
+              occurredAt,
+              description: snippet || (isOutbound ? `Email sent: ${subject}` : `Email received: ${subject}`),
+              summary:     snippet,
+              rawData:     { message_id: msg.id, subject, from: fromAddr, to: toAddrs },
+            });
+            if (result) logged++;
+          }
+        }
+      }
     }
   }
 
-  console.log(`[GMAIL_POLL] workspace=${conn.workspace_id}: ${logged} emails logged`);
+  // Always log + emit Live Op event, even when fetched=0 or no matching contacts.
+  // Earlier the function returned early in those cases and produced no visible signal at all.
+  console.log(`[GMAIL_POLL] workspace=${conn.workspace_id}: ${logged} emails logged (${fetched} fetched)`);
 
-  // Surface the scan in the Live Op Log (workspace_system_log → operationName.ts → gmail.scan.complete)
   try {
     await supabase.from('workspace_system_log').insert({
       workspace_id: conn.workspace_id,
       source:       'gmail',
       event_type:   'scan_complete',
-      summary:      `Gmail scan: ${logged} email${logged === 1 ? '' : 's'} logged`,
-      metadata:     { processed: logged, lookback_ms: LOOKBACK_MS },
+      summary:      `Gmail scan: ${logged} email${logged === 1 ? '' : 's'} logged (${fetched} fetched)`,
+      metadata:     { fetched, logged, lookback_ms: LOOKBACK_MS },
       occurred_at:  new Date().toISOString(),
     });
   } catch (e) {
