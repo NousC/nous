@@ -8,7 +8,7 @@ import { getSupabaseClient } from '@nous/core';
 import { logActivity } from '../utils/activity.mjs';
 import { refreshGoogleToken } from '../utils/googleOAuth.mjs';
 
-const LOOKBACK_MS = 35 * 60 * 1000; // 35 min (slightly past cron interval to avoid gaps)
+const LOOKBACK_MS = 65 * 60 * 1000; // 65 min (slightly past hourly cron to avoid gaps; dedup via externalId)
 
 async function getGmailConnections(supabase) {
   const { data: conns } = await supabase

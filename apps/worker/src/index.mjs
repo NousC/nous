@@ -43,7 +43,7 @@ app.use('/inbound', webhookRouter);
 const PORT = process.env.WORKER_PORT ?? 3001;
 app.listen(PORT, () => console.log(`[WORKER] Webhook server on :${PORT}`));
 
-// ── Calendar poller — every 10 minutes ───────────────────────────────────────
+// ── Calendar poller — every hour ─────────────────────────────────────────────
 async function runCalendarPoller() {
   if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) return;
   try {
@@ -53,10 +53,10 @@ async function runCalendarPoller() {
   }
 }
 
-// Run once on startup, then every 10 min
+// Run once on startup, then hourly
 runCalendarPoller();
-cron.schedule('*/10 * * * *', runCalendarPoller);
-console.log('[WORKER] Calendar poller — every 10 min');
+cron.schedule('0 * * * *', runCalendarPoller);
+console.log('[WORKER] Calendar poller — every hour');
 
 // ── Slack DM poller — every hour ─────────────────────────────────────────────
 async function runSlackPoller() {
@@ -67,22 +67,22 @@ async function runSlackPoller() {
 cron.schedule('0 * * * *', runSlackPoller);
 console.log('[WORKER] Slack poller — every hour');
 
-// ── Gmail poller — every 30 minutes ──────────────────────────────────────────
+// ── Gmail poller — every hour ────────────────────────────────────────────────
 async function runGmailPoller() {
   if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) return;
   try { await pollAllGmailWorkspaces(); }
   catch (err) { console.error('[WORKER] Gmail poll error:', err.message); }
 }
-cron.schedule('*/30 * * * *', runGmailPoller);
-console.log('[WORKER] Gmail poller — every 30 min');
+cron.schedule('0 * * * *', runGmailPoller);
+console.log('[WORKER] Gmail poller — every hour');
 
-// ── SMTP/IMAP poller — every 15 minutes ──────────────────────────────────────
+// ── SMTP/IMAP poller — every hour ────────────────────────────────────────────
 async function runSmtpPoller() {
   try { await pollAllSmtpWorkspaces(); }
   catch (err) { console.error('[WORKER] SMTP poll error:', err.message); }
 }
-cron.schedule('*/15 * * * *', runSmtpPoller);
-console.log('[WORKER] SMTP/IMAP poller — every 15 min');
+cron.schedule('0 * * * *', runSmtpPoller);
+console.log('[WORKER] SMTP/IMAP poller — every hour');
 
 // ── Pipeline stage decay — daily at 03:00 UTC ────────────────────────────────
 async function runPipelineDecay() {
