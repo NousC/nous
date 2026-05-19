@@ -67,9 +67,14 @@ async function pollWorkspace(supabase, conn) {
     secure: imapPort === 993,
     auth: { user: username, pass: password },
     logger: false,
+    // Hard timeouts so a slow/unreachable IMAP server can't hang the poller forever
+    connectionTimeout: 15_000,
+    greetingTimeout: 10_000,
+    socketTimeout: 30_000,
   });
 
   await client.connect();
+  console.log(`[SMTP_POLL] workspace=${conn.workspace_id} connected to ${imapHost}:${imapPort}`);
 
   // Load workspace contacts for matching
   const { data: contacts } = await supabase
@@ -161,24 +166,28 @@ async function pollWorkspace(supabase, conn) {
     }
   };
 
-  for (const folder of foldersToScan) {
-    await processFolder(folder).catch(e =>
-      console.warn('[SMTP_POLL] folder', folder, e.message)
-    );
+  try {
+    for (const folder of foldersToScan) {
+      await processFolder(folder).catch(e =>
+        console.warn('[SMTP_POLL] folder', folder, e.message)
+      );
+    }
+
+    // Persist last sync timestamp
+    await supabase.from('workflow_provider_connections')
+      .update({ encrypted_credentials: { ...raw, last_imap_sync_date: new Date().toISOString() } })
+      .eq('id', conn.id);
+  } finally {
+    // Always close the connection — even on partial failure — to avoid socket leaks
+    try { await client.logout(); } catch { /* already disconnected */ }
   }
 
-  await client.logout();
-
-  // Persist last sync timestamp
-  await supabase.from('workflow_provider_connections')
-    .update({ encrypted_credentials: { ...raw, last_imap_sync_date: new Date().toISOString() } })
-    .eq('id', conn.id);
-
-  if (processed) {
-    console.log(`[SMTP_POLL] workspace=${conn.workspace_id} imap=${imapHost}:${imapPort} processed=${processed}`);
-  }
+  // Always log per-workspace summary, even when processed=0 (so we can confirm pollers are reaching IMAP)
+  console.log(`[SMTP_POLL] workspace=${conn.workspace_id} imap=${imapHost}:${imapPort} processed=${processed}`);
   return processed;
 }
+
+const WORKSPACE_POLL_TIMEOUT_MS = 60_000;
 
 export async function pollAllSmtpWorkspaces() {
   const supabase = getSupabaseClient();
@@ -188,9 +197,21 @@ export async function pollAllSmtpWorkspaces() {
   console.log(`[SMTP_POLL] Starting — ${connections.length} workspace(s)`);
   let total = 0;
   for (const conn of connections) {
-    try { total += await pollWorkspace(supabase, conn); }
-    catch (e) { console.error(`[SMTP_POLL] workspace=${conn.workspace_id}:`, e.message); }
+    try {
+      // Hard cap per workspace — if a connection wedges past 60s we abort and move on
+      total += await Promise.race([
+        pollWorkspace(supabase, conn),
+        new Promise((_, reject) =>
+          setTimeout(
+            () => reject(new Error(`workspace poll exceeded ${WORKSPACE_POLL_TIMEOUT_MS / 1000}s`)),
+            WORKSPACE_POLL_TIMEOUT_MS,
+          ),
+        ),
+      ]);
+    } catch (e) {
+      console.error(`[SMTP_POLL] workspace=${conn.workspace_id}:`, e.message);
+    }
   }
-  if (total) console.log(`[SMTP_POLL] Done — ${total} activities logged`);
+  console.log(`[SMTP_POLL] Done — ${total} activities logged across ${connections.length} workspace(s)`);
   return total;
 }
