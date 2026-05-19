@@ -97,7 +97,7 @@ workflowProvidersRouter.get('/connections', verifySupabaseAuth, async (req, res)
 workflowProvidersRouter.post('/connections', verifySupabaseAuth, async (req, res) => {
   try {
     const supabase = getSupabaseClient();
-    const { workspace_id, provider_id, name, credentials } = req.body;
+    const { workspace_id, provider_id, name, credentials, is_verified } = req.body;
     if (!workspace_id || !provider_id) return res.status(400).json({ error: 'workspace_id and provider_id required' });
 
     const encrypted_credentials = {};
@@ -109,9 +109,20 @@ workflowProvidersRouter.post('/connections', verifySupabaseAuth, async (req, res
       }
     }
 
+    // Upsert so re-saving the same provider doesn't 23505 on the unique
+    // (workspace_id, provider_id, name) constraint. Honour is_verified from
+    // the body when the client has just passed a test connection.
     const { data, error } = await supabase
       .from('workflow_provider_connections')
-      .insert({ workspace_id, provider_id, name: name || 'Connection', encrypted_credentials, created_by: req.internalUserId, is_verified: false })
+      .upsert({
+        workspace_id,
+        provider_id,
+        name: name || 'Connection',
+        encrypted_credentials,
+        created_by: req.internalUserId,
+        is_verified: is_verified === true,
+        last_test_at: is_verified === true ? new Date().toISOString() : null,
+      }, { onConflict: 'workspace_id,provider_id,name' })
       .select('id, workspace_id, provider_id, name, created_at, is_verified')
       .single();
 
