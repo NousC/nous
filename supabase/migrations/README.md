@@ -22,5 +22,6 @@ psql "$DATABASE_URL" -f supabase/migrations/<file>.sql
 | 2026-05-18 | `2026_05_18_add_salesforce_provider.sql` | Seeds the `salesforce` row in `workflow_providers` so the OAuth flow can resolve a provider_id |
 | 2026-05-18 | `2026_05_18_crm_activity_push.sql` | Identity-cache columns (`pipedrive_id`, `attio_id`, `salesforce_id`) on `contacts` + `push_activities` toggle on `crm_sync_configs` |
 | 2026-05-18 | `2026_05_18_crm_push_idempotency.sql` | `pushed_to_crms` JSONB on `contact_activity_log` to prevent duplicate engagements |
+| 2026-05-19 | `2026_05_19_clamp_last_activity_future.sql` | Clamps `contacts.last_activity_at` to now() in the recompute trigger + backfills rows poisoned with future dates |
 
 Each migration is also reflected in `../schema.sql` so a fresh install never needs to touch this folder.

@@ -411,6 +411,7 @@ DECLARE
   v_new_stage  TEXT;
   v_cur_stage  TEXT;
   v_cur_source TEXT;
+  v_occurred   TIMESTAMPTZ := LEAST(NEW.occurred_at, now());
 BEGIN
   -- Housekeeping events don't count as real interactions
   IF NEW.activity_type IN ('airtable_imported','airtable_synced','airtable_pushed','contact_created') THEN
@@ -439,11 +440,11 @@ BEGIN
       pipeline_stage            = v_new_stage,
       pipeline_stage_updated_at = now(),
       pipeline_stage_source     = 'auto',
-      last_activity_at          = GREATEST(COALESCE(last_activity_at, NEW.occurred_at), NEW.occurred_at)
+      last_activity_at          = GREATEST(LEAST(COALESCE(last_activity_at, v_occurred), now()), v_occurred)
     WHERE id = NEW.contact_id;
   ELSE
     UPDATE contacts SET
-      last_activity_at = GREATEST(COALESCE(last_activity_at, NEW.occurred_at), NEW.occurred_at)
+      last_activity_at = GREATEST(LEAST(COALESCE(last_activity_at, v_occurred), now()), v_occurred)
     WHERE id = NEW.contact_id;
   END IF;
 
