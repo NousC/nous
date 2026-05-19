@@ -67,7 +67,7 @@ export default function Operations() {
 
   const [dateRange,  setDateRange]  = useState<DateRange>("7d");
   const [ops,        setOps]        = useState<Op[]>([]);
-  const [total,      setTotal]      = useState(0);
+  const [lifetimeTotal, setLifetimeTotal] = useState(0);
   const [loading,    setLoading]    = useState(false);
   const [loadingMore,setLoadingMore]= useState(false);
   const [filter,     setFilter]     = useState<"all" | "agent" | "system">("all");
@@ -118,7 +118,6 @@ export default function Operations() {
       );
 
       setOps(prev => reset ? batch : [...prev, ...batch]);
-      setTotal((sysData.total ?? 0) + (agentData.total ?? 0));
       setSysOffset(sysOff + sysOps.length);
       setAgentOffset(agentOff + agentOps.length);
       setHasMore(sysOps.length === 200 || agentOps.length === 100);
@@ -137,6 +136,22 @@ export default function Operations() {
     setHasMore(true);
     fetchBatch(0, 0, true);
   }, [dateRange, workspaceId, token]); // eslint-disable-line
+
+  // Lifetime total — fetched once, independent of date filter
+  useEffect(() => {
+    if (!workspaceId || !token) return;
+    (async () => {
+      const fresh = await freshAccessToken();
+      if (!fresh) return;
+      const [sysRes, agentRes] = await Promise.all([
+        fetch(`${apiUrl}/api/workspace/system-log?workspace_id=${workspaceId}&days=all&limit=1`, { headers: { Authorization: `Bearer ${fresh}` } }),
+        fetch(`${apiUrl}/api/requests/log?days=all&limit=1`,                                      { headers: { Authorization: `Bearer ${fresh}` } }),
+      ]);
+      const sysData   = sysRes.ok   ? await sysRes.json()   : { total: 0 };
+      const agentData = agentRes.ok ? await agentRes.json() : { total: 0 };
+      setLifetimeTotal((sysData.total ?? 0) + (agentData.total ?? 0));
+    })();
+  }, [workspaceId, token]);
 
   const loadMore = () => fetchBatch(sysOffset, agentOffset, false);
 
@@ -158,7 +173,7 @@ export default function Operations() {
         <div className="flex items-center gap-4">
           <h1 className="text-sm font-semibold tracking-widest uppercase">Operations</h1>
           <span className="text-xs text-muted-foreground tabular-nums">
-            {ops.length.toLocaleString()} loaded{total > 0 && total !== ops.length ? ` / ${total.toLocaleString()} total` : ""}
+            {lifetimeTotal.toLocaleString()} ops total
           </span>
         </div>
         <div className="flex items-center gap-3">
