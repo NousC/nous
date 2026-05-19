@@ -96,27 +96,32 @@ export function AppRoutes() {
       <Route path="*" element={
         <StandardLayout>
           <Routes>
-            <Route path="/" element={<Suspense fallback={<MinimalLoader />}><Mind /></Suspense>} />
             <Route path="/operations" element={<Suspense fallback={<MinimalLoader />}><Operations /></Suspense>} />
             <Route path="/requests" element={<Suspense fallback={<MinimalLoader />}><Operations /></Suspense>} />
             <Route path="/developer" element={<Suspense fallback={<MinimalLoader />}><DeveloperPortal /></Suspense>} />
             <Route path="/billing" element={<Suspense fallback={<MinimalLoader />}><DeveloperPortal /></Suspense>} />
             <Route path="/usage" element={<Suspense fallback={<MinimalLoader />}><DeveloperPortal /></Suspense>} />
 
-            {/* These views are popups inside Mind. Each route renders Mind
-                identically — Mind reads location.pathname to decide which
-                popup to layer on top. So /people deep-links to Mind with the
-                People popup open, browser back/forward works as expected,
-                and the URL is shareable. */}
-            <Route path="/people"        element={<Suspense fallback={<MinimalLoader />}><Mind /></Suspense>} />
-            <Route path="/people/:id"    element={<Suspense fallback={<MinimalLoader />}><Mind /></Suspense>} />
-            <Route path="/companies"     element={<Suspense fallback={<MinimalLoader />}><Mind /></Suspense>} />
-            <Route path="/companies/:id" element={<Suspense fallback={<MinimalLoader />}><Mind /></Suspense>} />
-            <Route path="/crm"           element={<Suspense fallback={<MinimalLoader />}><Mind /></Suspense>} />
-            <Route path="/memories"      element={<Suspense fallback={<MinimalLoader />}><Mind /></Suspense>} />
-            <Route path="/integrations"  element={<Suspense fallback={<MinimalLoader />}><Mind /></Suspense>} />
-            <Route path="/settings"      element={<Suspense fallback={<MinimalLoader />}><Mind /></Suspense>} />
-            <Route path="/settings/*"    element={<Navigate to="/settings" replace />} />
+            {/* All Mind-related URLs share one parent route element. React
+                Router keeps the parent element mounted while only its
+                location changes, so Mind never unmounts when the user
+                navigates between /, /people, /people/:id, /companies, etc.
+                Local state (sort, scroll position, loaded data) survives
+                the URL change. Mind reads location.pathname to pick the
+                popup. The child routes have no element of their own —
+                they only declare the URL patterns this layout handles. */}
+            <Route element={<Suspense fallback={<MinimalLoader />}><Mind /></Suspense>}>
+              <Route path="/" />
+              <Route path="/people" />
+              <Route path="/people/:id" />
+              <Route path="/companies" />
+              <Route path="/companies/:id" />
+              <Route path="/crm" />
+              <Route path="/memories" />
+              <Route path="/integrations" />
+              <Route path="/settings" />
+            </Route>
+            <Route path="/settings/*" element={<Navigate to="/settings" replace />} />
 
             <Route path="/inbox" element={<Suspense fallback={<TableLoader />}><Inbox /></Suspense>} />
 
