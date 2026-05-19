@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/components/ui/sonner";
 import {
-  Check, Copy, Eye, EyeOff, Key, RefreshCw, ExternalLink, Sparkles,
+  Check, Copy, Eye, EyeOff, Key, RefreshCw, ExternalLink,
 } from "lucide-react";
 import { PeopleImportPanel } from "@/components/contacts/PeopleImportModal";
 
@@ -123,11 +123,13 @@ function GhostButton({
 
 // ─── Step 1: Welcome ─────────────────────────────────────────────────────────
 function StepWelcome({
+  name, setName,
   companyName, setCompanyName,
   website, setWebsite,
   useCases, setUseCases,
   onNext, isLoading,
 }: {
+  name: string; setName: (v: string) => void;
   companyName: string; setCompanyName: (v: string) => void;
   website: string; setWebsite: (v: string) => void;
   useCases: string[]; setUseCases: (v: string[]) => void;
@@ -141,12 +143,21 @@ function StepWelcome({
       />
 
       <div>
+        <FieldLabel>your name</FieldLabel>
+        <TextInput
+          value={name}
+          onChange={e => setName(e.target.value)}
+          placeholder="jane doe"
+          autoFocus
+        />
+      </div>
+
+      <div>
         <FieldLabel>company</FieldLabel>
         <TextInput
           value={companyName}
           onChange={e => setCompanyName(e.target.value)}
           placeholder="acme corp"
-          autoFocus
         />
       </div>
 
@@ -165,7 +176,11 @@ function StepWelcome({
         <ChipGroup options={USE_CASES} value={useCases} onChange={setUseCases} />
       </div>
 
-      <PrimaryButton onClick={onNext} disabled={!companyName.trim()} loading={isLoading}>
+      <PrimaryButton
+        onClick={onNext}
+        disabled={!name.trim() || !companyName.trim()}
+        loading={isLoading}
+      >
         continue
       </PrimaryButton>
     </div>
@@ -326,13 +341,10 @@ function FinishingScreen() {
       </div>
 
       <div className="border border-violet-500/20 bg-violet-500/5 px-4 py-3">
-        <div className="flex items-start gap-2">
-          <Sparkles className="h-3 w-3 text-violet-400/80 mt-0.5 flex-shrink-0" />
-          <p className="text-[10px] text-foreground/65 leading-relaxed">
-            <span className="text-violet-400/90 font-medium tracking-wide">Tip — </span>
-            click the <span className="text-foreground/80">mind status</span> indicator (it'll be offline) to set up your MCP server or SDK integration.
-          </p>
-        </div>
+        <p className="text-[10px] text-foreground/65 leading-relaxed">
+          <span className="text-violet-400/90 font-medium tracking-wide">Tip — </span>
+          click the <span className="text-foreground/80">mind status</span> indicator (it'll be offline) to set up your MCP server or SDK integration.
+        </p>
       </div>
     </div>
   );
@@ -366,9 +378,15 @@ export default function Onboarding({ testMode = false }: OnboardingProps) {
   const [phase, setPhase] = useState<Phase>(1);
   const [stepLoading, setStepLoading] = useState(false);
 
+  const [name, setName] = useState("");
   const [companyName, setCompanyName] = useState("");
   const [website, setWebsite] = useState("");
   const [useCases, setUseCases] = useState<string[]>([]);
+
+  // Pre-fill name from the signed-in user if we have it.
+  useEffect(() => {
+    if (!name && userData?.name) setName(userData.name);
+  }, [userData?.name, name]);
 
   const [apiKey, setApiKey] = useState<string | null>(null);
   const [generatingKey, setGeneratingKey] = useState(false);
@@ -385,6 +403,7 @@ export default function Onboarding({ testMode = false }: OnboardingProps) {
       if (!saved) return;
       const p = JSON.parse(saved);
       if (p.phase && p.phase !== "finishing") setPhase(p.phase);
+      if (p.name)         setName(p.name);
       if (p.companyName)  setCompanyName(p.companyName);
       if (p.website)      setWebsite(p.website);
       if (p.useCases)     setUseCases(p.useCases);
@@ -393,13 +412,13 @@ export default function Onboarding({ testMode = false }: OnboardingProps) {
 
   useEffect(() => {
     if (phase === "finishing") return;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ phase, companyName, website, useCases }));
-  }, [phase, companyName, website, useCases]);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ phase, name, companyName, website, useCases }));
+  }, [phase, name, companyName, website, useCases]);
 
   const auth = { Authorization: `Bearer ${session?.access_token}`, "Content-Type": "application/json" };
 
   const submitStep1 = async () => {
-    if (!companyName.trim()) return;
+    if (!name.trim() || !companyName.trim()) return;
     setStepLoading(true);
     if (!testMode) {
       try {
@@ -407,6 +426,7 @@ export default function Onboarding({ testMode = false }: OnboardingProps) {
           method: "POST",
           headers: auth,
           body: JSON.stringify({
+            name: name.trim(),
             company_name: companyName.trim(),
             website: website.trim() || undefined,
             use_case: useCases.map(id => USE_CASES.find(u => u.id === id)?.label || id).join(", "),
@@ -448,7 +468,7 @@ export default function Onboarding({ testMode = false }: OnboardingProps) {
   const finish = async () => {
     setPhase("finishing");
     if (testMode) {
-      await new Promise(r => setTimeout(r, 2800));
+      await new Promise(r => setTimeout(r, 8000));
       toast.success("test run complete — restarting");
       localStorage.removeItem(STORAGE_KEY);
       setApiKey(null);
@@ -464,9 +484,9 @@ export default function Onboarding({ testMode = false }: OnboardingProps) {
       localStorage.removeItem(STORAGE_KEY);
       localStorage.setItem("nous_just_onboarded", "true");
       localStorage.setItem("nous_onboarding_company_name", companyName.trim());
-      await new Promise(r => setTimeout(r, 1400));
       refreshUserData().catch(console.error);
     } catch { /* non-blocking */ }
+    await new Promise(r => setTimeout(r, 8000));
     navigate("/", { replace: true });
   };
 
@@ -503,6 +523,7 @@ export default function Onboarding({ testMode = false }: OnboardingProps) {
         <div className="px-5 py-5">
           {phase === 1 && (
             <StepWelcome
+              name={name} setName={setName}
               companyName={companyName} setCompanyName={setCompanyName}
               website={website} setWebsite={setWebsite}
               useCases={useCases} setUseCases={setUseCases}
