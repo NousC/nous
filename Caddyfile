@@ -11,17 +11,17 @@
 
 # Legacy goproply.com → opennous.cloud (parallel-run cutover, 2026-05-18)
 app.goproply.com {
-    redir https://app.opennous.cloud{uri} 301
+    redir https://app.opennous.cloud{uri} 308
 }
 
 api.goproply.com {
-    redir https://api.opennous.cloud{uri} 301
+    redir https://api.opennous.cloud{uri} 308
 }
 
 docs.goproply.com {
-    redir https://docs.opennous.cloud{uri} 301
+    redir https://docs.opennous.cloud{uri} 308
 }
 
 goproply.com, www.goproply.com {
-    redir https://opennous.cloud{uri} 301
+    redir https://opennous.cloud{uri} 308
 }
