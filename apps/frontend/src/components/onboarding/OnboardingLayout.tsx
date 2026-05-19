@@ -26,7 +26,7 @@ export function OnboardingLayout({
       <header className="w-full py-6 px-8">
         <div className="max-w-7xl mx-auto flex justify-center">
           <img
-            src="/newlogoP.png"
+            src="/nous-logo.svg"
             alt="Nous"
             className="h-10 w-auto"
           />

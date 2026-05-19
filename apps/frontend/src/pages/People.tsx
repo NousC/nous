@@ -1571,7 +1571,7 @@ export default function People() {
       steps: [
         { logo: '/provider-logos/rb2b.svg', label: 'Visitor identified' },
         { wait: '10 minutes' },
-        { logo: '/newlogoP.png', label: 'Assistant' },
+        { logo: '/nous-logo.svg', label: 'Assistant' },
       ],
     },
     {
@@ -1582,7 +1582,7 @@ export default function People() {
       steps: [
         { logo: '/provider-logos/instantly.svg', label: 'Positive reply' },
         { wait: '7 minutes' },
-        { logo: '/newlogoP.png', label: 'Assistant' },
+        { logo: '/nous-logo.svg', label: 'Assistant' },
       ],
     },
     {
@@ -1610,7 +1610,7 @@ export default function People() {
           base(0, { type: 'trigger', category: 'trigger', name: 'Visitor Identified (RB2B)', config: { action: 'rb2b_webhook', settings: {} }, outputs: { schema: {} } }),
           base(1, { type: 'utility', category: 'utility', name: 'Wait 10 minutes', config: { action: 'wait', settings: { duration_ms: 600_000 } } }),
           base(2, {
-            type: 'action', category: 'ai', name: 'Assistant', provider_logo: '/newlogoP.png',
+            type: 'action', category: 'ai', name: 'Assistant', provider_logo: '/nous-logo.svg',
             config: {
               action: 'assistant_call',
               settings: {
@@ -1631,7 +1631,7 @@ export default function People() {
           base(0, { type: 'trigger', category: 'trigger', name: 'Positive Reply (Instantly)', config: { action: 'instantly_webhook', settings: {} }, outputs: { schema: {} } }),
           base(1, { type: 'utility', category: 'utility', name: 'Wait 7 minutes', config: { action: 'wait', settings: { duration_ms: 420_000 } } }),
           base(2, {
-            type: 'action', category: 'ai', name: 'Assistant', provider_logo: '/newlogoP.png',
+            type: 'action', category: 'ai', name: 'Assistant', provider_logo: '/nous-logo.svg',
             config: {
               action: 'assistant_call',
               settings: {
@@ -1651,7 +1651,7 @@ export default function People() {
         steps: [
           base(0, { type: 'trigger', category: 'trigger', name: 'Call Transcribed (Fireflies)', config: { action: 'discover_call', settings: {} }, outputs: { schema: {} } }),
           base(1, {
-            type: 'action', category: 'ai', name: 'Assistant', provider_logo: '/newlogoP.png',
+            type: 'action', category: 'ai', name: 'Assistant', provider_logo: '/nous-logo.svg',
             config: {
               action: 'assistant_call',
               settings: {
@@ -1671,7 +1671,7 @@ export default function People() {
         steps: [
           base(0, { type: 'trigger', category: 'trigger', name: 'New Connection (LinkedIn)', config: { action: 'webhook', settings: {} }, outputs: { schema: {} } }),
           base(1, {
-            type: 'action', category: 'ai', name: 'Assistant', provider_logo: '/newlogoP.png',
+            type: 'action', category: 'ai', name: 'Assistant', provider_logo: '/nous-logo.svg',
             config: {
               action: 'assistant_call',
               settings: {

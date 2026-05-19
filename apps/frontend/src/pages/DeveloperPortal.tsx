@@ -104,7 +104,7 @@ function Sidebar({
     <aside className="w-[220px] flex-shrink-0 flex flex-col h-full border-r border-gray-100 bg-[#FAFAF9]">
       {/* Logo */}
       <div className="px-5 pt-5 pb-4">
-        <img src="/newlogoP.png" alt="Nous" className="h-7 w-auto object-contain" />
+        <img src="/nous-logo.svg" alt="Nous" className="h-7 w-auto object-contain" />
       </div>
 
       {/* API Management label */}

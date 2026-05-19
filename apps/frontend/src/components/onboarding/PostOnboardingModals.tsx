@@ -52,7 +52,7 @@ export function PostOnboardingModals({ show, onDismiss }: PostOnboardingModalsPr
         <div className="p-6">
           {/* Logo top left */}
           <img
-            src="/newlogoP.png"
+            src="/nous-logo.svg"
             alt="Nous"
             className="h-8 w-auto mb-5"
           />
