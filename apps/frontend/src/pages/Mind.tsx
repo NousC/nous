@@ -1776,7 +1776,12 @@ function IntegrationsPopup({ integrations, workspaceId, token, onClose }: {
     p?.auth_type === "oauth2" || ["airtable","notion","google_analytics","slack","gmail","granola","salesforce"].includes(p?.name ?? "");
 
   const startConnect = (p: AvailableProvider) => {
-    setConnecting(p); setConnApiKey(""); setConnCreds({}); setConnName(p.display_name);
+    // If the provider matches a hardcoded entry, prefer that one — DB rows
+    // don't carry auth_fields, so without this we'd render the legacy single
+    // api_key input for multi-field providers like SMTP.
+    const hardcoded = MIND_HARDCODED_PROVIDERS.find(h => h.name === p.name);
+    const merged = hardcoded ? { ...p, auth_fields: hardcoded.auth_fields, auth_type: hardcoded.auth_type } : p;
+    setConnecting(merged); setConnApiKey(""); setConnCreds({}); setConnName(merged.display_name);
     setConnTestResult(null); setConnSuccess(null); setConnOAuthLoading(false);
   };
 
@@ -1811,6 +1816,30 @@ function IntegrationsPopup({ integrations, workspaceId, token, onClose }: {
         },
       });
     } catch { setConnTestResult({ verified: false, message: "OAuth failed" }); setConnOAuthLoading(false); }
+  };
+
+  // Disconnect a saved connection — DELETE on the backend handles
+  // provider-specific cleanup (e.g. unsubscribes Calendly/Cal.com webhooks
+  // before removing the row). After success, drop it from local state so
+  // the card moves from Connected back to Available immediately.
+  const [disconnecting, setDisconnecting] = useState<string|null>(null);
+  const disconnect = async (conn: IntegrationConn) => {
+    if (!workspaceId || !token) return;
+    if (!window.confirm(`Disconnect ${conn.provider?.display_name || conn.name}? This removes the credentials and any auto-registered webhooks.`)) return;
+    setDisconnecting(conn.id);
+    try {
+      const res = await fetch(`${apiUrl}/api/workflow-providers/connections/${conn.id}?workspace_id=${workspaceId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("Failed to disconnect");
+      setLiveConns(prev => prev.filter(c => c.id !== conn.id));
+      toast.success(`${conn.provider?.display_name || conn.name} disconnected`);
+    } catch (e: any) {
+      toast.error(e.message || "Disconnect failed");
+    } finally {
+      setDisconnecting(null);
+    }
   };
 
   // True when the provider has more than just an api_key field. Those
@@ -2039,6 +2068,11 @@ function IntegrationsPopup({ integrations, workspaceId, token, onClose }: {
                             <button onClick={()=>startConnect(providerForConnect)}
                               className="text-[9px] text-muted-foreground/30 hover:text-foreground/60 transition-colors opacity-0 group-hover:opacity-100 flex items-center gap-1 flex-shrink-0 ml-2 border border-border/30 px-2 py-0.5 hover:border-border/60">
                               update
+                            </button>
+                            <button onClick={()=>disconnect(conn)} disabled={disconnecting===conn.id}
+                              title="Disconnect this integration"
+                              className="text-[9px] text-muted-foreground/30 hover:text-red-400/80 transition-colors opacity-0 group-hover:opacity-100 flex items-center gap-1 flex-shrink-0 border border-border/30 px-2 py-0.5 hover:border-red-500/30 disabled:opacity-30">
+                              {disconnecting===conn.id ? "removing…" : "disconnect"}
                             </button>
                           </div>
                         );
