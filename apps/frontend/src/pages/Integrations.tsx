@@ -437,6 +437,22 @@ export default function Integrations() {
       logo_url: "/provider-logos/cal_com.svg",
       auth_fields: [{ name: "api_key", label: "API Key", type: "password", placeholder: "Enter your Cal.com API key (cal_live_...)", description: "Find in Cal.com → Settings → Developer → API Keys" }],
     },
+    {
+      // Inbound-email reception via IMAP. Backend stores `host` and derives
+      // the IMAP host (smtp. → imap.) when polling; for hosts that don't
+      // follow that pattern, set imap_host explicitly.
+      id: "smtp", name: "smtp", display_name: "Custom SMTP / IMAP",
+      auth_type: "credentials", category: "communication",
+      logo_url: "/provider-logos/smtp.svg",
+      auth_fields: [
+        { name: "host",     label: "Mail server host",  type: "text",     placeholder: "smtp.yourdomain.com",  description: "Your provider's SMTP host. We'll derive the IMAP host automatically (e.g. smtp.gmail.com → imap.gmail.com)." },
+        { name: "port",     label: "SMTP port",         type: "text",     placeholder: "587",                  description: "Most providers use 587 (STARTTLS) or 465 (SSL). Leave blank for 587." },
+        { name: "username", label: "Email address",     type: "text",     placeholder: "you@yourdomain.com",   description: "The email account to receive messages from." },
+        { name: "password", label: "Password",          type: "password", placeholder: "app-specific password", description: "For Gmail / Outlook, generate an app password — your regular login password won't work." },
+        { name: "imap_host", label: "IMAP host (optional)", type: "text", placeholder: "imap.yourdomain.com",  description: "Only fill in if your IMAP host doesn't follow the smtp. → imap. naming pattern." },
+        { name: "imap_port", label: "IMAP port (optional)", type: "text", placeholder: "993",                  description: "Defaults to 993 (SSL)." },
+      ],
+    },
   ];
 
   useEffect(() => {
@@ -530,15 +546,21 @@ export default function Integrations() {
   };
 
   // ── Category tabs derived from connected tools ────────────────────────────
+  // Hide connections for providers we explicitly don't surface anywhere (e.g.
+  // Stripe — managed via billing UI, not the integrations panel). Stripe
+  // connection rows can linger from earlier installs; filter them out so the
+  // Connected tab doesn't show what we've already removed from Available.
+  const CONNECTION_EXCLUDED = new Set(["stripe", "assetly", "mailchimp", "google_analytics", "openai", "gemini", "anthropic", "signalbase"]);
+  const visibleConnections = connections.filter(c => !CONNECTION_EXCLUDED.has((c.provider?.name || "").toLowerCase()));
   const hasWebhooks = Object.keys(subscriptions).length > 0;
-  const apiCategories = Array.from(new Set(connections.map(c => CATEGORY_LABEL[c.provider?.category] ?? "Other")));
+  const apiCategories = Array.from(new Set(visibleConnections.map(c => CATEGORY_LABEL[c.provider?.category] ?? "Other")));
   const categories = ["All", ...(hasWebhooks ? ["Webhooks"] : []), ...apiCategories];
 
   const displayed = activeCategory === "All"
-    ? connections
+    ? visibleConnections
     : activeCategory === "Webhooks"
     ? []
-    : connections.filter(c => (CATEGORY_LABEL[c.provider?.category] ?? "Other") === activeCategory);
+    : visibleConnections.filter(c => (CATEGORY_LABEL[c.provider?.category] ?? "Other") === activeCategory);
 
   // ── Connect flow ──────────────────────────────────────────────────────────
   useEffect(() => {

@@ -199,16 +199,35 @@ async function testProviderCredentials(provider, credentials) {
     }
     if (p === 'smtp') {
       const host     = credentials.host;
-      const port     = parseInt(credentials.port || '587');
       const username = credentials.username;
       const password = credentials.password;
       if (!host || !username || !password) {
         return { verified: false, message: 'host, username, and password are required' };
       }
-      const { default: nodemailer } = await import('nodemailer');
-      const transporter = nodemailer.createTransport({ host, port, secure: port === 465, auth: { user: username, pass: password } });
-      await transporter.verify();
-      return { verified: true, message: `SMTP connected (${username} via ${host})` };
+
+      // The user case this provider serves is inbound email reception via IMAP.
+      // Verify the IMAP side specifically so the test exercises the same path
+      // the worker poller uses. Derive the IMAP host from the SMTP-style host
+      // unless the user provided imap_host explicitly.
+      const imapHost = credentials.imap_host
+        || (/office365\.com|smtp-mail\.outlook\.com/i.test(host) ? 'outlook.office365.com' : host.replace(/^smtp\./i, 'imap.'));
+      const imapPort = parseInt(credentials.imap_port || '993');
+
+      try {
+        const { ImapFlow } = await import('imapflow');
+        const client = new ImapFlow({
+          host: imapHost,
+          port: imapPort,
+          secure: imapPort === 993,
+          auth: { user: username, pass: password },
+          logger: false,
+        });
+        await client.connect();
+        await client.logout();
+        return { verified: true, message: `IMAP connected (${username} via ${imapHost})` };
+      } catch (err) {
+        return { verified: false, message: `IMAP connection failed: ${err.message || err.code || 'unknown'}` };
+      }
     }
     if (!token) return { verified: false, message: 'No credentials provided' };
     // Generic: just confirm token exists
