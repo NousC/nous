@@ -2572,6 +2572,45 @@ function ConnectModal({ onClose }: { onClose: () => void }) {
   );
 }
 
+// ─── localStorage cache for first-paint speed ─────────────────────────────────
+// On every fresh page load we'd otherwise wait 5–10s for the 4-parallel-fetch
+// loadData to complete. Persisting the last successful result to localStorage
+// lets us hydrate state instantly on next mount and refetch in the background.
+//
+// Per-workspace key so switching workspaces doesn't show the wrong data.
+// 7-day TTL — long enough to survive vacations, short enough that stale data
+// gets cleared eventually.
+
+const MIND_CACHE_VERSION = 1;
+const MIND_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+interface MindCache {
+  ts: number;
+  companies: Company[];
+  allContacts: ContactInfo[];
+  integrations: IntegrationConn[];
+  memories: MemoryFact[];
+}
+
+function readMindCache(workspaceId: string): MindCache | null {
+  try {
+    const raw = localStorage.getItem(`nous-mind-cache-v${MIND_CACHE_VERSION}-${workspaceId}`);
+    if (!raw) return null;
+    const parsed: MindCache = JSON.parse(raw);
+    if (!parsed.ts || Date.now() - parsed.ts > MIND_CACHE_TTL_MS) return null;
+    return parsed;
+  } catch { return null; }
+}
+
+function writeMindCache(workspaceId: string, data: Omit<MindCache, "ts">) {
+  try {
+    localStorage.setItem(
+      `nous-mind-cache-v${MIND_CACHE_VERSION}-${workspaceId}`,
+      JSON.stringify({ ts: Date.now(), ...data })
+    );
+  } catch { /* quota errors — silent. We'll just refetch next time. */ }
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 type Popup = "companies" | "people" | "crm" | "integrations" | "memories" | "settings" | null;
@@ -2660,6 +2699,21 @@ export default function Mind() {
     return [...map.entries()].map(([name,count])=>({name,count})).sort((a,b)=>b.count-a.count);
   }, [memories]);
 
+  // On first mount with a workspace, hydrate from the localStorage cache so
+  // the UI renders immediately. loadData runs in parallel and overwrites with
+  // fresh data once it returns. Guard with a ref so we only hydrate once.
+  const hydratedRef = useRef(false);
+  useEffect(() => {
+    if (!workspaceId || hydratedRef.current) return;
+    const cached = readMindCache(workspaceId);
+    if (!cached) { hydratedRef.current = true; return; }
+    setCompanies(cached.companies);
+    setAllContacts(cached.allContacts);
+    setIntegrations(cached.integrations);
+    setMemories(cached.memories);
+    hydratedRef.current = true;
+  }, [workspaceId]);
+
   const loadData = useCallback(async () => {
     if (!workspaceId||!token) return;
     const headers = { Authorization:`Bearer ${token}` };
@@ -2681,10 +2735,20 @@ export default function Mind() {
         contactList.push(info);
         if (c.company_id) { const arr=byCompany.get(c.company_id)??[]; arr.push(info); byCompany.set(c.company_id,arr); }
       }
-      setCompanies((coData.companies??[]).map((co:any)=>{ const coContacts=byCompany.get(co.id)??[]; const lastActivityAt=coContacts.reduce((best:string|null,c:ContactInfo)=>{ if(!c.lastActivityAt) return best; if(!best||c.lastActivityAt>best) return c.lastActivityAt; return best; },null); return { id:co.id, name:co.name, domain:co.domain??null, industry:co.industry??null, location:co.location??null, revenueRange:co.revenue_range??null, contactCount:coContacts.length, contacts:coContacts, dealHealthScore:co.deal_health_score??null, lastActivityAt, employeeCount:co.employee_count??co.employees??null }; }));
+      const companyList:Company[] = (coData.companies??[]).map((co:any)=>{ const coContacts=byCompany.get(co.id)??[]; const lastActivityAt=coContacts.reduce((best:string|null,c:ContactInfo)=>{ if(!c.lastActivityAt) return best; if(!best||c.lastActivityAt>best) return c.lastActivityAt; return best; },null); return { id:co.id, name:co.name, domain:co.domain??null, industry:co.industry??null, location:co.location??null, revenueRange:co.revenue_range??null, contactCount:coContacts.length, contacts:coContacts, dealHealthScore:co.deal_health_score??null, lastActivityAt, employeeCount:co.employee_count??co.employees??null }; });
+      const integrationList: IntegrationConn[] = intData.connections??[];
+      const memoryList: MemoryFact[] = memData.memories??[];
+      setCompanies(companyList);
       setAllContacts(contactList);
-      setIntegrations(intData.connections??[]);
-      setMemories(memData.memories??[]);
+      setIntegrations(integrationList);
+      setMemories(memoryList);
+      // Persist for next session — instant first-paint on subsequent loads.
+      writeMindCache(workspaceId, {
+        companies: companyList,
+        allContacts: contactList,
+        integrations: integrationList,
+        memories: memoryList,
+      });
     } catch { /* silent */ }
   }, [workspaceId,token]);
 
