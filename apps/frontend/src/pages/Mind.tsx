@@ -781,9 +781,14 @@ type CoTab = "overview" | "activity" | "memory";
 
 type CoSort = { col: string; dir: "asc"|"desc" };
 
-function CompaniesPopup({ companies, workspaceId, token, onClose, onDelete }: { companies:Company[]; workspaceId:string; token:string; onClose:()=>void; onDelete:(id:string)=>void }) {
+function CompaniesPopup({ companies, workspaceId, token, onClose, onDelete, detailId, setDetailId }: { companies:Company[]; workspaceId:string; token:string; onClose:()=>void; onDelete:(id:string)=>void; detailId: string | null; setDetailId: (id: string | null) => void }) {
   const [q, setQ] = useState("");
-  const [detail, setDetail] = useState<Company | null>(null);
+  // Detail view is URL-driven — /companies/<id> opens that company's detail.
+  const detail = useMemo<Company | null>(
+    () => detailId ? companies.find(c => c.id === detailId) ?? null : null,
+    [detailId, companies]
+  );
+  const setDetail = (c: Company | null) => setDetailId(c?.id ?? null);
   const [coTab, setCoTab] = useState<CoTab>("overview");
   const [coActs, setCoActs] = useState<any[]>([]);
   const [coMems, setCoMems] = useState<any[]>([]);
@@ -1404,10 +1409,17 @@ function PeopleImportModal({ workspaceId, token, onClose, onDone }: {
 
 const PAGE_SIZE = 50;
 
-function PeoplePopup({ contacts, onClose, token, onNavigate, workspaceId, defaultSort, onDelete }: { contacts:ContactInfo[]; onClose:()=>void; token:string; onNavigate:()=>void; workspaceId:string; defaultSort?: { col:"lastActivity"|"deal"|null; dir:"asc"|"desc" }; onDelete:(id:string)=>void }) {
+function PeoplePopup({ contacts, onClose, token, onNavigate, workspaceId, defaultSort, onDelete, detailId, setDetailId }: { contacts:ContactInfo[]; onClose:()=>void; token:string; onNavigate:()=>void; workspaceId:string; defaultSort?: { col:"lastActivity"|"deal"|null; dir:"asc"|"desc" }; onDelete:(id:string)=>void; detailId: string | null; setDetailId: (id: string | null) => void }) {
   const [q, setQ] = useState("");
   const [stage, setStage] = useState("");
-  const [detail, setDetail] = useState<ContactInfo | null>(null);
+  // Detail view is URL-driven — /people/<id> shows that contact's detail.
+  // The list `contacts` is filtered upstream, so a contact pointed to by the
+  // URL may not be in the current view; fall back to looking up by id.
+  const detail = useMemo<ContactInfo | null>(
+    () => detailId ? contacts.find(c => c.id === detailId) ?? null : null,
+    [detailId, contacts]
+  );
+  const setDetail = (c: ContactInfo | null) => setDetailId(c?.id ?? null);
   const [page, setPage] = useState(0);
   const [sortCol, setSortCol] = useState<"lastActivity"|"deal"|null>(defaultSort?.col ?? null);
   const [sortDir, setSortDir] = useState<"asc"|"desc">(defaultSort?.dir ?? "asc");
@@ -2584,19 +2596,31 @@ export default function Mind() {
   const [hasMore,      setHasMore]      = useState(true);
   const [showConnect,  setShowConnect]  = useState(false);
   const [settingsTab,  setSettingsTab]  = useState<SettingsTab>("profile");
-  // popup state is derived from the URL — /settings opens the Settings
-  // popup, /people opens People, etc. Deep links + browser back/forward
-  // work as expected. setPopup just navigates; rendering stays on Mind.
+  // popup state + detail id are both derived from the URL.
+  //   /                       → no popup
+  //   /settings               → Settings popup
+  //   /people                 → People popup, no detail
+  //   /people/<contact-id>    → People popup, detail view for that contact
+  //   /companies/<company-id> → Companies popup, detail view for that company
+  // Browser back/forward, deep links, and bookmarks all work as expected.
   const location = useLocation();
-  const popup = useMemo<Popup>(() => {
-    const slug = location.pathname.replace(/^\//, "").split("/")[0];
-    return (["companies","people","crm","integrations","memories","settings"] as const).includes(slug as any)
-      ? (slug as Popup)
-      : null;
+  const { popup, detailId } = useMemo<{ popup: Popup; detailId: string | null }>(() => {
+    const parts = location.pathname.split("/").filter(Boolean);
+    const slug = parts[0];
+    if (!(["companies","people","crm","integrations","memories","settings"] as const).includes(slug as any)) {
+      return { popup: null, detailId: null };
+    }
+    return { popup: slug as Popup, detailId: parts[1] || null };
   }, [location.pathname]);
   const setPopup = useCallback((p: Popup) => {
     navigate(p ? `/${p}` : "/");
   }, [navigate]);
+  // Open a record detail inside the current popup — /people/abc, /companies/xyz, etc.
+  // Pass null to drop the detail and return to the list view.
+  const setDetailId = useCallback((id: string | null) => {
+    if (!popup) return;
+    navigate(id ? `/${popup}/${id}` : `/${popup}`);
+  }, [popup, navigate]);
   const [pulse,        setPulse]        = useState(0);
   const [peopleSort,   setPeopleSort]   = useState<{col:"lastActivity"|"deal"|null;dir:"asc"|"desc"}|undefined>(undefined);
 
@@ -2839,8 +2863,8 @@ export default function Mind() {
       {/* ── Modals ── */}
       {showConnect&&<ConnectModal onClose={()=>setShowConnect(false)}/>}
 
-      {popup==="companies"&&workspaceId&&token&&<CompaniesPopup companies={companies} workspaceId={workspaceId} token={token} onClose={()=>setPopup(null)} onDelete={id=>setCompanies(prev=>prev.filter(c=>c.id!==id))}/>}
-      {popup==="people"&&token&&workspaceId&&<PeoplePopup contacts={allContacts} token={token} workspaceId={workspaceId} onClose={()=>{setPopup(null);setPeopleSort(undefined);}} onNavigate={()=>navigate("/people")} defaultSort={peopleSort} onDelete={id=>setAllContacts(prev=>prev.filter(c=>c.id!==id))}/>}
+      {popup==="companies"&&workspaceId&&token&&<CompaniesPopup companies={companies} workspaceId={workspaceId} token={token} onClose={()=>setPopup(null)} onDelete={id=>setCompanies(prev=>prev.filter(c=>c.id!==id))} detailId={detailId} setDetailId={setDetailId}/>}
+      {popup==="people"&&token&&workspaceId&&<PeoplePopup contacts={allContacts} token={token} workspaceId={workspaceId} onClose={()=>{setPopup(null);setPeopleSort(undefined);}} onNavigate={()=>navigate("/people")} defaultSort={peopleSort} onDelete={id=>setAllContacts(prev=>prev.filter(c=>c.id!==id))} detailId={detailId} setDetailId={setDetailId}/>}
       {popup==="crm"&&workspaceId&&token&&<CrmSyncPopup integrations={integrations} workspaceId={workspaceId} token={token} onClose={()=>setPopup(null)} onOpenIntegrations={()=>setPopup("integrations")}/>}
       {popup==="integrations"&&workspaceId&&token&&<IntegrationsPopup integrations={integrations} workspaceId={workspaceId} token={token} onClose={()=>setPopup(null)}/>}
       {popup==="memories"&&workspaceId&&token&&<Suspense fallback={null}><MemoriesPopup memories={memories} categories={memoriesCategories} workspaceId={workspaceId} token={token} onClose={()=>setPopup(null)}/></Suspense>}
