@@ -7,10 +7,16 @@ interface ProtectedRouteProps {
 }
 
 export function ProtectedRoute({ children }: ProtectedRouteProps) {
-  const { isAuthenticated, loading, userDataLoading, onboardingCompleted } = useAuth();
+  const { isAuthenticated, loading, userDataLoading, userData, onboardingCompleted } = useAuth();
   const location = useLocation();
 
-  if (loading || userDataLoading) {
+  // Only block the UI on the initial auth check, OR while we're fetching
+  // userData for the first time. Once we have userData, background
+  // refreshes (TOKEN_REFRESHED, tab-focus revalidations, workspace
+  // switches) happen silently — the page stays mounted with stale data.
+  const showInitialLoader = loading || (userDataLoading && !userData);
+
+  if (showInitialLoader) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-background">
         <div className="flex flex-col items-center gap-4">
