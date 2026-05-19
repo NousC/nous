@@ -184,6 +184,21 @@ async function pollWorkspace(supabase, conn) {
 
   // Always log per-workspace summary, even when processed=0 (so we can confirm pollers are reaching IMAP)
   console.log(`[SMTP_POLL] workspace=${conn.workspace_id} imap=${imapHost}:${imapPort} processed=${processed}`);
+
+  // Surface the scan in the Live Op Log (workspace_system_log → operationName.ts → smtp.scan.complete)
+  try {
+    await supabase.from('workspace_system_log').insert({
+      workspace_id: conn.workspace_id,
+      source:       'smtp',
+      event_type:   'scan_complete',
+      summary:      `SMTP scan: ${processed} email${processed === 1 ? '' : 's'} logged`,
+      metadata:     { processed, imap_host: imapHost, imap_port: imapPort },
+      occurred_at:  new Date().toISOString(),
+    });
+  } catch (e) {
+    console.warn('[SMTP_POLL] system_log insert failed:', e.message);
+  }
+
   return processed;
 }
 
