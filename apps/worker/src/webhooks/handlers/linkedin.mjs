@@ -5,6 +5,7 @@
 
 import { getSupabaseClient } from '@nous/core';
 import { logActivity } from '../../utils/activity.mjs';
+import { enqueueForRetry } from '../../utils/webhookInbox.mjs';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -430,4 +431,20 @@ export async function handleLinkedIn(req, res, workspaceId) {
 
     return res.json({ ok: true, contactId: contact.id, type: 'message' });
   }
+}
+
+// For the webhook retry worker. Re-runs handleLinkedIn with a stub res so
+// internal res.json() calls become no-ops; we just care about the side
+// effects (logActivity, resolveContact). Throws on DB/transport failures,
+// which is what the retry worker uses to schedule the next attempt.
+export async function reprocessLinkedIn(supabase, workspaceId, body) {
+  const fakeReq = { body, headers: {}, fromRetry: true };
+  const fakeRes = {
+    statusCode: 200,
+    status(code) { this.statusCode = code; return this; },
+    json(payload) { this.body = payload; return this; },
+  };
+  await handleLinkedIn(fakeReq, fakeRes, workspaceId);
+  if (fakeRes.statusCode >= 500) throw new Error(fakeRes.body?.error || 'linkedin_handler_error');
+  return fakeRes.body;
 }

@@ -4,6 +4,7 @@
 
 import { Router } from 'express';
 import crypto from 'crypto';
+import { getSupabaseClient } from '@nous/core';
 import { handleLinkedIn } from './handlers/linkedin.mjs';
 import { handleFireflies } from './handlers/fireflies.mjs';
 import { handleFathom } from './handlers/fathom.mjs';
@@ -12,6 +13,7 @@ import { handleInstantly } from './handlers/instantly.mjs';
 import { handleCalendly } from './handlers/calendly.mjs';
 import { handleCalCom } from './handlers/calcom.mjs';
 import { handleStripe } from './handlers/stripe.mjs';
+import { enqueueForRetry } from '../utils/webhookInbox.mjs';
 
 export const webhookRouter = Router();
 
@@ -47,9 +49,11 @@ webhookRouter.post(['/linkedin/:workspaceId', '/linkedin'], (req, res) => {
     }
   }
 
-  handleLinkedIn(req, res, workspaceId).catch(err => {
-    console.error('[WEBHOOK/linkedin]', err);
-    res.status(500).json({ error: 'internal_error' });
+  handleLinkedIn(req, res, workspaceId).catch(async err => {
+    console.error('[WEBHOOK/linkedin] handler threw, queuing for retry:', err.message);
+    await enqueueForRetry(getSupabaseClient(), { workspaceId, source: 'linkedin', req, err });
+    // Reply 200 so Unipile doesn't retry on its own — we own retries now.
+    if (!res.headersSent) res.status(200).json({ ok: true, queued: true });
   });
 });
 

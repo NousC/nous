@@ -659,6 +659,37 @@ CREATE POLICY webhook_subscriptions_all ON workspace_webhook_subscriptions
 
 
 -- ============================================================
+-- 10b. WEBHOOK INBOX  (retry queue for inbound webhooks)
+-- ============================================================
+-- Every inbound webhook processed by the worker (Calendly, Cal.com,
+-- Fireflies, Fathom, Instantly, LinkedIn, RB2B, Stripe) records its
+-- payload here on processing failure. A worker cron retries pending
+-- rows with exponential backoff. Successful happy-path deliveries
+-- don't insert at all — zero overhead.
+
+CREATE TABLE IF NOT EXISTS webhook_inbox (
+  id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  workspace_id    UUID        NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  source          TEXT        NOT NULL,
+  payload         JSONB       NOT NULL,
+  headers         JSONB,
+  status          TEXT        NOT NULL DEFAULT 'pending',
+  attempts        INTEGER     NOT NULL DEFAULT 0,
+  last_error      TEXT,
+  next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  received_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  processed_at    TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS webhook_inbox_pending
+  ON webhook_inbox(next_attempt_at)
+  WHERE status = 'pending';
+
+CREATE INDEX IF NOT EXISTS webhook_inbox_workspace
+  ON webhook_inbox(workspace_id, received_at DESC);
+
+
+-- ============================================================
 -- 11. LINKEDIN CONNECTIONS  (Unipile OAuth)
 -- ============================================================
 

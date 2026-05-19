@@ -8,6 +8,7 @@
 import { getSupabaseClient } from '@nous/core';
 import { logActivity } from '../../utils/activity.mjs';
 import { resolveContact } from '../../utils/resolveContact.mjs';
+import { enqueueForRetry } from '../../utils/webhookInbox.mjs';
 
 const HANDLED_EVENTS = new Set([
   'payment_intent.succeeded',
@@ -43,22 +44,16 @@ function extractAmount(event) {
   return { amount: amount / 100, currency }; // Stripe stores in cents
 }
 
-export async function handleStripe(req, res, workspaceId) {
-  const supabase = getSupabaseClient();
-  const event = req.body;
+export async function reprocessStripe(supabase, workspaceId, body) {
+  const event = body || {};
   const eventType = event?.type || '';
 
   console.log(`[STRIPE_WEBHOOK] event=${eventType}`);
 
-  if (!HANDLED_EVENTS.has(eventType)) {
-    return res.json({ ok: true, skipped: `unhandled event: ${eventType}` });
-  }
+  if (!HANDLED_EVENTS.has(eventType)) return { skipped: `unhandled event: ${eventType}` };
 
   const email = extractEmail(event);
-  if (!email) {
-    console.log('[STRIPE_WEBHOOK] no customer email in payload — skipping');
-    return res.json({ ok: true, skipped: 'no_email' });
-  }
+  if (!email) return { skipped: 'no_email' };
 
   const name = extractName(event);
   const nameParts = (name || '').trim().split(/\s+/);
@@ -69,11 +64,9 @@ export async function handleStripe(req, res, workspaceId) {
     first_name: nameParts[0] || null,
     last_name: nameParts.slice(1).join(' ') || null,
     source: 'stripe',
-  }, { createIfMissing: false }); // only promote existing contacts — don't create from payments
+  }, { createIfMissing: false });
 
-  if (!contact) {
-    return res.json({ ok: true, skipped: 'contact_not_found' });
-  }
+  if (!contact) return { skipped: 'contact_not_found' };
 
   const obj = event.data?.object || {};
   const externalId = `stripe_payment_${obj.id || email + '_' + Date.now()}`;
@@ -97,5 +90,17 @@ export async function handleStripe(req, res, workspaceId) {
     },
   });
 
-  return res.json({ ok: true, contactId: contact.id, type: 'payment_received' });
+  return { contactId: contact.id, type: 'payment_received' };
+}
+
+export async function handleStripe(req, res, workspaceId) {
+  const supabase = getSupabaseClient();
+  try {
+    const result = await reprocessStripe(supabase, workspaceId, req.body);
+    return res.json({ ok: true, ...result });
+  } catch (err) {
+    console.error('[STRIPE_WEBHOOK] processing failed, queuing for retry:', err.message);
+    await enqueueForRetry(supabase, { workspaceId, source: 'stripe', req, err });
+    return res.status(200).json({ ok: true, queued: true });
+  }
 }

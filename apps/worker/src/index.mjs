@@ -12,6 +12,7 @@ import { pollAllSlackWorkspaces } from './pollers/slack.mjs';
 import { pollAllGmailWorkspaces } from './pollers/gmail.mjs';
 import { pollAllSmtpWorkspaces } from './pollers/smtp.mjs';
 import { webhookRouter } from './webhooks/index.mjs';
+import { processWebhookInbox } from './workers/webhookRetry.mjs';
 
 // Wire webhook-driven activity logging → CRM push at module load.
 // Worker is where most logActivity() calls originate (Instantly/Lemlist replies,
@@ -97,5 +98,11 @@ async function runPipelineDecay() {
 
 cron.schedule('0 3 * * *', runPipelineDecay, { timezone: 'UTC' });
 console.log('[WORKER] Pipeline decay — daily at 03:00 UTC');
+
+// ── Webhook retry queue — every minute ───────────────────────────────────────
+// Picks up rows from webhook_inbox whose handlers failed (DB hiccup, Haiku
+// timeout, etc.) and reprocesses them with exponential backoff.
+cron.schedule('* * * * *', processWebhookInbox);
+console.log('[WORKER] Webhook retry queue — every minute');
 
 console.log('[WORKER] Started');

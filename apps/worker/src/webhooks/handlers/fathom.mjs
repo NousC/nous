@@ -6,6 +6,7 @@ import { createHmac } from 'crypto';
 import { getSupabaseClient } from '@nous/core';
 import { logActivity } from '../../utils/activity.mjs';
 import { resolveContact } from '../../utils/resolveContact.mjs';
+import { enqueueForRetry } from '../../utils/webhookInbox.mjs';
 
 function verifyFathomSignature(secret, rawBody, webhookId, webhookTimestamp, signatureHeader) {
   if (!secret || !signatureHeader || !webhookId || !webhookTimestamp) return true; // skip if not configured
@@ -23,9 +24,8 @@ function verifyFathomSignature(secret, rawBody, webhookId, webhookTimestamp, sig
   });
 }
 
-export async function handleFathom(req, res, workspaceId) {
-  const supabase = getSupabaseClient();
-  const payload = req.body;
+export async function reprocessFathom(supabase, workspaceId, payload) {
+  payload = payload || {};
 
   const title       = payload.title || payload.meeting_title || 'Untitled Meeting';
   const summary     = payload.default_summary?.markdown_formatted || payload.default_summary || null;
@@ -35,20 +35,7 @@ export async function handleFathom(req, res, workspaceId) {
   const meetingUrl  = payload.share_url || payload.url || null;
 
   const invitees = (payload.calendar_invitees || []).filter(i => i.email?.includes('@'));
-  if (!invitees.length) return res.json({ ok: true, logged: 0, skipped: 'no_invitees' });
-
-  // Optional per-workspace signature verification
-  const secret = process.env.FATHOM_WEBHOOK_SECRET;
-  if (secret) {
-    const rawBody = JSON.stringify(payload);
-    const valid = verifyFathomSignature(
-      secret, rawBody,
-      req.headers['webhook-id'],
-      req.headers['webhook-timestamp'],
-      req.headers['webhook-signature'],
-    );
-    if (!valid) return res.status(401).json({ error: 'invalid_signature' });
-  }
+  if (!invitees.length) return { logged: 0, skipped: 'no_invitees' };
 
   let logged = 0;
   for (const invitee of invitees) {
@@ -79,5 +66,31 @@ export async function handleFathom(req, res, workspaceId) {
   }
 
   console.log(`[FATHOM_WEBHOOK] workspace=${workspaceId} logged=${logged}`);
-  return res.json({ ok: true, logged });
+  return { logged };
+}
+
+export async function handleFathom(req, res, workspaceId) {
+  const supabase = getSupabaseClient();
+
+  // Signature verification (only on live deliveries — retries trust the row)
+  const secret = process.env.FATHOM_WEBHOOK_SECRET;
+  if (secret) {
+    const rawBody = req.rawBody ? req.rawBody.toString('utf8') : JSON.stringify(req.body);
+    const valid = verifyFathomSignature(
+      secret, rawBody,
+      req.headers['webhook-id'],
+      req.headers['webhook-timestamp'],
+      req.headers['webhook-signature'],
+    );
+    if (!valid) return res.status(401).json({ error: 'invalid_signature' });
+  }
+
+  try {
+    const result = await reprocessFathom(supabase, workspaceId, req.body);
+    return res.json({ ok: true, ...result });
+  } catch (err) {
+    console.error('[FATHOM_WEBHOOK] processing failed, queuing for retry:', err.message);
+    await enqueueForRetry(supabase, { workspaceId, source: 'fathom', req, err });
+    return res.status(200).json({ ok: true, queued: true });
+  }
 }
