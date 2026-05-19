@@ -1764,9 +1764,14 @@ function IntegrationsPopup({ integrations, workspaceId, token, onClose }: {
 
   // Merge hardcoded + DB providers
   const allProviders: AvailableProvider[] = [...MIND_HARDCODED_PROVIDERS, ...dbProviders];
-  const connected  = liveConns.filter(i=>i.is_verified);
-  const needsAuth  = liveConns.filter(i=>!i.is_verified);
-  const notConnected = allProviders.filter(p=>!liveConns.some(i=>i.provider?.name===p.name||i.name===p.name));
+  // Hide connection rows for providers we don't surface anywhere else (e.g.
+  // Stripe — managed via billing UI, not an integration). Mirror the
+  // Available-tab exclusion so stale rows from earlier installs don't leak
+  // into Connected.
+  const visibleConns = liveConns.filter(c => !MIND_EXCLUDED.has((c.provider?.name || "").toLowerCase()));
+  const connected  = visibleConns.filter(i=>i.is_verified);
+  const needsAuth  = visibleConns.filter(i=>!i.is_verified);
+  const notConnected = allProviders.filter(p=>!visibleConns.some(i=>i.provider?.name===p.name||i.name===p.name));
 
   const copyUrl = (url: string, key: string) => {
     navigator.clipboard.writeText(url).then(() => { setCopied(key); setTimeout(()=>setCopied(null),2000); });
