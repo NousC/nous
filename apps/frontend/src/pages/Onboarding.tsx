@@ -2,26 +2,26 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/components/ui/sonner";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { cn } from "@/lib/utils";
-import { Check, Copy, Eye, EyeOff, Key, Loader2, Upload } from "lucide-react";
+import {
+  Check, Copy, Eye, EyeOff, Loader2, Upload,
+  FileText, Key, RefreshCw,
+} from "lucide-react";
 
-// ─── Use case options ───────────────────────────────────────────────────────
+// ─── Option sets ─────────────────────────────────────────────────────────────
 const USE_CASES = [
-  { id: "openclaw",            label: "OpenClaw" },
-  { id: "gtm_agent",           label: "GTM Agent" },
-  { id: "ai_sdr",              label: "AI SDR" },
-  { id: "outbound",            label: "Outbound Automation" },
-  { id: "sales_assistant",     label: "Sales Assistant" },
-  { id: "customer_success",    label: "Customer Success AI" },
-  { id: "meeting_intelligence",label: "Meeting Intelligence" },
-  { id: "custom",              label: "Custom" },
+  { id: "gtm_agent",            label: "GTM agent" },
+  { id: "ai_sdr",               label: "AI SDR" },
+  { id: "outbound",             label: "outbound" },
+  { id: "sales_assistant",      label: "sales assistant" },
+  { id: "customer_success",     label: "customer success" },
+  { id: "meeting_intelligence", label: "meeting intel" },
+  { id: "custom",               label: "custom" },
 ];
 
 const TOTAL_STEPS = 3;
-const STORAGE_KEY = "nous_onboarding_v4";
-const API_URL = import.meta.env.VITE_API_URL ?? "";
+const STORAGE_KEY = "nous_onboarding_v6";
+const API_URL    = import.meta.env.VITE_API_URL ?? "";
+const MONO       = { fontFamily: "'JetBrains Mono',monospace" };
 
 // ─── CSV helpers ─────────────────────────────────────────────────────────────
 function parseCSV(text: string): Record<string, string>[] {
@@ -45,8 +45,6 @@ function parseCSV(text: string): Record<string, string>[] {
 
 function normalizeRow(raw: Record<string, string>): Record<string, string> {
   const get = (...keys: string[]) => keys.map(k => raw[k]).find(v => v) || "";
-
-  // Pass through all server-recognized field names directly
   const SERVER_FIELDS = [
     "email", "first_name", "last_name", "company", "domain", "phone",
     "job_title", "deal_stage", "linkedin_url", "notes", "seniority",
@@ -54,8 +52,6 @@ function normalizeRow(raw: Record<string, string>): Record<string, string> {
   ];
   const row: Record<string, string> = {};
   SERVER_FIELDS.forEach(f => { if (raw[f]) row[f] = raw[f]; });
-
-  // Resolve common column name aliases
   if (!row.email)        row.email        = get("email address", "e-mail");
   if (!row.first_name)   row.first_name   = get("firstname", "first name", "given name");
   if (!row.last_name)    row.last_name    = get("lastname", "last name", "surname");
@@ -64,295 +60,160 @@ function normalizeRow(raw: Record<string, string>): Record<string, string> {
   if (!row.phone)        row.phone        = get("phone number", "mobile", "telephone");
   if (!row.linkedin_url) row.linkedin_url = get("linkedin", "linkedin profile");
   if (!row.domain)       row.domain       = get("website", "company domain");
-
   return row;
 }
 
-// ─── Right branding panel ───────────────────────────────────────────────────
-function BrandingPanel() {
+// ─── Tiny primitives ─────────────────────────────────────────────────────────
+function Label({ children, optional }: { children: React.ReactNode; optional?: boolean }) {
   return (
-    <div className="hidden lg:flex lg:w-[45%] bg-gray-950 flex-col justify-between p-12 relative overflow-hidden">
-      <div
-        className="absolute inset-0 opacity-[0.07]"
-        style={{
-          backgroundImage: "radial-gradient(circle, #ffffff 1px, transparent 1px)",
-          backgroundSize: "28px 28px",
-        }}
-      />
-      <div className="relative z-10 flex items-center gap-2.5">
-        <img src="/nous-logo.svg" alt="Nous" className="h-8 w-auto" />
-      </div>
-      <div className="relative z-10 max-w-sm">
-        <svg className="w-8 h-8 text-gray-600 mb-5" fill="currentColor" viewBox="0 0 24 24">
-          <path d="M14.017 21v-7.391c0-5.704 3.748-9.57 8.983-10.609l.995 2.151c-2.432.917-3.995 3.638-3.995 5.849h4v10h-9.983zm-14.017 0v-7.391c0-5.704 3.748-9.57 8.983-10.609l.995 2.151c-2.432.917-3.995 3.638-3.995 5.849h3.983v10h-9.966z" />
-        </svg>
-        <p className="text-[19px] font-medium text-white leading-[1.55] mb-6">
-          Nous gives our AI agents the sales context they need — contacts, company history, deal signals. It's the memory layer we were missing.
-        </p>
-        <div className="text-sm text-gray-400">
-          Trusted by GTM teams and AI builders worldwide
-        </div>
-      </div>
+    <div className="text-[9px] text-muted-foreground/40 tracking-widest mb-1.5">
+      {children}
+      {optional && <span className="ml-1.5 text-muted-foreground/25 normal-case">optional</span>}
     </div>
   );
 }
 
-// ─── Progress indicator ─────────────────────────────────────────────────────
-function StepProgress({ current, total }: { current: number; total: number }) {
+function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return (
-    <div className="flex items-center gap-1.5">
-      {Array.from({ length: total }).map((_, i) => (
-        <div
-          key={i}
-          className={cn(
-            "h-1.5 rounded-full transition-all duration-300",
-            i < current ? "bg-gray-900 w-6" : "bg-gray-200 w-4"
-          )}
-        />
-      ))}
+    <input
+      {...props}
+      className={
+        "w-full bg-muted/20 border border-border/40 text-[11px] text-foreground px-3 py-2 outline-none " +
+        "placeholder:text-muted-foreground/25 focus:border-violet-500/40 transition-colors " +
+        (props.className ?? "")
+      }
+    />
+  );
+}
+
+function ChipGroup({
+  options, value, onChange, single = false,
+}: {
+  options: { id: string; label: string }[];
+  value: string[];
+  onChange: (v: string[]) => void;
+  single?: boolean;
+}) {
+  const toggle = (id: string) => {
+    if (single) { onChange(value[0] === id ? [] : [id]); return; }
+    onChange(value.includes(id) ? value.filter(x => x !== id) : [...value, id]);
+  };
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {options.map(({ id, label }) => {
+        const selected = value.includes(id);
+        return (
+          <button
+            key={id}
+            type="button"
+            onClick={() => toggle(id)}
+            className={`text-[10px] px-2.5 py-1 border transition-colors ${
+              selected
+                ? "border-violet-500/50 text-violet-400/80 bg-violet-500/10"
+                : "border-border/40 text-muted-foreground/40 hover:border-border/70"
+            }`}
+          >
+            {label}
+          </button>
+        );
+      })}
     </div>
+  );
+}
+
+function PrimaryButton({
+  onClick, disabled, loading, children,
+}: { onClick: () => void; disabled?: boolean; loading?: boolean; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled || loading}
+      className="w-full flex items-center justify-center gap-2 text-[11px] py-2 bg-violet-500/20 border border-violet-500/30 text-violet-400/80 hover:bg-violet-500/30 transition-colors disabled:opacity-30"
+    >
+      {loading ? <RefreshCw className="h-3 w-3 animate-spin" /> : null}
+      {children}
+    </button>
+  );
+}
+
+function GhostButton({
+  onClick, disabled, children,
+}: { onClick: () => void; disabled?: boolean; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className="text-[10px] px-3 py-2 border border-border/40 text-muted-foreground/50 hover:border-border/70 hover:text-foreground/70 transition-colors disabled:opacity-30"
+    >
+      {children}
+    </button>
   );
 }
 
 // ─── Step 1: Welcome ─────────────────────────────────────────────────────────
-interface Step1Props {
-  companyName: string;
-  setCompanyName: (v: string) => void;
-  website: string;
-  setWebsite: (v: string) => void;
-  selectedUseCases: string[];
-  setSelectedUseCases: (v: string[]) => void;
-  onNext: () => void;
-  isLoading: boolean;
-}
-
-function Step1Welcome({
+function StepWelcome({
   companyName, setCompanyName,
   website, setWebsite,
-  selectedUseCases, setSelectedUseCases,
+  useCases, setUseCases,
   onNext, isLoading,
-}: Step1Props) {
-  const toggle = (id: string) => {
-    setSelectedUseCases(
-      selectedUseCases.includes(id)
-        ? selectedUseCases.filter(x => x !== id)
-        : [...selectedUseCases, id]
-    );
-  };
-
+}: {
+  companyName: string; setCompanyName: (v: string) => void;
+  website: string; setWebsite: (v: string) => void;
+  useCases: string[]; setUseCases: (v: string[]) => void;
+  onNext: () => void; isLoading: boolean;
+}) {
   return (
-    <div className="space-y-7">
+    <div className="space-y-5">
       <div>
-        <h1 className="text-[26px] font-semibold text-gray-900 leading-tight">
-          Welcome to Nous,<br />let's get to know you
-        </h1>
-        <p className="text-sm text-gray-500 mt-1.5">
-          This helps us set up your AI memory layer correctly.
+        <div className="text-[11px] text-foreground/70 mb-1">welcome to nous</div>
+        <p className="text-[10px] text-muted-foreground/40 leading-relaxed">
+          a few details so your memory layer knows what you're building.
         </p>
       </div>
 
-      <div className="space-y-1.5">
-        <label className="text-sm font-medium text-gray-700">Company name</label>
-        <Input
+      <div>
+        <Label>company</Label>
+        <TextInput
           value={companyName}
           onChange={e => setCompanyName(e.target.value)}
-          placeholder="Acme Corp"
-          className="h-11 rounded-lg border-gray-200 text-sm"
+          placeholder="acme corp"
           autoFocus
         />
       </div>
 
-      <div className="space-y-1.5">
-        <label className="text-sm font-medium text-gray-700">
-          Website
-          <span className="text-gray-400 font-normal ml-1.5">(optional)</span>
-        </label>
-        <Input
+      <div>
+        <Label optional>website</Label>
+        <TextInput
           value={website}
           onChange={e => setWebsite(e.target.value)}
           placeholder="https://yourcompany.com"
-          className="h-11 rounded-lg border-gray-200 text-sm"
           type="url"
         />
       </div>
 
-      <div className="space-y-2.5">
-        <label className="text-sm font-medium text-gray-700">What are you building?</label>
-        <div className="flex flex-wrap gap-2">
-          {USE_CASES.map(({ id, label }) => {
-            const selected = selectedUseCases.includes(id);
-            return (
-              <button
-                key={id}
-                type="button"
-                onClick={() => toggle(id)}
-                className={cn(
-                  "flex items-center gap-1.5 px-3.5 py-2 rounded-full text-sm border-2 transition-all duration-150 font-medium",
-                  selected
-                    ? "border-gray-900 bg-gray-900 text-white"
-                    : "border-gray-200 bg-white text-gray-700 hover:border-gray-300"
-                )}
-              >
-                {selected && <Check className="w-3 h-3" />}
-                {label}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      <Button
-        onClick={onNext}
-        disabled={!companyName.trim() || isLoading}
-        className="w-full h-11 bg-gray-900 hover:bg-gray-800 text-white rounded-lg font-medium"
-      >
-        {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Continue"}
-      </Button>
-    </div>
-  );
-}
-
-// ─── Step 2: Create API key ───────────────────────────────────────────────────
-interface Step2ApiKeyProps {
-  onNext: () => void;
-  onSkip: () => void;
-}
-
-function Step2ApiKey({ onNext, onSkip }: Step2ApiKeyProps) {
-  const { session } = useAuth();
-  const [keyName, setKeyName] = useState("Default API Key");
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [generatedKey, setGeneratedKey] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
-  const [showKey, setShowKey] = useState(false);
-
-  const generateKey = async () => {
-    if (!keyName.trim()) { toast.error("Please enter a name for your API key"); return; }
-    setIsGenerating(true);
-    try {
-      const res = await fetch(`${API_URL}/api/api-keys`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
-        body: JSON.stringify({ name: keyName.trim() }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || data.detail || "Failed to create API key");
-      setGeneratedKey(data.key);
-      toast.success("API key created!");
-    } catch (e: any) {
-      toast.error(e.message || "Failed to create API key");
-    } finally {
-      setIsGenerating(false);
-    }
-  };
-
-  const copyKey = () => {
-    if (!generatedKey) return;
-    navigator.clipboard.writeText(generatedKey);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  return (
-    <div className="space-y-7">
       <div>
-        <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center mb-4">
-          <Key className="w-5 h-5 text-gray-600" />
-        </div>
-        <h1 className="text-[26px] font-semibold text-gray-900">Create your API key</h1>
-        <p className="text-sm text-gray-500 mt-1.5">
-          Your API key lets agents connect to Nous's memory. Create one now so you're ready to build.
-        </p>
+        <Label>what are you building?</Label>
+        <ChipGroup
+          options={USE_CASES}
+          value={useCases}
+          onChange={setUseCases}
+        />
       </div>
 
-      {!generatedKey ? (
-        <div className="space-y-4">
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium text-gray-700">Key name</label>
-            <Input
-              value={keyName}
-              onChange={e => setKeyName(e.target.value)}
-              placeholder="Default API Key"
-              className="h-11 rounded-lg border-gray-200 text-sm"
-              autoFocus
-            />
-          </div>
-          <Button
-            onClick={generateKey}
-            disabled={isGenerating || !keyName.trim()}
-            className="w-full h-11 bg-gray-900 hover:bg-gray-800 text-white rounded-lg font-medium"
-          >
-            {isGenerating ? (
-              <><Loader2 className="w-4 h-4 animate-spin mr-2" />Generating...</>
-            ) : (
-              <><Key className="w-4 h-4 mr-2" />Generate API Key</>
-            )}
-          </Button>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          <div className="rounded-xl border-2 border-emerald-200 bg-emerald-50 p-4 space-y-3">
-            <div className="flex items-center gap-2 text-emerald-700">
-              <Check className="w-4 h-4" />
-              <p className="text-sm font-semibold">API key created — save it now</p>
-            </div>
-            <p className="text-xs text-emerald-600">This is the only time you'll see the full key.</p>
-            <div className="flex gap-2">
-              <div className="relative flex-1">
-                <Input
-                  value={generatedKey}
-                  readOnly
-                  type={showKey ? "text" : "password"}
-                  className="h-10 font-mono text-xs bg-white border-emerald-200 pr-10"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowKey(!showKey)}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                >
-                  {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
-              </div>
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={copyKey}
-                className="h-10 w-10 border-emerald-200 hover:bg-emerald-50 flex-shrink-0"
-              >
-                {copied ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
-              </Button>
-            </div>
-          </div>
-          <Button
-            onClick={onNext}
-            className="w-full h-11 bg-gray-900 hover:bg-gray-800 text-white rounded-lg font-medium"
-          >
-            Continue
-          </Button>
-        </div>
-      )}
-
-      {!generatedKey && (
-        <button
-          onClick={onSkip}
-          className="w-full text-center text-sm text-gray-400 hover:text-gray-600 transition-colors"
-        >
-          I'll do this later
-        </button>
-      )}
+      <PrimaryButton onClick={onNext} disabled={!companyName.trim()} loading={isLoading}>
+        continue
+      </PrimaryButton>
     </div>
   );
 }
 
-// ─── Step 3: Import contacts ─────────────────────────────────────────────────
-interface Step3ContactsProps {
-  onNext: () => void;
-  onSkip: () => void;
-  session: any;
-  workspaceId: string | undefined;
-}
-
-function Step3Contacts({ onNext, onSkip, session, workspaceId }: Step3ContactsProps) {
+// ─── Step 2: Import contacts ─────────────────────────────────────────────────
+function StepImport({
+  onNext, onSkip, onBack, session, workspaceId, testMode,
+}: {
+  onNext: () => void; onSkip: () => void; onBack: () => void;
+  session: any; workspaceId: string | undefined; testMode?: boolean;
+}) {
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [result, setResult] = useState<{ created: number; updated: number } | null>(null);
@@ -360,49 +221,53 @@ function Step3Contacts({ onNext, onSkip, session, workspaceId }: Step3ContactsPr
   const fileRef = useRef<HTMLInputElement>(null);
 
   const handleFile = async (file: File) => {
-    if (!file.name.toLowerCase().endsWith(".csv")) { toast.error("Please upload a CSV file"); return; }
-    if (!workspaceId) { toast.error("No workspace found"); return; }
+    if (!file.name.toLowerCase().endsWith(".csv")) { toast.error("please upload a CSV file"); return; }
     setFileName(file.name);
     setIsUploading(true);
     try {
       const text = await file.text();
       const rows = parseCSV(text).map(normalizeRow).filter(r => r.email);
-      if (!rows.length) { toast.error("No rows with a valid email column found"); return; }
+      if (!rows.length) { toast.error("no rows with a valid email column"); return; }
+      if (testMode) {
+        await new Promise(r => setTimeout(r, 500));
+        setResult({ created: rows.length, updated: 0 });
+        return;
+      }
+      if (!workspaceId) { toast.error("no workspace found"); return; }
       const res = await fetch(`${API_URL}/api/contacts/import`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
         body: JSON.stringify({ workspaceId, rows }),
       });
-      if (!res.ok) throw new Error((await res.json()).message || "Import failed");
+      if (!res.ok) throw new Error((await res.json()).message || "import failed");
       const data = await res.json();
       setResult({ created: data.created ?? 0, updated: data.updated ?? 0 });
-      toast.success(`${data.created ?? 0} contacts imported`);
     } catch (e: any) {
-      toast.error(e.message || "Failed to import contacts");
+      toast.error(e.message || "failed to import contacts");
     } finally {
       setIsUploading(false);
     }
   };
 
   return (
-    <div className="space-y-7">
+    <div className="space-y-5">
       <div>
-        <h1 className="text-[26px] font-semibold text-gray-900">Import your contacts</h1>
-        <p className="text-sm text-gray-500 mt-1.5">
-          Seed Nous's memory with your existing pipeline. Upload a CSV from your CRM or spreadsheet.
+        <div className="text-[11px] text-foreground/70 mb-1">import contacts</div>
+        <p className="text-[10px] text-muted-foreground/40 leading-relaxed">
+          drop a CSV from your CRM, or skip — we'll seed a demo set.
         </p>
       </div>
 
       {result ? (
-        <div className="rounded-xl border-2 border-emerald-200 bg-emerald-50 p-8 text-center">
-          <div className="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-3">
-            <Check className="w-6 h-6 text-emerald-600" />
+        <div className="border border-emerald-500/30 bg-emerald-500/5 px-4 py-3">
+          <div className="flex items-center gap-2 text-[11px] text-emerald-500/80">
+            <Check className="h-3 w-3" />
+            <span>{result.created} contacts {testMode ? "parsed (test mode)" : "imported"}</span>
           </div>
-          <p className="font-semibold text-gray-900 text-lg">{result.created} contacts imported</p>
           {result.updated > 0 && (
-            <p className="text-sm text-gray-500 mt-1">{result.updated} existing contacts updated</p>
+            <div className="text-[9px] text-muted-foreground/40 mt-1">{result.updated} existing updated</div>
           )}
-          <p className="text-xs text-gray-400 mt-2">{fileName}</p>
+          <div className="text-[9px] text-muted-foreground/30 mt-0.5 truncate">{fileName}</div>
         </div>
       ) : (
         <div
@@ -415,114 +280,187 @@ function Step3Contacts({ onNext, onSkip, session, workspaceId }: Step3ContactsPr
             const f = e.dataTransfer.files[0];
             if (f) handleFile(f);
           }}
-          className={cn(
-            "border-2 border-dashed rounded-xl p-12 text-center transition-all",
+          className={`flex flex-col items-center justify-center h-32 border border-dashed cursor-pointer transition-colors ${
             isUploading
-              ? "border-gray-200 bg-gray-50 cursor-default"
+              ? "border-border/30 bg-muted/10 cursor-default"
               : isDragging
-                ? "border-gray-400 bg-gray-50 cursor-copy"
-                : "border-gray-200 hover:border-gray-300 hover:bg-gray-50/50 cursor-pointer"
-          )}
+                ? "border-violet-500/60 bg-violet-500/5"
+                : "border-border/40 hover:border-border/70 hover:bg-muted/10"
+          }`}
         >
           <input
             ref={fileRef}
             type="file"
             accept=".csv"
             className="hidden"
-            onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); }}
+            onChange={e => { const f = e.target.files?.[0]; e.target.value = ""; if (f) handleFile(f); }}
           />
           {isUploading ? (
-            <div className="space-y-3">
-              <Loader2 className="w-8 h-8 animate-spin text-gray-400 mx-auto" />
-              <p className="text-sm text-gray-500">Importing contacts...</p>
+            <div className="text-center">
+              <RefreshCw className="h-4 w-4 text-muted-foreground/40 mx-auto animate-spin mb-2" />
+              <p className="text-[10px] text-muted-foreground/40">importing…</p>
             </div>
           ) : (
-            <div className="space-y-3">
-              <div className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center mx-auto">
-                <Upload className="w-5 h-5 text-gray-400" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-gray-700">Upload CSV</p>
-                <p className="text-xs text-gray-400 mt-1">Drag & drop or click to browse</p>
-              </div>
-              <p className="text-xs text-gray-300">email, first_name, last_name, company, job_title</p>
+            <div className="text-center">
+              <Upload className="h-4 w-4 text-muted-foreground/25 mx-auto mb-2" />
+              <p className="text-[10px] text-muted-foreground/40">
+                drop CSV or <span className="text-violet-400/70">click to upload</span>
+              </p>
+              <p className="text-[9px] text-muted-foreground/25 mt-0.5">
+                email, first_name, last_name, company, job_title
+              </p>
             </div>
           )}
         </div>
       )}
 
-      <div className="space-y-2">
-        <Button
-          onClick={onNext}
-          disabled={isUploading}
-          className="w-full h-11 bg-gray-900 hover:bg-gray-800 text-white rounded-lg font-medium"
-        >
-          {result ? "Finish setup" : "Continue"}
-        </Button>
-        {!result && (
-          <button
-            onClick={onSkip}
-            className="w-full text-center text-sm text-gray-400 hover:text-gray-600 transition-colors py-1"
-          >
-            Skip for now
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ─── Loading screen ───────────────────────────────────────────────────────────
-function LoadingScreen({ companyName }: { companyName: string }) {
-  const [progress, setProgress] = useState(0);
-
-  useEffect(() => {
-    const steps = 60;
-    const interval = 3000 / steps;
-    let current = 0;
-    const timer = setInterval(() => {
-      current += 1;
-      setProgress(Math.min(100, Math.round(100 * (1 - Math.pow(1 - current / steps, 2)))));
-      if (current >= steps) clearInterval(timer);
-    }, interval);
-    return () => clearInterval(timer);
-  }, []);
-
-  return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-[#f5f5f5]">
-      <div className="flex flex-col items-center gap-6 w-full max-w-[320px]">
-        <img src="/nous-logo.svg" alt="Nous" className="h-10 w-auto" />
-        <div className="w-full">
-          <div className="h-1 bg-gray-200 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-gray-900 rounded-full transition-all duration-300 ease-out"
-              style={{ width: `${progress}%` }}
-            />
-          </div>
-          <p className="text-center text-sm text-gray-500 mt-3">
-            Setting up <span className="font-medium text-gray-900">{companyName || "your"}</span> memory...
-          </p>
+      <div className="flex gap-2">
+        <GhostButton onClick={onBack}>back</GhostButton>
+        <div className="flex-1">
+          <PrimaryButton onClick={result ? onNext : onSkip} disabled={isUploading}>
+            {result ? "continue" : "skip — use demo data"}
+          </PrimaryButton>
         </div>
       </div>
     </div>
   );
 }
 
-// ─── Main Onboarding page ─────────────────────────────────────────────────────
+// ─── Step 3: Create API key ──────────────────────────────────────────────────
+function StepCreateKey({
+  apiKey, generateKey, generating, onFinish, onBack,
+}: {
+  apiKey: string | null;
+  generateKey: (name: string) => void;
+  generating: boolean;
+  onFinish: () => void;
+  onBack: () => void;
+}) {
+  const [keyName, setKeyName] = useState("default api key");
+  const [showKey, setShowKey] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const copy = () => {
+    if (!apiKey) return;
+    navigator.clipboard.writeText(apiKey);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <div className="text-[11px] text-foreground/70 mb-1">create your api key</div>
+        <p className="text-[10px] text-muted-foreground/40 leading-relaxed">
+          {apiKey
+            ? "save this somewhere safe — you won't see the full key again."
+            : "generate a key so your agents and integrations can talk to nous."}
+        </p>
+      </div>
+
+      {!apiKey ? (
+        <>
+          <div>
+            <Label>key name</Label>
+            <TextInput
+              value={keyName}
+              onChange={e => setKeyName(e.target.value)}
+              placeholder="default api key"
+              autoFocus
+            />
+          </div>
+          <PrimaryButton
+            onClick={() => generateKey(keyName.trim() || "default api key")}
+            loading={generating}
+          >
+            {generating ? "generating…" : <><Key className="h-3 w-3" />generate key</>}
+          </PrimaryButton>
+        </>
+      ) : (
+        <div className="space-y-3">
+          <div className="border border-emerald-500/30 bg-emerald-500/5 px-3 py-2.5">
+            <div className="flex items-center gap-2 mb-2 text-[10px] text-emerald-500/80">
+              <Check className="h-3 w-3" />
+              <span className="tracking-widest">key created</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                readOnly
+                value={apiKey}
+                type={showKey ? "text" : "password"}
+                className="flex-1 bg-transparent text-[10px] text-foreground/80 outline-none truncate"
+                style={MONO}
+              />
+              <button
+                type="button"
+                onClick={() => setShowKey(!showKey)}
+                className="text-muted-foreground/40 hover:text-foreground/70 transition-colors"
+              >
+                {showKey ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+              </button>
+              <button
+                type="button"
+                onClick={copy}
+                className="text-muted-foreground/40 hover:text-foreground/70 transition-colors"
+              >
+                {copied ? <Check className="h-3 w-3 text-emerald-500/80" /> : <Copy className="h-3 w-3" />}
+              </button>
+            </div>
+          </div>
+          <p className="text-[9px] text-muted-foreground/30 leading-relaxed">
+            you can revoke or rotate this any time from settings.
+          </p>
+        </div>
+      )}
+
+      <div className="flex gap-2">
+        <GhostButton onClick={onBack}>back</GhostButton>
+        <div className="flex-1">
+          <PrimaryButton onClick={onFinish} disabled={!apiKey}>
+            open workspace
+          </PrimaryButton>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Step indicator ──────────────────────────────────────────────────────────
+function StepBar({ current, total }: { current: number; total: number }) {
+  return (
+    <div className="flex items-center gap-1">
+      {Array.from({ length: total }).map((_, i) => (
+        <div
+          key={i}
+          className={`h-[2px] w-4 ${i < current ? "bg-violet-500/60" : "bg-border/40"}`}
+        />
+      ))}
+    </div>
+  );
+}
+
+// ─── Main ────────────────────────────────────────────────────────────────────
 interface OnboardingProps {
   testMode?: boolean;
 }
+
+type StepIdx = 1 | 2 | 3;
 
 export default function Onboarding({ testMode = false }: OnboardingProps) {
   const navigate = useNavigate();
   const { session, userData, refreshUserData } = useAuth();
 
-  const [step, setStep] = useState<1 | 2 | 3 | "loading">(1);
-  const [isLoading, setIsLoading] = useState(false);
+  const [step, setStep] = useState<StepIdx>(1);
+  const [stepLoading, setStepLoading] = useState(false);
 
+  // step 1
   const [companyName, setCompanyName] = useState("");
   const [website, setWebsite] = useState("");
-  const [selectedUseCases, setSelectedUseCases] = useState<string[]>([]);
+  const [useCases, setUseCases] = useState<string[]>([]);
+
+  // step 3
+  const [apiKey, setApiKey] = useState<string | null>(null);
+  const [generatingKey, setGeneratingKey] = useState(false);
 
   useEffect(() => {
     if (!testMode && userData?.onboarding_completed) {
@@ -533,46 +471,79 @@ export default function Onboarding({ testMode = false }: OnboardingProps) {
   useEffect(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const p = JSON.parse(saved);
-        if (p.companyName) setCompanyName(p.companyName);
-        if (p.website) setWebsite(p.website);
-        if (p.selectedUseCases) setSelectedUseCases(p.selectedUseCases);
-        if (p.step && p.step !== "loading") setStep(p.step);
-      }
+      if (!saved) return;
+      const p = JSON.parse(saved);
+      if (p.step)         setStep(p.step);
+      if (p.companyName)  setCompanyName(p.companyName);
+      if (p.website)      setWebsite(p.website);
+      if (p.useCases)     setUseCases(p.useCases);
     } catch { /* ignore */ }
   }, []);
 
   useEffect(() => {
-    if (step === "loading") return;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ step, companyName, website, selectedUseCases }));
-  }, [step, companyName, website, selectedUseCases]);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ step, companyName, website, useCases }));
+  }, [step, companyName, website, useCases]);
 
-  const handleStep1Next = async () => {
+  const auth = { Authorization: `Bearer ${session?.access_token}`, "Content-Type": "application/json" };
+
+  const submitStep1 = async () => {
     if (!companyName.trim()) return;
-    setIsLoading(true);
+    setStepLoading(true);
+    if (!testMode) {
+      try {
+        await fetch(`${API_URL}/api/onboarding/step-1`, {
+          method: "POST",
+          headers: auth,
+          body: JSON.stringify({
+            company_name: companyName.trim(),
+            website: website.trim() || undefined,
+            use_case: useCases.map(id => USE_CASES.find(u => u.id === id)?.label || id).join(", "),
+          }),
+        });
+      } catch { /* non-blocking */ }
+    }
+    setStepLoading(false);
+    setStep(2);
+  };
+
+  const generateApiKey = async (name: string) => {
+    if (testMode) {
+      setGeneratingKey(true);
+      await new Promise(r => setTimeout(r, 400));
+      setApiKey("pk_test_demo_3c1f8a92b7e4d650f1ac");
+      setGeneratingKey(false);
+      return;
+    }
+    const workspaceId = userData?.workspace?.id;
+    if (!workspaceId) { toast.error("workspace not ready — try again in a moment"); return; }
+    setGeneratingKey(true);
     try {
-      await fetch(`${API_URL}/api/onboarding/step-1`, {
+      const res = await fetch(`${API_URL}/api/workspace/api-keys?workspaceId=${workspaceId}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
-        body: JSON.stringify({
-          company_name: companyName.trim(),
-          website: website.trim() || undefined,
-          use_case: selectedUseCases.map(id => USE_CASES.find(u => u.id === id)?.label || id).join(", "),
-        }),
+        headers: auth,
+        body: JSON.stringify({ name, workspaceId }),
       });
-    } catch { /* non-blocking */ } finally {
-      setIsLoading(false);
-      setStep(2);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || data.error || "failed to create api key");
+      setApiKey(data.key);
+    } catch (e: any) {
+      toast.error(e.message || "failed to create api key");
+    } finally {
+      setGeneratingKey(false);
     }
   };
 
-  const handleComplete = async () => {
-    setStep("loading");
+  const finish = async () => {
+    if (testMode) {
+      toast.success("test run complete — restarting");
+      localStorage.removeItem(STORAGE_KEY);
+      setStep(1); setApiKey(null);
+      return;
+    }
     try {
       await fetch(`${API_URL}/api/onboarding/complete`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+        headers: auth,
         body: JSON.stringify({}),
       });
       localStorage.removeItem(STORAGE_KEY);
@@ -580,60 +551,73 @@ export default function Onboarding({ testMode = false }: OnboardingProps) {
       localStorage.setItem("nous_onboarding_company_name", companyName.trim());
       refreshUserData().catch(console.error);
     } catch { /* non-blocking */ }
-    setTimeout(() => navigate("/", { replace: true }), 3200);
+    navigate("/", { replace: true });
   };
 
-  const workspaceId = userData?.workspace?.id;
-
-  if (step === "loading") {
-    return <LoadingScreen companyName={companyName} />;
-  }
-
   return (
-    <div className="min-h-screen flex bg-white">
-      <div className="flex-1 flex flex-col">
-        <header className="px-8 py-6 flex items-center justify-between">
-          <img src="/nous-logo.svg" alt="Nous" className="h-8 w-auto" />
-          <StepProgress current={step} total={TOTAL_STEPS} />
-        </header>
-
-        <div className="flex-1 flex items-center justify-center px-8 lg:px-16 py-8">
-          <div className="w-full max-w-[440px]">
-            {step === 1 && (
-              <Step1Welcome
-                companyName={companyName}
-                setCompanyName={setCompanyName}
-                website={website}
-                setWebsite={setWebsite}
-                selectedUseCases={selectedUseCases}
-                setSelectedUseCases={setSelectedUseCases}
-                onNext={handleStep1Next}
-                isLoading={isLoading}
-              />
-            )}
-            {step === 2 && (
-              <Step2ApiKey
-                onNext={() => setStep(3)}
-                onSkip={() => setStep(3)}
-              />
-            )}
-            {step === 3 && (
-              <Step3Contacts
-                onNext={handleComplete}
-                onSkip={handleComplete}
-                session={session}
-                workspaceId={workspaceId}
-              />
+    <div
+      className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      style={MONO}
+    >
+      <div
+        className="bg-background border border-border shadow-2xl w-full mx-4 flex flex-col"
+        style={{ maxWidth: 460, ...MONO }}
+      >
+        {/* breadcrumb header */}
+        <div className="flex items-center justify-between px-5 py-3 border-b border-border/40">
+          <div className="flex items-center gap-2">
+            <span className="text-[9px] text-muted-foreground/40 tracking-widest">
+              NOUS / ONBOARDING / {step} OF {TOTAL_STEPS}
+            </span>
+            {testMode && (
+              <span className="text-[9px] text-amber-500/70 tracking-widest border border-amber-500/30 px-1.5 py-0.5">
+                TEST
+              </span>
             )}
           </div>
+          <StepBar current={step} total={TOTAL_STEPS} />
         </div>
 
-        <footer className="px-8 py-4 text-center">
-          <p className="text-xs text-gray-400">Step {step} of {TOTAL_STEPS}</p>
-        </footer>
-      </div>
+        {/* body */}
+        <div className="px-5 py-5">
+          {step === 1 && (
+            <StepWelcome
+              companyName={companyName} setCompanyName={setCompanyName}
+              website={website} setWebsite={setWebsite}
+              useCases={useCases} setUseCases={setUseCases}
+              onNext={submitStep1} isLoading={stepLoading}
+            />
+          )}
+          {step === 2 && (
+            <StepImport
+              session={session}
+              workspaceId={userData?.workspace?.id}
+              testMode={testMode}
+              onNext={() => setStep(3)}
+              onSkip={() => setStep(3)}
+              onBack={() => setStep(1)}
+            />
+          )}
+          {step === 3 && (
+            <StepCreateKey
+              apiKey={apiKey}
+              generateKey={generateApiKey}
+              generating={generatingKey}
+              onFinish={finish}
+              onBack={() => setStep(2)}
+            />
+          )}
+        </div>
 
-      <BrandingPanel />
+        {/* footer */}
+        <div className="border-t border-border/20 px-5 py-2.5 flex justify-between items-center text-[9px] text-muted-foreground/30">
+          <span>step {step} of {TOTAL_STEPS}</span>
+          <span className="flex items-center gap-1">
+            <FileText className="h-2.5 w-2.5" />
+            <span>docs.opennous.cloud</span>
+          </span>
+        </div>
+      </div>
     </div>
   );
 }

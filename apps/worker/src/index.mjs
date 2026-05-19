@@ -73,6 +73,8 @@ async function runGmailPoller() {
   try { await pollAllGmailWorkspaces(); }
   catch (err) { console.error('[WORKER] Gmail poll error:', err.message); }
 }
+// Run once on startup so reconnects/redeploys produce visible activity immediately
+runGmailPoller();
 cron.schedule('0 * * * *', runGmailPoller);
 console.log('[WORKER] Gmail poller — every hour');
 
@@ -81,6 +83,7 @@ async function runSmtpPoller() {
   try { await pollAllSmtpWorkspaces(); }
   catch (err) { console.error('[WORKER] SMTP poll error:', err.message); }
 }
+runSmtpPoller();
 cron.schedule('0 * * * *', runSmtpPoller);
 console.log('[WORKER] SMTP/IMAP poller — every hour');
 

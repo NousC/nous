@@ -102,6 +102,14 @@ const App = () => (
                   </ProtectedRoute>
                 }
               />
+              <Route
+                path="/onboarding-test"
+                element={
+                  <ProtectedRoute requireOnboarding={false}>
+                    <Suspense fallback={<PageLoader />}><OnboardingPage testMode /></Suspense>
+                  </ProtectedRoute>
+                }
+              />
 
               {/* Legal */}
               <Route path="/privacy" element={<Suspense fallback={<PageLoader />}><PrivacyPolicy /></Suspense>} />

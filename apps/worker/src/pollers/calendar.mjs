@@ -192,6 +192,21 @@ async function pollWorkspace(supabase, conn) {
   }
 
   console.log(`[CAL_POLL] workspace=${conn.workspace_id}: ${events.length} events, ${logged} logged`);
+
+  // Surface in Live Op Log (workspace_system_log → operationName.ts fallback → calendar.scan.complete)
+  try {
+    await supabase.from('workspace_system_log').insert({
+      workspace_id: conn.workspace_id,
+      source:       'calendar',
+      event_type:   'scan_complete',
+      summary:      `Calendar scan: ${logged} event${logged === 1 ? '' : 's'} logged (${events.length} fetched)`,
+      metadata:     { fetched: events.length, logged, lookback_days: LOOKBACK_DAYS, lookahead_days: LOOKAHEAD_DAYS },
+      occurred_at:  new Date().toISOString(),
+    });
+  } catch (e) {
+    console.warn('[CAL_POLL] system_log insert failed:', e.message);
+  }
+
   return logged;
 }
 
