@@ -16,8 +16,23 @@ export async function refreshGoogleToken(encryptedCredentials) {
     creds[key] = typeof value === 'string' ? decrypt(value) : value;
   }
 
-  const expiresAt = creds.expiry_date ? parseInt(creds.expiry_date) : 0;
-  const needsRefresh = !creds.access_token || (expiresAt && expiresAt - Date.now() < 5 * 60 * 1000);
+  // Resolve expiry from either field name + format we might find:
+  //   - expiry_date: unix-ms number (canonical, what googleapis returns)
+  //   - token_expiry: legacy ISO-string from older callback handler
+  let expiresAt = 0;
+  if (creds.expiry_date) {
+    expiresAt = parseInt(creds.expiry_date);
+  } else if (creds.token_expiry) {
+    expiresAt = new Date(creds.token_expiry).getTime() || 0;
+  }
+
+  // Refresh if: no access token, OR within 5 min of expiry, OR expiry is unknown
+  // (the last case is critical — older rows have neither field and would otherwise
+  // never refresh, causing tokens to silently expire after Google's 1hr default.)
+  const needsRefresh =
+    !creds.access_token ||
+    (expiresAt > 0 && expiresAt - Date.now() < 5 * 60 * 1000) ||
+    expiresAt === 0;
 
   if (!needsRefresh) {
     return { credentials: creds, needsUpdate: false, updatedCredentials: null };
