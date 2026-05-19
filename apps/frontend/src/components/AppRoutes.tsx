@@ -27,16 +27,9 @@ const lazyWithErrorBoundary = (importFn: () => Promise<any>) => {
 const Mind            = lazyWithErrorBoundary(() => import("@/pages/Mind"));
 const Operations      = lazyWithErrorBoundary(() => import("@/pages/Operations"));
 const DeveloperPortal = lazyWithErrorBoundary(() => import("@/pages/DeveloperPortal"));
-const People          = lazyWithErrorBoundary(() => import("@/pages/People"));
-const Companies       = lazyWithErrorBoundary(() => import("@/pages/Companies"));
-const CRM             = lazyWithErrorBoundary(() => import("@/pages/CRM"));
-const Integrations    = lazyWithErrorBoundary(() => import("@/pages/Integrations"));
-const Memories        = lazyWithErrorBoundary(() => import("@/pages/Memories"));
-const Requests        = lazyWithErrorBoundary(() => import("@/pages/Requests"));
 const Inbox           = lazyWithErrorBoundary(() => import("@/pages/Inbox"));
 const Reporting       = lazyWithErrorBoundary(() => import("@/pages/AdvancedAnalytics"));
 const API             = lazyWithErrorBoundary(() => import("@/pages/API"));
-const Settings        = lazyWithErrorBoundary(() => import("@/pages/Settings"));
 const SystemLog       = lazyWithErrorBoundary(() => import("@/pages/SystemLog"));
 const NotFound        = lazyWithErrorBoundary(() => import("@/pages/NotFound"));
 
