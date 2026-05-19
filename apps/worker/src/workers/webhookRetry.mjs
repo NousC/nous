@@ -45,7 +45,8 @@ export async function processWebhookInbox() {
       .limit(BATCH_SIZE);
 
     // Migration not yet applied — skip silently so we don't spam logs.
-    if (error?.code === '42P01') return;
+    // 42P01 = Postgres undefined_table. PGRST205 = PostgREST schema-cache miss.
+    if (error?.code === '42P01' || error?.code === 'PGRST205') return;
     if (error) throw error;
 
     if (!pending?.length) return;

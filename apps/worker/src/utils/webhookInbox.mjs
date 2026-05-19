@@ -37,7 +37,7 @@ export async function enqueueForRetry(supabase, { workspaceId, source, req, err 
       last_error: String(err?.message || err),
       next_attempt_at: new Date(Date.now() + INITIAL_BACKOFF).toISOString(),
     }).select('id').single();
-    if (error?.code === '42P01') {
+    if (error?.code === '42P01' || error?.code === 'PGRST205') {
       console.warn('[WEBHOOK_INBOX] table not yet migrated — event will not retry. Apply supabase/migrations/2026_05_19_webhook_inbox.sql.');
       return null;
     }
