@@ -10,7 +10,7 @@ onboardingRouter.post('/step-1', verifySupabaseAuth, async (req, res) => {
   try {
     const supabase = getSupabaseClient();
     const { user, team } = await ensureUserAndTeam(req.user);
-    const { company_name, website, use_case } = req.body;
+    const { name, company_name, website, use_case } = req.body;
 
     // Find the user's workspace for this team (same pattern as /complete)
     const { data: wms } = await supabase
@@ -19,6 +19,13 @@ onboardingRouter.post('/step-1', verifySupabaseAuth, async (req, res) => {
       .eq('user_id', user.id);
     const match = (wms || []).find(m => m.workspaces?.team_id === team.id);
     const workspaceId = match?.workspace_id || null;
+
+    if (name?.trim()) {
+      await supabase.from('users')
+        .update({ name: name.trim() })
+        .eq('id', user.id)
+        .catch(() => {});
+    }
 
     if (workspaceId && company_name?.trim()) {
       await supabase.from('workspaces')
@@ -47,43 +54,6 @@ onboardingRouter.post('/step-1', verifySupabaseAuth, async (req, res) => {
   }
 });
 
-// POST /api/onboarding/icp — capture target buyer profile
-onboardingRouter.post('/icp', verifySupabaseAuth, async (req, res) => {
-  try {
-    const supabase = getSupabaseClient();
-    const { user, team } = await ensureUserAndTeam(req.user);
-    const { roles, company_size, industries, geos } = req.body || {};
-
-    const { data: wms } = await supabase
-      .from('workspace_members')
-      .select('workspace_id, workspaces:workspace_id(id, team_id)')
-      .eq('user_id', user.id);
-    const workspaceId = (wms || []).find(m => m.workspaces?.team_id === team.id)?.workspace_id;
-    if (!workspaceId) return res.status(404).json({ error: 'no_workspace' });
-
-    const lines = [];
-    if (Array.isArray(roles) && roles.length)       lines.push(`Target roles: ${roles.join(', ')}`);
-    if (company_size?.trim())                       lines.push(`Target company size: ${company_size.trim()}`);
-    if (Array.isArray(industries) && industries.length) lines.push(`Target industries: ${industries.join(', ')}`);
-    if (Array.isArray(geos) && geos.length)         lines.push(`Target geographies: ${geos.join(', ')}`);
-
-    for (const content of lines) {
-      await supabase.from('workspace_memories').insert({
-        workspace_id: workspaceId,
-        category: 'ICP',
-        content,
-        source: 'onboarding',
-        is_active: true,
-      }).catch(() => {});
-    }
-
-    return res.json({ ok: true });
-  } catch (err) {
-    console.error('[POST /api/onboarding/icp]', err);
-    return res.status(500).json({ error: 'internal_error' });
-  }
-});
-
 // Sample contacts inserted on /complete when the workspace is empty.
 // Gives the user something to query against from day one.
 const SAMPLE_CONTACTS = [
@@ -94,6 +64,22 @@ const SAMPLE_CONTACTS = [
   { email: 'aisha.okafor@orbital.io',first_name: 'Aisha',   last_name: 'Okafor',   company: 'Orbital',      domain: 'orbital.io',  job_title: 'Head of Growth',    source: 'sample' },
   { email: 'tom.bauer@kestrel.so',   first_name: 'Tom',     last_name: 'Bauer',    company: 'Kestrel',      domain: 'kestrel.so',  job_title: 'CRO',               source: 'sample' },
 ];
+
+// Fire-and-forget POST to ONBOARDING_WEBHOOK_URL when a user finishes onboarding.
+// Lets external systems (Slack, Zapier, n8n, CRM) react to new signups.
+async function fireOnboardingWebhook(payload) {
+  const url = process.env.ONBOARDING_WEBHOOK_URL;
+  if (!url) return;
+  try {
+    await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  } catch (err) {
+    console.error('[onboarding webhook] failed:', err?.message || err);
+  }
+}
 
 // POST /api/onboarding/complete
 onboardingRouter.post('/complete', verifySupabaseAuth, async (req, res) => {
@@ -128,8 +114,20 @@ onboardingRouter.post('/complete', verifySupabaseAuth, async (req, res) => {
       }
     }
 
-    if (!user.onboarding_completed_at) {
+    const isFirstCompletion = !user.onboarding_completed_at;
+    if (isFirstCompletion) {
       await supabase.from('users').update({ onboarding_completed_at: new Date().toISOString() }).eq('id', user.id);
+    }
+
+    // Outbound webhook — only on first completion, fire-and-forget.
+    if (isFirstCompletion) {
+      fireOnboardingWebhook({
+        event: 'onboarding.completed',
+        timestamp: new Date().toISOString(),
+        user: { id: user.id, name: user.name || null, email: user.email || null },
+        workspace: workspace ? { id: workspace.id, name: workspace.name } : null,
+        team: { id: team.id, name: team.name || null },
+      });
     }
 
     return res.json({ success: true, workspace });
