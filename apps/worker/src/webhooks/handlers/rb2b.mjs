@@ -4,6 +4,7 @@ import { getSupabaseClient } from '@nous/core';
 import { logActivity } from '../../utils/activity.mjs';
 import { resolveContact } from '../../utils/resolveContact.mjs';
 import { enqueueForRetry } from '../../utils/webhookInbox.mjs';
+import { logSysEvent } from '../../utils/systemLog.mjs';
 
 export async function reprocessRB2B(supabase, workspaceId, body) {
   const { email, linkedin_url, first_name, last_name, company, job_title, page_url } = body || {};
@@ -31,6 +32,13 @@ export async function reprocessRB2B(supabase, workspaceId, body) {
     externalId:  `rb2b_${email || linkedin_url}_${(page_url || '').replace(/[^a-z0-9]/gi, '_').slice(0, 40) || 'visit'}`,
     description: page_url ? `Visited ${page_url}` : 'Website visit detected',
     rawData:     { page_url, linkedin_url },
+  });
+
+  await logSysEvent(supabase, {
+    workspaceId, source: 'rb2b', eventType: 'webhook_received',
+    summary:    `Visitor identified: ${email || linkedin_url}${page_url ? ` on ${page_url}` : ''}`,
+    contactId:  contact.id,
+    metadata:   { email, linkedin_url, page_url },
   });
 
   return { ok: true };

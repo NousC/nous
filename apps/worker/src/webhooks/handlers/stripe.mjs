@@ -9,6 +9,7 @@ import { getSupabaseClient } from '@nous/core';
 import { logActivity } from '../../utils/activity.mjs';
 import { resolveContact } from '../../utils/resolveContact.mjs';
 import { enqueueForRetry } from '../../utils/webhookInbox.mjs';
+import { logSysEvent } from '../../utils/systemLog.mjs';
 
 const HANDLED_EVENTS = new Set([
   'payment_intent.succeeded',
@@ -88,6 +89,15 @@ export async function reprocessStripe(supabase, workspaceId, body) {
       currency:   amountInfo?.currency ?? null,
       stripe_id:  obj.id ?? null,
     },
+  });
+
+  await logSysEvent(supabase, {
+    workspaceId, source: 'stripe', eventType: 'webhook_received',
+    summary:    amountInfo
+      ? `Payment from ${email}: ${amountInfo.currency} ${amountInfo.amount.toLocaleString()}`
+      : `Payment from ${email}`,
+    contactId:  contact.id,
+    metadata:   { event_type: eventType, email, amount: amountInfo?.amount ?? null, currency: amountInfo?.currency ?? null },
   });
 
   return { contactId: contact.id, type: 'payment_received' };

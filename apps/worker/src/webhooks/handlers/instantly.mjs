@@ -7,6 +7,7 @@ import { getSupabaseClient } from '@nous/core';
 import { logActivity } from '../../utils/activity.mjs';
 import { resolveContact } from '../../utils/resolveContact.mjs';
 import { enqueueForRetry } from '../../utils/webhookInbox.mjs';
+import { logSysEvent } from '../../utils/systemLog.mjs';
 
 const EVENT_TYPE_MAP = {
   reply_received:     'email_received',
@@ -63,6 +64,13 @@ export async function reprocessInstantly(supabase, workspaceId, body) {
       : activityType.replace('_', ' '),
     summary:     activityType === 'email_received' && preview ? preview.slice(0, 500) : null,
     rawData:     { event_type: eventType, campaign_id: campaignId, campaign_name: campaignName },
+  });
+
+  await logSysEvent(supabase, {
+    workspaceId, source: 'instantly', eventType: 'webhook_received',
+    summary:    `${activityType.replace('_', ' ')} from ${leadEmail}${campaignName ? ` (${campaignName})` : ''}`,
+    contactId:  contact.id,
+    metadata:   { type: eventType, email: leadEmail, campaign_name: campaignName },
   });
 
   return { contactId: contact.id, type: activityType };

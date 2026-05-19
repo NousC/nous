@@ -50,23 +50,46 @@ export function systemLogOpName(
     if (e === "webhook_received") return { name: "gmail.webhook.ingest",  color: "sky" };
   }
 
-  if (s === "rb2b")       return { name: "rb2b.signal.ingest",       color: "yellow"  };
+  if (s === "rb2b") {
+    if (e === "webhook_received") return { name: "rb2b.webhook.ingest", color: "yellow" };
+    return { name: "rb2b.signal.ingest", color: "yellow" };
+  }
   if (s === "signalbase") return { name: "signalbase.signal.ingest", color: "yellow"  };
   if (s === "apollo")     return { name: "apollo.enrich.run",        color: "orange"  };
   if (s === "prospeo")    return { name: "prospeo.enrich.run",       color: "orange"  };
 
+  if (s === "stripe") {
+    if (e === "webhook_received") return { name: "stripe.webhook.payment", color: "violet" };
+    return { name: "stripe.sync.run", color: "violet" };
+  }
+
   if (s === "calendly") {
-    if (e === "webhook_received") return { name: "calendly.webhook.ingest", color: "emerald" };
+    if (e === "webhook_received") {
+      const t = ((metadata?.type ?? "") as string).toLowerCase();
+      if (t.includes("cancel")) return { name: "calendly.webhook.cancelled", color: "emerald" };
+      return { name: "calendly.webhook.booked", color: "emerald" };
+    }
     return { name: "calendly.sync.run", color: "emerald" };
   }
 
+  if (s === "cal_com") {
+    if (e === "webhook_received") {
+      const t = ((metadata?.type ?? "") as string).toLowerCase();
+      if (t.includes("cancel")) return { name: "cal_com.webhook.cancelled", color: "emerald" };
+      return { name: "cal_com.webhook.booked", color: "emerald" };
+    }
+    return { name: "cal_com.sync.run", color: "emerald" };
+  }
+
   if (s === "fireflies") {
-    if (e === "scan_complete") return { name: "fireflies.scan.complete", color: "purple" };
+    if (e === "scan_complete")    return { name: "fireflies.scan.complete", color: "purple" };
+    if (e === "webhook_received") return { name: "fireflies.webhook.transcript", color: "purple" };
     return { name: "fireflies.sync.run", color: "purple" };
   }
 
   if (s === "fathom") {
-    if (e === "scan_complete") return { name: "fathom.scan.complete", color: "teal" };
+    if (e === "scan_complete")    return { name: "fathom.scan.complete", color: "teal" };
+    if (e === "webhook_received") return { name: "fathom.webhook.recording", color: "teal" };
     return { name: "fathom.sync.run", color: "teal" };
   }
 

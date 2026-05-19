@@ -5,6 +5,7 @@ import { getSupabaseClient } from '@nous/core';
 import { logActivity } from '../../utils/activity.mjs';
 import { resolveContact } from '../../utils/resolveContact.mjs';
 import { enqueueForRetry } from '../../utils/webhookInbox.mjs';
+import { logSysEvent } from '../../utils/systemLog.mjs';
 
 async function extractMeetingFacts(title, participants) {
   const names = participants.map(p => p.name || p.email).filter(Boolean).join(', ');
@@ -47,6 +48,12 @@ export async function reprocessFireflies(supabase, workspaceId, body) {
     });
     if (result) logged++;
   }
+
+  await logSysEvent(supabase, {
+    workspaceId, source: 'fireflies', eventType: 'webhook_received',
+    summary:    `Meeting transcript received: ${title || 'Untitled'} — ${logged} contact${logged === 1 ? '' : 's'} updated`,
+    metadata:   { meeting_id: meetingId, title, logged },
+  });
 
   return { logged };
 }
