@@ -103,14 +103,18 @@ export function AppRoutes() {
             <Route path="/billing" element={<Suspense fallback={<MinimalLoader />}><DeveloperPortal /></Suspense>} />
             <Route path="/usage" element={<Suspense fallback={<MinimalLoader />}><DeveloperPortal /></Suspense>} />
 
-            {/* These views live as popovers in Mind — redirect direct URL access back to home */}
-            <Route path="/people" element={<Navigate to="/" replace />} />
-            <Route path="/companies" element={<Navigate to="/" replace />} />
-            <Route path="/crm" element={<Navigate to="/" replace />} />
-            <Route path="/memories" element={<Navigate to="/" replace />} />
-            <Route path="/integrations" element={<Navigate to="/" replace />} />
-            <Route path="/settings" element={<Navigate to="/" replace />} />
-            <Route path="/settings/*" element={<Navigate to="/" replace />} />
+            {/* These views are popups inside Mind. Each route renders Mind
+                identically — Mind reads location.pathname to decide which
+                popup to layer on top. So /people deep-links to Mind with the
+                People popup open, browser back/forward works as expected,
+                and the URL is shareable. */}
+            <Route path="/people"        element={<Suspense fallback={<MinimalLoader />}><Mind /></Suspense>} />
+            <Route path="/companies"     element={<Suspense fallback={<MinimalLoader />}><Mind /></Suspense>} />
+            <Route path="/crm"           element={<Suspense fallback={<MinimalLoader />}><Mind /></Suspense>} />
+            <Route path="/memories"      element={<Suspense fallback={<MinimalLoader />}><Mind /></Suspense>} />
+            <Route path="/integrations"  element={<Suspense fallback={<MinimalLoader />}><Mind /></Suspense>} />
+            <Route path="/settings"      element={<Suspense fallback={<MinimalLoader />}><Mind /></Suspense>} />
+            <Route path="/settings/*"    element={<Navigate to="/settings" replace />} />
 
             <Route path="/inbox" element={<Suspense fallback={<TableLoader />}><Inbox /></Suspense>} />
 
