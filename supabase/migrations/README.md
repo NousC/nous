@@ -23,5 +23,7 @@ psql "$DATABASE_URL" -f supabase/migrations/<file>.sql
 | 2026-05-18 | `2026_05_18_crm_activity_push.sql` | Identity-cache columns (`pipedrive_id`, `attio_id`, `salesforce_id`) on `contacts` + `push_activities` toggle on `crm_sync_configs` |
 | 2026-05-18 | `2026_05_18_crm_push_idempotency.sql` | `pushed_to_crms` JSONB on `contact_activity_log` to prevent duplicate engagements |
 | 2026-05-19 | `2026_05_19_clamp_last_activity_future.sql` | Clamps `contacts.last_activity_at` to now() in the recompute trigger + backfills rows poisoned with future dates |
+| 2026-05-19 | `2026_05_19_clamp_last_activity_future_v2.sql` | Follow-up: makes the trigger **skip** future-dated rows instead of clamping (clamping pushed poisoned contacts to the very top of "Today"); re-backfills using only past-or-present activity |
+| 2026-05-19 | `2026_05_19_billing_v2.sql` | New billing model: `teams` columns (`stripe_customer_id`, `ops_monthly_used`, `ops_topup_balance`, `ops_period_start`); new tables `subscriptions`, `op_ledger`, `op_pack_purchases`. Backfills legacy `ops_balance` → `ops_topup_balance` and migrates Lifetime/legacy `plan_name` rows → comp Scale. Legacy column drops deferred to a follow-up. |
 
 Each migration is also reflected in `../schema.sql` so a fresh install never needs to touch this folder.

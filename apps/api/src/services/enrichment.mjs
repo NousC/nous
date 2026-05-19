@@ -963,9 +963,10 @@ export async function updateDealHealthScore(supabase, contactId, workspaceId, tr
     deal_health_active_max:  activeMax,
     deal_health_computed_at: nowIso,
   };
-  if (lastQualifiedRow) {
-    // Clamp to now so a future-dated activity row can't poison the sort
-    updatePayload.last_activity_at = lastQualifiedRow.occurred_at > nowIso ? nowIso : lastQualifiedRow.occurred_at;
+  // Skip future-dated rows entirely — they're bad data, not real engagement,
+  // and writing them (clamped or not) bumps the contact to the top of the sort.
+  if (lastQualifiedRow && lastQualifiedRow.occurred_at <= nowIso) {
+    updatePayload.last_activity_at = lastQualifiedRow.occurred_at;
   }
 
   await supabase.from('contacts').update(updatePayload).eq('id', contactId);
