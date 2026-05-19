@@ -109,7 +109,9 @@ export function AppRoutes() {
                 People popup open, browser back/forward works as expected,
                 and the URL is shareable. */}
             <Route path="/people"        element={<Suspense fallback={<MinimalLoader />}><Mind /></Suspense>} />
+            <Route path="/people/:id"    element={<Suspense fallback={<MinimalLoader />}><Mind /></Suspense>} />
             <Route path="/companies"     element={<Suspense fallback={<MinimalLoader />}><Mind /></Suspense>} />
+            <Route path="/companies/:id" element={<Suspense fallback={<MinimalLoader />}><Mind /></Suspense>} />
             <Route path="/crm"           element={<Suspense fallback={<MinimalLoader />}><Mind /></Suspense>} />
             <Route path="/memories"      element={<Suspense fallback={<MinimalLoader />}><Mind /></Suspense>} />
             <Route path="/integrations"  element={<Suspense fallback={<MinimalLoader />}><Mind /></Suspense>} />
