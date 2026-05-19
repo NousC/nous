@@ -963,7 +963,10 @@ export async function updateDealHealthScore(supabase, contactId, workspaceId, tr
     deal_health_active_max:  activeMax,
     deal_health_computed_at: nowIso,
   };
-  if (lastQualifiedRow) updatePayload.last_activity_at = lastQualifiedRow.occurred_at;
+  if (lastQualifiedRow) {
+    // Clamp to now so a future-dated activity row can't poison the sort
+    updatePayload.last_activity_at = lastQualifiedRow.occurred_at > nowIso ? nowIso : lastQualifiedRow.occurred_at;
+  }
 
   await supabase.from('contacts').update(updatePayload).eq('id', contactId);
 
