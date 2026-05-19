@@ -453,7 +453,7 @@ export default function Integrations() {
       if (pr.ok) {
         const d = await pr.json();
         const list = d.providers || d || [];
-        const excluded = ["assetly","gmail","mailchimp","google_analytics","granola","notion","clickup","openai","gemini","google","rb2b","anthropic","stripe","signalbase","salesforce"];
+        const excluded = ["assetly","nous","gmail","mailchimp","google_analytics","granola","notion","clickup","openai","gemini","google","rb2b","anthropic","stripe","signalbase","salesforce"];
         const filtered = list.filter((p: any) => p.auth_type !== "none" && !excluded.includes(p.name));
         // HARDCODED_PROVIDERS always win (correct labels/category); strip DB versions of hardcoded names
         const hardcodedNames = new Set(HARDCODED_PROVIDERS.map(h => h.name));

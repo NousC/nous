@@ -44,7 +44,7 @@ export function UseCaseStep({
       {/* Header */}
       <div>
         <h1 className="text-[26px] font-normal text-gray-900 tracking-[-0.02em] mb-2">
-          What will you use Assetly for?
+          What will you use Nous for?
         </h1>
         <p className="text-gray-500 text-[14px] font-light">
           Select all that apply
