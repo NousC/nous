@@ -60,7 +60,6 @@ import {
   Linkedin,
   FileText,
   Files,
-  Coins,
   FolderOpen,
   Check,
   Download,
@@ -4252,859 +4251,368 @@ function ReportTemplatesSection() {
   );
 }
 
-// Subscription Section
+// Subscription Section — Nous Billing v2
+// Shows: current plan, ops usage this period, top-up balance, available
+// upgrades, plan-specific top-up packs. Self-hosted shows a static notice.
 function SubscriptionSection({ session }: { session: any }) {
-  const { userData } = useAuth();
   const [loading, setLoading] = useState(true);
-  const [usageData, setUsageData] = useState<any>(null);
+  const [state, setState] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
-  const [billingInterval, setBillingInterval] = useState<"month" | "year">("month");
-  const [upgradeLoading, setUpgradeLoading] = useState<string | null>(null);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (session?.access_token) {
-      loadUsageData();
-    }
-  }, [session]);
+  const apiUrl = import.meta.env.VITE_API_URL ?? "";
+  const isCloud = !!import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY;
 
-  // Refresh usage data when component becomes visible (e.g., when modal opens)
-  useEffect(() => {
-    if (session?.access_token) {
-      // Small delay to ensure modal is fully mounted
-      const timer = setTimeout(() => {
-        loadUsageData();
-      }, 100);
-      return () => clearTimeout(timer);
-    }
-  }, []);
-
-  const loadUsageData = async () => {
+  const loadState = async () => {
     if (!session?.access_token) return;
-
     setLoading(true);
     setError(null);
     try {
-      const apiUrl = import.meta.env.VITE_API_URL ?? "";
-      // Pass the current workspace ID for workspace-specific metrics
-      const workspaceId = userData?.workspace?.id || localStorage.getItem('selectedWorkspaceId');
-      const url = workspaceId
-        ? `${apiUrl}/api/usage?workspaceId=${workspaceId}`
-        : `${apiUrl}/api/usage`;
-      const response = await fetch(url, {
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
+      const r = await fetch(`${apiUrl}/api/billing/state`, {
+        headers: { Authorization: `Bearer ${session.access_token}` },
       });
-
-      if (response.ok) {
-        const data = await response.json();
-        setUsageData(data);
-      } else {
-        const errorData = await response.json().catch(() => ({}));
-        setError(errorData.message || "Failed to load subscription data");
-      }
-    } catch (err: any) {
-      console.error("Error loading usage data:", err);
-      setError(err.message || "Failed to load subscription data");
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "load_failed");
+      setState(await r.json());
+    } catch (e: any) {
+      setError(e?.message || "Failed to load billing state");
     } finally {
       setLoading(false);
     }
   };
 
-  const handleUpgrade = async (planName: string, priceId: string) => {
-    if (!session?.access_token) {
-      toast.error("Please sign in to upgrade");
-      return;
-    }
+  useEffect(() => {
+    if (session?.access_token) loadState();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.access_token]);
 
-    if (!priceId) {
-      toast.error(`Price ID not configured for ${planName} plan. Please contact support.`);
-      return;
-    }
-
-    setUpgradeLoading(planName);
-
+  const doSubscribe = async (planId: "pro" | "scale") => {
+    setActionLoading(`subscribe:${planId}`);
     try {
-      const apiUrl = import.meta.env.VITE_API_URL ?? "";
-      const response = await fetch(`${apiUrl}/api/billing/create-checkout-session`, {
+      const r = await fetch(`${apiUrl}/api/billing/subscribe`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({ priceId, planName }),
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ plan: planId }),
       });
-
-      if (response.ok) {
-        const data = await response.json();
-        if (data.url) {
-          window.location.href = data.url; // Redirect to Stripe Checkout
-        } else {
-          toast.error("Failed to create checkout session");
-          setUpgradeLoading(null);
-        }
-      } else {
-        const errorData = await response.json().catch(() => ({}));
-        toast.error(errorData.message || "Failed to create checkout session");
-        setUpgradeLoading(null);
-      }
-    } catch (err: any) {
-      console.error("Upgrade error:", err);
-      toast.error(err.message || "Failed to upgrade");
-      setUpgradeLoading(null);
+      const data = await r.json();
+      if (!r.ok || !data.url) throw new Error(data.error || "checkout_failed");
+      window.location.href = data.url;
+    } catch (e: any) {
+      toast.error(e?.message || "Could not start checkout");
+      setActionLoading(null);
     }
   };
 
-  const handleManageSubscription = async () => {
-    if (!session?.access_token) {
-      toast.error("Please sign in to manage subscription");
-      return;
-    }
-
+  const doPurchasePack = async (packId: string) => {
+    setActionLoading(`pack:${packId}`);
     try {
-      const apiUrl = import.meta.env.VITE_API_URL ?? "";
-      const response = await fetch(`${apiUrl}/api/billing/customer-portal`, {
+      const r = await fetch(`${apiUrl}/api/billing/purchase-pack`, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ packId }),
       });
-
-      if (response.ok) {
-        const data = await response.json();
-        if (data.url) {
-          window.open(data.url, "_blank"); // Open Stripe Customer Portal in new tab
-        } else {
-          toast.error("Failed to create portal session");
-        }
-      } else {
-        const errorData = await response.json().catch(() => ({}));
-        if (errorData.code === "no_stripe_customer") {
-          toast.error("No active subscription found");
-        } else {
-          toast.error(errorData.message || "Failed to open customer portal");
-        }
-      }
-    } catch (err: any) {
-      console.error("Manage subscription error:", err);
-      toast.error(err.message || "Failed to open customer portal");
+      const data = await r.json();
+      if (!r.ok || !data.url) throw new Error(data.error || "checkout_failed");
+      window.location.href = data.url;
+    } catch (e: any) {
+      toast.error(e?.message || "Could not start pack checkout");
+      setActionLoading(null);
     }
   };
 
-  const getPlanName = (planId: string) => getPlanDisplayName(planId);
-  const getPlanPrice = (planId: string) => {
-    const plan = getPlanById(planId);
-    return plan?.monthlyPrice || "";
+  const doPortal = async () => {
+    setActionLoading("portal");
+    try {
+      const r = await fetch(`${apiUrl}/api/billing/customer-portal`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      const data = await r.json();
+      if (!r.ok || !data.url) throw new Error(data.error || "portal_failed");
+      window.open(data.url, "_blank");
+    } catch (e: any) {
+      toast.error(e?.message || "Could not open customer portal");
+    } finally {
+      setActionLoading(null);
+    }
   };
+
+  // ── Render ──────────────────────────────────────────────────────────────
+  if (!isCloud) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight">Billing & Plans</h1>
+          <p className="text-sm text-muted-foreground mt-1">Self-hosted Nous — no billing.</p>
+        </div>
+        <div className="rounded-xl border bg-card p-5 text-sm text-muted-foreground">
+          You're running Nous open-source. All features are unlocked, ops are unmetered,
+          and no Stripe billing is required. Cloud billing is only used on
+          <code className="px-1 mx-1 rounded bg-muted text-foreground">opennous.cloud</code>.
+        </div>
+      </div>
+    );
+  }
 
   if (loading) {
     return (
-      <div className="space-y-10">
-        <div className="space-y-1">
-          <h1 className="text-lg font-semibold">Subscription</h1>
-          <p className="text-sm text-muted-foreground">Manage your plan and monitor usage</p>
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight">Billing & Plans</h1>
         </div>
-        <div className="flex items-center justify-center py-16">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            <span>Loading subscription data...</span>
-          </div>
+        <div className="flex items-center gap-2 text-sm text-muted-foreground py-10">
+          <Loader2 className="h-4 w-4 animate-spin" /> Loading billing state…
         </div>
       </div>
     );
   }
 
-  if (error || !usageData) {
+  if (error || !state) {
     return (
-      <div className="space-y-10">
-        <div className="space-y-1">
-          <h1 className="text-lg font-semibold">Subscription</h1>
-          <p className="text-sm text-muted-foreground">Manage your plan and monitor usage</p>
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight">Billing & Plans</h1>
         </div>
-        <div className="border border-red-200/50 rounded-xl p-6 bg-red-50/50">
-          <div className="flex items-start gap-3">
-            <Info className="h-5 w-5 text-red-600 mt-0.5 flex-shrink-0" />
-            <div className="flex-1 space-y-3">
-              <p className="text-sm font-medium text-red-900">{error || "Failed to load subscription data"}</p>
-              <Button onClick={loadUsageData} variant="outline" size="sm" className="text-xs">
-                Retry
-              </Button>
-            </div>
-          </div>
+        <div className="rounded-xl border border-red-200/50 bg-red-50/50 p-5 text-sm text-red-900">
+          {error || "Failed to load billing state."}
+          <Button onClick={loadState} variant="outline" size="sm" className="ml-3 h-7 text-xs">
+            Retry
+          </Button>
         </div>
       </div>
     );
   }
 
-  const { plan, limits, usage, trial, subscription, period, isVIP } = usageData;
-  
-  // Debug: Log credits data
-  console.log('[SETTINGS_MODAL] Credits data:', {
-    limitsCredits: limits?.credits,
-    usageCredits: usage?.credits,
-    fullUsage: usage,
-    fullLimits: limits
-  });
-  
-  // Safely extract trial data with fallbacks
-  // If status is 'trial' and trial_ends_at is null, use current_period_end as trial end date
-  const trialEndsAt = trial?.ends_at || subscription?.trial_ends_at || 
-    (subscription?.status === 'trial' && subscription?.current_period_end ? subscription.current_period_end : null);
-  const now = new Date();
-  const trialEndsAtDate = trialEndsAt ? new Date(trialEndsAt) : null;
-  
-  // Trial is active if subscription status is 'trial' OR if we have a future trial_ends_at date
-  const isTrial = subscription?.status === 'trial' || (trialEndsAtDate && trialEndsAtDate > now);
-  
-  console.log('[TRIAL_DEBUG] Trial data:', {
-    trialEndsAt,
-    trialEndsAtDate: trialEndsAtDate?.toISOString(),
-    subscriptionStatus: subscription?.status,
-    isTrial,
-    isTrialFromStatus: subscription?.status === 'trial',
-    isTrialFromDate: trialEndsAtDate && trialEndsAtDate > now,
-    subscription: subscription,
-    trial: trial
-  });
-  
-  // Calculate days remaining - use API value if available, otherwise calculate from trial_ends_at
-  const trialDaysRemaining = trial?.days_remaining !== undefined && trial?.days_remaining !== null 
-    ? trial.days_remaining 
-    : (trialEndsAtDate 
-      ? Math.max(0, Math.ceil((trialEndsAtDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)))
-      : null);
-  
-  // Show trial days if status is 'trial' and we have trial_ends_at (even if days_remaining is 0)
-  const shouldShowTrialDays = isTrial && trialEndsAt !== null && trialDaysRemaining !== null;
-  
-  console.log('[TRIAL_DEBUG] Days calculation:', {
-    trialDaysRemaining,
-    shouldShowTrialDays,
-    now: now.toISOString()
-  });
-  
-  // Calculate trial progress percentage
-  const trialStartDate = (() => {
-    if (subscription?.current_period_start) {
-      // Use current_period_start (when trial began)
-      return new Date(subscription.current_period_start);
-    } else if (trialEndsAtDate) {
-      // Default to 7 days before trial end if no start date
-      const start = new Date(trialEndsAtDate);
-      start.setTime(start.getTime() - (7 * 24 * 60 * 60 * 1000));
-      return start;
-    }
-    return null;
-  })();
-  
-  console.log('[TRIAL_DEBUG] Start date calculation:', {
-    current_period_start: subscription?.current_period_start,
-    trialStartDate: trialStartDate?.toISOString(),
-    calculatedFrom: subscription?.current_period_start ? 'current_period_start' : (trialEndsAtDate ? 'trial_ends_at - 7 days' : 'null')
-  });
-  
-  // Calculate trial progress - show if we have trial end date and are on trial
-  const trialProgress = (() => {
-    console.log('[TRIAL_DEBUG] Progress calculation start:', {
-      trialEndsAtDate: trialEndsAtDate?.toISOString(),
-      trialEndsAtDateExists: !!trialEndsAtDate,
-      isTrial,
-      trialStartDate: trialStartDate?.toISOString(),
-      trialDaysRemaining,
-      subscriptionStatus: subscription?.status
-    });
-    
-    // Show progress bar if we have trial end date and are on trial, even if some calculations fail
-    if (!trialEndsAtDate || !isTrial) {
-      console.log('[TRIAL_DEBUG] Progress: early return - missing data', {
-        trialEndsAtDate: !!trialEndsAtDate,
-        isTrial,
-        subscriptionStatus: subscription?.status
-      });
-      return null;
-    }
-    
-    // If we have start date, calculate from that
-    if (trialStartDate) {
-      const totalDays = Math.ceil((trialEndsAtDate.getTime() - trialStartDate.getTime()) / (1000 * 60 * 60 * 24));
-      console.log('[TRIAL_DEBUG] Progress: calculated from start date', {
-        totalDays,
-        daysElapsed: totalDays - (trialDaysRemaining || 0)
-      });
-      if (totalDays > 0) {
-        const daysElapsed = totalDays - (trialDaysRemaining || 0);
-        const progress = Math.max(0, Math.min(100, (daysElapsed / totalDays) * 100));
-        console.log('[TRIAL_DEBUG] Progress: result from start date', { progress });
-        return progress;
-      }
-    }
-    
-    // Fallback: calculate from days remaining (assume 7-day trial)
-    if (trialDaysRemaining !== null && trialDaysRemaining !== undefined) {
-      const totalDays = 7; // Default to 7-day trial
-      const daysElapsed = totalDays - trialDaysRemaining;
-      const progress = Math.max(0, Math.min(100, (daysElapsed / totalDays) * 100));
-      console.log('[TRIAL_DEBUG] Progress: result from fallback', { 
-        totalDays, 
-        daysElapsed, 
-        progress 
-      });
-      return progress;
-    }
-    
-    console.log('[TRIAL_DEBUG] Progress: final return null');
-    return null;
-  })();
-  
-  // Show progress bar if we have trial end date and are on trial
-  const shouldShowTrialProgress = isTrial && trialEndsAt !== null;
-  
-  console.log('[TRIAL_DEBUG] Final values:', {
-    shouldShowTrialProgress,
-    trialProgress,
-    shouldShowTrialDays,
-    willShowProgressBar: shouldShowTrialDays && shouldShowTrialProgress
-  });
-  
-  const currentPlanName = getPlanName(plan);
-  const currentPlanPrice = getPlanPrice(plan);
+  if (state.billing_disabled) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight">Billing & Plans</h1>
+        </div>
+        <div className="rounded-xl border bg-card p-5 text-sm text-muted-foreground">
+          Billing is currently disabled on this deployment.
+        </div>
+      </div>
+    );
+  }
 
-  // Format billing period date (e.g., "19th of each month")
-  const getBillingDay = (dateString: string) => {
-    if (!dateString) return null;
-    const date = new Date(dateString);
-    const day = date.getDate();
-    const suffix = day === 1 ? "st" : day === 2 ? "nd" : day === 3 ? "rd" : "th";
-    return `${day}${suffix}`;
-  };
+  const planId: string = state.plan;
+  const ops = state.ops;
+  const sub = state.subscription;
+  const allPlans: { id: string; name: string; monthlyPriceUsd: number; includedOpsPerMonth: number; workspaceLimit: number | null }[] =
+    state.allPlans || [];
+  const packs: { id: string; ops: number; priceUsd: number; popular?: boolean }[] = state.packs || [];
 
-  const billingDay = subscription?.current_period_end 
-    ? getBillingDay(subscription.current_period_end)
-    : period?.end 
-    ? getBillingDay(period.end)
-    : null;
+  const includedPct = ops.included > 0
+    ? Math.min(100, Math.round((ops.used / ops.included) * 100))
+    : 0;
+  const overage = Math.max(0, ops.used - ops.included);
 
-  const periodEndDate = subscription?.current_period_end 
-    ? new Date(subscription.current_period_end)
-    : period?.end 
-    ? new Date(period.end)
-    : null;
-
-  const isCancelled = subscription?.cancel_at_period_end === true;
-  const isExpired = subscription?.status === "past_due" || subscription?.status === "canceled" || 
-                   (periodEndDate && periodEndDate <= new Date() && isCancelled);
+  const formatNumber = (n: number) => Number(n || 0).toLocaleString();
 
   return (
     <div className="space-y-8">
-      {/* Header */}
       <div>
         <h1 className="text-xl font-semibold tracking-tight">Billing & Plans</h1>
-        <p className="text-sm text-muted-foreground mt-1">Manage your subscription and track usage</p>
+        <p className="text-sm text-muted-foreground mt-1">
+          Manage your subscription and ops usage.
+        </p>
       </div>
 
-      {/* Current Plan Card - Minimal Design */}
+      {/* Current plan card */}
       <div className="rounded-xl border bg-card p-5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <h2 className="text-lg font-semibold">
-              {isVIP ? "VIP Access" : currentPlanName}
-            </h2>
-            {isVIP ? (
-              <Badge className="bg-purple-600 hover:bg-purple-700 text-white text-[10px] px-2 py-0.5">
-                VIP
-              </Badge>
-            ) : isTrial ? (
-              <Badge variant="secondary" className="bg-blue-100 text-blue-700 text-[10px] px-2 py-0.5">
-                Trial
-              </Badge>
-            ) : subscription?.status === "active" ? (
-              <Badge className="bg-green-100 text-green-700 text-[10px] px-2 py-0.5">
-                Active
-              </Badge>
+            <h2 className="text-lg font-semibold">{state.planName}</h2>
+            {sub?.is_comp ? (
+              <Badge className="bg-purple-100 text-purple-700 text-[10px] px-2 py-0.5">Comp</Badge>
+            ) : sub?.status === "active" ? (
+              <Badge className="bg-green-100 text-green-700 text-[10px] px-2 py-0.5">Active</Badge>
+            ) : sub?.status === "trialing" ? (
+              <Badge className="bg-blue-100 text-blue-700 text-[10px] px-2 py-0.5">Trial</Badge>
+            ) : sub?.status === "past_due" ? (
+              <Badge className="bg-amber-100 text-amber-700 text-[10px] px-2 py-0.5">Past due</Badge>
             ) : null}
           </div>
-          {!isVIP && currentPlanPrice && !isTrial && (
-            <div className="text-right">
-              <span className="text-xl font-bold">{currentPlanPrice}</span>
-              <span className="text-sm text-muted-foreground">/mo</span>
-            </div>
-          )}
+          {sub?.stripe_subscription_id ? (
+            <Button
+              onClick={doPortal}
+              disabled={actionLoading === "portal"}
+              variant="outline"
+              size="sm"
+              className="text-xs h-8 gap-1.5"
+            >
+              Manage subscription <ExternalLink className="h-3 w-3" />
+            </Button>
+          ) : null}
         </div>
 
-        {/* Trial Progress - Compact */}
-        {shouldShowTrialDays && (
-          <div className="mt-4 p-3 rounded-lg bg-blue-50 border border-blue-100">
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-blue-700">Trial ends {format(new Date(trialEndsAt), "MMM d")}</span>
-              <span className="font-medium text-blue-900">
-                {trialDaysRemaining} {trialDaysRemaining === 1 ? 'day' : 'days'} left
-              </span>
-            </div>
-            {shouldShowTrialProgress && trialProgress !== null && (
-              <Progress value={trialProgress} className="h-1.5 mt-2 bg-blue-100" />
-            )}
-          </div>
-        )}
-
-        {/* Plan Stats */}
         <div className="flex flex-wrap gap-6 mt-4 pt-4 border-t text-sm">
           <div>
-            <span className="text-muted-foreground">Documents: </span>
-            <span className="font-medium">{limits.documents === null ? "Unlimited" : `${limits.documents.toLocaleString()}/mo`}</span>
+            <span className="text-muted-foreground">Included ops/mo: </span>
+            <span className="font-medium">{formatNumber(ops.included)}</span>
           </div>
           <div>
-            <span className="text-muted-foreground">AI Credits: </span>
-            <span className="font-medium">
-              {usage?.credits?.limit !== undefined && usage?.credits?.limit !== null ? `${usage.credits.limit.toLocaleString()}/mo` : "∞"}
-            </span>
+            <span className="text-muted-foreground">Used this period: </span>
+            <span className="font-medium">{formatNumber(ops.used)}</span>
           </div>
           <div>
-            <span className="text-muted-foreground">Memory Ops: </span>
-            <span className="font-medium">
-              {usage?.memoryOps?.limit !== undefined && usage?.memoryOps?.limit !== null ? `${usage.memoryOps.limit.toLocaleString()}/mo` : "∞"}
-            </span>
+            <span className="text-muted-foreground">Top-up balance: </span>
+            <span className="font-medium">{formatNumber(ops.topupBalance)}</span>
           </div>
-          <div>
-            <span className="text-muted-foreground">Workspaces: </span>
-            <span className="font-medium">{limits.workspaces === null ? "Unlimited" : limits.workspaces}</span>
-          </div>
+          {sub?.current_period_end ? (
+            <div>
+              <span className="text-muted-foreground">Renews: </span>
+              <span className="font-medium">{format(new Date(sub.current_period_end), "MMM d, yyyy")}</span>
+            </div>
+          ) : null}
         </div>
+      </div>
 
-        {/* Footer Actions */}
-        <div className="flex items-center justify-between mt-4 pt-4 border-t">
-          <div className="flex items-center gap-3 text-sm text-muted-foreground">
-            {!isTrial && subscription?.status === "active" && !isCancelled && periodEndDate && (
-              <span>Renews {format(periodEndDate, "MMM d, yyyy")}</span>
+      {/* Usage progress */}
+      <div className="space-y-2">
+        <div className="flex items-baseline justify-between">
+          <h3 className="text-sm font-medium">Ops usage this period</h3>
+          <span className="text-xs text-muted-foreground tabular-nums">
+            {formatNumber(ops.used)} / {formatNumber(ops.included)}
+            {ops.topupBalance > 0 ? ` (+${formatNumber(ops.topupBalance)} top-up)` : ""}
+          </span>
+        </div>
+        <div className="h-2 rounded-full bg-muted overflow-hidden">
+          <div
+            className={cn(
+              "h-full rounded-full transition-all duration-500",
+              includedPct >= 90 ? "bg-red-500" : includedPct >= 75 ? "bg-amber-500" : "bg-foreground",
             )}
-          </div>
-          {subscription?.stripe_subscription_id && (
-            <Button onClick={handleManageSubscription} variant="outline" size="sm" className="text-xs h-8 gap-1.5">
-              Manage Subscription
-              <ExternalLink className="h-3 w-3" />
-            </Button>
-          )}
+            style={{ width: `${includedPct}%` }}
+          />
         </div>
-      </div>
-
-      {/* Cancelled Banner */}
-      {isCancelled && !isExpired && periodEndDate && (
-        <div className="p-4 bg-amber-50/50 border border-amber-200 rounded-xl text-sm">
-          <div className="flex items-start gap-2">
-            <Info className="h-4 w-4 mt-0.5 flex-shrink-0 text-amber-700" />
-            <p className="text-amber-900">
-              Subscription cancelled. Access continues until <strong>{format(periodEndDate, "MMMM d, yyyy")}</strong>.
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Expired Banner */}
-      {(subscription?.status === "past_due" || isExpired) && (
-        <div className="p-4 bg-red-50/50 border border-red-200 rounded-xl text-sm">
-          <div className="flex items-start gap-2">
-            <Info className="h-4 w-4 mt-0.5 flex-shrink-0 text-red-700" />
-            <p className="text-red-900">
-              Your subscription has expired. Please select a plan to continue.
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Monthly Usage Section */}
-      <div className="space-y-6">
-        <div className="space-y-1">
-          <h3 className="text-sm font-medium">Monthly Usage</h3>
-          <p className="text-sm text-muted-foreground">
-            {isVIP ? "VIP access: Unlimited usage" : "Track your prospects, memory ops, and AI credit usage"}
+        {overage > 0 ? (
+          <p className="text-xs text-muted-foreground">
+            {formatNumber(overage)} ops drawn from top-up balance this period.
           </p>
-        </div>
+        ) : null}
+      </div>
 
-        <div className="grid gap-4 grid-cols-1">
-          {/* AI Credits Usage — Primary display */}
-          {(() => {
-            // Get credit limits based on plan
-            const getPlanCreditLimit = (planName: string) => {
-              switch (planName?.toLowerCase()) {
-                case 'professional':
-                case 'unlimited':
-                case 'consultancies':
-                case 'agencies':
-                case 'enterprise':
-                  return 500;
-                case 'trial':
-                  return 100;
-                default:
-                  return 200; // Starter
-              }
-            };
-
-            const creditLimit = usage?.credits?.limit ?? limits?.credits ?? getPlanCreditLimit(plan);
-            const creditCurrent = usage?.credits?.current ?? 0;
-            const creditRemaining = usage?.credits?.remaining ?? (creditLimit - creditCurrent);
-            const creditPercentage = usage?.credits?.percentage ?? Math.round((creditCurrent / creditLimit) * 100);
-
+      {/* Upgrade / change plan */}
+      <div className="space-y-3">
+        <h3 className="text-sm font-medium">Change plan</h3>
+        <div className="grid gap-3 sm:grid-cols-3">
+          {allPlans.map((p) => {
+            const isCurrent = p.id === planId;
+            const isFree = p.id === "free";
             return (
-              <div className="border rounded-xl p-5 space-y-3 bg-card shadow-sm">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="space-y-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <div className="p-1.5 rounded-md bg-muted/50 flex-shrink-0">
-                        <Coins className="h-4 w-4 text-foreground" />
-                      </div>
-                      <p className="text-sm font-semibold">AI Credits</p>
-                    </div>
-                    <p className="text-xs text-muted-foreground pl-8">
-                      {creditCurrent} of {creditLimit}
-                    </p>
-                  </div>
-                  <div className="text-right flex-shrink-0">
-                    <span className={cn(
-                      "text-lg font-semibold",
-                      creditRemaining < 20 ? "text-red-500" : "text-foreground"
-                    )}>
-                      {creditRemaining}
-                    </span>
-                    <p className="text-xs text-muted-foreground">left</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
-                    <div
-                      className={cn(
-                        "h-full rounded-full transition-all duration-500 ease-out",
-                        creditPercentage >= 90
-                          ? "bg-red-500"
-                          : creditPercentage >= 75
-                          ? "bg-amber-500"
-                          : "bg-foreground"
-                      )}
-                      style={{ width: `${Math.min(creditPercentage, 100)}%` }}
-                    />
-                  </div>
-                  <span className="font-medium w-10 text-right">{creditPercentage}%</span>
-                </div>
-              </div>
-            );
-          })()}
-
-          {/* Prospects Usage */}
-          {(() => {
-            const prospectLimit = usage?.prospects?.limit ?? null;
-            const prospectCurrent = usage?.prospects?.current ?? 0;
-            const prospectRemaining = prospectLimit !== null ? Math.max(0, prospectLimit - prospectCurrent) : null;
-            const prospectPercentage = prospectLimit ? Math.min(100, Math.round((prospectCurrent / prospectLimit) * 100)) : 0;
-
-            return (
-              <div className="border rounded-xl p-5 space-y-3 bg-card shadow-sm">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="space-y-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <div className="p-1.5 rounded-md bg-muted/50 flex-shrink-0">
-                        <Users className="h-4 w-4 text-foreground" />
-                      </div>
-                      <p className="text-sm font-semibold">Prospects</p>
-                    </div>
-                    <p className="text-xs text-muted-foreground pl-8">
-                      {prospectCurrent.toLocaleString()} of {prospectLimit !== null ? prospectLimit.toLocaleString() : "∞"} stored
-                    </p>
-                  </div>
-                  <div className="text-right flex-shrink-0">
-                    <span className={cn(
-                      "text-lg font-semibold",
-                      prospectLimit && prospectCurrent / prospectLimit >= 1 ? "text-red-500" : prospectLimit && prospectCurrent / prospectLimit >= 0.8 ? "text-amber-500" : "text-foreground"
-                    )}>
-                      {prospectRemaining !== null ? prospectRemaining.toLocaleString() : "∞"}
-                    </span>
-                    <p className="text-xs text-muted-foreground">left</p>
-                  </div>
-                </div>
-                {prospectLimit !== null && (
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
-                      <div
-                        className={cn(
-                          "h-full rounded-full transition-all duration-500 ease-out",
-                          prospectPercentage >= 100 ? "bg-red-500" : prospectPercentage >= 80 ? "bg-amber-500" : "bg-foreground"
-                        )}
-                        style={{ width: `${Math.min(prospectPercentage, 100)}%` }}
-                      />
-                    </div>
-                    <span className="font-medium w-10 text-right">{prospectPercentage}%</span>
-                  </div>
+              <div
+                key={p.id}
+                className={cn(
+                  "rounded-xl border p-4 flex flex-col gap-3",
+                  isCurrent ? "border-foreground bg-card" : "bg-card",
                 )}
+              >
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold">{p.name}</p>
+                  {isCurrent ? (
+                    <Badge variant="outline" className="text-[10px] px-1.5 py-0">Current</Badge>
+                  ) : null}
+                </div>
+                <div className="text-2xl font-bold tabular-nums">
+                  ${p.monthlyPriceUsd}
+                  <span className="text-sm font-normal text-muted-foreground">/mo</span>
+                </div>
+                <ul className="text-xs text-muted-foreground space-y-1">
+                  <li>{formatNumber(p.includedOpsPerMonth)} ops / month</li>
+                  <li>
+                    {p.workspaceLimit === null ? "Unlimited workspaces" : `${p.workspaceLimit} workspace${p.workspaceLimit === 1 ? "" : "s"}`}
+                  </li>
+                </ul>
+                {!isCurrent && !isFree ? (
+                  <Button
+                    size="sm"
+                    onClick={() => doSubscribe(p.id as "pro" | "scale")}
+                    disabled={actionLoading === `subscribe:${p.id}`}
+                    className="w-full h-8 text-xs"
+                  >
+                    {actionLoading === `subscribe:${p.id}` ? "Loading…" : `Switch to ${p.name}`}
+                  </Button>
+                ) : null}
+                {!isCurrent && isFree ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={doPortal}
+                    disabled={actionLoading === "portal"}
+                    className="w-full h-8 text-xs"
+                  >
+                    Downgrade
+                  </Button>
+                ) : null}
               </div>
             );
-          })()}
-
-          {/* Memory Ops Usage */}
-          {(() => {
-            const opsLimit = usage?.memoryOps?.limit ?? null;
-            const opsCurrent = usage?.memoryOps?.current ?? 0;
-            const opsRemaining = opsLimit !== null ? Math.max(0, opsLimit - opsCurrent) : null;
-            const opsPercentage = opsLimit ? Math.min(100, Math.round((opsCurrent / opsLimit) * 100)) : 0;
-
-            return (
-              <div className="border rounded-xl p-5 space-y-3 bg-card shadow-sm">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="space-y-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <div className="p-1.5 rounded-md bg-muted/50 flex-shrink-0">
-                        <Zap className="h-4 w-4 text-foreground" />
-                      </div>
-                      <p className="text-sm font-semibold">Memory Ops</p>
-                    </div>
-                    <p className="text-xs text-muted-foreground pl-8">
-                      {opsCurrent.toLocaleString()} of {opsLimit !== null ? opsLimit.toLocaleString() : "∞"} this month
-                    </p>
-                  </div>
-                  <div className="text-right flex-shrink-0">
-                    <span className={cn(
-                      "text-lg font-semibold",
-                      opsLimit && opsCurrent / opsLimit >= 1 ? "text-red-500" : opsLimit && opsCurrent / opsLimit >= 0.8 ? "text-amber-500" : "text-foreground"
-                    )}>
-                      {opsRemaining !== null ? opsRemaining.toLocaleString() : "∞"}
-                    </span>
-                    <p className="text-xs text-muted-foreground">left</p>
-                  </div>
-                </div>
-                {opsLimit !== null && (
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
-                      <div
-                        className={cn(
-                          "h-full rounded-full transition-all duration-500 ease-out",
-                          opsPercentage >= 100 ? "bg-red-500" : opsPercentage >= 80 ? "bg-amber-500" : "bg-foreground"
-                        )}
-                        style={{ width: `${Math.min(opsPercentage, 100)}%` }}
-                      />
-                    </div>
-                    <span className="font-medium w-10 text-right">{opsPercentage}%</span>
-                  </div>
-                )}
-              </div>
-            );
-          })()}
-
-          {/* Proposals Usage */}
-          {(() => {
-            const docLimit = usage?.documents?.limit ?? limits?.documents ?? null;
-            // Only show if there's a cap (Starter = 15, null = unlimited)
-            if (docLimit === null) return null;
-            const docCurrent = usage?.documents?.current ?? 0;
-            const docRemaining = usage?.documents?.remaining ?? Math.max(0, docLimit - docCurrent);
-            const docPercentage = usage?.documents?.percentage ?? Math.round((docCurrent / docLimit) * 100);
-
-            return (
-              <div className="border rounded-xl p-5 space-y-3 bg-card shadow-sm">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="space-y-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <div className="p-1.5 rounded-md bg-muted/50 flex-shrink-0">
-                        <FileText className="h-4 w-4 text-foreground" />
-                      </div>
-                      <p className="text-sm font-semibold">Proposals</p>
-                    </div>
-                    <p className="text-xs text-muted-foreground pl-8">
-                      {docCurrent} of {docLimit} this month
-                    </p>
-                  </div>
-                  <div className="text-right flex-shrink-0">
-                    <span className={cn(
-                      "text-lg font-semibold",
-                      docRemaining <= 2 ? "text-red-500" : "text-foreground"
-                    )}>
-                      {docRemaining}
-                    </span>
-                    <p className="text-xs text-muted-foreground">left</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
-                    <div
-                      className={cn(
-                        "h-full rounded-full transition-all duration-500 ease-out",
-                        docPercentage >= 90
-                          ? "bg-red-500"
-                          : docPercentage >= 75
-                          ? "bg-amber-500"
-                          : "bg-foreground"
-                      )}
-                      style={{ width: `${Math.min(docPercentage, 100)}%` }}
-                    />
-                  </div>
-                  <span className="font-medium w-10 text-right">{docPercentage}%</span>
-                </div>
-              </div>
-            );
-          })()}
+          })}
         </div>
       </div>
 
-      {/* Upgrade Plan Section */}
-      <div className="space-y-6">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      {/* Top-up packs (only when current plan has packs) */}
+      {packs.length > 0 ? (
+        <div className="space-y-3">
           <div>
-            <h3 className="text-lg font-semibold">Upgrade Your Plan</h3>
-            <p className="text-sm text-muted-foreground">Unlock more features and scale your business</p>
+            <h3 className="text-sm font-medium">Top-up ops packs</h3>
+            <p className="text-xs text-muted-foreground mt-1">
+              One-time purchase. Top-up ops never expire and stack with your monthly allowance.
+            </p>
           </div>
-
-          {/* Billing Toggle */}
-          <div className="flex items-center gap-3 p-1 bg-muted/50 rounded-full">
-            <button
-              onClick={() => setBillingInterval("month")}
-              className={cn(
-                "px-4 py-1.5 text-sm font-medium rounded-full transition-all",
-                billingInterval === "month"
-                  ? "bg-white text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              Monthly
-            </button>
-            <button
-              onClick={() => setBillingInterval("year")}
-              className={cn(
-                "px-4 py-1.5 text-sm font-medium rounded-full transition-all flex items-center gap-2",
-                billingInterval === "year"
-                  ? "bg-white text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              Yearly
-              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">
-                -35%
-              </span>
-            </button>
-          </div>
-        </div>
-
-        {/* Plans Grid */}
-        <div className="grid md:grid-cols-2 gap-4">
-          {PLANS
-            .filter((p) => p.name !== plan) // Filter out current plan
-            .map((planOption) => {
-              const currentPrice = billingInterval === "month" ? planOption.monthlyPrice : planOption.yearlyPrice;
-              const currentPriceId = billingInterval === "month" ? planOption.monthlyPriceId : planOption.yearlyPriceId;
-              const savings = billingInterval === "year"
-                ? Math.round(((parseInt(planOption.monthlyPrice.replace("$", "")) - parseInt(planOption.yearlyPrice.replace("$", ""))) / parseInt(planOption.monthlyPrice.replace("$", ""))) * 100)
-                : 0;
-              const planOrder = ["starter", "professional"];
-              const currentPlanIndex = planOrder.indexOf(plan?.toLowerCase() || "");
-              const optionPlanIndex = planOrder.indexOf(planOption.name);
-              const isDowngrade = currentPlanIndex > optionPlanIndex;
-
-              const displayFeatures = getPlanFeaturesForDisplay(planOption);
-              const isProfessional = planOption.name === "professional";
-
-              return (
-                <div
-                  key={planOption.id}
-                  className={cn(
-                    "relative flex flex-col rounded-xl border bg-card overflow-hidden",
-                    isProfessional && "border-primary ring-1 ring-primary/20"
-                  )}
-                >
-                  {/* Best Value Badge - Only for Unlimited */}
-                  {isProfessional && (
-                    <div className="bg-primary text-primary-foreground text-center py-1 text-[10px] font-semibold tracking-wider uppercase">
-                      Best Value
-                    </div>
-                  )}
-
-                  <div className="p-5">
-                    {/* Plan Name & Price */}
-                    <div className="mb-4">
-                      <h4 className="font-semibold text-base">{planOption.displayName}</h4>
-                      <p className="text-xs text-muted-foreground mb-2">
-                        {planOption.description}
-                      </p>
-                      <div className="flex items-baseline gap-1">
-                        <span className="text-3xl font-bold">{currentPrice}</span>
-                        <span className="text-muted-foreground text-sm">/mo</span>
-                      </div>
-                      {billingInterval === "year" && savings > 0 && (
-                        <p className="text-xs text-green-600 font-medium mt-1">
-                          Save {savings}%
-                        </p>
-                      )}
-                    </div>
-
-                    {/* CTA Button */}
-                    {planOption.contactUs ? (
-                      <Button
-                        className="w-full mb-4"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => window.open("mailto:hello@opennous.cloud?subject=Enterprise Plan Inquiry", "_blank")}
-                      >
-                        Contact Us
-                      </Button>
-                    ) : (
-                      <Button
-                        className={cn(
-                          "w-full mb-4",
-                          isDowngrade
-                            ? "bg-gray-100 hover:bg-gray-200 text-gray-700"
-                            : "bg-black hover:bg-black/90 text-white"
-                        )}
-                        size="sm"
-                        onClick={() => handleUpgrade(planOption.name, currentPriceId)}
-                        disabled={upgradeLoading !== null}
-                      >
-                        {upgradeLoading === planOption.name ? (
-                          <>
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            Processing...
-                          </>
-                        ) : isDowngrade ? (
-                          "Switch Plan"
-                        ) : (
-                          "Upgrade"
-                        )}
-                      </Button>
-                    )}
-
-                    {/* Features List */}
-                    <ul className="space-y-2">
-                      {displayFeatures.map((feature, idx) => (
-                        <li key={idx} className="flex items-start gap-2">
-                          <Check className="h-4 w-4 flex-shrink-0 mt-0.5 text-muted-foreground" />
-                          <span className={cn(
-                            "text-sm",
-                            feature.startsWith("Everything in")
-                              ? "font-medium text-foreground"
-                              : "text-muted-foreground"
-                          )}>
-                            {feature}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            {packs.map((pack) => (
+              <div key={pack.id} className="rounded-xl border bg-card p-4 flex flex-col gap-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold tabular-nums">
+                    {formatNumber(pack.ops)} ops
+                  </p>
+                  {pack.popular ? (
+                    <Badge className="bg-foreground text-background text-[10px] px-1.5 py-0">Popular</Badge>
+                  ) : null}
                 </div>
-              );
-            })}
+                <div className="text-2xl font-bold tabular-nums">
+                  ${pack.priceUsd}
+                </div>
+                <Button
+                  size="sm"
+                  onClick={() => doPurchasePack(pack.id)}
+                  disabled={actionLoading === `pack:${pack.id}`}
+                  className="w-full h-8 text-xs"
+                  variant="outline"
+                >
+                  {actionLoading === `pack:${pack.id}` ? "Loading…" : "Buy pack"}
+                </Button>
+              </div>
+            ))}
+          </div>
         </div>
+      ) : null}
 
-        {/* Trust Indicators */}
-        <div className="flex flex-wrap items-center justify-center gap-6 pt-6 border-t text-sm text-muted-foreground">
-          <div className="flex items-center gap-2">
-            <CheckCircle2 className="h-4 w-4 text-green-500" />
-            <span>Cancel anytime</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <CheckCircle2 className="h-4 w-4 text-green-500" />
-            <span>Secure payment via Stripe</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <CheckCircle2 className="h-4 w-4 text-green-500" />
-            <span>Instant activation</span>
-          </div>
+      {/* Recent purchases */}
+      {state.purchases?.length ? (
+        <div className="space-y-2">
+          <h3 className="text-sm font-medium">Recent purchases</h3>
+          <ul className="rounded-xl border bg-card divide-y text-sm">
+            {state.purchases.slice(0, 8).map((p: any, i: number) => (
+              <li key={i} className="px-4 py-2.5 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <span className="font-mono text-xs">{p.pack_id}</span>
+                  <span className="text-muted-foreground">+{formatNumber(p.ops_granted)} ops</span>
+                </div>
+                <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                  <span>${(p.amount_usd_cents / 100).toFixed(2)}</span>
+                  <span>{format(new Date(p.created_at), "MMM d, yyyy")}</span>
+                </div>
+              </li>
+            ))}
+          </ul>
         </div>
-      </div>
+      ) : null}
     </div>
   );
 }
+
 
 // API Keys Section
 function ApiKeysSection({

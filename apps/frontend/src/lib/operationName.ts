@@ -150,7 +150,7 @@ export function systemLogOpName(
   };
 }
 
-// Maps op_type + entity_type from memory_ops_log → dot.notation op name
+// Maps op_type + entity_type → dot.notation op name
 export function agentOpName(opType: string, entityType: string): OpInfo {
   const op     = (opType    ?? "").toLowerCase();
   const entity = (entityType ?? "").toLowerCase();

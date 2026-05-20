@@ -102,7 +102,7 @@ export default function AdminSupportDashboard() {
 
   // Plan assignment state
   const [assignPlanUser, setAssignPlanUser] = useState<UserRecord | null>(null);
-  const [selectedPlan, setSelectedPlan] = useState<string>("lifetime");
+  const [selectedPlan, setSelectedPlan] = useState<string>("scale");
   const [assigningPlan, setAssigningPlan] = useState(false);
 
   useEffect(() => {
@@ -283,12 +283,11 @@ export default function AdminSupportDashboard() {
 
     if (status === 'active') {
       const planColors: Record<string, string> = {
-        'standard': 'bg-blue-100 text-blue-700 border-blue-200',
-        'unlimited': 'bg-purple-100 text-purple-700 border-purple-200',
-        'lifetime': 'bg-amber-100 text-amber-700 border-amber-200',
-        'enterprise': 'bg-emerald-100 text-emerald-700 border-emerald-200',
+        'free': 'bg-gray-100 text-gray-700 border-gray-200',
+        'pro': 'bg-blue-100 text-blue-700 border-blue-200',
+        'scale': 'bg-purple-100 text-purple-700 border-purple-200',
       };
-      const PlanIcon = plan_name === 'lifetime' ? Crown : CheckCircle2;
+      const PlanIcon = plan_name === 'scale' ? Crown : CheckCircle2;
       return (
         <Badge className={planColors[plan_name] || 'bg-green-100 text-green-700 border-green-200'}>
           <PlanIcon className="h-3 w-3 mr-1" />
@@ -625,7 +624,7 @@ export default function AdminSupportDashboard() {
                             <DropdownMenuItem
                               onClick={() => {
                                 setAssignPlanUser(user);
-                                setSelectedPlan("lifetime");
+                                setSelectedPlan("scale");
                               }}
                             >
                               <Crown className="h-4 w-4 mr-2" />
@@ -790,45 +789,45 @@ export default function AdminSupportDashboard() {
               <label className="text-sm font-medium">Select Plan</label>
               <div className="grid grid-cols-1 gap-2">
                 <button
-                  onClick={() => setSelectedPlan("standard")}
+                  onClick={() => setSelectedPlan("free")}
                   className={`flex items-center gap-3 p-3 rounded-lg border-2 transition-all text-left ${
-                    selectedPlan === "standard"
+                    selectedPlan === "free"
+                      ? "border-gray-500 bg-gray-50"
+                      : "border-gray-200 hover:border-gray-300"
+                  }`}
+                >
+                  <CheckCircle2 className={`h-5 w-5 ${selectedPlan === "free" ? "text-gray-500" : "text-gray-400"}`} />
+                  <div>
+                    <p className="font-medium">Free</p>
+                    <p className="text-xs text-muted-foreground">1,000 ops/mo · 1 workspace</p>
+                  </div>
+                </button>
+                <button
+                  onClick={() => setSelectedPlan("pro")}
+                  className={`flex items-center gap-3 p-3 rounded-lg border-2 transition-all text-left ${
+                    selectedPlan === "pro"
                       ? "border-blue-500 bg-blue-50"
                       : "border-gray-200 hover:border-gray-300"
                   }`}
                 >
-                  <CheckCircle2 className={`h-5 w-5 ${selectedPlan === "standard" ? "text-blue-500" : "text-gray-400"}`} />
+                  <Sparkles className={`h-5 w-5 ${selectedPlan === "pro" ? "text-blue-500" : "text-gray-400"}`} />
                   <div>
-                    <p className="font-medium">Standard</p>
-                    <p className="text-xs text-muted-foreground">50 docs/mo, 300 credits, 5 workflows</p>
+                    <p className="font-medium">Pro</p>
+                    <p className="text-xs text-muted-foreground">5,000 ops/mo · 3 workspaces · campaign analysis</p>
                   </div>
                 </button>
                 <button
-                  onClick={() => setSelectedPlan("unlimited")}
+                  onClick={() => setSelectedPlan("scale")}
                   className={`flex items-center gap-3 p-3 rounded-lg border-2 transition-all text-left ${
-                    selectedPlan === "unlimited"
+                    selectedPlan === "scale"
                       ? "border-purple-500 bg-purple-50"
                       : "border-gray-200 hover:border-gray-300"
                   }`}
                 >
-                  <Sparkles className={`h-5 w-5 ${selectedPlan === "unlimited" ? "text-purple-500" : "text-gray-400"}`} />
+                  <Crown className={`h-5 w-5 ${selectedPlan === "scale" ? "text-purple-500" : "text-gray-400"}`} />
                   <div>
-                    <p className="font-medium">Unlimited</p>
-                    <p className="text-xs text-muted-foreground">Unlimited docs, 500 credits, all features</p>
-                  </div>
-                </button>
-                <button
-                  onClick={() => setSelectedPlan("lifetime")}
-                  className={`flex items-center gap-3 p-3 rounded-lg border-2 transition-all text-left ${
-                    selectedPlan === "lifetime"
-                      ? "border-amber-500 bg-amber-50"
-                      : "border-gray-200 hover:border-gray-300"
-                  }`}
-                >
-                  <Crown className={`h-5 w-5 ${selectedPlan === "lifetime" ? "text-amber-500" : "text-gray-400"}`} />
-                  <div>
-                    <p className="font-medium">Lifetime</p>
-                    <p className="text-xs text-muted-foreground">All unlimited + unlimited workspaces (beta testers)</p>
+                    <p className="font-medium">Scale</p>
+                    <p className="text-xs text-muted-foreground">25,000 ops/mo · unlimited workspaces · CRM sync · public signal extraction</p>
                   </div>
                 </button>
               </div>

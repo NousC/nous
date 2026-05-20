@@ -32,8 +32,7 @@ interface ApiKey {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const PLAN_LABELS: Record<string, string> = {
-  dev: "Dev", build: "Build", scale: "Scale", enterprise: "Enterprise", lifetime: "Lifetime",
-  trial: "Dev", starter: "Build", professional: "Scale",
+  free: "Free", pro: "Pro", scale: "Scale",
 };
 
 function authH(token: string) {

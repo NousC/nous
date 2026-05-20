@@ -100,6 +100,25 @@ async function pollWorkspace(supabase, conn) {
   }
 
   if (logged) console.log(`[SLACK_POLL] workspace=${workspaceId}: ${logged} DMs logged`);
+
+  // Surface in the Live Op Log only when something was logged — that row is
+  // also the billing record (billable_ops = DMs logged).
+  if (logged > 0) {
+    try {
+      await supabase.from('workspace_system_log').insert({
+        workspace_id: workspaceId,
+        source:       'slack',
+        event_type:   'scan_complete',
+        summary:      `Slack scan: ${logged} DM${logged === 1 ? '' : 's'} logged`,
+        metadata:     { logged },
+        billable_ops: logged,
+        occurred_at:  new Date().toISOString(),
+      });
+    } catch (e) {
+      console.warn('[SLACK_POLL] system_log insert failed:', e.message);
+    }
+  }
+
   return logged;
 }
 

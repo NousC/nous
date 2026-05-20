@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import { registerCrmPushHandler, pushActivityToAllCrms } from '@nous/core';
+import { stripeWebhookHandler } from './routes/stripeWebhook.mjs';
 
 // Wire activity logging → CRM push at module load time
 registerCrmPushHandler(pushActivityToAllCrms);
@@ -61,6 +62,11 @@ app.use(cors({
   origin: allowedOrigins,
   credentials: true,
 }));
+
+// Stripe webhook MUST receive the raw body so the signature can be verified.
+// Mounted before `express.json()` so that middleware never touches it.
+app.post('/stripe/webhook', express.raw({ type: 'application/json' }), stripeWebhookHandler);
+
 app.use(express.json({ limit: '10mb' }));
 
 // ── Health ────────────────────────────────────────────────────────────────────

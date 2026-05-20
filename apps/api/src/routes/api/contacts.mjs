@@ -375,8 +375,27 @@ contactsApiRouter.post('/:id/enrich', verifySupabaseAuth, async (req, res) => {
 
     // Re-fetch updated contact so the frontend gets live enrichment_status + new fields
     const { data: updated } = await supabase.from('contacts').select('*').eq('id', id).single();
-    const creditsUsed = updated?.enrichment_status === 'complete' ? 1 : 0;
-    return res.json({ contact: updated || contact, creditsUsed });
+    const opsUsed = updated?.enrichment_status === 'complete' ? 1 : 0;
+
+    // A successful enrichment is 1 op. Record it in the live op log — that row
+    // is the billing record (billable_ops defaults to 1).
+    if (opsUsed > 0) {
+      try {
+        await supabase.from('workspace_system_log').insert({
+          workspace_id: updated?.workspace_id || contact.workspace_id,
+          source:       'enrichment',
+          event_type:   'enrichment_run',
+          summary:      `Enriched ${updated?.first_name || updated?.email || 'contact'}`,
+          contact_id:   id,
+          metadata:     { provider: updated?.enrichment_provider || null },
+          occurred_at:  new Date().toISOString(),
+        });
+      } catch (e) {
+        console.warn('[POST /api/contacts/:id/enrich] op-log insert failed:', e.message);
+      }
+    }
+
+    return res.json({ contact: updated || contact, opsUsed });
   } catch (err) {
     console.error('[POST /api/contacts/:id/enrich]', err);
     return res.status(500).json({ error: 'internal_error' });
