@@ -141,3 +141,9 @@ This prevents enrichment calls for contacts imported with synthetic emails like 
 | Google Calendar | Core waterfall (`createIfMissing=false`) | No |
 | Fireflies / Fathom / Calendly | Core waterfall (`createIfMissing=false`) | No |
 | CRM bootstrap (HubSpot) | Core waterfall | Yes |
+
+---
+
+## Lead-list matching (planned)
+
+Adaptive Lead Scoring introduces a `leads` table — the cold outreach universe, kept separate from `contacts` (see `adaptive-lead-scoring.md`). When it ships, inbound resolution also checks `leads`: a reply from someone on a lead list updates that lead and graduates them into `contacts` through the waterfall above. A reply that matches no lead is handled exactly as today. The waterfall itself does not change — lead-list matching runs alongside it.
