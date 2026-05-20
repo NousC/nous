@@ -2,7 +2,7 @@
 
 Adaptive Lead Scoring turns a workspace's outreach into a model that improves itself. Lead lists become labeled evidence, a **Scorecard** of weighted signals turns each lead into a 0–100 number, and a nightly loop rewrites the Scorecard from the replies that came back. The user states the target once in plain English; every change after that is the system correcting itself.
 
-> Design reference — describes intended behavior; the feature is not yet built. Phases 1–3 of the Mind (the `mind_episodes` ledger, outcome resolution, the calibration metric) are shipped and documented in `compound-intelligence-mind.md`.
+> Design reference — describes intended behavior; the feature is not yet built. Phases 1–3 of the Mind (the `mind_episodes` ledger, outcome resolution, the calibration metric) are documented in `compound-intelligence-mind.md`. The ICP scoring this evolves is documented in `icp-scoring-and-enrichment.md`.
 
 ---
 
@@ -26,7 +26,7 @@ The `leads` table is the evidence set: each row carries a prediction (the Scorec
 
 **Source:** `apps/worker/src/workers/leadReplies.mjs` *(planned)*
 
-When an inbound message arrives (Instantly, LinkedIn, Gmail), identity resolution checks both `leads` and `contacts`:
+When an inbound message arrives (Instantly, LinkedIn, Gmail), identity resolution (see `identity-resolution.md`) checks both `leads` and `contacts`:
 
 | Match | Result |
 |-------|--------|

@@ -192,3 +192,14 @@ The quality of Mode 1 scoring is entirely dependent on what workspace memories a
 - `Market: US and Canada only, no enterprise`
 
 Use `nous.remember({ text: '...', category: 'ICP' })` via the MCP tool, or the Memories page in the app.
+
+---
+
+## The Mind — adaptive scoring
+
+ICP scoring is the first link in a larger feedback loop. The Mind records each score as a prediction, joins it to what the contact actually did, and uses the result to improve scoring over time. The behavior described above is the current implementation; two design documents cover where it is heading:
+
+- **`compound-intelligence-mind.md`** — the feedback loop: every prediction is written to the `mind_episodes` ledger, resolved against the realized outcome (reply, pipeline movement, revenue), and surfaced as a calibration metric.
+- **`adaptive-lead-scoring.md`** — the next stage: a deterministic, self-revising **Scorecard** of weighted signals replaces the model-reads-memories scoring described above, and a single plain-English ICP field replaces `ICP`-category memories as the way a workspace states its target.
+
+Until those land, ICP scoring works exactly as documented here.
