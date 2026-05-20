@@ -24,12 +24,16 @@ usageRouter.get('/', verifySupabaseAuth, async (req, res) => {
     const plan = getPlanFromSubscription(subscription);
     const ops = await getTeamOpsUsage(supabase, team.id, subscription);
 
-    // All-time ops total — SUM(billable_ops) since epoch (the Mind-page counter).
-    const { data: allTimeData } = await supabase.rpc('team_ops_used', {
-      p_team_id: team.id,
-      p_since: '1970-01-01T00:00:00Z',
-    });
-    const allTimeOps = Number(allTimeData ?? 0);
+    // All-time ops total — the Mind-page lifetime counter. Sums billable_ops
+    // from the live op log, PLUS the legacy memory_ops_log rows (each = 1 op)
+    // written by the pre-Billing-v2 app, so the lifetime figure stays
+    // continuous. This is display-only — billing uses getTeamOpsUsage above,
+    // which is period-scoped and never counts these legacy rows.
+    const [{ data: allTimeData }, legacyRes] = await Promise.all([
+      supabase.rpc('team_ops_used', { p_team_id: team.id, p_since: '1970-01-01T00:00:00Z' }),
+      supabase.from('memory_ops_log').select('id', { count: 'exact', head: true }).eq('team_id', team.id),
+    ]);
+    const allTimeOps = Number(allTimeData ?? 0) + Number(legacyRes?.count ?? 0);
 
     const { data: workspaces } = await supabase
       .from('workspaces')
