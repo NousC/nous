@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { getSupabaseClient } from '@nous/core';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
 import { ensureUserAndTeam } from '../../lib/auth.mjs';
+import { getPlanFromSubscription, isSelfHosted } from '../../lib/plans.mjs';
 
 export const workspacesRouter = Router();
 
@@ -29,13 +30,36 @@ workspacesRouter.post('/', verifySupabaseAuth, async (req, res) => {
     const { user, team } = await ensureUserAndTeam(req.user);
     if (!name?.trim()) return res.status(400).json({ error: 'name is required' });
 
-    if (process.env.SELF_HOSTED === 'true') {
+    if (isSelfHosted()) {
       const { count } = await supabase
         .from('workspaces')
         .select('id', { count: 'exact', head: true })
         .eq('team_id', team.id);
       if ((count || 0) >= 1) {
         return res.status(403).json({ error: 'self_hosted_workspace_limit', message: 'Self-hosted installations support one workspace.' });
+      }
+    } else {
+      // Cloud: enforce the plan's workspace limit (Free 1 / Pro 3 / Scale ∞).
+      const { data: subscription } = await supabase
+        .from('subscriptions')
+        .select('plan_id, status')
+        .eq('team_id', team.id)
+        .maybeSingle();
+      const plan = getPlanFromSubscription(subscription);
+      if (plan.workspaceLimit !== null) {
+        const { count } = await supabase
+          .from('workspaces')
+          .select('id', { count: 'exact', head: true })
+          .eq('team_id', team.id);
+        if ((count || 0) >= plan.workspaceLimit) {
+          return res.status(402).json({
+            error: 'workspace_limit_reached',
+            current_plan: plan.id,
+            limit: plan.workspaceLimit,
+            message: `Your ${plan.name} plan includes ${plan.workspaceLimit} workspace${plan.workspaceLimit === 1 ? '' : 's'}. Upgrade for more.`,
+            upgrade_url: '/settings?section=billing',
+          });
+        }
       }
     }
 
