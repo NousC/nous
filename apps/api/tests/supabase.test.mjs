@@ -66,7 +66,12 @@ skip('subscriptions table is accessible', async () => {
   assert.equal(error, null, `subscriptions query failed: ${error?.message}`);
 });
 
-skip('memory_ops_log table is accessible', async () => {
-  const { error } = await supabase.from('memory_ops_log').select('id').limit(1);
-  assert.equal(error, null, `memory_ops_log query failed: ${error?.message}`);
+skip('op_pack_purchases table is accessible', async () => {
+  const { error } = await supabase.from('op_pack_purchases').select('id').limit(1);
+  assert.equal(error, null, `op_pack_purchases query failed: ${error?.message}`);
+});
+
+skip('workspace_system_log.billable_ops column exists', async () => {
+  const { error } = await supabase.from('workspace_system_log').select('id, billable_ops').limit(1);
+  assert.equal(error, null, `billable_ops column missing: ${error?.message}`);
 });

@@ -4,7 +4,7 @@
 // Dedup is handled by externalId (gcal_{event.id}).
 
 import { google } from 'googleapis';
-import { getSupabaseClient, chargeOpsByWorkspace } from '@nous/core';
+import { getSupabaseClient } from '@nous/core';
 import { logActivity } from '../utils/activity.mjs';
 import { refreshGoogleToken } from '../utils/googleOAuth.mjs';
 
@@ -203,23 +203,12 @@ async function pollWorkspace(supabase, conn) {
         event_type:   'scan_complete',
         summary:      `Calendar scan: ${logged} event${logged === 1 ? '' : 's'} logged (${events.length} fetched)`,
         metadata:     { fetched: events.length, logged, lookback_days: LOOKBACK_DAYS, lookahead_days: LOOKAHEAD_DAYS },
+        billable_ops: logged,
         occurred_at:  new Date().toISOString(),
       });
     } catch (e) {
       console.warn('[CAL_POLL] system_log insert failed:', e.message);
     }
-  }
-
-  try {
-    await chargeOpsByWorkspace({
-      workspaceId: conn.workspace_id,
-      source: 'scan',
-      eventType: 'calendar.scan',
-      count: logged,
-      metadata: { fetched: events.length },
-    });
-  } catch (e) {
-    console.warn('[CAL_POLL] chargeOps failed:', e.message);
   }
 
   return logged;

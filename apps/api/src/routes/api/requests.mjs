@@ -27,35 +27,23 @@ requestsRouter.get('/log', verifySupabaseAuth, async (req, res) => {
     const off = parseInt(offset);
     const since = days === 'all' ? null : new Date(Date.now() - parseInt(days) * 86400000).toISOString();
 
-    // Get all workspace IDs for this team (same approach as /stats)
+    // Get all workspace IDs for this team
     const { data: teamWorkspaces } = await supabase
       .from('workspaces')
       .select('id')
       .eq('team_id', team.id);
     const wsIds = (teamWorkspaces || []).map(w => w.id);
 
-    // Query both tables in parallel
-    const [opsRes, sysRes] = await Promise.all([
-      (() => {
-        let q = supabase.from('memory_ops_log')
-          .select('id, created_at, op_type, entity_type, source, api_key_id', { count: 'exact' })
-          .eq('team_id', team.id)
-          .order('created_at', { ascending: false });
-        if (since) q = q.gte('created_at', since);
-        if (op_type && op_type !== 'all') q = q.eq('op_type', op_type);
-        if (entity_type && entity_type !== 'all') q = q.eq('entity_type', entity_type);
-        return q;
-      })(),
-      wsIds.length ? (() => {
-        let q = supabase.from('workspace_system_log')
-          .select('id, occurred_at, event_type, source, summary', { count: 'exact' })
-          .in('workspace_id', wsIds)
-          .in('source', ['mcp', 'sdk', 'api'])
-          .order('occurred_at', { ascending: false });
-        if (since) q = q.gte('occurred_at', since);
-        return q;
-      })() : Promise.resolve({ data: [], count: 0 }),
-    ]);
+    // The live op log (workspace_system_log) is the single source of truth.
+    const sysRes = wsIds.length ? await (() => {
+      let q = supabase.from('workspace_system_log')
+        .select('id, occurred_at, event_type, source, summary')
+        .in('workspace_id', wsIds)
+        .in('source', ['mcp', 'sdk', 'api'])
+        .order('occurred_at', { ascending: false });
+      if (since) q = q.gte('occurred_at', since);
+      return q;
+    })() : { data: [] };
 
     // Map system log entries to request format, applying filters
     const sysRows = (sysRes.data || [])
@@ -69,11 +57,11 @@ requestsRouter.get('/log', verifySupabaseAuth, async (req, res) => {
         return true;
       });
 
-    // Merge, sort by time, paginate
-    const merged = [...(opsRes.data || []), ...sysRows]
+    // Sort by time, paginate
+    const merged = sysRows
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
     const page = merged.slice(off, off + lim);
-    const total = (opsRes.count || 0) + (sysRes.count || 0);
+    const total = merged.length;
 
     const keyIds = [...new Set(page.filter(r => r.api_key_id).map(r => r.api_key_id))];
     let keyMap = {};
@@ -117,10 +105,21 @@ requestsRouter.get('/stats', verifySupabaseAuth, async (req, res) => {
       supabase.from('workspace_memories').select('id', { count: 'exact', head: true }).eq('is_active', true).in('workspace_id', wsFilter),
       supabase.from('contacts').select('id', { count: 'exact', head: true }).in('workspace_id', wsFilter),
       supabase.from('companies').select('id', { count: 'exact', head: true }).in('workspace_id', wsFilter),
-      (() => { let q = supabase.from('memory_ops_log').select('op_type, entity_type, created_at').eq('team_id', team.id); if (since) q = q.gte('created_at', since); return q; })(),
+      (() => {
+        let q = supabase.from('workspace_system_log')
+          .select('event_type, occurred_at')
+          .in('workspace_id', wsFilter)
+          .in('source', ['mcp', 'sdk', 'api']);
+        if (since) q = q.gte('occurred_at', since);
+        return q;
+      })(),
     ]);
 
-    const opsRows = opsRes.data || [];
+    // Map live-op-log rows to the {op_type, entity_type, created_at} shape.
+    const opsRows = (opsRes.data || []).map(r => {
+      const mapped = EVENT_TYPE_MAP[r.event_type] || { op_type: 'retrieve', entity_type: 'contact' };
+      return { op_type: mapped.op_type, entity_type: mapped.entity_type, created_at: r.occurred_at };
+    });
     const writeOps    = opsRows.filter(r => r.op_type === 'write').length;
     const deleteOps   = opsRows.filter(r => r.op_type === 'delete').length;
     const retrieveOps = opsRows.filter(r => r.op_type !== 'write' && r.op_type !== 'delete').length;

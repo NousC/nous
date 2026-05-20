@@ -1,9 +1,11 @@
 import { Router } from 'express';
 import { getSupabaseClient, logActivity } from '@nous/core';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
+import { requireFeature } from '../../lib/access.mjs';
 import crypto from 'crypto';
 
 export const crmRouter = Router();
+const requireCrmSync = requireFeature('crmSync');
 
 const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY
   ? Buffer.from(process.env.ENCRYPTION_KEY.slice(0, 64).padEnd(64, '0'), 'hex')
@@ -256,7 +258,7 @@ crmRouter.get('/sync-config', verifySupabaseAuth, async (req, res) => {
 });
 
 // POST /api/crm/sync-config
-crmRouter.post('/sync-config', verifySupabaseAuth, async (req, res) => {
+crmRouter.post('/sync-config', verifySupabaseAuth, requireCrmSync, async (req, res) => {
   try {
     const supabase = getSupabaseClient();
     const { workspaceId, connectionId, provider, autoSync, pushActivities } = req.body;
@@ -288,7 +290,7 @@ crmRouter.post('/sync-config', verifySupabaseAuth, async (req, res) => {
 
 // POST /api/crm/sync-now — pulls every contact from the provider and upserts into Nous.
 // Runs inline (small CRMs finish in seconds; bigger ones can be moved to the worker later).
-crmRouter.post('/sync-now', verifySupabaseAuth, async (req, res) => {
+crmRouter.post('/sync-now', verifySupabaseAuth, requireCrmSync, async (req, res) => {
   try {
     const supabase = getSupabaseClient();
     const { workspaceId, provider = 'hubspot' } = req.body;
@@ -426,7 +428,7 @@ crmRouter.get('/records', verifySupabaseAuth, async (req, res) => {
 });
 
 // POST /api/crm/import — import selected records into Nous contacts + log deal signals
-crmRouter.post('/import', verifySupabaseAuth, async (req, res) => {
+crmRouter.post('/import', verifySupabaseAuth, requireCrmSync, async (req, res) => {
   try {
     const supabase = getSupabaseClient();
     const { workspaceId, provider, connectionId, records } = req.body;

@@ -85,7 +85,7 @@ export default function SettingsFullPopup({ workspaceId, onClose, initialTab = "
     if (!token) return;
     setBillingLoading(true);
     try {
-      const res = await fetch(`${apiUrl}/api/billing/packs`, { headers: { Authorization: `Bearer ${token}` } });
+      const res = await fetch(`${apiUrl}/api/billing/state`, { headers: { Authorization: `Bearer ${token}` } });
       if (res.ok) setBilling(await res.json());
     } finally { setBillingLoading(false); }
   };
@@ -184,7 +184,7 @@ export default function SettingsFullPopup({ workspaceId, onClose, initialTab = "
 
   const purchasePack = async (packId: string) => {
     if (!token) return;
-    setCheckoutLoading(packId);
+    setCheckoutLoading(`pack:${packId}`);
     try {
       const res = await fetch(`${apiUrl}/api/billing/purchase-pack`, {
         method: "POST",
@@ -192,7 +192,34 @@ export default function SettingsFullPopup({ workspaceId, onClose, initialTab = "
         body: JSON.stringify({ packId }),
       });
       if (res.ok) { const d = await res.json(); if (d.url) window.location.href = d.url; }
-      else { const e = await res.json().catch(() => ({})); toast.error(e.error || "Checkout failed"); }
+      else { const e = await res.json().catch(() => ({})); toast.error(e.error || "Checkout failed"); setCheckoutLoading(null); }
+    } catch { setCheckoutLoading(null); }
+  };
+
+  const subscribe = async (plan: string) => {
+    if (!token) return;
+    setCheckoutLoading(`subscribe:${plan}`);
+    try {
+      const res = await fetch(`${apiUrl}/api/billing/subscribe`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ plan }),
+      });
+      if (res.ok) { const d = await res.json(); if (d.url) window.location.href = d.url; }
+      else { const e = await res.json().catch(() => ({})); toast.error(e.error || "Checkout failed"); setCheckoutLoading(null); }
+    } catch { setCheckoutLoading(null); }
+  };
+
+  const openCustomerPortal = async () => {
+    if (!token) return;
+    setCheckoutLoading("portal");
+    try {
+      const res = await fetch(`${apiUrl}/api/billing/customer-portal`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) { const d = await res.json(); if (d.url) window.open(d.url, "_blank"); }
+      else { const e = await res.json().catch(() => ({})); toast.error(e.error || "Could not open portal"); }
     } finally { setCheckoutLoading(null); }
   };
 
@@ -402,43 +429,88 @@ export default function SettingsFullPopup({ workspaceId, onClose, initialTab = "
               {billingLoading ? (
                 <div className="text-[10px] text-muted-foreground/30">loading…</div>
               ) : billing?.billing_disabled ? (
-                <div className="text-[11px] text-muted-foreground/40 py-4">Billing is not enabled on this instance.</div>
+                <div className="text-[11px] text-muted-foreground/40 py-4">
+                  {billing.self_hosted
+                    ? "Self-hosted — all features unlocked, ops unmetered, no billing."
+                    : "Billing is not enabled on this instance."}
+                </div>
               ) : billing ? (
                 <>
-                  {/* Balance */}
-                  <div className="p-4 border border-border/30 bg-muted/5 space-y-2">
-                    <div className="text-[9px] text-muted-foreground/30 tracking-widest mb-3">BALANCE</div>
+                  {/* Current plan */}
+                  <div className="p-4 border border-border/30 bg-muted/5 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-[15px] font-semibold text-foreground">{billing.planName}</span>
+                        {billing.subscription?.is_comp && <span className="text-[8px] text-violet-400/70 uppercase tracking-wide">comp</span>}
+                        {billing.subscription?.status === "past_due" && <span className="text-[8px] text-amber-400/80 uppercase tracking-wide">past due</span>}
+                      </div>
+                      {billing.subscription?.stripe_subscription_id && (
+                        <button onClick={openCustomerPortal} disabled={!!checkoutLoading}
+                          className="text-[9px] text-muted-foreground/50 hover:text-foreground border border-border/40 px-2 py-1 transition-colors disabled:opacity-40">
+                          {checkoutLoading === "portal" ? "…" : "manage"}
+                        </button>
+                      )}
+                    </div>
                     <div className="flex items-baseline gap-3">
-                      <span className="text-[22px] font-semibold text-foreground tabular-nums">{(billing.balance?.opsRemaining ?? 0).toLocaleString()}</span>
-                      <span className="text-[10px] text-muted-foreground/50">ops remaining</span>
+                      <span className="text-[22px] font-semibold text-foreground tabular-nums">{(billing.ops?.used ?? 0).toLocaleString()}</span>
+                      <span className="text-[10px] text-muted-foreground/50">/ {(billing.ops?.included ?? 0).toLocaleString()} ops this period</span>
                     </div>
                     <div className="flex gap-6 text-[9px] text-muted-foreground/40">
-                      <span>{(billing.balance?.opsUsed ?? 0).toLocaleString()} used</span>
-                      <span>{(billing.balance?.opsTotalPurchased ?? 0).toLocaleString()} purchased total</span>
-                      <span>limit: {billing.balance?.accountsLimit ?? 50} contacts</span>
+                      <span>top-up balance: {(billing.ops?.topupBalance ?? 0).toLocaleString()}</span>
+                      <span>remaining: {(billing.ops?.remaining ?? 0).toLocaleString()}</span>
                     </div>
                   </div>
 
-                  {/* Packs */}
+                  {/* Change plan */}
                   <div>
-                    <div className="text-[9px] text-muted-foreground/30 tracking-widest mb-3">OP PACKS</div>
-                    <div className="grid grid-cols-2 gap-2">
-                      {(billing.packs ?? []).map((p: any) => (
-                        <div key={p.id} className={`p-3 border ${p.popular ? "border-violet-500/30 bg-violet-500/5" : "border-border/20 bg-muted/5"} space-y-2`}>
-                          <div className="flex items-baseline gap-2">
-                            <span className="text-[13px] font-semibold text-foreground/80">{(p.ops/1000).toFixed(0)}k</span>
-                            <span className="text-[9px] text-muted-foreground/40">ops</span>
-                            {p.popular && <span className="text-[8px] text-violet-400/70 ml-auto">popular</span>}
+                    <div className="text-[9px] text-muted-foreground/30 tracking-widest mb-3">PLANS</div>
+                    <div className="grid grid-cols-3 gap-2">
+                      {(billing.allPlans ?? []).map((p: any) => {
+                        const current = p.id === billing.plan;
+                        return (
+                          <div key={p.id} className={`p-3 border space-y-2 ${current ? "border-foreground/40 bg-muted/10" : "border-border/20 bg-muted/5"}`}>
+                            <div className="text-[11px] font-semibold text-foreground/80">{p.name}</div>
+                            <div className="text-[13px] font-semibold text-foreground tabular-nums">${p.monthlyPriceUsd}<span className="text-[8px] text-muted-foreground/40 font-normal">/mo</span></div>
+                            <div className="text-[9px] text-muted-foreground/45">{(p.includedOpsPerMonth/1000).toFixed(0)}k ops/mo</div>
+                            {current ? (
+                              <div className="text-[8px] text-muted-foreground/35 uppercase tracking-wide">current</div>
+                            ) : p.id !== "free" ? (
+                              <button onClick={() => subscribe(p.id)} disabled={!!checkoutLoading}
+                                className="w-full text-[9px] py-1 border border-border/40 text-muted-foreground/60 hover:text-foreground hover:border-border transition-colors disabled:opacity-40">
+                                {checkoutLoading === `subscribe:${p.id}` ? "…" : "switch"}
+                              </button>
+                            ) : (
+                              <button onClick={openCustomerPortal} disabled={!!checkoutLoading}
+                                className="w-full text-[9px] py-1 border border-border/40 text-muted-foreground/60 hover:text-foreground transition-colors disabled:opacity-40">
+                                downgrade
+                              </button>
+                            )}
                           </div>
-                          <div className="text-[10px] text-muted-foreground/50">{p.accountsLimit} contacts · ${p.priceUSD}</div>
-                          <button onClick={() => purchasePack(p.id)} disabled={!!checkoutLoading}
-                            className={`w-full text-[9px] py-1 border transition-colors disabled:opacity-40 ${p.popular ? "border-violet-500/40 text-violet-400/80 hover:bg-violet-500/10" : "border-border/40 text-muted-foreground/60 hover:text-foreground hover:border-border"}`}>
-                            {checkoutLoading === p.id ? "…" : `$${p.priceUSD}`}
-                          </button>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
+
+                  {/* Top-up packs */}
+                  {billing.packs?.length > 0 && (
+                    <div>
+                      <div className="text-[9px] text-muted-foreground/30 tracking-widest mb-3">TOP-UP PACKS</div>
+                      <div className="grid grid-cols-3 gap-2">
+                        {billing.packs.map((p: any) => (
+                          <div key={p.id} className={`p-3 border space-y-2 ${p.popular ? "border-violet-500/30 bg-violet-500/5" : "border-border/20 bg-muted/5"}`}>
+                            <div className="flex items-baseline gap-1.5">
+                              <span className="text-[13px] font-semibold text-foreground/80">{(p.ops/1000).toFixed(0)}k</span>
+                              <span className="text-[9px] text-muted-foreground/40">ops</span>
+                            </div>
+                            <button onClick={() => purchasePack(p.id)} disabled={!!checkoutLoading}
+                              className={`w-full text-[9px] py-1 border transition-colors disabled:opacity-40 ${p.popular ? "border-violet-500/40 text-violet-400/80 hover:bg-violet-500/10" : "border-border/40 text-muted-foreground/60 hover:text-foreground hover:border-border"}`}>
+                              {checkoutLoading === `pack:${p.id}` ? "…" : `$${p.priceUsd}`}
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Recent purchases */}
                   {billing.purchases?.length > 0 && (
@@ -474,12 +546,9 @@ export default function SettingsFullPopup({ workspaceId, onClose, initialTab = "
                   </div>
                   <div className="space-y-4">
                     {[
-                      { label: "Contacts", cur: usageData.usage?.prospects?.current, lim: usageData.usage?.prospects?.limit },
-                      { label: "Documents", cur: usageData.usage?.documents?.current, lim: null },
-                      { label: "Templates", cur: usageData.usage?.templates?.current, lim: null },
-                      { label: "Workspaces", cur: usageData.usage?.workspaces?.current, lim: null },
-                      { label: "Ops Balance", cur: usageData.usage?.ops?.balance, lim: null },
-                      { label: "AI Credits Limit", cur: usageData.usage?.credits?.limit, lim: null },
+                      { label: "Ops used", cur: usageData.ops?.used, lim: usageData.ops?.included },
+                      { label: "Top-up balance", cur: usageData.ops?.topupBalance, lim: null },
+                      { label: "Workspaces", cur: usageData.workspaces?.current, lim: usageData.workspaces?.limit },
                     ].map(({ label, cur, lim }) => (
                       <div key={label}>
                         <div className="flex items-baseline justify-between mb-1.5">

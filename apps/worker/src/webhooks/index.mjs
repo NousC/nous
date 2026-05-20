@@ -15,6 +15,10 @@ import { handleCalCom } from './handlers/calcom.mjs';
 import { handleStripe } from './handlers/stripe.mjs';
 import { enqueueForRetry } from '../utils/webhookInbox.mjs';
 
+// Ops metering note: each webhook handler writes its own workspace_system_log
+// row (the live op log), and workspace_system_log.billable_ops defaults to 1 —
+// so every inbound webhook is metered as 1 op without any extra call here.
+
 export const webhookRouter = Router();
 
 function verifyHmac(req, secret) {

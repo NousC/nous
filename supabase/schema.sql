@@ -833,6 +833,10 @@ CREATE TABLE IF NOT EXISTS workspace_system_log (
   summary      TEXT,
   contact_id   UUID        REFERENCES contacts(id) ON DELETE SET NULL,
   metadata     JSONB       DEFAULT '{}',
+  -- Ops weight of this entry. The live op log is the billing meter on cloud;
+  -- "ops used" = SUM(billable_ops) over the period. Default 1. Scans that
+  -- logged N items set N. Unmetered on self-hosted.
+  billable_ops INTEGER     NOT NULL DEFAULT 1,
   occurred_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -850,129 +854,21 @@ CREATE POLICY wsl_select ON workspace_system_log
 -- Service role writes directly — no insert policy needed for RLS bypass.
 
 -- ============================================================
--- Billing v2 (subscriptions + ops ledger + top-up packs)
--- Mirrors migrations/2026_05_19_billing_v2.sql for fresh installs.
+-- Teams (multi-workspace ownership)
+-- The application code queries `teams` even on self-hosted single-user
+-- installs (workspaces hang off a team). Billing-specific columns and the
+-- subscriptions / op_ledger / op_pack_purchases tables are NOT defined here
+-- — they live in supabase/migrations/2026_05_19_billing_v2.sql and are only
+-- needed for the hosted (opennous.cloud) deployment. Self-hosters can skip
+-- that migration entirely.
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS teams (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   name text,
-  owner_user_id uuid REFERENCES auth.users(id) ON DELETE SET NULL,
-  stripe_customer_id text,
-  stripe_payment_method_id text,
-  ops_monthly_used bigint NOT NULL DEFAULT 0,
-  ops_topup_balance bigint NOT NULL DEFAULT 0,
-  ops_period_start timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
-
-CREATE UNIQUE INDEX IF NOT EXISTS teams_stripe_customer_idx
-  ON teams (stripe_customer_id) WHERE stripe_customer_id IS NOT NULL;
-
-CREATE TABLE IF NOT EXISTS subscriptions (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  team_id uuid NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
-  plan_id text NOT NULL CHECK (plan_id IN ('free', 'pro', 'scale')),
-  plan_name text NOT NULL,
-  status text NOT NULL DEFAULT 'active'
-    CHECK (status IN ('active', 'trialing', 'past_due', 'canceled', 'incomplete', 'incomplete_expired')),
-  stripe_subscription_id text,
-  stripe_price_id text,
-  current_period_start timestamptz,
-  current_period_end timestamptz,
-  cancel_at_period_end boolean NOT NULL DEFAULT false,
-  trial_ends_at timestamptz,
-  is_comp boolean NOT NULL DEFAULT false,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (team_id)
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS subscriptions_stripe_idx
-  ON subscriptions (stripe_subscription_id) WHERE stripe_subscription_id IS NOT NULL;
-
-CREATE OR REPLACE FUNCTION sync_subscription_plan_name() RETURNS trigger AS $$
-BEGIN
-  NEW.plan_name := NEW.plan_id;
-  NEW.updated_at := now();
-  RETURN NEW;
-END
-$$ LANGUAGE plpgsql;
-
-DROP TRIGGER IF EXISTS subscriptions_sync_name ON subscriptions;
-CREATE TRIGGER subscriptions_sync_name
-  BEFORE INSERT OR UPDATE ON subscriptions
-  FOR EACH ROW EXECUTE FUNCTION sync_subscription_plan_name();
-
-ALTER TABLE subscriptions ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS subscriptions_member_read ON subscriptions;
-CREATE POLICY subscriptions_member_read ON subscriptions
-  FOR SELECT TO authenticated
-  USING (team_id IN (
-    SELECT t.id FROM teams t WHERE t.owner_user_id = auth.uid()
-    UNION
-    SELECT wm.team_id FROM workspace_members wm WHERE wm.user_id = auth.uid()
-  ));
-
-CREATE TABLE IF NOT EXISTS op_ledger (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  team_id uuid NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
-  workspace_id uuid REFERENCES workspaces(id) ON DELETE SET NULL,
-  source text NOT NULL,
-  event_type text NOT NULL,
-  count integer NOT NULL CHECK (count >= 0),
-  charged_to text NOT NULL DEFAULT 'included'
-    CHECK (charged_to IN ('included', 'topup', 'self_hosted', 'free_action')),
-  period_start timestamptz,
-  ref_id text,
-  metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
-  created_at timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS op_ledger_team_period_idx
-  ON op_ledger (team_id, period_start DESC, created_at DESC);
-CREATE INDEX IF NOT EXISTS op_ledger_workspace_idx
-  ON op_ledger (workspace_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS op_ledger_ref_idx
-  ON op_ledger (ref_id) WHERE ref_id IS NOT NULL;
-
-ALTER TABLE op_ledger ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS op_ledger_member_read ON op_ledger;
-CREATE POLICY op_ledger_member_read ON op_ledger
-  FOR SELECT TO authenticated
-  USING (team_id IN (
-    SELECT t.id FROM teams t WHERE t.owner_user_id = auth.uid()
-    UNION
-    SELECT wm.team_id FROM workspace_members wm WHERE wm.user_id = auth.uid()
-  ));
-
-CREATE TABLE IF NOT EXISTS op_pack_purchases (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  team_id uuid NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
-  pack_id text NOT NULL,
-  ops_granted integer NOT NULL CHECK (ops_granted > 0),
-  amount_usd_cents integer NOT NULL CHECK (amount_usd_cents >= 0),
-  stripe_payment_intent_id text,
-  stripe_checkout_session_id text,
-  is_auto_topup boolean NOT NULL DEFAULT false,
-  created_at timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS op_pack_purchases_team_idx
-  ON op_pack_purchases (team_id, created_at DESC);
-CREATE UNIQUE INDEX IF NOT EXISTS op_pack_purchases_stripe_idx
-  ON op_pack_purchases (stripe_payment_intent_id) WHERE stripe_payment_intent_id IS NOT NULL;
-
-ALTER TABLE op_pack_purchases ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS op_pack_purchases_member_read ON op_pack_purchases;
-CREATE POLICY op_pack_purchases_member_read ON op_pack_purchases
-  FOR SELECT TO authenticated
-  USING (team_id IN (
-    SELECT t.id FROM teams t WHERE t.owner_user_id = auth.uid()
-    UNION
-    SELECT wm.team_id FROM workspace_members wm WHERE wm.user_id = auth.uid()
-  ));
 
 -- ============================================================
 -- Done.

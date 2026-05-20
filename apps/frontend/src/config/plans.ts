@@ -1,244 +1,161 @@
 /**
- * Centralized Pricing Config — Nous
+ * Nous Pricing — single source of truth (frontend mirror).
  *
- * Model: Op-pack (buy once, balance depletes with use, no monthly reset)
- * Axes: ops balance (depletes) + accounts limit (capacity ceiling)
- * No per-seat. No monthly subscription. All features & integrations on all plans.
+ * Model: monthly subscription + included ops + optional one-time top-up packs.
+ * Cloud only. Self-hosted bypasses all gating and metering.
+ *
+ * Plan IDs: 'free' | 'pro' | 'scale'.
+ * Enterprise is a marketing-page CTA (mailto), not a backend tier.
  */
 
-// ── Op Pack Definitions ───────────────────────────────────────────────────────
+export type PlanId = 'free' | 'pro' | 'scale';
 
-export interface OpPack {
+export interface PlanFeatures {
+  /** Contextualisation / signal synthesis from private activities. */
+  contextualization: boolean;
+  /** Campaign analysis across outbound sequences. */
+  campaignAnalysis: boolean;
+  /** Public signal extraction (web/news scraping). */
+  publicSignalExtraction: boolean;
+  /** CRM sync (Salesforce, HubSpot, Pipedrive, Attio). */
+  crmSync: boolean;
+  /** Multi-workspace creation. */
+  workspaceCreation: boolean;
+  /** Priority/email/community support routing. */
+  supportTier: 'community' | 'email' | 'priority';
+}
+
+export interface TopUpPack {
+  /** Stable id, used as Stripe metadata. */
   id: string;
+  /** Ops granted by this pack. */
   ops: number;
-  accountsLimit: number;
-  priceUSD: number;
-  ratePerHundred: number; // $/100 ops
-  stripePriceId: string;
+  /** Display price in USD (whole dollars). */
+  priceUsd: number;
+  /** Stripe price id env var name (resolved server-side). */
+  stripePriceEnv: string;
+  /** Plan that can purchase this pack. */
+  forPlan: Exclude<PlanId, 'free'>;
   popular?: boolean;
 }
 
-export const OP_PACKS: OpPack[] = [
-  {
-    id: '5k',
-    ops: 5_000,
-    accountsLimit: 100,
-    priceUSD: 19,
-    ratePerHundred: 0.38,
-    stripePriceId: import.meta.env.VITE_STRIPE_PACK_5K_PRICE_ID || '',
+export interface Plan {
+  id: PlanId;
+  name: string;
+  monthlyPriceUsd: number;
+  includedOpsPerMonth: number;
+  workspaceLimit: number | null; // null = unlimited
+  features: PlanFeatures;
+  stripePriceEnv: string | null; // null for free
+}
+
+export const PLANS: Record<PlanId, Plan> = {
+  free: {
+    id: 'free',
+    name: 'Free',
+    monthlyPriceUsd: 0,
+    includedOpsPerMonth: 1_000,
+    workspaceLimit: 1,
+    stripePriceEnv: null,
+    features: {
+      contextualization: true,
+      campaignAnalysis: false,
+      publicSignalExtraction: false,
+      crmSync: false,
+      workspaceCreation: false,
+      supportTier: 'community',
+    },
   },
-  {
-    id: '12k',
-    ops: 12_000,
-    accountsLimit: 250,
-    priceUSD: 39,
-    ratePerHundred: 0.325,
-    stripePriceId: import.meta.env.VITE_STRIPE_PACK_12K_PRICE_ID || '',
+  pro: {
+    id: 'pro',
+    name: 'Pro',
+    monthlyPriceUsd: 79,
+    includedOpsPerMonth: 5_000,
+    workspaceLimit: 3,
+    stripePriceEnv: 'STRIPE_PRO_PRICE_ID',
+    features: {
+      contextualization: true,
+      campaignAnalysis: true,
+      publicSignalExtraction: false,
+      crmSync: false,
+      workspaceCreation: true,
+      supportTier: 'email',
+    },
   },
-  {
-    id: '50k',
-    ops: 50_000,
-    accountsLimit: 500,
-    priceUSD: 99,
-    ratePerHundred: 0.198,
-    stripePriceId: import.meta.env.VITE_STRIPE_PACK_50K_PRICE_ID || '',
-    popular: true,
+  scale: {
+    id: 'scale',
+    name: 'Scale',
+    monthlyPriceUsd: 249,
+    includedOpsPerMonth: 25_000,
+    workspaceLimit: null,
+    stripePriceEnv: 'STRIPE_SCALE_PRICE_ID',
+    features: {
+      contextualization: true,
+      campaignAnalysis: true,
+      publicSignalExtraction: true,
+      crmSync: true,
+      workspaceCreation: true,
+      supportTier: 'priority',
+    },
   },
-  {
-    id: '250k',
-    ops: 250_000,
-    accountsLimit: 1000,
-    priceUSD: 350,
-    ratePerHundred: 0.14,
-    stripePriceId: import.meta.env.VITE_STRIPE_PACK_250K_PRICE_ID || '',
-  },
+};
+
+export const TOP_UP_PACKS: TopUpPack[] = [
+  // Pro tier packs
+  { id: 'pro-5k',   ops: 5_000,   priceUsd: 15,  stripePriceEnv: 'STRIPE_PACK_PRO_5K_PRICE_ID',   forPlan: 'pro' },
+  { id: 'pro-25k',  ops: 25_000,  priceUsd: 60,  stripePriceEnv: 'STRIPE_PACK_PRO_25K_PRICE_ID',  forPlan: 'pro', popular: true },
+  { id: 'pro-100k', ops: 100_000, priceUsd: 180, stripePriceEnv: 'STRIPE_PACK_PRO_100K_PRICE_ID', forPlan: 'pro' },
+  // Scale tier packs
+  { id: 'scale-25k',  ops: 25_000,  priceUsd: 50,  stripePriceEnv: 'STRIPE_PACK_SCALE_25K_PRICE_ID',  forPlan: 'scale' },
+  { id: 'scale-100k', ops: 100_000, priceUsd: 150, stripePriceEnv: 'STRIPE_PACK_SCALE_100K_PRICE_ID', forPlan: 'scale', popular: true },
+  { id: 'scale-500k', ops: 500_000, priceUsd: 600, stripePriceEnv: 'STRIPE_PACK_SCALE_500K_PRICE_ID', forPlan: 'scale' },
 ];
 
-// Dev free plan — permanent, no Stripe
-export const DEV_FREE = {
-  ops: 1_000,
-  accountsLimit: 50,
-};
+const PLAN_ID_SET = new Set<PlanId>(['free', 'pro', 'scale']);
 
-// Headless — contact-only, no public price
-export const HEADLESS_PLAN = {
-  id: 'headless',
-  displayName: 'Headless GTM Memory',
-  description: 'Unlimited ops + accounts. Dedicated infra, white-label, on-prem.',
-  contactEmail: 'hello@opennous.cloud',
-};
-
-export function getOpPackById(id: string): OpPack | undefined {
-  return OP_PACKS.find(p => p.id === id);
+export function normalizePlanId(input: unknown): PlanId {
+  const s = typeof input === 'string' ? input.toLowerCase() : '';
+  return PLAN_ID_SET.has(s as PlanId) ? (s as PlanId) : 'free';
 }
 
-// ── Op Costs (how many ops each action consumes) ─────────────────────────────
-
-export const OP_COSTS = {
-  read: 1,        // MCP getContext, recall query
-  write: 2,       // ingest signal, log activity, identity resolution
-  synthesis: 3,   // Haiku reads raw signals → writes synthesized facts
-};
-
-// ── AI Credit Costs (separate from ops — for doc/graphic/background gen) ─────
-
-export const CREDIT_COSTS = {
-  memorySynthesis: 1,
-  chatMessage: 1,
-  backgroundEnrichment: 3,
-  websiteProfiler: 5,
-  documentBase: 15,
-  documentPerPage: 12,
-  chatMessageRag: 2,
-  backgroundGeneration: 15,
-  graphicGeneration: 20,
-};
-
-export function getDocumentCreditCost(pageCount: number): number {
-  return CREDIT_COSTS.documentBase + CREDIT_COSTS.documentPerPage * pageCount;
+export function getPlan(planId: unknown): Plan {
+  return PLANS[normalizePlanId(planId)];
 }
 
-// ── Feature Access (all features on all paid plans) ──────────────────────────
-
-export interface FeatureAccess {
-  tasks: boolean;
-  workspaceCreation: boolean;
-  customSchemas: boolean;
-  prioritySupport: boolean;
-  privateSlack: boolean;
-  sso: boolean;
-  forms: boolean;
-  workflows: boolean;
-  content: boolean;
-  unlimitedWorkspaces: boolean;
-  onboardingAutomation: boolean;
-  crmIntegrations: boolean;
-  customBranding: boolean;
+export function hasFeature(planId: unknown, feature: keyof PlanFeatures): boolean {
+  const plan = getPlan(planId);
+  const v = plan.features[feature];
+  return typeof v === 'boolean' ? v : false;
 }
 
-export function getFeatureAccess(planId: string): FeatureAccess {
-  const normalized = planId?.toLowerCase() || 'dev';
-
-  // Dev free tier — limited features (tasks/workflows require a pack purchase)
-  if (normalized === 'dev' || normalized === 'free' || normalized === 'trial') {
-    return {
-      tasks: false,
-      workspaceCreation: false,
-      customSchemas: false,
-      prioritySupport: false,
-      privateSlack: false,
-      sso: false,
-      forms: false,
-      workflows: false,
-      content: false,
-      unlimitedWorkspaces: false,
-      onboardingAutomation: false,
-      crmIntegrations: true,
-      customBranding: false,
-    };
-  }
-
-  // All paid plans (any op-pack) get full feature access
-  return {
-    tasks: true,
-    workspaceCreation: true,
-    customSchemas: true,
-    prioritySupport: false,
-    privateSlack: false,
-    sso: false,
-    forms: true,
-    workflows: true,
-    content: true,
-    unlimitedWorkspaces: true,
-    onboardingAutomation: true,
-    crmIntegrations: true,
-    customBranding: true,
-  };
+export function topUpPacksForPlan(planId: unknown): TopUpPack[] {
+  const id = normalizePlanId(planId);
+  if (id === 'free') return [];
+  return TOP_UP_PACKS.filter((p) => p.forPlan === id);
 }
 
-export function hasFeatureAccess(planId: string, feature: keyof FeatureAccess): boolean {
-  return getFeatureAccess(planId)[feature];
+// ── Backward-compat shims (callers being migrated incrementally) ────────────
+// SettingsModal and a few other places still import these by name. They map
+// onto the new shape so the build stays green during the migration.
+
+export function getPlanDisplayName(planId: unknown): string {
+  return getPlan(planId).name;
 }
 
-// ── Legacy compat — kept so existing callers don't break ─────────────────────
-// These will be removed once all callers are migrated.
-
-export interface PlanLimits {
-  prospects: number | null;
-  workspaces: number | null;
-  memoryOpsPerMonth: number | null;
-  aiCreditsPerMonth: number | null;
+export function getPlanById(planId: unknown): Plan {
+  return getPlan(planId);
 }
 
-export const PLAN_LIMITS: Record<string, PlanLimits> = {
-  dev:        { prospects: DEV_FREE.accountsLimit, workspaces: 1,    memoryOpsPerMonth: DEV_FREE.ops,    aiCreditsPerMonth: 50 },
-  free:       { prospects: DEV_FREE.accountsLimit, workspaces: 1,    memoryOpsPerMonth: DEV_FREE.ops,    aiCreditsPerMonth: 50 },
-  trial:      { prospects: DEV_FREE.accountsLimit, workspaces: 1,    memoryOpsPerMonth: DEV_FREE.ops,    aiCreditsPerMonth: 50 },
-  starter:    { prospects: 250,                    workspaces: null, memoryOpsPerMonth: null,             aiCreditsPerMonth: 500 },
-  pro:        { prospects: 500,                    workspaces: null, memoryOpsPerMonth: null,             aiCreditsPerMonth: 2000 },
-  scale:      { prospects: 1000,                   workspaces: null, memoryOpsPerMonth: null,             aiCreditsPerMonth: 8000 },
-  enterprise: { prospects: null,                   workspaces: null, memoryOpsPerMonth: null,             aiCreditsPerMonth: null },
-  lifetime:   { prospects: 500,                    workspaces: null, memoryOpsPerMonth: null,             aiCreditsPerMonth: 300 },
-  // legacy aliases
-  build:      { prospects: 250,                    workspaces: null, memoryOpsPerMonth: null,             aiCreditsPerMonth: 500 },
-  professional: { prospects: 500,                  workspaces: null, memoryOpsPerMonth: null,             aiCreditsPerMonth: 2000 },
-};
-
-export function getPlanLimits(planId: string): PlanLimits {
-  return PLAN_LIMITS[planId?.toLowerCase()] ?? PLAN_LIMITS['dev'];
+export function getPlanFeaturesForDisplay(plan: Plan): string[] {
+  const items: string[] = [
+    `${plan.includedOpsPerMonth.toLocaleString()} ops / month`,
+    plan.workspaceLimit === null
+      ? 'Unlimited workspaces'
+      : `${plan.workspaceLimit} workspace${plan.workspaceLimit === 1 ? '' : 's'}`,
+  ];
+  if (plan.features.contextualization) items.push('Contextualisation');
+  if (plan.features.campaignAnalysis) items.push('Campaign analysis');
+  if (plan.features.publicSignalExtraction) items.push('Public signal extraction');
+  if (plan.features.crmSync) items.push('CRM sync');
+  return items;
 }
-
-export const TRIAL_CONFIG = { durationDays: 14 };
-
-export const LIFETIME_DEAL_CONFIG = {
-  starterPrice: '$299',
-  starterPriceAmount: 299,
-  growthPrice: '$699',
-  growthPriceAmount: 699,
-  timerDurationSeconds: 600,
-  priceId: import.meta.env.VITE_STRIPE_LIFETIME_PRICE_ID || '',
-};
-
-// Stub Plan type kept for backwards compat with components that import it
-export interface Plan {
-  id: string;
-  name: string;
-  displayName: string;
-  monthlyPrice: string;
-  yearlyPrice: string;
-  monthlyPriceId: string;
-  yearlyPriceId: string;
-  description: string;
-  targetAudience: string[];
-  features: string[];
-  popular?: boolean;
-  hidden?: boolean;
-  contactUs?: boolean;
-}
-
-export function getPlanById(_id: string): Plan | undefined { return undefined; }
-export function getPlanDisplayName(planId: string): string { return planId; }
-export function getPublicPlans(): Plan[] { return []; }
-export function getSubscribablePlans(): Plan[] { return []; }
-export function getPlanFeaturesForDisplay(_plan: Plan): string[] { return []; }
-export function getAllPlanFeatures(_plan: Plan): string[] { return []; }
-export function getMinimumPlanForFeature(_feature: keyof FeatureAccess): string { return 'starter'; }
-
-export const PLANS: Plan[] = [];
-export const DEV_PLAN: Plan = {
-  id: 'dev', name: 'dev', displayName: 'Dev', monthlyPrice: '$0', yearlyPrice: '$0',
-  monthlyPriceId: '', yearlyPriceId: '', description: 'Free forever',
-  targetAudience: [], features: [], hidden: true,
-};
-export const ENTERPRISE_PLAN: Plan = {
-  id: 'enterprise', name: 'enterprise', displayName: 'Headless GTM Memory',
-  monthlyPrice: 'Custom', yearlyPrice: 'Custom', monthlyPriceId: '', yearlyPriceId: '',
-  description: HEADLESS_PLAN.description, targetAudience: [], features: [], hidden: true, contactUs: true,
-};
-export const LIFETIME_PLAN: Plan = {
-  id: 'lifetime', name: 'lifetime', displayName: 'Lifetime',
-  monthlyPrice: '$0', yearlyPrice: '$0', monthlyPriceId: '', yearlyPriceId: '',
-  description: 'Lifetime access', targetAudience: [], features: [], hidden: true,
-};
-
-export const MEMORY_OP_COSTS = OP_COSTS;
