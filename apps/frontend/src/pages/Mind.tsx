@@ -10,6 +10,7 @@ import { watchOAuthPopup } from "@/lib/oauthPopup";
 import { toast } from "@/components/ui/sonner";
 import { PopupModal, CopyButton, generateCodename, relTime } from "@/components/mind/shared";
 import { PeopleImportModal } from "@/components/contacts/PeopleImportModal";
+import UpgradeModal, { type UpgradePrompt } from "@/components/UpgradeModal";
 
 // Lazy-loaded popup chunks — only fetched when the user opens the popup, so
 // edits to one popup don't invalidate the Mind shell chunk for everyone.
@@ -1851,10 +1852,18 @@ const CRM_NAMES = Object.keys(CRM_PROVIDER_META);
 
 type CrmConfig = { auto_sync: boolean; push_activities: boolean; last_synced_at: string|null; contacts_synced: number };
 
-function CrmSyncPopup({ integrations, workspaceId, token, onClose, onOpenIntegrations }: {
+function CrmSyncPopup({ integrations, workspaceId, token, onClose, onOpenIntegrations, onUpgradeNeeded }: {
   integrations: IntegrationConn[]; workspaceId: string; token: string;
   onClose: () => void; onOpenIntegrations: () => void;
+  onUpgradeNeeded: (p: UpgradePrompt) => void;
 }) {
+  // CRM sync is a Scale feature — the API returns 402 feature_not_in_plan for
+  // lower plans. Turn that into an upgrade prompt.
+  const crmGate = () => onUpgradeNeeded({
+    title: "CRM sync is a Scale feature",
+    message: "Two-way CRM sync (Salesforce, HubSpot, Pipedrive, Attio) is included on the Scale plan. Upgrade to connect your CRM.",
+    requiredPlan: "Scale",
+  });
   const crmConns = integrations.filter(i => CRM_NAMES.includes(i.provider?.name ?? ""));
   const connectedProviders = new Set(crmConns.map(c => c.provider?.name).filter(Boolean) as string[]);
 
@@ -1915,6 +1924,10 @@ function CrmSyncPopup({ integrations, workspaceId, token, onClose, onOpenIntegra
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify({ workspaceId, connectionId, provider, ...patch }),
     });
+    if (r.status === 402) {
+      const e = await r.json().catch(() => ({}));
+      if (e.error === "feature_not_in_plan") crmGate();
+    }
     return r.ok;
   };
 
@@ -1931,6 +1944,7 @@ function CrmSyncPopup({ integrations, workspaceId, token, onClose, onOpenIntegra
         body: JSON.stringify({ workspaceId, provider }),
       });
       const d = await r.json();
+      if (r.status === 402 && d.error === "feature_not_in_plan") { crmGate(); return; }
       if (!r.ok) throw new Error(d.message || d.error || "Sync failed");
       setSyncResult(prev => ({ ...prev, [provider]: { total: d.total||0, imported: d.imported||0, skipped: d.skipped||0 } }));
       setConfigs(prev => ({
@@ -2121,9 +2135,25 @@ function WorkspaceSwitcher() {
         headers:{ Authorization:`Bearer ${session.access_token}`, "Content-Type":"application/json" },
         body: JSON.stringify({ name: newName.trim() }),
       });
-      const d = res.ok ? await res.json() : null;
-      if (d?.workspace) { switchTo(d.workspace.id); setNewName(""); setCreating(false); }
-    } catch { /* silent */ }
+      if (res.ok) {
+        const d = await res.json();
+        if (d?.workspace) { switchTo(d.workspace.id); setNewName(""); setCreating(false); }
+        return;
+      }
+      // Plan workspace limit hit — surface an upgrade prompt instead of failing silently.
+      const err = await res.json().catch(() => ({}));
+      if (res.status === 402 && err.error === "workspace_limit_reached") {
+        const next = err.current_plan === "free" ? "Pro" : "Scale";
+        setCreating(false);
+        setUpgrade({
+          title: "Workspace limit reached",
+          message: err.message || `Your plan includes ${err.limit} workspace${err.limit === 1 ? "" : "s"}. Upgrade to add more.`,
+          requiredPlan: next,
+        });
+      } else {
+        toast.error(err.message || err.error || "Could not create workspace");
+      }
+    } catch { toast.error("Could not create workspace"); }
   };
 
   const deleteWorkspace = async (ws: Workspace) => {
@@ -2325,6 +2355,7 @@ export default function Mind() {
   const [hasMore,      setHasMore]      = useState(true);
   const [showConnect,  setShowConnect]  = useState(false);
   const [settingsTab,  setSettingsTab]  = useState<SettingsTab>("profile");
+  const [upgrade,      setUpgrade]      = useState<UpgradePrompt | null>(null);
   // popup state + detail id are both derived from the URL.
   //   /                       → no popup
   //   /settings               → Settings popup
@@ -2624,10 +2655,15 @@ export default function Mind() {
 
       {popup==="companies"&&workspaceId&&token&&<CompaniesPopup companies={companies} workspaceId={workspaceId} token={token} onClose={()=>setPopup(null)} onDelete={id=>setCompanies(prev=>prev.filter(c=>c.id!==id))} detailId={detailId} setDetailId={setDetailId}/>}
       {popup==="people"&&token&&workspaceId&&<PeoplePopup contacts={allContacts} token={token} workspaceId={workspaceId} onClose={()=>{setPopup(null);setPeopleSort(undefined);}} onNavigate={()=>navigate("/people")} defaultSort={peopleSort} onDelete={id=>setAllContacts(prev=>prev.filter(c=>c.id!==id))} detailId={detailId} setDetailId={setDetailId}/>}
-      {popup==="crm"&&workspaceId&&token&&<CrmSyncPopup integrations={integrations} workspaceId={workspaceId} token={token} onClose={()=>setPopup(null)} onOpenIntegrations={()=>setPopup("integrations")}/>}
+      {popup==="crm"&&workspaceId&&token&&<CrmSyncPopup integrations={integrations} workspaceId={workspaceId} token={token} onClose={()=>setPopup(null)} onOpenIntegrations={()=>setPopup("integrations")} onUpgradeNeeded={setUpgrade}/>}
       {popup==="integrations"&&workspaceId&&token&&<IntegrationsPopup integrations={integrations} workspaceId={workspaceId} token={token} onClose={()=>setPopup(null)}/>}
       {popup==="memories"&&workspaceId&&token&&<Suspense fallback={null}><MemoriesPopup memories={memories} categories={memoriesCategories} workspaceId={workspaceId} token={token} onClose={()=>setPopup(null)}/></Suspense>}
       {popup==="settings"&&workspaceId&&<Suspense fallback={null}><SettingsFullPopup workspaceId={workspaceId} initialTab={settingsTab} onClose={()=>setPopup(null)}/></Suspense>}
+      <UpgradeModal
+        prompt={upgrade}
+        onClose={()=>setUpgrade(null)}
+        onUpgrade={()=>{ setUpgrade(null); setSettingsTab("billing"); setPopup("settings"); }}
+      />
     </div>
   );
 }
