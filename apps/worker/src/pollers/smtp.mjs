@@ -5,7 +5,7 @@
 
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
-import { getSupabaseClient } from '@nous/core';
+import { getSupabaseClient, chargeOpsByWorkspace } from '@nous/core';
 import { logActivity } from '../utils/activity.mjs';
 import { decrypt } from '../utils/encryption.mjs';
 
@@ -185,18 +185,33 @@ async function pollWorkspace(supabase, conn) {
   // Always log per-workspace summary, even when processed=0 (so we can confirm pollers are reaching IMAP)
   console.log(`[SMTP_POLL] workspace=${conn.workspace_id} imap=${imapHost}:${imapPort} processed=${processed}`);
 
-  // Surface the scan in the Live Op Log (workspace_system_log → operationName.ts → smtp.scan.complete)
+  // Only surface scans that actually logged something — empty scans are noise
+  // in the user-facing Live Op Log (the console.log above keeps the full audit trail).
+  if (processed > 0) {
+    try {
+      await supabase.from('workspace_system_log').insert({
+        workspace_id: conn.workspace_id,
+        source:       'smtp',
+        event_type:   'scan_complete',
+        summary:      `SMTP scan: ${processed} email${processed === 1 ? '' : 's'} logged`,
+        metadata:     { processed, imap_host: imapHost, imap_port: imapPort },
+        occurred_at:  new Date().toISOString(),
+      });
+    } catch (e) {
+      console.warn('[SMTP_POLL] system_log insert failed:', e.message);
+    }
+  }
+
   try {
-    await supabase.from('workspace_system_log').insert({
-      workspace_id: conn.workspace_id,
-      source:       'smtp',
-      event_type:   'scan_complete',
-      summary:      `SMTP scan: ${processed} email${processed === 1 ? '' : 's'} logged`,
-      metadata:     { processed, imap_host: imapHost, imap_port: imapPort },
-      occurred_at:  new Date().toISOString(),
+    await chargeOpsByWorkspace({
+      workspaceId: conn.workspace_id,
+      source: 'scan',
+      eventType: 'smtp.scan',
+      count: processed,
+      metadata: { imap_host: imapHost, imap_port: imapPort },
     });
   } catch (e) {
-    console.warn('[SMTP_POLL] system_log insert failed:', e.message);
+    console.warn('[SMTP_POLL] chargeOps failed:', e.message);
   }
 
   return processed;

@@ -4,7 +4,7 @@
 // Dedup via externalId (gmail_MSGID).
 
 import { google } from 'googleapis';
-import { getSupabaseClient } from '@nous/core';
+import { getSupabaseClient, chargeOpsByWorkspace } from '@nous/core';
 import { logActivity } from '../utils/activity.mjs';
 import { refreshGoogleToken } from '../utils/googleOAuth.mjs';
 
@@ -138,17 +138,35 @@ async function pollWorkspace(supabase, conn) {
   // Earlier the function returned early in those cases and produced no visible signal at all.
   console.log(`[GMAIL_POLL] workspace=${conn.workspace_id}: ${logged} emails logged (${fetched} fetched)`);
 
+  // Only surface scans that actually logged something — empty scans are noise
+  // in the user-facing Live Op Log (the console.log above keeps the full audit trail).
+  if (logged > 0) {
+    try {
+      await supabase.from('workspace_system_log').insert({
+        workspace_id: conn.workspace_id,
+        source:       'gmail',
+        event_type:   'scan_complete',
+        summary:      `Gmail scan: ${logged} email${logged === 1 ? '' : 's'} logged (${fetched} fetched)`,
+        metadata:     { fetched, logged, lookback_ms: LOOKBACK_MS },
+        occurred_at:  new Date().toISOString(),
+      });
+    } catch (e) {
+      console.warn('[GMAIL_POLL] system_log insert failed:', e.message);
+    }
+  }
+
+  // Charge ops — only what was actually logged, never what was fetched.
+  // logged=0 short-circuits inside chargeOps as a free action.
   try {
-    await supabase.from('workspace_system_log').insert({
-      workspace_id: conn.workspace_id,
-      source:       'gmail',
-      event_type:   'scan_complete',
-      summary:      `Gmail scan: ${logged} email${logged === 1 ? '' : 's'} logged (${fetched} fetched)`,
-      metadata:     { fetched, logged, lookback_ms: LOOKBACK_MS },
-      occurred_at:  new Date().toISOString(),
+    await chargeOpsByWorkspace({
+      workspaceId: conn.workspace_id,
+      source: 'scan',
+      eventType: 'gmail.scan',
+      count: logged,
+      metadata: { fetched },
     });
   } catch (e) {
-    console.warn('[GMAIL_POLL] system_log insert failed:', e.message);
+    console.warn('[GMAIL_POLL] chargeOps failed:', e.message);
   }
 
   return logged;
