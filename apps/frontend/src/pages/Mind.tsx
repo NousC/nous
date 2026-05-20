@@ -2448,11 +2448,10 @@ export default function Mind() {
     try {
       const fresh = await freshAccessToken();
       if (!fresh) { if (!reset) setLoadingMore(false); return; }
-      const [sysRes,agentRes,lifeSysRes,lifeAgentRes] = await Promise.all([
+      const [sysRes,agentRes,lifeRes] = await Promise.all([
         fetch(`${apiUrl}/api/workspace/system-log?workspace_id=${workspaceId}&days=7&limit=200&offset=${sysOff}`,{headers:{Authorization:`Bearer ${fresh}`}}),
         fetch(`${apiUrl}/api/requests/log?days=7&limit=100&offset=${agentOff}`,{headers:{Authorization:`Bearer ${fresh}`}}),
-        reset ? fetch(`${apiUrl}/api/workspace/system-log?workspace_id=${workspaceId}&days=all&limit=1`,{headers:{Authorization:`Bearer ${fresh}`}}) : Promise.resolve(null),
-        reset ? fetch(`${apiUrl}/api/requests/log?days=all&limit=1`,{headers:{Authorization:`Bearer ${fresh}`}})                                      : Promise.resolve(null),
+        reset ? fetch(`${apiUrl}/api/usage`,{headers:{Authorization:`Bearer ${fresh}`}}) : Promise.resolve(null),
       ]);
       const sysData=sysRes.ok?await sysRes.json():{events:[],total:0};
       const agentData=agentRes.ok?await agentRes.json():{requests:[],total:0};
@@ -2462,9 +2461,9 @@ export default function Mind() {
       const dedup=(arr:LiveOp[])=>{ const seen=new Set<string>(); return arr.filter(o=>{ if(seen.has(o.id)) return false; seen.add(o.id); return true; }); };
       setOps(prev=>reset?dedup(merged):dedup([...prev,...merged]));
       if (reset) {
-        const lifeSys   = lifeSysRes   && lifeSysRes.ok   ? await lifeSysRes.json()   : { total: 0 };
-        const lifeAgent = lifeAgentRes && lifeAgentRes.ok ? await lifeAgentRes.json() : { total: 0 };
-        setLifetimeOps((lifeSys.total ?? 0) + (lifeAgent.total ?? 0));
+        // All-time ops = SUM(billable_ops) from /api/usage (a 5-item scan = 5 ops).
+        const usage = lifeRes && lifeRes.ok ? await lifeRes.json() : null;
+        setLifetimeOps(usage?.ops?.allTime ?? 0);
       }
       setSysOffset(sysOff+sysOps.length); setAgentOffset(agentOff+agentOps.length);
       setHasMore(sysOps.length===200||agentOps.length===100);
