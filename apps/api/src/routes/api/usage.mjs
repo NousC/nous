@@ -24,6 +24,13 @@ usageRouter.get('/', verifySupabaseAuth, async (req, res) => {
     const plan = getPlanFromSubscription(subscription);
     const ops = await getTeamOpsUsage(supabase, team.id, subscription);
 
+    // All-time ops total — SUM(billable_ops) since epoch (the Mind-page counter).
+    const { data: allTimeData } = await supabase.rpc('team_ops_used', {
+      p_team_id: team.id,
+      p_since: '1970-01-01T00:00:00Z',
+    });
+    const allTimeOps = Number(allTimeData ?? 0);
+
     const { data: workspaces } = await supabase
       .from('workspaces')
       .select('id')
@@ -49,6 +56,7 @@ usageRouter.get('/', verifySupabaseAuth, async (req, res) => {
         topupBalance: ops.topupBalance,
         remaining: ops.remaining,
         periodStart: ops.periodStart,
+        allTime: allTimeOps,
       },
       workspaces: {
         current: workspaceCount,
