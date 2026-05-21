@@ -114,3 +114,73 @@ export interface UpdateContactParams {
   linkedin_url?: string;
   notes?: string;
 }
+
+// ── Lead Lists (Adaptive Lead Scoring) ───────────────────────────────────────
+
+export type LeadStatus = 'pending' | 'sent' | 'replied' | 'bounced';
+export type ReplyOutcome = 'interested' | 'objection' | 'wrong_fit' | 'unsubscribe';
+
+export interface LeadList {
+  id: string;
+  workspace_id: string;
+  name: string;
+  source: string;            // 'linkedin' | 'instantly' | 'csv' | 'apollo' | …
+  created_at: string;
+  updated_at: string;
+  lead_count?: number;       // populated by listLeadLists()
+}
+
+export interface Lead {
+  id: string;
+  lead_list_id: string;
+  workspace_id: string;
+  email: string | null;
+  name: string | null;
+  company: string | null;
+  linkedin_url: string | null;
+  sent_at: string | null;
+  send_variant: string | null;
+  is_repeat_contact: boolean;
+  features: Record<string, unknown>;
+  scorecard_score: number | null;
+  reply_outcome: ReplyOutcome | null;
+  replied_at: string | null;
+  status: LeadStatus;
+  contact_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// ── The Scorecard (Adaptive Lead Scoring) ────────────────────────────────────
+
+export interface ScorecardSignalRule {
+  feature: string;
+  op: '==' | '!=' | '>=' | '<=' | '>' | '<' | 'in' | 'exists';
+  value?: unknown;
+}
+
+export interface ScorecardSignal {
+  id: string;
+  workspace_id: string;
+  key: string;
+  label: string;
+  weight: number;
+  rule: ScorecardSignalRule;
+  coverage: number;
+  added_in: string | null;     // the learning run that added it; NULL = seed
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ScorecardRun {
+  id: string;
+  workspace_id: string;
+  target: number | null;
+  steps: number;
+  gap_before: number | null;
+  gap_after: number | null;
+  signal_count: number | null;
+  note: string | null;
+  created_at: string;
+}

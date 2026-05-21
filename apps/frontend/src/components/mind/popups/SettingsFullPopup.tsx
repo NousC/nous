@@ -47,15 +47,6 @@ export default function SettingsFullPopup({ workspaceId, onClose, initialTab = "
   const [newKeyValue, setNewKeyValue] = useState<string | null>(null);
   const [creatingKey, setCreatingKey] = useState(false);
 
-  // Billing
-  const [billing, setBilling] = useState<any>(null);
-  const [billingLoading, setBillingLoading] = useState(false);
-  const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
-
-  // Usage
-  const [usageData, setUsageData] = useState<any>(null);
-  const [usageLoading, setUsageLoading] = useState(false);
-
   useEffect(() => {
     setName(userData?.user?.name ?? "");
     setWorkspaceName(userData?.team?.name ?? "");
@@ -84,29 +75,9 @@ export default function SettingsFullPopup({ workspaceId, onClose, initialTab = "
     } finally { setKeysLoading(false); }
   };
 
-  const loadBilling = async () => {
-    if (!token) return;
-    setBillingLoading(true);
-    try {
-      const res = await fetch(`${apiUrl}/api/billing/state`, { headers: { Authorization: `Bearer ${token}` } });
-      if (res.ok) setBilling(await res.json());
-    } finally { setBillingLoading(false); }
-  };
-
-  const loadUsage = async () => {
-    if (!token) return;
-    setUsageLoading(true);
-    try {
-      const res = await fetch(`${apiUrl}/api/usage`, { headers: { Authorization: `Bearer ${token}` } });
-      if (res.ok) setUsageData(await res.json());
-    } finally { setUsageLoading(false); }
-  };
-
   useEffect(() => {
     if (tab === "team")     loadTeam();
     if (tab === "api-keys") loadKeys();
-    if (tab === "billing")  loadBilling();
-    if (tab === "usage")    loadUsage();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
@@ -185,39 +156,13 @@ export default function SettingsFullPopup({ workspaceId, onClose, initialTab = "
     toast.success("Key deleted");
   };
 
-  const subscribe = async (plan: string) => {
-    if (!token) return;
-    setCheckoutLoading(`subscribe:${plan}`);
-    try {
-      const res = await fetch(`${apiUrl}/api/billing/subscribe`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ plan }),
-      });
-      if (res.ok) { const d = await res.json(); if (d.url) window.location.href = d.url; }
-      else { const e = await res.json().catch(() => ({})); toast.error(e.error || "Checkout failed"); setCheckoutLoading(null); }
-    } catch { setCheckoutLoading(null); }
-  };
-
-  const openCustomerPortal = async () => {
-    if (!token) return;
-    setCheckoutLoading("portal");
-    try {
-      const res = await fetch(`${apiUrl}/api/billing/customer-portal`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) { const d = await res.json(); if (d.url) window.open(d.url, "_blank"); }
-      else { const e = await res.json().catch(() => ({})); toast.error(e.error || "Could not open portal"); }
-    } finally { setCheckoutLoading(null); }
-  };
+  // Billing & Usage moved out of this popup into the dedicated /usage page
+  // (Usage & Billing in the sidebar).
 
   const TABS: { id: SettingsTab; label: string }[] = [
     { id: "profile",  label: "Profile"  },
     { id: "team",     label: "Team"     },
     { id: "api-keys", label: "API Keys" },
-    { id: "billing",  label: "Billing"  },
-    { id: "usage",    label: "Usage"    },
     ...(isAdmin ? [{ id: "admin" as SettingsTab, label: "Admin" }] : []),
   ];
 
@@ -419,123 +364,6 @@ export default function SettingsFullPopup({ workspaceId, onClose, initialTab = "
                   {apiKeys.length === 0 && !keysLoading && <div className="text-[10px] text-muted-foreground/30 py-4">no API keys yet</div>}
                 </div>
               )}
-            </div>
-          )}
-
-          {/* ── Billing ── */}
-          {tab === "billing" && (
-            <div className="space-y-6 max-w-lg">
-              <div className="text-[9px] text-muted-foreground/30 tracking-widest">BILLING</div>
-              {billingLoading ? (
-                <div className="text-[10px] text-muted-foreground/30">loading…</div>
-              ) : billing?.billing_disabled ? (
-                <div className="text-[11px] text-muted-foreground/40 py-4">
-                  {billing.self_hosted
-                    ? "Self-hosted — all features unlocked, ops unmetered, no billing."
-                    : "Billing is not enabled on this instance."}
-                </div>
-              ) : billing ? (
-                <>
-                  {/* Current plan */}
-                  <div className="p-4 border border-border/30 bg-muted/5 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-baseline gap-2">
-                        <span className="text-[15px] font-semibold text-foreground">{billing.planName}</span>
-                        {billing.subscription?.is_comp && <span className="text-[8px] text-violet-400/70 uppercase tracking-wide">comp</span>}
-                        {billing.subscription?.status === "past_due" && <span className="text-[8px] text-amber-400/80 uppercase tracking-wide">past due</span>}
-                      </div>
-                      {billing.subscription?.stripe_subscription_id && (
-                        <button onClick={openCustomerPortal} disabled={!!checkoutLoading}
-                          className="text-[9px] text-muted-foreground/50 hover:text-foreground border border-border/40 px-2 py-1 transition-colors disabled:opacity-40">
-                          {checkoutLoading === "portal" ? "…" : "manage"}
-                        </button>
-                      )}
-                    </div>
-                    <div className="flex items-baseline gap-3">
-                      <span className="text-[22px] font-semibold text-foreground tabular-nums">{(billing.ops?.used ?? 0).toLocaleString()}</span>
-                      <span className="text-[10px] text-muted-foreground/50">/ {(billing.ops?.included ?? 0).toLocaleString()} ops this period</span>
-                    </div>
-                    <div className="flex gap-6 text-[9px] text-muted-foreground/40">
-                      <span>ops remaining: {(billing.ops?.remaining ?? 0).toLocaleString()}</span>
-                      <span>enrichments: {(billing.enrichments?.used ?? 0).toLocaleString()} / {(billing.enrichments?.included ?? 0).toLocaleString()}</span>
-                    </div>
-                  </div>
-
-                  {/* Change plan */}
-                  <div>
-                    <div className="text-[9px] text-muted-foreground/30 tracking-widest mb-3">PLANS</div>
-                    <div className="grid grid-cols-3 gap-2">
-                      {(billing.allPlans ?? []).map((p: any) => {
-                        const current = p.id === billing.plan;
-                        return (
-                          <div key={p.id} className={`p-3 border space-y-2 ${current ? "border-foreground/40 bg-muted/10" : "border-border/20 bg-muted/5"}`}>
-                            <div className="text-[11px] font-semibold text-foreground/80">{p.name}</div>
-                            <div className="text-[13px] font-semibold text-foreground tabular-nums">${p.monthlyPriceUsd}<span className="text-[8px] text-muted-foreground/40 font-normal">/mo</span></div>
-                            <div className="text-[9px] text-muted-foreground/45">{(p.includedOpsPerMonth/1000).toFixed(0)}k ops/mo</div>
-                            {current ? (
-                              <div className="text-[8px] text-muted-foreground/35 uppercase tracking-wide">current</div>
-                            ) : p.id !== "free" ? (
-                              <button onClick={() => subscribe(p.id)} disabled={!!checkoutLoading}
-                                className="w-full text-[9px] py-1 border border-border/40 text-muted-foreground/60 hover:text-foreground hover:border-border transition-colors disabled:opacity-40">
-                                {checkoutLoading === `subscribe:${p.id}` ? "…" : "switch"}
-                              </button>
-                            ) : (
-                              <button onClick={openCustomerPortal} disabled={!!checkoutLoading}
-                                className="w-full text-[9px] py-1 border border-border/40 text-muted-foreground/60 hover:text-foreground transition-colors disabled:opacity-40">
-                                downgrade
-                              </button>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  <p className="text-[9px] text-muted-foreground/30 leading-relaxed">
-                    Pure-tier pricing — no top-up packs. Run out of ops or enrichments?
-                    Switch to a higher plan; the change applies immediately.
-                  </p>
-                </>
-              ) : null}
-            </div>
-          )}
-
-          {/* ── Usage ── */}
-          {tab === "usage" && (
-            <div className="space-y-6 max-w-md">
-              <div className="text-[9px] text-muted-foreground/30 tracking-widest">USAGE</div>
-              {usageLoading ? (
-                <div className="text-[10px] text-muted-foreground/30">loading…</div>
-              ) : usageData ? (
-                <>
-                  <div className="flex items-center gap-3 mb-2">
-                    <span className="text-[9px] text-muted-foreground/35 tracking-widest">PLAN</span>
-                    <span className="text-[10px] text-foreground/70 uppercase tracking-wide">{usageData.plan}</span>
-                  </div>
-                  <div className="space-y-4">
-                    {[
-                      { label: "Ops used", cur: usageData.ops?.used, lim: usageData.ops?.included },
-                      { label: "Enrichments used", cur: usageData.enrichments?.used, lim: usageData.enrichments?.included },
-                      { label: "Workspaces", cur: usageData.workspaces?.current, lim: usageData.workspaces?.limit },
-                    ].map(({ label, cur, lim }) => (
-                      <div key={label}>
-                        <div className="flex items-baseline justify-between mb-1.5">
-                          <span className="text-[10px] text-muted-foreground/50">{label}</span>
-                          <span className="text-[11px] text-foreground/70 tabular-nums">
-                            {(cur ?? 0).toLocaleString()}{lim !== null && lim !== undefined ? ` / ${lim === null ? "∞" : lim.toLocaleString()}` : ""}
-                          </span>
-                        </div>
-                        {lim != null && lim > 0 && (
-                          <div className="h-0.5 bg-muted/30 rounded-full overflow-hidden">
-                            <div className="h-full bg-violet-500/40 rounded-full transition-all"
-                              style={{ width: `${Math.min(100, ((cur ?? 0) / lim) * 100)}%` }} />
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </>
-              ) : null}
             </div>
           )}
 

@@ -1,0 +1,466 @@
+import { useState, useEffect, useMemo, useCallback } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import { ArrowLeft, Linkedin, Trash2, RefreshCw, Search, Download, Upload } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
+import { relTime } from "@/components/mind/shared";
+import { PeopleImportModal } from "@/components/contacts/PeopleImportModal";
+import { ContactInfo, healthColor, stageColor, ActivityIcon, mapContact } from "@/components/mind/entities";
+import { PageHeader } from "@/components/ui/page-header";
+
+const apiUrl = import.meta.env.VITE_API_URL ?? "";
+const PAGE_SIZE = 50;
+const PIPELINE_STAGES = ["identified", "aware", "interested", "evaluating", "client"];
+
+type DetailTab = "activity" | "emails" | "linkedin" | "slack" | "calls" | "notes" | "company" | "memory";
+
+// ─── PeopleDetail — tabbed contact record ────────────────────────────────────
+
+function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token: string; onBack: () => void }) {
+  const [tab, setTab] = useState<DetailTab>("activity");
+  const [loading, setLoading] = useState(true);
+  const [acts, setActs] = useState<any[]>([]);
+  const [mems, setMems] = useState<any[]>([]);
+  const [raw, setRaw] = useState<any>(null);
+  const [editingField, setEditingField] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [localOverrides, setLocalOverrides] = useState<Record<string, string | null>>({});
+
+  useEffect(() => {
+    setLoading(true);
+    fetch(`${apiUrl}/api/contacts/${contact.id}`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) { setActs(d.activities ?? []); setMems(d.memories ?? []); setRaw(d.contact ?? null); } setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [contact.id, token]);
+
+  const patchContact = async (patchKey: string, value: string) => {
+    setSaving(true);
+    try {
+      await fetch(`${apiUrl}/api/contacts/${contact.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ [patchKey]: value || null }),
+      });
+      setLocalOverrides(prev => ({ ...prev, [patchKey]: value || null }));
+    } catch { /* silent */ }
+    finally { setSaving(false); setEditingField(null); }
+  };
+
+  const startEdit = (key: string, current: string | null) => {
+    setEditingField(key); setEditValue(current ?? "");
+  };
+
+  const get = (patchKey: string, fallback: string | null | undefined) =>
+    patchKey in localOverrides ? localOverrides[patchKey] : (fallback ?? null);
+
+  const emails  = acts.filter(a => a.source === "gmail" || ["email_sent","email_opened","email_reply","email_bounced"].some(t => a.activity_type?.includes(t)));
+  const linkedin = acts.filter(a => a.source === "linkedin" || a.activity_type?.includes("linkedin"));
+  const slack   = acts.filter(a => a.source === "slack"    || a.activity_type?.includes("slack"));
+  const calls   = acts.filter(a => ["call","meeting"].some(t => a.activity_type?.includes(t)));
+  const notes   = acts.filter(a => ["note","manual","contact_created"].some(t => a.activity_type?.includes(t)));
+
+  const TABS: { id: DetailTab; label: string; count?: number }[] = [
+    { id:"activity",  label:"Activity",  count: acts.length    },
+    { id:"emails",    label:"Emails",    count: emails.length  },
+    { id:"linkedin",  label:"LinkedIn",  count: linkedin.length },
+    { id:"slack",     label:"Slack",     count: slack.length   },
+    { id:"calls",     label:"Calls",     count: calls.length   },
+    { id:"notes",     label:"Notes",     count: notes.length   },
+    { id:"company",   label:"Company"                          },
+    { id:"memory",    label:"Memory",    count: mems.length    },
+  ];
+
+  const tabItems = tab==="activity" ? acts : tab==="emails" ? emails : tab==="linkedin" ? linkedin : tab==="slack" ? slack : tab==="calls" ? calls : tab==="notes" ? notes : [];
+
+  return (
+    <div className="flex flex-col h-full bg-white">
+      {/* Header */}
+      <div className="flex-shrink-0 px-8 pt-7 pb-0">
+        <div className="flex items-center gap-3 mb-1">
+          <button onClick={onBack}
+            className="inline-flex items-center justify-center h-8 w-8 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 hover:text-gray-900 transition-colors flex-shrink-0">
+            <ArrowLeft className="h-4 w-4" />
+          </button>
+          <h1 className="text-[26px] font-bold tracking-tight text-gray-900">{contact.name}</h1>
+        </div>
+        <div className="flex items-center gap-2 pl-11 mb-4 flex-wrap">
+          {contact.email && <span className="text-[13px] text-gray-500">{contact.email}</span>}
+          {contact.lastActivityAt && <span className="text-[12px] text-gray-400">· {relTime(contact.lastActivityAt)}</span>}
+        </div>
+        <div className="flex gap-6 border-b border-gray-200 overflow-x-auto">
+          {TABS.map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)}
+              className={`flex items-center gap-1.5 pb-2.5 text-[13px] font-medium transition-colors flex-shrink-0 ${
+                tab===t.id ? "text-gray-900 border-b-2 border-gray-900 -mb-px" : "text-gray-400 hover:text-gray-700"
+              }`}>
+              {t.label}
+              {t.count !== undefined && <span className={`text-[11px] ${tab===t.id ? "text-gray-400" : "text-gray-300"}`}>{t.count}</span>}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="flex-1 flex items-center justify-center text-[13px] text-gray-400">Loading…</div>
+      ) : (
+        <div className="flex flex-1 min-h-0 overflow-hidden">
+          {/* Main content */}
+          <div className="flex-1 overflow-y-auto px-8 py-4">
+            {(tab !== "company" && tab !== "memory") && (
+              tabItems.length === 0
+                ? <p className="text-[13px] text-gray-400 py-12 text-center">Nothing here yet</p>
+                : <div className="divide-y divide-gray-100">
+                    {tabItems.map((a: any) => {
+                      const body = a.subtitle || a.raw_data?.text || a.raw_data?.body || null;
+                      return (
+                        <div key={a.id} className="py-3">
+                          <div className="flex items-center gap-2.5 mb-1.5">
+                            <ActivityIcon source={a.source} type={a.activity_type || ""} />
+                            <span className="text-[12px] text-gray-500 flex-1 truncate">
+                              {a.activity_type?.replace(/_/g," ").toLowerCase()}
+                            </span>
+                            <span className="text-[12px] text-gray-400 tabular-nums flex-shrink-0">{relTime(a.created_at || a.occurred_at)}</span>
+                          </div>
+                          {body && (
+                            <p className="text-[13px] text-gray-700 leading-relaxed pl-[26px]">{body}</p>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+            )}
+            {tab === "company" && (
+              <div className="py-4 space-y-1">
+                <div className="text-[15px] font-semibold text-gray-900">{contact.companyName ?? raw?.company ?? "—"}</div>
+                {(contact.domain ?? raw?.domain) && <div className="text-[13px] text-gray-500">{contact.domain ?? raw?.domain}</div>}
+              </div>
+            )}
+            {tab === "memory" && (
+              mems.length === 0
+                ? <p className="text-[13px] text-gray-400 py-12 text-center">No memories yet</p>
+                : <div className="divide-y divide-gray-100">
+                    {mems.map((m: any) => (
+                      <div key={m.id} className="py-3">
+                        <div className="flex items-baseline gap-2 mb-1">
+                          <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 capitalize">{m.category?.toLowerCase()}</span>
+                          <span className="text-[12px] text-gray-400 ml-auto">{relTime(m.created_at)}</span>
+                        </div>
+                        <p className="text-[13px] text-gray-700 leading-relaxed">{m.content}</p>
+                      </div>
+                    ))}
+                  </div>
+            )}
+          </div>
+
+          {/* Record Details sidebar — editable */}
+          <div className="w-64 flex-shrink-0 border-l border-gray-200 px-5 py-5 overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Record Details</span>
+              {saving && <span className="text-[11px] text-gray-400">saving…</span>}
+            </div>
+            <div className="space-y-3.5">
+              {([
+                { label:"First Name",     key:"firstName",      val: get("firstName",      raw?.first_name)                },
+                { label:"Last Name",      key:"lastName",       val: get("lastName",       raw?.last_name)                 },
+                { label:"Email",          key:"email",          val: get("email",          contact.email)                  },
+                { label:"Phone",          key:"phone",          val: get("phone",          contact.phone)                  },
+                { label:"Job Title",      key:"jobTitle",       val: get("jobTitle",       contact.title)                  },
+                { label:"Company",        key:"company",        val: get("company",        contact.companyName??raw?.company)},
+                { label:"LinkedIn",       key:"linkedinUrl",    val: get("linkedinUrl",    contact.linkedinUrl)            },
+                { label:"Pipeline Stage", key:"pipeline_stage", val: get("pipeline_stage", contact.pipelineStage), type:"select", opts: PIPELINE_STAGES },
+                { label:"Deal Stage",     key:"dealStage",      val: get("dealStage",      contact.dealStage??raw?.deal_stage)},
+                { label:"Deal Value",     key:"dealValue",      val: get("dealValue",      contact.dealValue!=null?String(contact.dealValue):null), type:"number" },
+                { label:"Lead Source",    key:"lead_source",    val: get("lead_source",    contact.source??raw?.lead_source)},
+                { label:"Industry",       key:"industry",       val: get("industry",       raw?.industry)                  },
+                { label:"Department",     key:"department",     val: get("department",     contact.department)             },
+                { label:"Seniority",      key:"seniority",      val: get("seniority",      contact.seniority)              },
+                { label:"City",           key:"city",           val: get("city",           contact.city)                   },
+                { label:"Country",        key:"country",        val: get("country",        contact.country)                },
+                { label:"Notes",          key:"notes",          val: get("notes",          raw?.notes), type:"textarea"     },
+              ] as { label:string; key:string; val:string|null; type?:string; opts?:string[] }[]).map(({ label, key, val, type, opts }) => {
+                const isEditing = editingField === key;
+                return (
+                  <div key={key}>
+                    <div className="text-[11px] font-medium text-gray-400 mb-1">{label}</div>
+                    {isEditing ? (
+                      type === "select" ? (
+                        <select value={editValue} autoFocus
+                          onChange={e => { setEditValue(e.target.value); patchContact(key, e.target.value); }}
+                          className="w-full rounded-md border border-gray-300 bg-white text-[13px] text-gray-900 px-2 py-1 outline-none focus:border-gray-400">
+                          {opts?.map(o => <option key={o} value={o}>{o}</option>)}
+                        </select>
+                      ) : type === "textarea" ? (
+                        <textarea value={editValue} autoFocus rows={3}
+                          onChange={e => setEditValue(e.target.value)}
+                          onBlur={() => patchContact(key, editValue)}
+                          onKeyDown={e => { if (e.key==="Escape") setEditingField(null); }}
+                          className="w-full rounded-md border border-gray-300 bg-white text-[13px] text-gray-900 px-2 py-1 outline-none focus:border-gray-400 resize-none leading-relaxed" />
+                      ) : (
+                        <input type={type==="number"?"number":"text"} value={editValue} autoFocus
+                          onChange={e => setEditValue(e.target.value)}
+                          onBlur={() => patchContact(key, editValue)}
+                          onKeyDown={e => { if (e.key==="Enter") patchContact(key, editValue); if (e.key==="Escape") setEditingField(null); }}
+                          className="w-full rounded-md border border-gray-300 bg-white text-[13px] text-gray-900 px-2 py-1 outline-none focus:border-gray-400" />
+                      )
+                    ) : (
+                      <div onClick={() => startEdit(key, val)}
+                        className={`text-[13px] leading-snug break-words cursor-pointer rounded-md px-1.5 -mx-1.5 py-1 transition-colors hover:bg-gray-50 ${val ? "text-gray-700" : "text-gray-300 italic"}`}>
+                        {val ?? "—"}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── People — standalone page ────────────────────────────────────────────────
+
+export default function People() {
+  const { session, userData } = useAuth();
+  const token = session?.access_token ?? "";
+  const workspaceId = userData?.workspace?.id ?? "";
+  const { id } = useParams();
+  const navigate = useNavigate();
+
+  const [contacts, setContacts] = useState<ContactInfo[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    if (!token || !workspaceId) return;
+    try {
+      const res = await fetch(`${apiUrl}/api/contacts?workspaceId=${workspaceId}&limit=2000`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = res.ok ? await res.json() : {};
+      setContacts((data.contacts ?? []).map(mapContact));
+    } catch { /* silent */ }
+    finally { setLoading(false); }
+  }, [token, workspaceId]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const [q, setQ] = useState("");
+  const [stage, setStage] = useState("");
+  const [page, setPage] = useState(0);
+  const [sortCol, setSortCol] = useState<"lastActivity"|"deal"|null>(null);
+  const [sortDir, setSortDir] = useState<"asc"|"desc">("asc");
+  const [showImport, setShowImport] = useState(false);
+  const [enriching, setEnriching] = useState<Set<string>>(new Set());
+  const [enriched, setEnriched] = useState<Set<string>>(new Set());
+  const [enrichErr, setEnrichErr] = useState<Set<string>>(new Set());
+  const stages = ["identified","aware","interested","evaluating","client"];
+
+  const detail = useMemo<ContactInfo | null>(
+    () => id ? contacts.find(c => c.id === id) ?? null : null,
+    [id, contacts]
+  );
+  const setDetail = (c: ContactInfo | null) => navigate(c ? `/people/${c.id}` : "/people");
+
+  const deleteContact = async (cid: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setContacts(prev => prev.filter(c => c.id !== cid));
+    fetch(`${apiUrl}/api/contacts/${cid}`, {
+      method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
+    }).catch(() => {});
+  };
+
+  const handleEnrich = async (c: ContactInfo, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (enriching.has(c.id) || enriched.has(c.id)) return;
+    setEnriching(prev => new Set(prev).add(c.id));
+    setEnrichErr(prev => { const s = new Set(prev); s.delete(c.id); return s; });
+    try {
+      const res = await fetch(`${apiUrl}/api/contacts/${c.id}/enrich`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) setEnriched(prev => new Set(prev).add(c.id));
+      else setEnrichErr(prev => new Set(prev).add(c.id));
+    } catch { setEnrichErr(prev => new Set(prev).add(c.id)); }
+    finally { setEnriching(prev => { const s = new Set(prev); s.delete(c.id); return s; }); }
+  };
+
+  const cycleSort = (col: "lastActivity"|"deal") => {
+    if (sortCol !== col) { setSortCol(col); setSortDir("asc"); }
+    else if (sortDir === "asc") setSortDir("desc");
+    else { setSortCol(null); setPage(0); }
+  };
+
+  const filtered = contacts.filter(c => {
+    const qs = q.toLowerCase();
+    return (!q || c.name.toLowerCase().includes(qs) || (c.email??"").toLowerCase().includes(qs) || (c.companyName??"").toLowerCase().includes(qs))
+      && (!stage || c.pipelineStage === stage);
+  });
+  const sorted = [...filtered].sort((a,b) => {
+    if (sortCol === "lastActivity") {
+      const cmp = (a.lastActivityAt??"").localeCompare(b.lastActivityAt??"");
+      return sortDir === "asc" ? cmp : -cmp;
+    }
+    if (sortCol === "deal") {
+      const cmp = (a.dealStage??"").localeCompare(b.dealStage??"");
+      return sortDir === "asc" ? cmp : -cmp;
+    }
+    return (b.lastActivityAt??"").localeCompare(a.lastActivityAt??"");
+  });
+  const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
+  const pageRows = sorted.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+
+  const handleSearch = (v: string) => { setQ(v); setPage(0); };
+  const handleStage  = (s: string) => { setStage(p => p===s ? "" : s); setPage(0); };
+
+  const handleExport = () => {
+    const headers = ["Name","Email","Company","Pipeline Stage","Deal Stage","Segment","Health","ICP","Last Activity","LinkedIn"];
+    const rows = contacts.map(c => [
+      c.name, c.email??"", c.companyName??"", c.pipelineStage,
+      c.dealStage??"", c.segmentLabel??"",
+      c.dealHealthScore!=null?String(c.dealHealthScore):"",
+      c.icpScore!=null?String(c.icpScore):"",
+      c.lastActivityAt??"", c.linkedinUrl??""
+    ]);
+    const csv = [headers,...rows].map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(",")).join("\n");
+    const url = URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
+    const a = document.createElement("a"); a.href=url; a.download="contacts.csv"; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const SortBtn = ({ col, label, w }: { col:"lastActivity"|"deal"; label:string; w:number }) => (
+    <button onClick={() => { cycleSort(col); setPage(0); }}
+      className="text-[11px] font-semibold uppercase tracking-wide flex items-center gap-0.5 flex-shrink-0 group"
+      style={{width:w}}>
+      <span className={sortCol===col ? "text-gray-700" : "text-gray-400 group-hover:text-gray-700 transition-colors"}>{label}</span>
+      {sortCol===col && <span className="text-[10px] text-gray-500 ml-0.5">{sortDir==="asc"?"↑":"↓"}</span>}
+    </button>
+  );
+
+  if (detail) {
+    return (
+      <div className="h-full bg-white">
+        <PeopleDetail contact={detail} token={token} onBack={() => setDetail(null)} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-full overflow-y-auto bg-white">
+      {showImport && <PeopleImportModal workspaceId={workspaceId} token={token} onClose={()=>setShowImport(false)} onDone={()=>{ setShowImport(false); load(); }}/>}
+      <div className="px-8 py-7">
+        <PageHeader
+          title="People"
+          subtitle="Every contact in your workspace, ranked by recent activity."
+          actions={
+            <>
+              <button onClick={handleExport}
+                className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-white border border-gray-200 text-gray-700 text-[13px] font-semibold hover:bg-gray-50 transition-colors">
+                <Download className="h-3.5 w-3.5" /> Export
+              </button>
+              <button onClick={() => setShowImport(true)}
+                className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-white border border-gray-200 text-gray-700 text-[13px] font-semibold hover:bg-gray-50 transition-colors">
+                <Upload className="h-3.5 w-3.5" /> Import
+              </button>
+            </>
+          }
+        />
+
+        {/* Toolbar */}
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <div className="relative w-full max-w-xs">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
+            <input value={q} onChange={e=>handleSearch(e.target.value)} placeholder="Search people…" autoFocus
+              className="h-9 w-full rounded-lg border border-gray-200 bg-white pl-9 pr-3 text-[13px] text-gray-900 placeholder:text-gray-400 focus:border-gray-400 outline-none" />
+          </div>
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            {stages.map(s => (
+              <button key={s} onClick={() => handleStage(s)}
+                className={`text-[12px] px-2.5 py-1 rounded-md border transition-colors capitalize ${stage===s ? "text-gray-900 border-gray-900 bg-gray-50 font-medium" : "text-gray-500 border-gray-200 hover:border-gray-400"}`}>
+                {s}
+              </button>
+            ))}
+            <span className="text-[12px] text-gray-400 ml-1 tabular-nums">{sorted.length} of {contacts.length}</span>
+          </div>
+        </div>
+
+        {/* Table */}
+        <div className="rounded-xl border border-gray-200 overflow-hidden">
+          {/* Table header */}
+          <div className="flex items-center px-4 py-2.5 bg-gray-50 border-b border-gray-200">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 flex-shrink-0" style={{width:170}}>Name</span>
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 flex-shrink-0" style={{width:115}}>Company</span>
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 flex-shrink-0" style={{width:100}}>Domain</span>
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 flex-shrink-0" style={{width:40}}>LI</span>
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 flex-shrink-0" style={{width:88}}>Stage</span>
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 flex-shrink-0" style={{width:42}}>ICP</span>
+            <SortBtn col="deal" label="Deal" w={88} />
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 flex-shrink-0" style={{width:72}}>Segment</span>
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 flex-shrink-0" style={{width:60}}>Health</span>
+            <SortBtn col="lastActivity" label="Last Int." w={96} />
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 flex-shrink-0 text-right" style={{width:78}}>Enrich</span>
+          </div>
+          {/* Rows */}
+          {loading && contacts.length === 0 && <div className="text-[13px] text-gray-400 text-center py-12">Loading…</div>}
+          {pageRows.map(c => (
+            <div key={c.id} className="flex items-center px-4 py-3 border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors group">
+              <button onClick={() => setDetail(c)} className="flex-shrink-0 text-left min-w-0 pr-3" style={{width:170}}>
+                <div className="text-[13px] font-medium text-gray-900 truncate">{c.name}</div>
+                {c.title && <div className="text-[12px] text-gray-400 truncate">{c.title}</div>}
+              </button>
+              <button onClick={() => setDetail(c)} className="text-[13px] text-gray-500 truncate pr-2 flex-shrink-0 text-left" style={{width:115}}>{c.companyName ?? "—"}</button>
+              <span className="text-[13px] text-gray-400 truncate pr-2 flex-shrink-0" style={{width:100}}>{c.domain ?? "—"}</span>
+              <div className="flex-shrink-0" style={{width:40}}>
+                {c.linkedinUrl
+                  ? <a href={c.linkedinUrl} target="_blank" rel="noopener noreferrer" onClick={e=>e.stopPropagation()}
+                      className="text-gray-400 hover:text-gray-900 transition-colors flex items-center">
+                      <Linkedin className="h-3.5 w-3.5" />
+                    </a>
+                  : <span className="text-gray-300 text-[12px]">—</span>
+                }
+              </div>
+              <button onClick={() => setDetail(c)} className="text-[13px] pr-2 flex-shrink-0 text-left capitalize" style={{width:88,color:stageColor(c.pipelineStage)}}>{c.pipelineStage}</button>
+              <button onClick={() => setDetail(c)} className="text-[13px] text-gray-500 pr-2 flex-shrink-0 text-left tabular-nums" style={{width:42}}>{c.icpScore != null ? c.icpScore : "—"}</button>
+              <button onClick={() => setDetail(c)} className="text-[13px] text-gray-500 truncate pr-2 flex-shrink-0 text-left" style={{width:88}}>{c.dealStage ?? "—"}</button>
+              <button onClick={() => setDetail(c)} className="text-[13px] text-gray-500 truncate pr-2 flex-shrink-0 text-left" style={{width:72}}>{c.segmentLabel ?? "—"}</button>
+              <button onClick={() => setDetail(c)} className="text-[13px] tabular-nums pr-2 flex-shrink-0 text-left" style={{width:60,color:c.dealHealthScore!=null?healthColor(c.dealHealthScore):""}}>
+                {c.dealHealthScore!=null ? `${c.dealHealthScore}` : "—"}
+              </button>
+              <button onClick={() => setDetail(c)} className="text-[13px] text-gray-500 flex-1 text-left" style={{minWidth:0}}>{relTime(c.lastActivityAt)}</button>
+              <div className="flex-shrink-0 flex items-center justify-end gap-2" style={{width:78}}>
+                {enriched.has(c.id) ? (
+                  <span className="text-[11px] text-emerald-600">enriched</span>
+                ) : enrichErr.has(c.id) ? (
+                  <span className="text-[11px] text-red-500">failed</span>
+                ) : (
+                  <button onClick={e => handleEnrich(c, e)} disabled={enriching.has(c.id)}
+                    className="text-[12px] font-medium text-gray-500 hover:text-gray-900 transition-colors disabled:opacity-40 flex items-center gap-0.5">
+                    {enriching.has(c.id) ? <RefreshCw className="h-3 w-3 animate-spin"/> : <span>Enrich</span>}
+                  </button>
+                )}
+                <button onClick={e => deleteContact(c.id, e)}
+                  className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-300 hover:text-red-500 flex-shrink-0">
+                  <Trash2 className="h-3.5 w-3.5"/>
+                </button>
+              </div>
+            </div>
+          ))}
+          {!loading && sorted.length===0 && <div className="text-[13px] text-gray-400 text-center py-12">No results</div>}
+        </div>
+
+        {/* Pagination footer */}
+        <div className="mt-4 flex items-center justify-between">
+          <span className="text-[12px] text-gray-400 tabular-nums">page {page+1} of {totalPages} · {sorted.length} people</span>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setPage(p=>p-1)} disabled={page===0}
+              className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-white border border-gray-200 text-gray-700 text-[13px] font-semibold hover:bg-gray-50 transition-colors disabled:opacity-30">Prev</button>
+            <button onClick={() => setPage(p=>p+1)} disabled={page>=totalPages-1}
+              className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-white border border-gray-200 text-gray-700 text-[13px] font-semibold hover:bg-gray-50 transition-colors disabled:opacity-30">Next</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

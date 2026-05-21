@@ -610,7 +610,7 @@ export async function scoreICP(supabase, workspaceId, contact) {
 
   const { data: memories } = await supabase
     .from('workspace_memories')
-    .select('category, content')
+    .select('id, category, content')
     .eq('workspace_id', workspaceId)
     .eq('is_active', true)
     .in('category', ['ICP', 'Market', 'Company', 'Product'])
@@ -637,6 +637,39 @@ export async function scoreICP(supabase, workspaceId, contact) {
       icp_reasoning: json.reasoning,
       icp_scored_at: new Date().toISOString(),
     }).eq('id', contact.id);
+
+    // The Mind — snapshot this prediction so a later judge can join it to the
+    // realized outcome. basis_memory_ids records exactly which ICP memory
+    // versions produced the score; outcome_pipeline_from is the stage baseline
+    // the outcome job measures advancement against. Non-fatal: a failed
+    // snapshot must not block scoring. See docs/compound-intelligence-mind.md.
+    const { data: stageRow } = await supabase
+      .from('contacts')
+      .select('pipeline_stage')
+      .eq('id', contact.id)
+      .maybeSingle();
+    const { error: episodeErr } = await supabase.from('mind_episodes').insert({
+      workspace_id:          workspaceId,
+      contact_id:            contact.id,
+      company_id:            contact.company_id || null,
+      kind:                  'icp_score',
+      predicted_score:       json.score,
+      predicted_fit:         json.fit ?? json.score >= 70,
+      predicted_reason:      json.reasoning || null,
+      basis_memory_ids:      (memories || []).map(m => m.id),
+      model:                 'claude-haiku-4-5-20251001',
+      outcome_pipeline_from: stageRow?.pipeline_stage || contact.pipeline_stage || 'identified',
+      // Point-in-time feature snapshot — what the Scorecard learning loop
+      // re-scores this prediction against. See docs/adaptive-lead-scoring.md.
+      features: {
+        job_title:  contact.job_title  || null,
+        seniority:  contact.seniority  || null,
+        department: contact.department || null,
+        company:    contact.company    || null,
+        country:    contact.country    || null,
+      },
+    });
+    if (episodeErr) console.warn('[MIND_EPISODE] snapshot failed for contact', contact.id, ':', episodeErr.message);
 
     const fitLabel = json.score >= 75 ? 'Strong fit' : json.score >= 50 ? 'Potential fit' : 'Weak fit';
     await logActivity(supabase, {

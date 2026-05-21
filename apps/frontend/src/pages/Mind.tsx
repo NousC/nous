@@ -16,6 +16,7 @@ import UpgradeModal, { type UpgradePrompt } from "@/components/UpgradeModal";
 // edits to one popup don't invalidate the Mind shell chunk for everyone.
 const SettingsFullPopup = lazy(() => import("@/components/mind/popups/SettingsFullPopup"));
 const MemoriesPopup     = lazy(() => import("@/components/mind/popups/MemoriesPopup"));
+const LeadListsPopup    = lazy(() => import("@/components/mind/popups/LeadListsPopup"));
 
 const apiUrl = import.meta.env.VITE_API_URL ?? "";
 
@@ -113,6 +114,25 @@ interface Workspace {
   id: string;
   name: string;
   icon?: string;
+}
+
+// The Mind — how well ICP scores predict real outcomes (Phase 3).
+interface Calibration {
+  resolved: number;
+  open: number;
+  high: { count: number; avgOutcome: number | null };
+  low: { count: number; avgOutcome: number | null };
+  gap: number | null;
+  trend: { week: string; n: number; gap: number | null }[];
+}
+
+// Lead Lists (Adaptive Lead Scoring) — summary row for the stats column.
+interface LeadListSummary {
+  id: string;
+  name: string;
+  source: string;
+  lead_count?: number;
+  created_at: string;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -2333,7 +2353,7 @@ function writeMindCache(workspaceId: string, data: Omit<MindCache, "ts">) {
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
-type Popup = "companies" | "people" | "crm" | "integrations" | "memories" | "settings" | null;
+type Popup = "companies" | "people" | "crm" | "integrations" | "memories" | "lead-lists" | "settings" | null;
 
 export default function Mind() {
   const { userData, session } = useAuth();
@@ -2345,6 +2365,8 @@ export default function Mind() {
   const [allContacts,  setAllContacts]  = useState<ContactInfo[]>([]);
   const [integrations, setIntegrations] = useState<IntegrationConn[]>([]);
   const [memories,     setMemories]     = useState<MemoryFact[]>([]);
+  const [calibration,  setCalibration]  = useState<Calibration | null>(null);
+  const [leadLists,    setLeadLists]    = useState<LeadListSummary[]>([]);
   const [ops,          setOps]          = useState<LiveOp[]>([]);
   const [lifetimeOps,  setLifetimeOps]  = useState(0);
   const [isOnline,     setIsOnline]     = useState(false);
@@ -2367,7 +2389,7 @@ export default function Mind() {
   const { popup, detailId } = useMemo<{ popup: Popup; detailId: string | null }>(() => {
     const parts = location.pathname.split("/").filter(Boolean);
     const slug = parts[0];
-    if (!(["companies","people","crm","integrations","memories","settings"] as const).includes(slug as any)) {
+    if (!(["companies","people","crm","integrations","memories","lead-lists","settings"] as const).includes(slug as any)) {
       return { popup: null, detailId: null };
     }
     return { popup: slug as Popup, detailId: parts[1] || null };
@@ -2509,6 +2531,30 @@ export default function Mind() {
     return ()=>clearInterval(iv);
   }, [loadData,loadOps]);
 
+  // The Mind — calibration gap (how well ICP scores predict real outcomes).
+  // The outcome job runs nightly, so this only meaningfully changes once a day.
+  useEffect(() => {
+    if (!workspaceId || !token) return;
+    fetch(`${apiUrl}/api/mind/calibration?workspaceId=${workspaceId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (d) setCalibration(d); })
+      .catch(() => { /* silent */ });
+  }, [workspaceId, token]);
+
+  // The Mind — lead lists (Adaptive Lead Scoring). Refetched after create/import.
+  const loadLeadLists = useCallback(() => {
+    if (!workspaceId || !token) return;
+    fetch(`${apiUrl}/api/lead-lists?workspaceId=${workspaceId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (d) setLeadLists(d.lead_lists ?? []); })
+      .catch(() => { /* silent */ });
+  }, [workspaceId, token]);
+  useEffect(() => { loadLeadLists(); }, [loadLeadLists]);
+
   const groups = groupByDay(ops);
 
   return (
@@ -2576,6 +2622,7 @@ export default function Mind() {
             {([
               {label:"COMPANIES",   value:companies.length,    p:"companies"    as Popup},
               {label:"PEOPLE",      value:allContacts.length,  p:"people"       as Popup},
+              {label:"LEAD LISTS",  value:leadLists.length,    p:"lead-lists"   as Popup},
               {label:"CRM",         value:integrations.filter(i=>i.is_verified && CRM_NAMES.includes(i.provider?.name ?? "")).length, p:"crm" as Popup},
               {label:"INTEGRATIONS",value:integrations.filter(i=>i.is_verified).length, p:"integrations" as Popup},
               {label:"MEMORIES",    value:memories.length,     p:"memories"     as Popup},
@@ -2586,6 +2633,27 @@ export default function Mind() {
                 <div className="text-foreground/70 tabular-nums text-[11px] group-hover:text-foreground">{value.toLocaleString()}</div>
               </button>
             ))}
+            {/* The Mind — calibration gap: does the ICP score the contacts who
+                actually convert higher than those who don't? Higher = sharper. */}
+            {calibration && (
+              <div className="text-left"
+                title="How well ICP scores predict real outcomes — avg(outcome | score≥70) − avg(outcome | score<70). Higher = the Mind targets better.">
+                <div className="text-muted-foreground/40 text-[9px] tracking-widest mb-0.5">CALIBRATION</div>
+                <div className="tabular-nums text-[11px]" style={{
+                  color: calibration.gap == null ? "#6b7280"
+                    : calibration.gap > 0.05 ? "#4ade80"
+                    : calibration.gap < 0 ? "#f87171"
+                    : "#facc15",
+                }}>
+                  {calibration.gap == null
+                    ? "—"
+                    : `${calibration.gap > 0 ? "+" : ""}${calibration.gap.toFixed(2)}`}
+                </div>
+                <div className="text-muted-foreground/25 text-[8px] mt-0.5 tabular-nums">
+                  {calibration.resolved} resolved · {calibration.open} open
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -2658,11 +2726,12 @@ export default function Mind() {
       {popup==="crm"&&workspaceId&&token&&<CrmSyncPopup integrations={integrations} workspaceId={workspaceId} token={token} onClose={()=>setPopup(null)} onOpenIntegrations={()=>setPopup("integrations")} onUpgradeNeeded={setUpgrade}/>}
       {popup==="integrations"&&workspaceId&&token&&<IntegrationsPopup integrations={integrations} workspaceId={workspaceId} token={token} onClose={()=>setPopup(null)}/>}
       {popup==="memories"&&workspaceId&&token&&<Suspense fallback={null}><MemoriesPopup memories={memories} categories={memoriesCategories} workspaceId={workspaceId} token={token} onClose={()=>setPopup(null)}/></Suspense>}
+      {popup==="lead-lists"&&workspaceId&&token&&<Suspense fallback={null}><LeadListsPopup leadLists={leadLists} workspaceId={workspaceId} token={token} onClose={()=>setPopup(null)} onRefresh={loadLeadLists}/></Suspense>}
       {popup==="settings"&&workspaceId&&<Suspense fallback={null}><SettingsFullPopup workspaceId={workspaceId} initialTab={settingsTab} onClose={()=>setPopup(null)}/></Suspense>}
       <UpgradeModal
         prompt={upgrade}
         onClose={()=>setUpgrade(null)}
-        onUpgrade={()=>{ setUpgrade(null); setSettingsTab("billing"); setPopup("settings"); }}
+        onUpgrade={()=>{ setUpgrade(null); navigate("/usage"); }}
       />
     </div>
   );
