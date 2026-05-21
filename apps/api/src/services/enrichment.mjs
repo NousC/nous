@@ -4,7 +4,7 @@
 // ============================================================
 
 import Anthropic from '@anthropic-ai/sdk';
-import { logActivity } from '@nous/core';
+import { logActivity, listSignals, scoreLead } from '@nous/core';
 import { decrypt } from '../utils/encryption.js';
 
 async function logSysEvent(supabase, workspaceId, source, eventType, summary, contactId, metadata) {
@@ -599,6 +599,16 @@ export async function upsertCompany(supabase, workspaceId, data) {
 // ── ICP scoring ──────────────────────────────────────────────────────────────
 
 export async function scoreICP(supabase, workspaceId, contact) {
+  // Point-in-time feature snapshot — drives Scorecard scoring AND the
+  // mind_episodes record the learning loop re-scores against. Company-level
+  // features are merged in below once the contact's company is known.
+  let features = {
+    job_title:  contact.job_title  || null,
+    seniority:  contact.seniority  || null,
+    department: contact.department || null,
+    company:    contact.company    || null,
+    country:    contact.country    || null,
+  };
   const contactSummary = [
     contact.job_title   && `Title: ${contact.job_title}`,
     contact.seniority   && `Seniority: ${contact.seniority}`,
@@ -608,41 +618,91 @@ export async function scoreICP(supabase, workspaceId, contact) {
 
   if (!contactSummary) return; // No profile data yet — skip
 
-  const { data: memories } = await supabase
-    .from('workspace_memories')
-    .select('id, category, content')
-    .eq('workspace_id', workspaceId)
-    .eq('is_active', true)
-    .in('category', ['ICP', 'Market', 'Company', 'Product'])
-    .order('created_at', { ascending: false })
-    .limit(60);
-
-  const prompt = memories?.length
-    ? `Workspace ICP criteria:\n${memories.map(m => `[${m.category}] ${m.content}`).join('\n')}\n\nContact:\n${contactSummary}\n\nScore this contact's ICP fit 0-100 and give a one-sentence reason. Respond as JSON: {"score": <int>, "fit": <bool>, "reasoning": "<one sentence>"}`
-    : `Contact profile:\n${contactSummary}\n\nScore this B2B contact's ICP fit 0-100 based on their role alone. Use seniority as the primary signal: C-suite/VP/Director = high (75-95), Manager/Senior = medium (45-70), IC/unknown = low (20-40). Give a one-sentence reason. Note: no specific ICP criteria configured. Respond as JSON: {"score": <int>, "fit": <bool>, "reasoning": "<one sentence>"}`;
-
   try {
-    const msg = await anthropic.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 200,
-      messages: [{ role: 'user', content: prompt }],
-    });
+    // Enrich the snapshot with company-level features so signals over
+    // industry / employee_count can fire (richer feature snapshot).
+    if (contact.company_id) {
+      const { data: co } = await supabase
+        .from('companies')
+        .select('industry, employee_count')
+        .eq('id', contact.company_id)
+        .maybeSingle();
+      if (co) {
+        features = {
+          ...features,
+          industry:       co.industry || null,
+          employee_count: co.employee_count ?? null,
+        };
+      }
+    }
 
-    const raw = msg.content[0].text.trim();
-    const json = JSON.parse(raw.match(/\{[\s\S]*\}/)?.[0] || raw);
+    // ── Score ────────────────────────────────────────────────────────────────
+    // The Scorecard is the live scorer: a deterministic, decomposable sum of
+    // weighted signals, refined nightly by the learning loop. A workspace
+    // without a Scorecard yet falls back to the LLM reading ICP memories.
+    // See docs/adaptive-lead-scoring.md.
+    let score, fit, reasoning, model;
+    let basisMemoryIds = [];
 
+    let signals = [];
+    try {
+      signals = await listSignals(supabase, workspaceId, { activeOnly: true });
+    } catch {
+      signals = []; // Scorecard unavailable — fall through to the LLM scorer
+    }
+
+    if (signals.length > 0) {
+      const result = scoreLead(features, signals);
+      score = result.score;
+      fit = score >= 70;
+      reasoning = result.fired.length
+        ? `Scorecard: ${result.fired.length} signal${result.fired.length === 1 ? '' : 's'} fired — ${result.fired.slice(0, 4).map(f => f.key).join(', ')}`
+        : 'Scorecard: no signals matched this profile';
+      model = 'scorecard';
+    } else {
+      const { data: memories } = await supabase
+        .from('workspace_memories')
+        .select('id, category, content')
+        .eq('workspace_id', workspaceId)
+        .eq('is_active', true)
+        .in('category', ['ICP', 'Market', 'Company', 'Product'])
+        .order('created_at', { ascending: false })
+        .limit(60);
+
+      const prompt = memories?.length
+        ? `Workspace ICP criteria:\n${memories.map(m => `[${m.category}] ${m.content}`).join('\n')}\n\nContact:\n${contactSummary}\n\nScore this contact's ICP fit 0-100 and give a one-sentence reason. Respond as JSON: {"score": <int>, "fit": <bool>, "reasoning": "<one sentence>"}`
+        : `Contact profile:\n${contactSummary}\n\nScore this B2B contact's ICP fit 0-100 based on their role alone. Use seniority as the primary signal: C-suite/VP/Director = high (75-95), Manager/Senior = medium (45-70), IC/unknown = low (20-40). Give a one-sentence reason. Note: no specific ICP criteria configured. Respond as JSON: {"score": <int>, "fit": <bool>, "reasoning": "<one sentence>"}`;
+
+      const msg = await anthropic.messages.create({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 200,
+        messages: [{ role: 'user', content: prompt }],
+      });
+      const raw = msg.content[0].text.trim();
+      const json = JSON.parse(raw.match(/\{[\s\S]*\}/)?.[0] || raw);
+      score = json.score;
+      fit = json.fit ?? json.score >= 70;
+      reasoning = json.reasoning || null;
+      model = 'claude-haiku-4-5-20251001';
+      basisMemoryIds = (memories || []).map(m => m.id);
+    }
+
+    if (typeof score !== 'number' || Number.isNaN(score)) {
+      console.error('[ICP_SCORE] No score produced for contact', contact.id);
+      return;
+    }
+
+    // ── Write ────────────────────────────────────────────────────────────────
     await supabase.from('contacts').update({
-      icp_score:     json.score,
-      icp_fit:       json.fit ?? json.score >= 70,
-      icp_reasoning: json.reasoning,
+      icp_score:     score,
+      icp_fit:       fit,
+      icp_reasoning: reasoning,
       icp_scored_at: new Date().toISOString(),
     }).eq('id', contact.id);
 
-    // The Mind — snapshot this prediction so a later judge can join it to the
-    // realized outcome. basis_memory_ids records exactly which ICP memory
-    // versions produced the score; outcome_pipeline_from is the stage baseline
-    // the outcome job measures advancement against. Non-fatal: a failed
-    // snapshot must not block scoring. See docs/compound-intelligence-mind.md.
+    // The Mind — snapshot this prediction so the outcome job and learning loop
+    // can join it to the realized outcome. Non-fatal: a failed snapshot must
+    // not block scoring. See docs/adaptive-lead-scoring.md.
     const { data: stageRow } = await supabase
       .from('contacts')
       .select('pipeline_stage')
@@ -653,40 +713,32 @@ export async function scoreICP(supabase, workspaceId, contact) {
       contact_id:            contact.id,
       company_id:            contact.company_id || null,
       kind:                  'icp_score',
-      predicted_score:       json.score,
-      predicted_fit:         json.fit ?? json.score >= 70,
-      predicted_reason:      json.reasoning || null,
-      basis_memory_ids:      (memories || []).map(m => m.id),
-      model:                 'claude-haiku-4-5-20251001',
+      predicted_score:       score,
+      predicted_fit:         fit,
+      predicted_reason:      reasoning,
+      basis_memory_ids:      basisMemoryIds,
+      model,
       outcome_pipeline_from: stageRow?.pipeline_stage || contact.pipeline_stage || 'identified',
-      // Point-in-time feature snapshot — what the Scorecard learning loop
-      // re-scores this prediction against. See docs/adaptive-lead-scoring.md.
-      features: {
-        job_title:  contact.job_title  || null,
-        seniority:  contact.seniority  || null,
-        department: contact.department || null,
-        company:    contact.company    || null,
-        country:    contact.country    || null,
-      },
+      features,
     });
     if (episodeErr) console.warn('[MIND_EPISODE] snapshot failed for contact', contact.id, ':', episodeErr.message);
 
-    const fitLabel = json.score >= 75 ? 'Strong fit' : json.score >= 50 ? 'Potential fit' : 'Weak fit';
+    const fitLabel = score >= 75 ? 'Strong fit' : score >= 50 ? 'Potential fit' : 'Weak fit';
     await logActivity(supabase, {
       workspaceId, contactId: contact.id,
       companyId: contact.company_id || null,
       type: 'icp_scored', source: 'system',
       externalId: `icp_${contact.id}_${new Date().toISOString().slice(0,10)}`,
       occurredAt: new Date().toISOString(),
-      description: `ICP score: ${json.score}/100 — ${fitLabel}`,
-      summary: json.reasoning || null,
+      description: `ICP score: ${score}/100 — ${fitLabel}`,
+      summary: reasoning || null,
     }).catch(() => {});
     logSysEvent(supabase, workspaceId, 'system', 'icp_scored',
-      `ICP score ${json.score}/100 — ${fitLabel}: ${json.reasoning?.slice(0, 120) || ''}`,
-      contact.id, { score: json.score, fit: json.fit, fit_label: fitLabel }
+      `ICP score ${score}/100 — ${fitLabel}: ${(reasoning || '').slice(0, 120)}`,
+      contact.id, { score, fit, fit_label: fitLabel, scorer: model }
     ).catch(() => {});
 
-    console.log(`[ICP_SCORE] ${contact.id}: score=${json.score} fit=${json.fit} (${memories?.length ? 'workspace criteria' : 'generic fallback'})`);
+    console.log(`[ICP_SCORE] ${contact.id}: score=${score} fit=${fit} (${model === 'scorecard' ? 'scorecard' : 'memory fallback'})`);
   } catch (e) {
     console.error('[ICP_SCORE] Failed for contact', contact.id, ':', e.message);
   }

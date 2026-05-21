@@ -11,7 +11,6 @@ import {
   Webhook,
   FileDown,
   Brain,
-  Settings,
   CreditCard,
   ChevronDown,
   PanelLeftClose,
@@ -36,19 +35,18 @@ const setupItems: NavItem[] = [
 
 // Main navigation
 const mainNavItems: NavItem[] = [
-  { title: "Ops",          url: "/",             icon: Activity  },
+  { title: "Ops",          url: "/ops",          icon: Activity  },
   { title: "People",       url: "/people",       icon: Users     },
   { title: "Companies",    url: "/companies",    icon: Building2 },
   { title: "Integrations", url: "/integrations", icon: Plug      },
   { title: "Webhooks",     url: "/webhooks",     icon: Webhook   },
   { title: "Exports",      url: "/exports",      icon: FileDown  },
-  { title: "Memory",       url: "/memories",     icon: Brain     },
+  { title: "Intelligence", url: "/intelligence", icon: Brain     },
 ];
 
-// Bottom navigation — each on its own line
+// Bottom navigation — Settings is reached via the profile button below.
 const bottomNavItems: NavItem[] = [
-  { title: "Settings",        url: "/settings", icon: Settings   },
-  { title: "Usage & Billing", url: "/usage",    icon: CreditCard },
+  { title: "Usage & Billing", url: "/usage", icon: CreditCard },
 ];
 
 export function AppSidebar() {

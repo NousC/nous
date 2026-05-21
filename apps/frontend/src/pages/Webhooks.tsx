@@ -58,7 +58,7 @@ export default function Webhooks() {
 
   return (
     <div className="h-full overflow-y-auto bg-white">
-      <div className="px-8 py-7 max-w-3xl">
+      <div className="px-8 py-7">
         <PageHeader
           title="Webhooks"
           subtitle="Paste these URLs into your tools to push signals in. Providers marked auto-registered are wired up for you when you save the connection — no action needed."

@@ -1,9 +1,8 @@
 import { useState, useEffect, useRef } from "react";
-import { X, FileText, RefreshCw, Check } from "lucide-react";
+import { X, Upload, ArrowLeft, RefreshCw, Check } from "lucide-react";
 import { toast } from "@/components/ui/sonner";
 
 const apiUrl = import.meta.env.VITE_API_URL ?? "";
-const MONO = { fontFamily: "'JetBrains Mono',monospace" } as const;
 
 // ── CSV helpers ────────────────────────────────────────────────────────────
 
@@ -197,19 +196,32 @@ function useImportState({ workspaceId, token, onClose, onDone, testMode }: Peopl
   };
 }
 
+// ── Shared button styles ───────────────────────────────────────────────────
+
+const BTN_PRIMARY = "inline-flex items-center justify-center gap-1.5 h-9 px-4 rounded-lg bg-gray-900 text-white text-[13px] font-semibold hover:bg-gray-800 disabled:opacity-40 transition-colors";
+const BTN_SECONDARY = "inline-flex items-center justify-center gap-1.5 h-9 px-3.5 rounded-lg bg-white border border-gray-200 text-gray-700 text-[13px] font-semibold hover:bg-gray-50 disabled:opacity-40 transition-colors";
+
+// ── Step subtitle ──────────────────────────────────────────────────────────
+
+function stepSubtitle(step: string) {
+  if (step === "upload")   return "Upload a CSV of contacts to add to your workspace.";
+  if (step === "mapping")  return "Match each CSV column to a contact field.";
+  return "Backfilling history from your connected tools.";
+}
+
 function ImportBody(s: ReturnType<typeof useImportState>) {
   if (s.step === "scanning") {
     return (
       <div className="px-6 py-5">
-        <div className="flex items-center gap-2 mb-4">
+        <div className="flex items-center gap-2.5 mb-4">
           {s.enrichProgress?.done
-            ? <Check className="h-3.5 w-3.5 text-emerald-500" />
-            : <RefreshCw className="h-3.5 w-3.5 animate-spin text-violet-400" />}
-          <span className="text-[12px] text-foreground/80">
+            ? <Check className="h-4 w-4 text-emerald-600" />
+            : <RefreshCw className="h-4 w-4 animate-spin text-gray-400" />}
+          <span className="text-[13px] font-medium text-gray-800">
             {s.enrichProgress?.done ? "Scan complete" : "Scanning contact history…"}
           </span>
           {s.importResult && (
-            <span className="text-[10px] text-muted-foreground/40 ml-auto">
+            <span className="text-[12px] text-gray-400 ml-auto">
               {s.importResult.created} new · {s.importResult.updated} updated
             </span>
           )}
@@ -221,31 +233,31 @@ function ImportBody(s: ReturnType<typeof useImportState>) {
             const active = entries.filter(([, val]) => val.status !== "skipped");
             const allSkipped = active.length === 0;
             return (
-              <div key={contact.id} className="border border-border/20 px-4 py-3">
-                <div className="text-[11px] text-foreground/70 mb-2">
+              <div key={contact.id} className="rounded-lg border border-gray-200 px-4 py-3">
+                <div className="text-[13px] text-gray-800 mb-2">
                   {contact.name}
-                  {contact.email && <span className="text-muted-foreground/35 ml-2">{contact.email}</span>}
+                  {contact.email && <span className="text-gray-400 ml-2">{contact.email}</span>}
                 </div>
                 {allSkipped ? (
-                  <div className="text-[9px] text-muted-foreground/25 italic">no integrations connected</div>
+                  <div className="text-[12px] text-gray-300 italic">No integrations connected</div>
                 ) : (
-                  <div className="space-y-1">
+                  <div className="space-y-1.5">
                     {active.map(([src, val]) => (
                       <div key={src} className="flex items-center justify-between">
-                        <span className="text-[9px] text-muted-foreground/50">{SOURCE_LABELS[src] ?? src}</span>
-                        {val.status === "pending" && <span className="text-[9px] text-muted-foreground/25">waiting…</span>}
+                        <span className="text-[12px] text-gray-500">{SOURCE_LABELS[src] ?? src}</span>
+                        {val.status === "pending" && <span className="text-[12px] text-gray-300">Waiting…</span>}
                         {val.status === "scanning" && (
-                          <span className="flex items-center gap-1 text-[9px] text-violet-400/70">
-                            <span className="w-1 h-1 rounded-full bg-violet-400 animate-pulse" />scanning…
+                          <span className="flex items-center gap-1.5 text-[12px] text-gray-500">
+                            <span className="w-1.5 h-1.5 rounded-full bg-gray-400 animate-pulse" />Scanning…
                           </span>
                         )}
                         {val.status === "done" && val.count > 0 && (
-                          <span className="flex items-center gap-1 text-[9px] text-emerald-500/70">
-                            <Check className="h-2.5 w-2.5" />{val.count} found
+                          <span className="flex items-center gap-1 text-[12px] text-emerald-600">
+                            <Check className="h-3 w-3" />{val.count} found
                           </span>
                         )}
                         {val.status === "done" && val.count === 0 && (
-                          <span className="text-[9px] text-muted-foreground/20">—</span>
+                          <span className="text-[12px] text-gray-300">—</span>
                         )}
                       </div>
                     ))}
@@ -255,24 +267,24 @@ function ImportBody(s: ReturnType<typeof useImportState>) {
             );
           })}
           {s.enrichProgress?.done && (s.enrichProgress.contacts?.length ?? 0) === 0 && (
-            <div className="mt-3 text-[9px] text-muted-foreground/35 text-center">
+            <div className="rounded-lg border border-dashed border-gray-200 py-8 px-4 text-[12px] text-gray-400 text-center">
               Connect Gmail, LinkedIn, or other integrations to scan contact history automatically.
             </div>
           )}
           {!s.enrichProgress && (
-            <div className="flex justify-center py-8">
-              <RefreshCw className="h-4 w-4 animate-spin text-muted-foreground/20" />
+            <div className="flex justify-center py-10">
+              <RefreshCw className="h-5 w-5 animate-spin text-gray-300" />
             </div>
           )}
         </div>
 
-        <div className="mt-4 pt-4 border-t border-border/20">
+        <div className="mt-5 pt-4 border-t border-gray-100">
           <button
             disabled={!s.enrichProgress?.done}
             onClick={() => { s.onDone(); s.onClose(); }}
-            className="w-full text-[10px] px-4 py-2 bg-violet-500/20 border border-violet-500/30 text-violet-400/80 hover:bg-violet-500/30 transition-colors disabled:opacity-30"
+            className={`${BTN_PRIMARY} w-full h-10`}
           >
-            {s.enrichProgress?.done ? "done — close" : "scanning…"}
+            {s.enrichProgress?.done ? "Done" : "Scanning…"}
           </button>
         </div>
       </div>
@@ -281,7 +293,7 @@ function ImportBody(s: ReturnType<typeof useImportState>) {
 
   if (s.step === "upload") {
     return (
-      <div className="px-6 py-5">
+      <div className="px-6 py-6">
         <div
           onDragOver={e => { e.preventDefault(); s.setDragOver(true); }}
           onDragLeave={() => s.setDragOver(false)}
@@ -291,16 +303,18 @@ function ImportBody(s: ReturnType<typeof useImportState>) {
             if (f?.name.endsWith(".csv")) s.parseCSVFile(f); else toast.error("Please drop a .csv file");
           }}
           onClick={() => s.fileRef.current?.click()}
-          className={`flex flex-col items-center justify-center gap-3 h-36 border border-dashed cursor-pointer transition-colors select-none ${
-            s.dragOver ? "border-violet-500/60 bg-violet-500/5" : "border-border/40 hover:border-border/70 hover:bg-muted/10"
+          className={`flex flex-col items-center justify-center gap-3 h-44 rounded-xl border-2 border-dashed cursor-pointer transition-colors select-none ${
+            s.dragOver ? "border-gray-900 bg-gray-50" : "border-gray-200 hover:border-gray-300 hover:bg-gray-50"
           }`}
         >
-          <FileText className="h-5 w-5 text-muted-foreground/30" />
+          <div className="h-11 w-11 rounded-xl bg-gray-100 flex items-center justify-center">
+            <Upload className="h-5 w-5 text-gray-400" />
+          </div>
           <div className="text-center">
-            <p className="text-[11px] text-foreground/60">
-              drop a .csv or <span className="text-violet-400">click to upload</span>
+            <p className="text-[13px] text-gray-700">
+              Drop a CSV file here, or <span className="font-semibold text-gray-900">click to browse</span>
             </p>
-            <p className="text-[9px] text-muted-foreground/30 mt-0.5">column mapping in next step</p>
+            <p className="text-[12px] text-gray-400 mt-1">You'll map the columns in the next step.</p>
           </div>
         </div>
         <input
@@ -318,37 +332,36 @@ function ImportBody(s: ReturnType<typeof useImportState>) {
   return (
     <div>
       <div className="overflow-y-auto" style={{ maxHeight: "60vh" }}>
-        <div className="flex items-center px-5 py-2 border-b border-border/20 bg-muted/10">
-          <span className="text-[9px] text-muted-foreground/35 tracking-widest flex-1">CSV COLUMN</span>
-          <span className="text-[9px] text-muted-foreground/35 tracking-widest" style={{ width: 170 }}>MAPS TO</span>
-          <span className="text-[9px] text-muted-foreground/35 tracking-widest flex-1 pl-4">SAMPLE</span>
+        <div className="grid grid-cols-[1fr_200px_1fr] gap-4 px-6 py-2.5 border-b border-gray-200 bg-gray-50">
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">CSV column</span>
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Maps to</span>
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Sample</span>
         </div>
         {s.csvHeaders.map(col => (
-          <div key={col} className="flex items-center px-5 py-2.5 border-b border-border/10">
-            <span className="text-[11px] text-foreground/70 flex-1 truncate pr-2">{col}</span>
+          <div key={col} className="grid grid-cols-[1fr_200px_1fr] gap-4 items-center px-6 py-3 border-b border-gray-100 last:border-0">
+            <span className="text-[13px] text-gray-700 truncate pr-2">{col}</span>
             <select
               value={s.fieldMappings[col] || ""}
               onChange={e => s.setFieldMappings(p => ({ ...p, [col]: e.target.value }))}
-              className="bg-background border border-border/40 text-[10px] text-foreground/65 px-2 py-1.5 outline-none hover:border-border focus:border-violet-500/50 transition-colors flex-shrink-0"
-              style={{ width: 170 }}
+              className="h-9 rounded-lg border border-gray-200 bg-white text-[13px] text-gray-700 px-2.5 outline-none hover:border-gray-300 focus:border-gray-400 transition-colors"
             >
-              <option value="">— skip —</option>
+              <option value="">— Skip —</option>
               {IMPORT_FIELDS.map(f => <option key={f.key} value={f.key}>{f.label}</option>)}
             </select>
-            <span className="text-[10px] text-violet-400/70 flex-1 truncate pl-4">{s.csvSampleRow[col] || "—"}</span>
+            <span className="text-[12px] text-gray-400 truncate">{s.csvSampleRow[col] || "—"}</span>
           </div>
         ))}
       </div>
-      <div className="px-5 py-3 border-t border-border/20 flex items-center justify-between">
-        <button onClick={() => s.setStep("upload")} className="text-[10px] text-muted-foreground/40 hover:text-foreground/60 transition-colors">← back</button>
+      <div className="px-6 py-3.5 border-t border-gray-100 flex items-center justify-between">
+        <button onClick={() => s.setStep("upload")} className={BTN_SECONDARY}>
+          <ArrowLeft className="h-3.5 w-3.5" /> Back
+        </button>
         <div className="flex items-center gap-3">
-          <span className="text-[9px] text-muted-foreground/30">{s.csvAllRows.length} rows</span>
-          <button
-            onClick={s.runImport}
-            disabled={s.importing}
-            className="flex items-center gap-2 text-[10px] px-4 py-1.5 bg-violet-500/20 border border-violet-500/30 text-violet-400/80 hover:bg-violet-500/30 transition-colors disabled:opacity-40"
-          >
-            {s.importing ? <><RefreshCw className="h-3 w-3 animate-spin" />importing…</> : "import people"}
+          <span className="text-[12px] text-gray-400">{s.csvAllRows.length} rows</span>
+          <button onClick={s.runImport} disabled={s.importing} className={BTN_PRIMARY}>
+            {s.importing
+              ? <><RefreshCw className="h-3.5 w-3.5 animate-spin" /> Importing…</>
+              : <><Upload className="h-3.5 w-3.5" /> Import people</>}
           </button>
         </div>
       </div>
@@ -356,36 +369,37 @@ function ImportBody(s: ReturnType<typeof useImportState>) {
   );
 }
 
-// Embeddable panel — no backdrop, no breadcrumb. Caller wraps it however.
+// Embeddable panel — no backdrop, no header. Caller wraps it however.
 export function PeopleImportPanel(props: PeopleImportProps) {
   const state = useImportState(props);
   return <ImportBody {...state} />;
 }
 
-// Full modal — backdrop + breadcrumb + panel. Drop-in replacement for the old inline version.
+// Full modal — backdrop + header + panel.
 export function PeopleImportModal(props: PeopleImportProps) {
   const state = useImportState(props);
-  const maxWidth = state.step === "mapping" ? 580 : state.step === "scanning" ? 480 : 400;
+  const maxWidth = state.step === "mapping" ? 640 : state.step === "scanning" ? 540 : 480;
 
   return (
     <div
-      className="fixed inset-0 z-[90] flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      className="fixed inset-0 z-[90] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
       onClick={state.step === "scanning" ? undefined : props.onClose}
     >
       <div
-        className="bg-background border border-border shadow-2xl w-full mx-4"
-        style={{ maxWidth, ...MONO }}
+        className="bg-white rounded-xl border border-gray-200 shadow-2xl w-full"
+        style={{ maxWidth }}
         onClick={e => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-5 py-3 border-b border-border/40 flex-shrink-0">
-          <span className="text-[9px] text-muted-foreground/40 tracking-widest">
-            NOUS / MIND / PEOPLE / IMPORT
-          </span>
+        <div className="flex items-start justify-between px-6 py-4 border-b border-gray-100">
+          <div>
+            <h2 className="text-[16px] font-bold tracking-tight text-gray-900">Import people</h2>
+            <p className="text-[12px] text-gray-500 mt-0.5">{stepSubtitle(state.step)}</p>
+          </div>
           <button
             onClick={props.onClose}
-            className="text-muted-foreground/40 hover:text-foreground/70 transition-colors"
+            className="h-8 w-8 -mr-1.5 -mt-0.5 flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition-colors flex-shrink-0"
           >
-            <X className="h-3.5 w-3.5" />
+            <X className="h-4 w-4" />
           </button>
         </div>
         <ImportBody {...state} />

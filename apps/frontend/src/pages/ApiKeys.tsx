@@ -6,6 +6,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { format } from "date-fns";
+import { PageHeader } from "@/components/ui/page-header";
 
 const apiUrl = import.meta.env.VITE_API_URL ?? "";
 
@@ -68,12 +69,11 @@ export default function ApiKeys() {
 
   return (
     <div className="h-full overflow-y-auto bg-white">
-      <div className="p-8 max-w-3xl">
-        {/* Header */}
-        <div className="mb-6">
-          <h2 className="text-[22px] font-bold text-gray-900 tracking-tight">API Keys</h2>
-          <p className="text-[13px] text-gray-500 mt-1">Create and manage API keys for your workspace endpoints.</p>
-        </div>
+      <div className="px-8 py-7">
+        <PageHeader
+          title="API Keys"
+          subtitle="Create and manage API keys for your workspace endpoints."
+        />
 
         {/* Actions row */}
         <div className="flex items-center gap-3 mb-6">

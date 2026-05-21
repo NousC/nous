@@ -153,6 +153,25 @@ mindRouter.get('/scorecard', async (req, res) => {
   }
 });
 
+// GET /api/mind/scorecard/runs?workspaceId=… — the learning loop's run history.
+mindRouter.get('/scorecard/runs', async (req, res) => {
+  try {
+    const { workspaceId } = req.query;
+    if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
+    const { data, error } = await getSupabaseClient()
+      .from('scorecard_runs')
+      .select('id, target, steps, gap_before, gap_after, signal_count, note, created_at')
+      .eq('workspace_id', workspaceId)
+      .order('created_at', { ascending: false })
+      .limit(30);
+    if (error) throw error;
+    return res.json({ runs: data || [] });
+  } catch (err) {
+    console.error('[GET /api/mind/scorecard/runs]', err);
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
 // POST /api/mind/scorecard/seed — translate the plain-English ICP into a seed
 // Scorecard. Body: { workspaceId, force? }. Refuses to clobber an existing
 // Scorecard unless force=true.

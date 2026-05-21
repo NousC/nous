@@ -21,6 +21,7 @@ import {
   scoreLead,
   upsertSignal,
   setSignalActive,
+  setSignalCoverage,
   logScorecardRun,
 } from '@nous/core';
 
@@ -185,6 +186,19 @@ async function runForWorkspace(supabase, workspaceId, episodes) {
     current = newGap;
     kept++;
     notes.push(proposal.note || proposal.signal.key);
+  }
+
+  // Recompute each signal's coverage over the full episode set.
+  const coverage = {};
+  for (const ep of episodes) {
+    for (const f of scoreLead(ep.features, signals).fired) {
+      coverage[f.key] = (coverage[f.key] || 0) + 1;
+    }
+  }
+  for (const s of signals) {
+    if (s.id) {
+      await setSignalCoverage(supabase, workspaceId, s.id, coverage[s.key] || 0).catch(() => {});
+    }
   }
 
   await logScorecardRun(supabase, workspaceId, {
