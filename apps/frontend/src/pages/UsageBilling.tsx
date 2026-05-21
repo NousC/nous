@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { CreditCard, ExternalLink, Loader2 } from "lucide-react";
+import { ExternalLink, Loader2, Check } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/components/ui/sonner";
 
@@ -12,6 +12,8 @@ type PlanInfo = {
   includedOpsPerMonth: number;
   enrichmentsPerMonth: number;
   workspaceLimit: number | null;
+  crmSync?: boolean;
+  supportTier?: string;
 };
 
 type BillingState = {
@@ -21,6 +23,7 @@ type BillingState = {
   planName?: string;
   subscription?: {
     status: string;
+    current_period_start?: string | null;
     current_period_end?: string | null;
     cancel_at_period_end?: boolean;
     stripe_subscription_id?: string | null;
@@ -31,22 +34,60 @@ type BillingState = {
   allPlans?: PlanInfo[];
 };
 
+// Order on the page; Enterprise is appended client-side (marketing CTA).
+const PLAN_ORDER = ["free", "starter", "pro", "scale"];
+
+const PLAN_BLURB: Record<string, string> = {
+  free: "Test the core workflow — unify your stack and query it from an agent.",
+  starter: "For individuals running their own outbound with an agent.",
+  pro: "For operators turning signal into pipeline at volume.",
+  scale: "For teams running multi-channel outbound with agents.",
+  enterprise: "Embed Nous into your own product or agent stack.",
+};
+
+const SUPPORT_LABEL: Record<string, string> = {
+  community: "Community support",
+  email: "Email support",
+  priority: "Priority support",
+};
+
 function num(n: number | undefined) {
   return Number(n || 0).toLocaleString();
 }
 
-function UsageBar({ label, used, included }: { label: string; used: number; included: number }) {
+function fmtDate(s?: string | null) {
+  if (!s) return null;
+  return new Date(s).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+}
+
+/** Feature checklist for a plan card. */
+function planBullets(p: PlanInfo): string[] {
+  const b = [
+    "Unlimited contacts",
+    `${num(p.includedOpsPerMonth)} ops / month`,
+    `${num(p.enrichmentsPerMonth)} enrichments / month`,
+    p.workspaceLimit === null
+      ? "Unlimited workspaces"
+      : `${p.workspaceLimit} workspace${p.workspaceLimit === 1 ? "" : "s"}`,
+  ];
+  if (p.crmSync) b.push("CRM sync");
+  b.push(SUPPORT_LABEL[p.supportTier ?? "community"] ?? "Community support");
+  return b;
+}
+
+function UsageMeter({ label, used, included }: { label: string; used: number; included: number }) {
   const pct = included > 0 ? Math.min(100, Math.round((used / included) * 100)) : 0;
   const barColor = pct >= 90 ? "bg-red-500" : pct >= 75 ? "bg-amber-500" : "bg-gray-900";
   return (
-    <div className="space-y-1.5">
-      <div className="flex items-baseline justify-between">
-        <span className="text-[13px] font-medium text-gray-900">{label}</span>
+    <div>
+      <div className="flex items-baseline justify-between mb-2">
+        <span className="text-[14px] font-medium text-gray-900">{label}</span>
         <span className="text-[12px] text-gray-500 tabular-nums">
-          {num(used)} / {num(included)}
+          {num(used)} <span className="text-gray-300">/</span> {num(included)}
+          <span className="text-gray-400"> · {pct}% used</span>
         </span>
       </div>
-      <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
+      <div className="h-2.5 rounded-full bg-gray-100 overflow-hidden">
         <div className={`h-full rounded-full transition-all duration-500 ${barColor}`} style={{ width: `${pct}%` }} />
       </div>
     </div>
@@ -67,9 +108,7 @@ export default function UsageBilling() {
     setLoading(true);
     setError(null);
     try {
-      const r = await fetch(`${apiUrl}/api/billing/state`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const r = await fetch(`${apiUrl}/api/billing/state`, { headers: { Authorization: `Bearer ${token}` } });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "load_failed");
       setState(await r.json());
     } catch (e: any) {
@@ -117,11 +156,8 @@ export default function UsageBilling() {
 
   const Shell = ({ children }: { children: React.ReactNode }) => (
     <div className="h-full overflow-y-auto bg-white">
-      <div className="p-8 max-w-3xl">
-        <div className="mb-6">
-          <h2 className="text-[22px] font-bold text-gray-900 tracking-tight">Usage & Billing</h2>
-          <p className="text-[13px] text-gray-500 mt-1">Your plan, ops usage, and enrichment allowance.</p>
-        </div>
+      <div className="px-8 py-8 max-w-[1180px] mx-auto">
+        <h1 className="text-[26px] font-bold text-gray-900 tracking-tight mb-6">Billing &amp; usage</h1>
         {children}
       </div>
     </div>
@@ -130,7 +166,7 @@ export default function UsageBilling() {
   if (loading) {
     return (
       <Shell>
-        <div className="flex items-center gap-2 text-[13px] text-gray-500 py-10">
+        <div className="flex items-center gap-2 text-[13px] text-gray-500 py-12">
           <Loader2 className="h-4 w-4 animate-spin" /> Loading…
         </div>
       </Shell>
@@ -151,9 +187,9 @@ export default function UsageBilling() {
   if (state.billing_disabled) {
     return (
       <Shell>
-        <div className="rounded-xl border border-gray-200 bg-gray-50/60 p-5 text-[13px] text-gray-600">
+        <div className="rounded-2xl border border-gray-200 bg-gray-50/60 p-8 text-[14px] text-gray-600 max-w-2xl">
           {state.self_hosted
-            ? "Self-hosted Nous — all features unlocked, ops and enrichments unmetered, no billing."
+            ? "You're running self-hosted Nous — every feature is unlocked, ops and enrichments are unmetered, and there's no billing. Billing only applies to Nous Cloud."
             : "Billing is disabled on this deployment."}
         </div>
       </Shell>
@@ -164,7 +200,16 @@ export default function UsageBilling() {
   const sub = state.subscription;
   const ops = state.ops ?? { used: 0, included: 0, remaining: 0 };
   const enrich = state.enrichments ?? { used: 0, included: 0, remaining: 0 };
-  const allPlans = state.allPlans ?? [];
+  const apiPlans = state.allPlans ?? [];
+
+  // Ordered plans + a static Enterprise card.
+  const orderedPlans = PLAN_ORDER
+    .map((id) => apiPlans.find((p) => p.id === id))
+    .filter(Boolean) as PlanInfo[];
+
+  const currentPlan = apiPlans.find((p) => p.id === planId);
+  // Next paid tier up — drives the primary CTA on the summary card.
+  const nextPlan = orderedPlans.find((p) => p.monthlyPriceUsd > (currentPlan?.monthlyPriceUsd ?? 0));
 
   const statusBadge = (() => {
     if (sub?.is_comp) return ["Comp", "bg-purple-100 text-purple-700"];
@@ -174,103 +219,143 @@ export default function UsageBilling() {
     return null;
   })();
 
+  const periodLabel =
+    sub?.current_period_start && sub?.current_period_end
+      ? `${fmtDate(sub.current_period_start)} – ${fmtDate(sub.current_period_end)}`
+      : null;
+
   return (
     <Shell>
-      {/* Current plan */}
-      <div className="rounded-xl border border-gray-200 bg-white p-5 mb-5">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="p-1.5 rounded-md bg-gray-100">
-              <CreditCard className="h-4 w-4 text-gray-700" />
+      {/* ── Summary card: current plan (left) + usage (right) ── */}
+      <div className="rounded-2xl border border-gray-200 bg-white overflow-hidden mb-10">
+        <div className="grid md:grid-cols-[1fr_1.15fr]">
+          {/* Current plan */}
+          <div className="p-6 md:p-7 flex flex-col">
+            <div className="flex items-center gap-2.5 mb-2">
+              <h2 className="text-[18px] font-semibold text-gray-900">{state.planName} plan</h2>
+              {statusBadge && (
+                <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${statusBadge[1]}`}>
+                  {statusBadge[0]}
+                </span>
+              )}
             </div>
-            <h3 className="text-[16px] font-semibold text-gray-900">{state.planName} plan</h3>
-            {statusBadge && (
-              <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${statusBadge[1]}`}>
-                {statusBadge[0]}
-              </span>
-            )}
-          </div>
-          {sub?.stripe_subscription_id && (
-            <button
-              onClick={openPortal}
-              disabled={action === "portal"}
-              className="flex items-center gap-1.5 text-[12px] text-gray-500 hover:text-gray-900 border border-gray-200 rounded-lg px-2.5 py-1.5 transition-colors disabled:opacity-40"
-            >
-              Manage subscription <ExternalLink className="h-3 w-3" />
-            </button>
-          )}
-        </div>
-        {sub?.current_period_end && (
-          <p className="text-[12px] text-gray-500 mt-3 pt-3 border-t border-gray-100">
-            {sub.cancel_at_period_end ? "Access ends" : "Renews"}{" "}
-            {new Date(sub.current_period_end).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
-          </p>
-        )}
-      </div>
-
-      {/* Usage */}
-      <div className="rounded-xl border border-gray-200 bg-white p-5 mb-5 space-y-5">
-        <UsageBar label="Ops this period" used={ops.used} included={ops.included} />
-        <UsageBar label="Enrichments this period" used={enrich.used} included={enrich.included} />
-        <p className="text-[12px] text-gray-400">
-          Pure-tier pricing — no top-up packs or overage charges. Run out mid-month? Switch to a higher plan; it applies immediately.
-        </p>
-      </div>
-
-      {/* Plans */}
-      <div className="mb-2">
-        <h3 className="text-[13px] font-semibold text-gray-900">Plans</h3>
-      </div>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {allPlans.map((p) => {
-          const current = p.id === planId;
-          return (
-            <div
-              key={p.id}
-              className={`rounded-xl border p-4 flex flex-col gap-2.5 ${
-                current ? "border-gray-900 bg-gray-50/50" : "border-gray-200 bg-white"
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-[13px] font-semibold text-gray-900">{p.name}</span>
-                {current && (
-                  <span className="text-[9px] uppercase tracking-wide text-gray-400 font-medium">Current</span>
-                )}
-              </div>
-              <div className="text-[20px] font-bold text-gray-900 tabular-nums leading-none">
-                ${p.monthlyPriceUsd}
-                <span className="text-[12px] font-normal text-gray-400">/mo</span>
-              </div>
-              <ul className="text-[11px] text-gray-500 space-y-0.5">
-                <li>{num(p.includedOpsPerMonth)} ops / mo</li>
-                <li>{num(p.enrichmentsPerMonth)} enrichments / mo</li>
-                <li>
-                  {p.workspaceLimit === null
-                    ? "Unlimited workspaces"
-                    : `${p.workspaceLimit} workspace${p.workspaceLimit === 1 ? "" : "s"}`}
-                </li>
-              </ul>
-              {!current && p.id !== "free" && (
+            <p className="text-[13px] leading-[1.6] text-gray-500 mb-6 max-w-sm">
+              {PLAN_BLURB[planId] ?? ""}
+            </p>
+            <div className="mt-auto flex items-center gap-2">
+              {nextPlan && (
                 <button
-                  onClick={() => subscribe(p.id)}
+                  onClick={() => subscribe(nextPlan.id)}
                   disabled={!!action}
-                  className="mt-auto w-full h-8 rounded-lg bg-gray-900 text-white text-[12px] font-medium hover:bg-gray-800 transition-colors disabled:opacity-40"
+                  className="h-9 px-4 rounded-lg bg-gray-900 text-white text-[13px] font-medium hover:bg-gray-800 transition-colors disabled:opacity-40"
                 >
-                  {action === `subscribe:${p.id}` ? "Loading…" : `Switch to ${p.name}`}
+                  {action === `subscribe:${nextPlan.id}` ? "Loading…" : `Upgrade to ${nextPlan.name}`}
                 </button>
               )}
-              {!current && p.id === "free" && (
+              {sub?.stripe_subscription_id && (
                 <button
                   onClick={openPortal}
                   disabled={!!action}
-                  className="mt-auto w-full h-8 rounded-lg border border-gray-200 text-gray-600 text-[12px] font-medium hover:text-gray-900 transition-colors disabled:opacity-40"
+                  className="h-9 px-3.5 rounded-lg border border-gray-200 text-gray-600 text-[13px] font-medium hover:text-gray-900 transition-colors disabled:opacity-40 inline-flex items-center gap-1.5"
                 >
-                  Downgrade
+                  Manage <ExternalLink className="h-3 w-3" />
                 </button>
               )}
             </div>
+          </div>
+
+          {/* Usage */}
+          <div className="p-6 md:p-7 bg-gray-50/70 border-t md:border-t-0 md:border-l border-gray-200 space-y-5">
+            <UsageMeter label="Ops" used={ops.used} included={ops.included} />
+            <UsageMeter label="Enrichments" used={enrich.used} included={enrich.included} />
+            <p className="text-[12px] text-gray-400 pt-1">
+              {periodLabel ? `Current billing period · ${periodLabel}` : "Resets at the start of each month."}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Plans ── */}
+      <div className="mb-4">
+        <h2 className="text-[15px] font-semibold text-gray-900">Nous plans</h2>
+        <p className="text-[13px] text-gray-500 mt-0.5">
+          Pure-tier pricing — ops and enrichments included per plan, no top-up packs or overage charges.
+        </p>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+        {orderedPlans.map((p) => {
+          const isCurrent = p.id === planId;
+          return (
+            <div
+              key={p.id}
+              className={`rounded-2xl border p-5 flex flex-col ${
+                isCurrent ? "border-gray-900 bg-gray-50/40" : "border-gray-200 bg-white"
+              }`}
+            >
+              <div className="flex items-center justify-between mb-0.5">
+                <span className="text-[13px] font-medium text-gray-500">{p.name}</span>
+                {isCurrent && (
+                  <span className="text-[9px] uppercase tracking-wide text-gray-400 font-semibold">Current</span>
+                )}
+              </div>
+              <div className="text-[24px] font-bold text-gray-900 tabular-nums leading-tight mb-4">
+                {p.monthlyPriceUsd === 0 ? "Free" : <>${p.monthlyPriceUsd}<span className="text-[13px] font-normal text-gray-400">/mo</span></>}
+              </div>
+              <ul className="space-y-2 mb-5">
+                {planBullets(p).map((b) => (
+                  <li key={b} className="flex items-start gap-2 text-[12.5px] text-gray-600">
+                    <Check className="h-3.5 w-3.5 text-emerald-500 flex-shrink-0 mt-[2px]" strokeWidth={2.5} />
+                    <span>{b}</span>
+                  </li>
+                ))}
+              </ul>
+              <div className="mt-auto">
+                {isCurrent ? (
+                  <div className="h-9 flex items-center justify-center rounded-lg bg-gray-100 text-gray-400 text-[12.5px] font-medium">
+                    Current plan
+                  </div>
+                ) : p.id === "free" ? (
+                  <button
+                    onClick={openPortal}
+                    disabled={!!action}
+                    className="w-full h-9 rounded-lg border border-gray-200 text-gray-600 text-[12.5px] font-medium hover:text-gray-900 transition-colors disabled:opacity-40"
+                  >
+                    Downgrade
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => subscribe(p.id)}
+                    disabled={!!action}
+                    className="w-full h-9 rounded-lg bg-gray-900 text-white text-[12.5px] font-medium hover:bg-gray-800 transition-colors disabled:opacity-40"
+                  >
+                    {action === `subscribe:${p.id}` ? "Loading…" : `Choose ${p.name}`}
+                  </button>
+                )}
+              </div>
+            </div>
           );
         })}
+
+        {/* Enterprise — marketing CTA, not a backend tier */}
+        <div className="rounded-2xl border border-gray-200 bg-white p-5 flex flex-col">
+          <span className="text-[13px] font-medium text-gray-500 mb-0.5">Enterprise</span>
+          <div className="text-[24px] font-bold text-gray-900 leading-tight mb-4">Custom</div>
+          <ul className="space-y-2 mb-5">
+            {["Everything in Scale", "Unlimited ops & enrichments", "SaaS license to embed", "SLA + dedicated support", "Custom contracts"].map((b) => (
+              <li key={b} className="flex items-start gap-2 text-[12.5px] text-gray-600">
+                <Check className="h-3.5 w-3.5 text-emerald-500 flex-shrink-0 mt-[2px]" strokeWidth={2.5} />
+                <span>{b}</span>
+              </li>
+            ))}
+          </ul>
+          <a
+            href="mailto:bennet@opennous.cloud?subject=Nous%20Enterprise"
+            className="mt-auto w-full h-9 rounded-lg border border-gray-200 text-gray-600 text-[12.5px] font-medium hover:text-gray-900 transition-colors flex items-center justify-center"
+          >
+            Talk to us
+          </a>
+        </div>
       </div>
     </Shell>
   );

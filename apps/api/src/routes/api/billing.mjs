@@ -112,6 +112,8 @@ billingRouter.get('/state', verifySupabaseAuth, async (req, res) => {
         includedOpsPerMonth: p.includedOpsPerMonth,
         enrichmentsPerMonth: p.enrichmentsPerMonth,
         workspaceLimit: p.workspaceLimit,
+        crmSync: p.features.crmSync,
+        supportTier: p.features.supportTier,
       })),
     });
   } catch (err) {
