@@ -9,16 +9,15 @@ import { PageHeader } from "@/components/ui/page-header";
 type InstallMethod = "openclaw" | "sdk" | "plugin";
 type SdkLang = "python" | "nodejs" | "curl";
 type PluginClient = "claude-code" | "codex";
-type PluginMode = "plugin" | "mcp";
 type Harness = "openclaw" | "hermes";
 type HarnessMode = "prompt" | "cli";
 
 // ── Data ────────────────────────────────────────────────────────────────────
 
 const INSTALL_METHODS: { id: InstallMethod; label: string; desc: string; icon: React.ElementType }[] = [
-  { id: "plugin",   label: "Plugin",          desc: "Claude Code & Codex — plugin or MCP", icon: Puzzle },
-  { id: "sdk",      label: "SDK Integration", desc: "Drop into your existing agent",       icon: Code2  },
-  { id: "openclaw", label: "Agent Harness",   desc: "Memory across every session",         icon: Bot    },
+  { id: "plugin",   label: "Plugin",          desc: "Claude Code & Codex",           icon: Puzzle },
+  { id: "sdk",      label: "SDK Integration", desc: "Drop into your existing agent",  icon: Code2  },
+  { id: "openclaw", label: "Agent Harness",   desc: "Context across every session",  icon: Bot    },
 ];
 
 const SDK_STEPS: Record<SdkLang, { label: string; desc: string; code: string }[]> = {
@@ -263,20 +262,6 @@ results.forEach(r => console.log(\`[\${r.category}] \${r.content} — \${r.id}\`
   ],
 };
 
-const MCP_TOOLS = [
-  { name: "get_contact",    desc: "Full contact profile in one call — stage, warmth, scores, memory facts, recent activities with full message bodies." },
-  { name: "track",          desc: "Log that something happened — call held, email sent, meeting completed, website visit. Auto-creates the contact if needed." },
-  { name: "remember",       desc: "Store a durable fact — about a person, their company, or your workspace (ICP, pricing, competitive intel). Bulk text or one sentence." },
-  { name: "get_company",    desc: "Full company profile — org details, deal health, all contacts at the account, and company-level facts." },
-  { name: "search",         desc: "Semantic search across all stored facts — scope to one contact, one company, or the whole workspace." },
-  { name: "list_contacts",  desc: "Find contacts by pipeline stage. Useful for identifying who to prioritize or reach out to next." },
-  { name: "get_memories",   desc: "Load all workspace-level facts — ICP, product description, pricing, market positioning, competitive intel." },
-  { name: "create_contact", desc: "Add a new contact with full profile fields — name, title, company, phone, LinkedIn." },
-  { name: "update_contact", desc: "Update profile fields on an existing contact. Only provided fields are changed." },
-  { name: "delete_contact", desc: "Permanently delete a contact and all their data. Cannot be undone." },
-  { name: "delete_memory",  desc: "Remove a specific workspace memory by ID. Get the ID from get_memories or search first." },
-];
-
 // ── Shared bits ─────────────────────────────────────────────────────────────
 
 function CodeSnippet({ code }: { code: string }) {
@@ -453,9 +438,7 @@ function SdkPanel() {
 
 function PluginPanel() {
   const [client, setClient] = useState<PluginClient>("claude-code");
-  const [mode, setMode] = useState<PluginMode>("plugin");
 
-  const claudeCodeMcp = `claude mcp add nous -e NOUS_API_KEY=YOUR_API_KEY -- npx -y @opennous/mcp`;
   const claudeCodePluginAdd = `/plugin marketplace add bennetglinder1/nous`;
   const claudeCodePluginInstall = `/plugin install nous@nous-plugins`;
 
@@ -480,22 +463,15 @@ env = { NOUS_API_KEY = "YOUR_API_KEY" }`;
 
       <div className="rounded-xl border border-gray-100 bg-white p-5 space-y-4">
         <div className="flex items-center justify-between">
-          <TabBar
-            tabs={[
-              { id: "plugin" as PluginMode, label: "Plugin" },
-              { id: "mcp"    as PluginMode, label: "MCP" },
-            ]}
-            active={mode}
-            onChange={setMode}
-            size="sm"
-          />
+          <h3 className="text-[13px] font-semibold text-gray-800">
+            {client === "claude-code" ? "Install the Nous plugin for Claude Code" : "Connect Nous in Codex"}
+          </h3>
           <a href="https://docs.opennous.cloud" target="_blank" rel="noopener noreferrer"
             className="text-[12px] text-gray-400 hover:text-gray-700 transition-colors">View docs ↗</a>
         </div>
 
-        {client === "claude-code" && mode === "plugin" && (
+        {client === "claude-code" && (
           <div className="space-y-3.5">
-            <p className="text-[12px] text-gray-400">Install the Nous plugin for Claude Code:</p>
             <div>
               <p className="text-[12px] text-gray-500 mb-1.5">Step 1 — add the marketplace</p>
               <CodeSnippet code={claudeCodePluginAdd} />
@@ -507,23 +483,7 @@ env = { NOUS_API_KEY = "YOUR_API_KEY" }`;
           </div>
         )}
 
-        {client === "claude-code" && mode === "mcp" && (
-          <>
-            <p className="text-[12px] text-gray-400">Add the Nous MCP server with a single command in your terminal:</p>
-            <CodeSnippet code={claudeCodeMcp} />
-          </>
-        )}
-
-        {client === "codex" && mode === "plugin" && (
-          <p className="text-[12px] text-gray-500 leading-relaxed">
-            Codex doesn't ship a plugin marketplace — connect Nous as an MCP server instead.
-            Switch to the{" "}
-            <button onClick={() => setMode("mcp")} className="text-gray-800 underline underline-offset-2 hover:text-gray-900">MCP</button>
-            {" "}tab.
-          </p>
-        )}
-
-        {client === "codex" && mode === "mcp" && (
+        {client === "codex" && (
           <>
             <p className="text-[12px] text-gray-400">
               Add to{" "}
@@ -533,19 +493,6 @@ env = { NOUS_API_KEY = "YOUR_API_KEY" }`;
             <CodeSnippet code={codexMcp} />
           </>
         )}
-      </div>
-
-      {/* MCP tools */}
-      <div className="rounded-xl border border-gray-100 bg-white p-5">
-        <p className="text-[13px] font-semibold text-gray-800 mb-3">Available tools</p>
-        <div className="divide-y divide-gray-50">
-          {MCP_TOOLS.map(t => (
-            <div key={t.name} className="flex items-start gap-3 py-2.5 first:pt-0 last:pb-0">
-              <code className="text-[11px] bg-gray-50 border border-gray-100 text-gray-700 px-2 py-0.5 rounded-md font-mono shrink-0 mt-0.5">{t.name}</code>
-              <span className="text-[12px] text-gray-500">{t.desc}</span>
-            </div>
-          ))}
-        </div>
       </div>
     </div>
   );
