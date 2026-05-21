@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/components/ui/sonner";
 import {
-  Check, Copy, Eye, EyeOff, Key, RefreshCw, ExternalLink,
+  Check, Copy, Eye, EyeOff, Key, RefreshCw, ExternalLink, ArrowLeft, ArrowRight,
 } from "lucide-react";
 import { PeopleImportPanel } from "@/components/contacts/PeopleImportModal";
 
@@ -11,24 +11,29 @@ import { PeopleImportPanel } from "@/components/contacts/PeopleImportModal";
 const USE_CASES = [
   { id: "gtm_agent",            label: "GTM agent" },
   { id: "ai_sdr",               label: "AI SDR" },
-  { id: "outbound",             label: "outbound" },
-  { id: "sales_assistant",      label: "sales assistant" },
-  { id: "customer_success",     label: "customer success" },
-  { id: "meeting_intelligence", label: "meeting intel" },
-  { id: "custom",               label: "custom" },
+  { id: "outbound",             label: "Outbound" },
+  { id: "sales_assistant",      label: "Sales assistant" },
+  { id: "customer_success",     label: "Customer success" },
+  { id: "meeting_intelligence", label: "Meeting intel" },
+  { id: "custom",               label: "Custom" },
 ];
 
 const TOTAL_STEPS = 3;
 const STORAGE_KEY = "nous_onboarding_v6";
 const API_URL    = import.meta.env.VITE_API_URL ?? "";
-const MONO       = { fontFamily: "'JetBrains Mono',monospace" };
+
+// ─── Shared button styles ────────────────────────────────────────────────────
+const BTN_PRIMARY =
+  "inline-flex items-center justify-center gap-1.5 h-10 px-5 rounded-lg bg-gray-900 text-white text-[13px] font-semibold hover:bg-gray-800 disabled:opacity-40 transition-colors";
+const BTN_SECONDARY =
+  "inline-flex items-center justify-center gap-1.5 h-10 px-4 rounded-lg bg-white border border-gray-200 text-gray-700 text-[13px] font-semibold hover:bg-gray-50 disabled:opacity-40 transition-colors";
 
 // ─── Tiny primitives ─────────────────────────────────────────────────────────
 function FieldLabel({ children, optional }: { children: React.ReactNode; optional?: boolean }) {
   return (
-    <div className="text-[9px] text-muted-foreground/40 tracking-widest mb-1.5">
+    <div className="text-[13px] font-medium text-gray-700 mb-1.5">
       {children}
-      {optional && <span className="ml-1.5 text-muted-foreground/25 normal-case">optional</span>}
+      {optional && <span className="ml-1.5 text-[12px] font-normal text-gray-400">Optional</span>}
     </div>
   );
 }
@@ -38,8 +43,8 @@ function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
     <input
       {...props}
       className={
-        "w-full bg-muted/20 border border-border/40 text-[11px] text-foreground px-3 py-2 outline-none " +
-        "placeholder:text-muted-foreground/25 focus:border-violet-500/40 transition-colors " +
+        "w-full h-10 rounded-lg border border-gray-200 bg-white px-3 text-[13px] text-gray-900 " +
+        "placeholder:text-gray-400 focus:border-gray-400 outline-none transition-colors " +
         (props.className ?? "")
       }
     />
@@ -48,9 +53,9 @@ function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
 
 function StepTitle({ title, desc }: { title: string; desc: string }) {
   return (
-    <div>
-      <h2 className="text-[13px] font-medium text-foreground leading-tight">{title}</h2>
-      <p className="text-[10px] text-muted-foreground/45 leading-relaxed mt-1">{desc}</p>
+    <div className="space-y-1">
+      <h2 className="text-[20px] font-semibold tracking-tight text-gray-900">{title}</h2>
+      <p className="text-[13px] text-gray-500">{desc}</p>
     </div>
   );
 }
@@ -65,7 +70,7 @@ function ChipGroup({
   const toggle = (id: string) =>
     onChange(value.includes(id) ? value.filter(x => x !== id) : [...value, id]);
   return (
-    <div className="flex flex-wrap gap-1.5">
+    <div className="flex flex-wrap gap-2">
       {options.map(({ id, label }) => {
         const selected = value.includes(id);
         return (
@@ -73,51 +78,18 @@ function ChipGroup({
             key={id}
             type="button"
             onClick={() => toggle(id)}
-            className={`text-[10px] px-2.5 py-1 border transition-colors ${
+            className={`inline-flex items-center gap-1.5 text-[13px] font-medium px-3.5 py-2 rounded-lg border transition-colors ${
               selected
-                ? "border-violet-500/50 text-violet-400/80 bg-violet-500/10"
-                : "border-border/40 text-muted-foreground/50 hover:border-border/70"
+                ? "border-gray-900 bg-gray-50 text-gray-900"
+                : "border-gray-200 bg-white text-gray-700 hover:border-gray-300"
             }`}
           >
+            {selected && <Check className="h-3.5 w-3.5" />}
             {label}
           </button>
         );
       })}
     </div>
-  );
-}
-
-function PrimaryButton({
-  onClick, disabled, loading, children, full = true,
-}: { onClick: () => void; disabled?: boolean; loading?: boolean; children: React.ReactNode; full?: boolean }) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled || loading}
-      className={
-        (full ? "w-full " : "") +
-        "flex items-center justify-center gap-2 text-[11px] py-2 px-4 " +
-        "bg-violet-500/20 border border-violet-500/30 text-violet-400/80 hover:bg-violet-500/30 " +
-        "transition-colors disabled:opacity-30"
-      }
-    >
-      {loading ? <RefreshCw className="h-3 w-3 animate-spin" /> : null}
-      {children}
-    </button>
-  );
-}
-
-function GhostButton({
-  onClick, disabled, children,
-}: { onClick: () => void; disabled?: boolean; children: React.ReactNode }) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      className="text-[10px] px-3 py-2 border border-border/40 text-muted-foreground/50 hover:border-border/70 hover:text-foreground/70 transition-colors disabled:opacity-30"
-    >
-      {children}
-    </button>
   );
 }
 
@@ -136,53 +108,59 @@ function StepWelcome({
   onNext: () => void; isLoading: boolean;
 }) {
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       <StepTitle
         title="Welcome to Nous"
         desc="A few details so your memory layer knows what you're building."
       />
 
-      <div>
-        <FieldLabel>your name</FieldLabel>
-        <TextInput
-          value={name}
-          onChange={e => setName(e.target.value)}
-          placeholder="jane doe"
-          autoFocus
-        />
+      <div className="space-y-5">
+        <div>
+          <FieldLabel>Your name</FieldLabel>
+          <TextInput
+            value={name}
+            onChange={e => setName(e.target.value)}
+            placeholder="Jane Doe"
+            autoFocus
+          />
+        </div>
+
+        <div>
+          <FieldLabel>Company</FieldLabel>
+          <TextInput
+            value={companyName}
+            onChange={e => setCompanyName(e.target.value)}
+            placeholder="Acme Corp"
+          />
+        </div>
+
+        <div>
+          <FieldLabel optional>Website</FieldLabel>
+          <TextInput
+            value={website}
+            onChange={e => setWebsite(e.target.value)}
+            placeholder="https://yourcompany.com"
+            type="url"
+          />
+        </div>
+
+        <div>
+          <FieldLabel>What are you building?</FieldLabel>
+          <ChipGroup options={USE_CASES} value={useCases} onChange={setUseCases} />
+        </div>
       </div>
 
-      <div>
-        <FieldLabel>company</FieldLabel>
-        <TextInput
-          value={companyName}
-          onChange={e => setCompanyName(e.target.value)}
-          placeholder="acme corp"
-        />
+      <div className="flex justify-end pt-1">
+        <button
+          onClick={onNext}
+          disabled={!name.trim() || !companyName.trim() || isLoading}
+          className={BTN_PRIMARY}
+        >
+          {isLoading && <RefreshCw className="h-3.5 w-3.5 animate-spin" />}
+          Continue
+          {!isLoading && <ArrowRight className="h-3.5 w-3.5" />}
+        </button>
       </div>
-
-      <div>
-        <FieldLabel optional>website</FieldLabel>
-        <TextInput
-          value={website}
-          onChange={e => setWebsite(e.target.value)}
-          placeholder="https://yourcompany.com"
-          type="url"
-        />
-      </div>
-
-      <div>
-        <FieldLabel>what are you building?</FieldLabel>
-        <ChipGroup options={USE_CASES} value={useCases} onChange={setUseCases} />
-      </div>
-
-      <PrimaryButton
-        onClick={onNext}
-        disabled={!name.trim() || !companyName.trim()}
-        loading={isLoading}
-      >
-        continue
-      </PrimaryButton>
     </div>
   );
 }
@@ -199,13 +177,13 @@ function StepImport({
   testMode?: boolean;
 }) {
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <StepTitle
         title="Bring your contacts in"
-        desc="Drop a CSV and map columns to Nous fields. Skip to start with demo data."
+        desc="Drop a CSV and map columns to Nous fields, or skip to start with demo data."
       />
 
-      <div className="border border-border/30 -mx-5">
+      <div className="rounded-xl border border-gray-200 overflow-hidden">
         <PeopleImportPanel
           workspaceId={workspaceId ?? ""}
           token={session?.access_token ?? ""}
@@ -216,17 +194,14 @@ function StepImport({
       </div>
 
       <div className="flex items-center justify-between pt-1">
-        <button
-          onClick={onBack}
-          className="text-[10px] text-muted-foreground/40 hover:text-foreground/60 transition-colors"
-        >
-          ← back
+        <button onClick={onBack} className={BTN_SECONDARY}>
+          <ArrowLeft className="h-3.5 w-3.5" /> Back
         </button>
         <button
           onClick={onSkip}
-          className="text-[10px] text-violet-400/70 hover:text-violet-400 transition-colors"
+          className="text-[13px] font-medium text-gray-500 hover:text-gray-900 transition-colors"
         >
-          skip — use demo data
+          Skip — use demo data
         </button>
       </div>
     </div>
@@ -243,7 +218,7 @@ function StepCreateKey({
   onFinish: () => void;
   onBack: () => void;
 }) {
-  const [keyName, setKeyName] = useState("default api key");
+  const [keyName, setKeyName] = useState("Default API key");
   const [showKey, setShowKey] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -255,7 +230,7 @@ function StepCreateKey({
   };
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       <StepTitle
         title="Create your API key"
         desc={apiKey
@@ -264,67 +239,70 @@ function StepCreateKey({
       />
 
       {!apiKey ? (
-        <>
+        <div className="space-y-5">
           <div>
-            <FieldLabel>key name</FieldLabel>
+            <FieldLabel>Key name</FieldLabel>
             <TextInput
               value={keyName}
               onChange={e => setKeyName(e.target.value)}
-              placeholder="default api key"
+              placeholder="Default API key"
               autoFocus
             />
           </div>
-          <PrimaryButton
-            onClick={() => generateKey(keyName.trim() || "default api key")}
-            loading={generating}
+          <button
+            onClick={() => generateKey(keyName.trim() || "Default API key")}
+            disabled={generating}
+            className={BTN_PRIMARY}
           >
-            {generating ? "generating…" : <><Key className="h-3 w-3" />generate key</>}
-          </PrimaryButton>
-        </>
+            {generating
+              ? <><RefreshCw className="h-3.5 w-3.5 animate-spin" /> Generating…</>
+              : <><Key className="h-3.5 w-3.5" /> Generate key</>}
+          </button>
+        </div>
       ) : (
         <div className="space-y-3">
-          <div className="border border-emerald-500/30 bg-emerald-500/5 px-3 py-2.5">
-            <div className="flex items-center gap-2 mb-2 text-[10px] text-emerald-500/80">
-              <Check className="h-3 w-3" />
-              <span className="tracking-widest">KEY CREATED</span>
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-5">
+            <div className="flex items-center gap-2 mb-3 text-[12px] font-semibold text-emerald-600">
+              <Check className="h-4 w-4" />
+              <span>Key created</span>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 h-10">
               <input
                 readOnly
                 value={apiKey}
                 type={showKey ? "text" : "password"}
-                className="flex-1 bg-transparent text-[10px] text-foreground/80 outline-none truncate"
-                style={MONO}
+                className="flex-1 bg-transparent text-[13px] text-gray-900 outline-none truncate font-mono"
               />
               <button
                 type="button"
                 onClick={() => setShowKey(!showKey)}
-                className="text-muted-foreground/40 hover:text-foreground/70 transition-colors"
+                className="text-gray-400 hover:text-gray-700 transition-colors"
               >
-                {showKey ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </button>
               <button
                 type="button"
                 onClick={copy}
-                className="text-muted-foreground/40 hover:text-foreground/70 transition-colors"
+                className="text-gray-400 hover:text-gray-700 transition-colors"
               >
-                {copied ? <Check className="h-3 w-3 text-emerald-500/80" /> : <Copy className="h-3 w-3" />}
+                {copied ? <Check className="h-4 w-4 text-emerald-600" /> : <Copy className="h-4 w-4" />}
               </button>
             </div>
           </div>
-          <p className="text-[9px] text-muted-foreground/35 leading-relaxed">
+          <p className="text-[13px] text-gray-500">
             You can revoke or rotate this any time from settings.
           </p>
         </div>
       )}
 
-      <div className="flex gap-2">
-        <GhostButton onClick={onBack}>back</GhostButton>
-        <div className="flex-1">
-          <PrimaryButton onClick={onFinish} disabled={!apiKey}>
-            open workspace
-          </PrimaryButton>
-        </div>
+      <div className="flex items-center justify-between pt-1">
+        <button onClick={onBack} className={BTN_SECONDARY}>
+          <ArrowLeft className="h-3.5 w-3.5" /> Back
+        </button>
+        <button onClick={onFinish} disabled={!apiKey} className={BTN_PRIMARY}>
+          Open workspace
+          <ArrowRight className="h-3.5 w-3.5" />
+        </button>
       </div>
     </div>
   );
@@ -333,17 +311,19 @@ function StepCreateKey({
 // ─── Finishing: loading screen with tip ──────────────────────────────────────
 function FinishingScreen() {
   return (
-    <div className="py-2">
-      <div className="flex flex-col items-center justify-center py-6">
-        <RefreshCw className="h-5 w-5 animate-spin text-violet-400/70 mb-3" />
-        <h2 className="text-[13px] font-medium text-foreground/80">Setting up your workspace</h2>
-        <p className="text-[10px] text-muted-foreground/40 mt-1">just a moment…</p>
+    <div className="space-y-6">
+      <div className="flex flex-col items-center justify-center py-8 text-center">
+        <RefreshCw className="h-6 w-6 animate-spin text-gray-400 mb-4" />
+        <h2 className="text-[20px] font-semibold tracking-tight text-gray-900">
+          Setting up your workspace
+        </h2>
+        <p className="text-[13px] text-gray-500 mt-1">Just a moment…</p>
       </div>
 
-      <div className="border border-violet-500/20 bg-violet-500/5 px-4 py-3">
-        <p className="text-[10px] text-foreground/65 leading-relaxed">
-          <span className="text-violet-400/90 font-medium tracking-wide">Tip — </span>
-          click the <span className="text-foreground/80">mind status</span> indicator (it'll be offline) to set up your MCP server or SDK integration.
+      <div className="rounded-xl border border-gray-200 bg-gray-50 p-5">
+        <p className="text-[13px] text-gray-700 leading-relaxed">
+          <span className="font-semibold text-gray-900">Tip — </span>
+          click the <span className="font-medium text-gray-900">mind status</span> indicator (it'll be offline) to set up your MCP server or SDK integration.
         </p>
       </div>
     </div>
@@ -351,15 +331,23 @@ function FinishingScreen() {
 }
 
 // ─── Step indicator ──────────────────────────────────────────────────────────
-function StepBar({ current, total }: { current: number; total: number }) {
+function StepIndicator({ current, total }: { current: number; total: number }) {
   return (
-    <div className="flex items-center gap-1">
-      {Array.from({ length: total }).map((_, i) => (
+    <div className="space-y-2.5">
+      <div className="flex items-center justify-between">
+        <span className="text-[12px] font-medium text-gray-500">
+          Step {current} of {total}
+        </span>
+        <span className="text-[12px] font-medium text-gray-400">
+          {Math.round((current / total) * 100)}%
+        </span>
+      </div>
+      <div className="h-1 w-full rounded-full bg-gray-100 overflow-hidden">
         <div
-          key={i}
-          className={`h-[2px] w-4 ${i < current ? "bg-violet-500/60" : "bg-border/40"}`}
+          className="h-full rounded-full bg-gray-900 transition-all duration-300"
+          style={{ width: `${(current / total) * 100}%` }}
         />
-      ))}
+      </div>
     </div>
   );
 }
@@ -490,80 +478,73 @@ export default function Onboarding({ testMode = false }: OnboardingProps) {
     navigate("/", { replace: true });
   };
 
-  // Modal widens when the importer panel needs space for column mapping.
-  const maxWidth = phase === 2 ? 580 : 460;
-  const stepLabel = phase === "finishing" ? "WRAP" : `${phase} OF ${TOTAL_STEPS}`;
-  const currentDot = phase === "finishing" ? 3 : phase;
+  // Card widens when the importer panel needs space for column mapping.
+  const maxWidth = phase === 2 ? 640 : 480;
+  const currentStep = phase === "finishing" ? 3 : phase;
 
   return (
-    <div
-      className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm"
-      style={MONO}
-    >
-      <div
-        className="bg-background border border-border shadow-2xl w-full mx-4 flex flex-col"
-        style={{ maxWidth, ...MONO }}
-      >
-        {/* breadcrumb header */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-border/40">
-          <div className="flex items-center gap-2">
-            <span className="text-[9px] text-muted-foreground/40 tracking-widest">
-              NOUS / ONBOARDING / {stepLabel}
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-gray-50 overflow-y-auto py-10">
+      <div className="w-full mx-4 flex flex-col" style={{ maxWidth }}>
+        {/* brand */}
+        <div className="flex items-center justify-center gap-2 mb-6">
+          <span className="text-[15px] font-semibold tracking-tight text-gray-900">Nous</span>
+          {testMode && (
+            <span className="text-[11px] font-semibold text-amber-600 border border-amber-200 bg-amber-50 rounded-md px-1.5 py-0.5">
+              Test mode
             </span>
-            {testMode && (
-              <span className="text-[9px] text-amber-500/70 tracking-widest border border-amber-500/30 px-1.5 py-0.5">
-                TEST
-              </span>
-            )}
-          </div>
-          <StepBar current={currentDot} total={TOTAL_STEPS} />
+          )}
         </div>
 
-        {/* body */}
-        <div className="px-5 py-5">
-          {phase === 1 && (
-            <StepWelcome
-              name={name} setName={setName}
-              companyName={companyName} setCompanyName={setCompanyName}
-              website={website} setWebsite={setWebsite}
-              useCases={useCases} setUseCases={setUseCases}
-              onNext={submitStep1} isLoading={stepLoading}
-            />
-          )}
-          {phase === 2 && (
-            <StepImport
-              session={session}
-              workspaceId={userData?.workspace?.id}
-              testMode={testMode}
-              onAdvance={() => setPhase(3)}
-              onBack={() => setPhase(1)}
-              onSkip={() => setPhase(3)}
-            />
-          )}
-          {phase === 3 && (
-            <StepCreateKey
-              apiKey={apiKey}
-              generateKey={generateApiKey}
-              generating={generatingKey}
-              onFinish={finish}
-              onBack={() => setPhase(2)}
-            />
-          )}
-          {phase === "finishing" && <FinishingScreen />}
+        {/* card */}
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
+          {/* step indicator */}
+          <div className="px-6 sm:px-8 pt-6 pb-5 border-b border-gray-100">
+            <StepIndicator current={currentStep} total={TOTAL_STEPS} />
+          </div>
+
+          {/* body */}
+          <div className="px-6 sm:px-8 py-7">
+            {phase === 1 && (
+              <StepWelcome
+                name={name} setName={setName}
+                companyName={companyName} setCompanyName={setCompanyName}
+                website={website} setWebsite={setWebsite}
+                useCases={useCases} setUseCases={setUseCases}
+                onNext={submitStep1} isLoading={stepLoading}
+              />
+            )}
+            {phase === 2 && (
+              <StepImport
+                session={session}
+                workspaceId={userData?.workspace?.id}
+                testMode={testMode}
+                onAdvance={() => setPhase(3)}
+                onBack={() => setPhase(1)}
+                onSkip={() => setPhase(3)}
+              />
+            )}
+            {phase === 3 && (
+              <StepCreateKey
+                apiKey={apiKey}
+                generateKey={generateApiKey}
+                generating={generatingKey}
+                onFinish={finish}
+                onBack={() => setPhase(2)}
+              />
+            )}
+            {phase === "finishing" && <FinishingScreen />}
+          </div>
         </div>
 
         {/* footer */}
-        <div className="border-t border-border/20 px-5 py-2.5 flex justify-between items-center text-[9px] text-muted-foreground/35">
-          <span>
-            {phase === "finishing" ? "finishing up" : `step ${phase} of ${TOTAL_STEPS}`}
-          </span>
+        <div className="flex justify-center mt-5">
           <a
             href="https://docs.opennous.cloud"
             target="_blank"
             rel="noreferrer"
-            className="flex items-center gap-1 hover:text-muted-foreground/70 transition-colors"
+            className="flex items-center gap-1 text-[12px] text-gray-400 hover:text-gray-600 transition-colors"
           >
-            docs.opennous.cloud <ExternalLink className="h-2.5 w-2.5" />
+            docs.opennous.cloud <ExternalLink className="h-3 w-3" />
           </a>
         </div>
       </div>

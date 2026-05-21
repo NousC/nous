@@ -34,6 +34,8 @@ const Ops             = lazyWithErrorBoundary(() => import("@/pages/Ops"));
 const People          = lazyWithErrorBoundary(() => import("@/pages/People"));
 const Companies       = lazyWithErrorBoundary(() => import("@/pages/Companies"));
 const Integrations    = lazyWithErrorBoundary(() => import("@/pages/Integrations"));
+const CrmSync         = lazyWithErrorBoundary(() => import("@/pages/CrmSync"));
+const Exports         = lazyWithErrorBoundary(() => import("@/pages/Exports"));
 const DeveloperPortal = lazyWithErrorBoundary(() => import("@/pages/DeveloperPortal"));
 const UsageBilling    = lazyWithErrorBoundary(() => import("@/pages/UsageBilling"));
 const Inbox           = lazyWithErrorBoundary(() => import("@/pages/Inbox"));
@@ -117,7 +119,7 @@ export function AppRoutes() {
             <Route path="/keys"       element={<Suspense fallback={<MinimalLoader />}><ApiKeys /></Suspense>} />
             {/* Main nav */}
             <Route path="/webhooks"   element={<Suspense fallback={<MinimalLoader />}><Webhooks /></Suspense>} />
-            <Route path="/exports"    element={<ComingSoon />} />
+            <Route path="/exports"    element={<Suspense fallback={<MinimalLoader />}><Exports /></Suspense>} />
 
             <Route path="/developer" element={<Suspense fallback={<MinimalLoader />}><DeveloperPortal /></Suspense>} />
             <Route path="/billing" element={<Suspense fallback={<MinimalLoader />}><UsageBilling /></Suspense>} />
@@ -133,7 +135,6 @@ export function AppRoutes() {
                 they only declare the URL patterns this layout handles. */}
             <Route path="/" element={<Navigate to="/ops" replace />} />
             <Route element={<Suspense fallback={<MinimalLoader />}><Mind /></Suspense>}>
-              <Route path="/crm" />
               <Route path="/memories" />
               <Route path="/lead-lists" />
               <Route path="/settings" />
@@ -145,6 +146,8 @@ export function AppRoutes() {
             <Route path="/companies"     element={<Suspense fallback={<MinimalLoader />}><Companies /></Suspense>} />
             <Route path="/companies/:id" element={<Suspense fallback={<MinimalLoader />}><Companies /></Suspense>} />
             <Route path="/integrations"  element={<Suspense fallback={<MinimalLoader />}><Integrations /></Suspense>} />
+            <Route path="/crm-sync"      element={<Suspense fallback={<MinimalLoader />}><CrmSync /></Suspense>} />
+            <Route path="/crm"           element={<Navigate to="/crm-sync" replace />} />
             <Route path="/intelligence"  element={<Suspense fallback={<MinimalLoader />}><Intelligence /></Suspense>} />
             <Route path="/settings/*" element={<Navigate to="/settings" replace />} />
 

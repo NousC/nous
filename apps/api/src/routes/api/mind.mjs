@@ -186,10 +186,18 @@ mindRouter.post('/scorecard/seed', async (req, res) => {
       return res.status(409).json({ error: 'scorecard_exists', signals: existing });
     }
 
-    const { data: ws } = await supabase
-      .from('workspaces').select('icp_text').eq('id', workspaceId).maybeSingle();
-    const icpText = ws?.icp_text?.trim();
-    if (!icpText) return res.status(400).json({ error: 'icp_text_required' });
+    // The ICP lives in Memory — the ICP / Market / Product / Pricing /
+    // Competitors facts the user has added. Translate them into the Scorecard.
+    const { data: mems } = await supabase
+      .from('workspace_memories')
+      .select('category, content')
+      .eq('workspace_id', workspaceId)
+      .eq('is_active', true)
+      .in('category', ['ICP', 'Market', 'Product', 'Pricing', 'Competitors'])
+      .order('created_at', { ascending: false })
+      .limit(80);
+    const icpText = (mems || []).map(m => `[${m.category}] ${m.content}`).join('\n').trim();
+    if (!icpText) return res.status(400).json({ error: 'no_icp_memory' });
 
     const prompt =
       `Translate this Ideal Customer Profile into a Scorecard — a list of ` +
