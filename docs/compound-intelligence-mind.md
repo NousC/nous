@@ -1,6 +1,6 @@
-# The Mind
+# Compound Intelligence
 
-The Mind is the layer that makes Nous's scoring improve on its own. Every time the system scores a contact it records the prediction; later it checks that prediction against what the contact actually did; and it uses the gap between the two to sharpen how it scores next time. Memory stores what is true about an account — the Mind learns what *predicts*.
+Compound intelligence is how Nous's scoring improves on its own. Every time the system scores a contact it records the prediction; later it checks that prediction against what the contact actually did; and it uses the gap between the two to sharpen how it scores next time. Memory stores what is true about an account; this layer learns what *predicts*.
 
 ---
 
@@ -8,13 +8,13 @@ The Mind is the layer that makes Nous's scoring improve on its own. Every time t
 
 Most CRM data is a snapshot: it records the state of an account right now and stops there. An ICP score written that way is a guess that never gets graded — it can be confidently wrong for months and nothing notices.
 
-The Mind closes that gap. It treats every score as a prediction with a consequence: the contact either converts or it doesn't. By recording the prediction and resolving it against the real outcome, the system gets a continuous, honest measure of how good its scoring actually is — and the evidence to improve it. A model that learns from outcomes beats one that only stores rules, because rules go stale and outcomes don't lie.
+Recording the prediction closes that gap. Every score is treated as a prediction with a consequence: the contact either converts or it doesn't. By recording the prediction and resolving it against the real outcome, the system gets a continuous, honest measure of how good its scoring actually is — and the evidence to improve it. A model that learns from outcomes beats one that only stores rules, because rules go stale and outcomes don't lie.
 
 ---
 
 ## How it works
 
-The Mind is a loop with four steps:
+It is a loop with four steps:
 
 1. **Score** — a contact is scored for ICP fit. The scoring model is the Scorecard (see `adaptive-lead-scoring.md`).
 2. **Record** — the prediction is snapshotted to the `mind_episodes` ledger.
@@ -84,4 +84,4 @@ The model that produces each score — and the thing the learning loop refines f
 
 **Source:** `apps/frontend/src/pages/Intelligence.tsx` — the Intelligence page, `/intelligence`
 
-The Intelligence page is the workspace's view of the Mind: the calibration figure, the current Scorecard, the history of learning runs, and the Memory the Mind reasons over.
+The Intelligence page is the workspace's window onto all of this: the calibration figure, the current Scorecard, the history of learning runs, and the Memory it reasons over.

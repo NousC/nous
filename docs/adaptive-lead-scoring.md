@@ -60,7 +60,7 @@ The seed is deliberately one-sided: it only describes the ideal customer, in pos
 
 **Source:** `apps/worker/src/workers/scorecardLoop.mjs` — nightly, 04:00 UTC
 
-Each night, per workspace, the loop refines the Scorecard one change at a time. It trains on the Mind's resolved predictions — real contacts whose outcomes are now known. Each step:
+Each night, per workspace, the loop refines the Scorecard one change at a time. It trains on resolved predictions — real contacts whose outcomes are now known. Each step:
 
 1. **Propose** — a model reviews the predictions the current Scorecard got wrong and proposes one change: add a signal, reweight one, or remove one.
 2. **Test** — the change is scored against a held-back, time-split slice of the evidence that the proposer never saw.
