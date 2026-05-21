@@ -1,20 +1,24 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Copy, CheckCircle2, Code2 } from "lucide-react";
+import { Copy, CheckCircle2, Code2, Puzzle, Bot, Feather } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { PageHeader } from "@/components/ui/page-header";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
 type InstallMethod = "openclaw" | "sdk" | "plugin";
 type SdkLang = "python" | "nodejs" | "curl";
-type PluginClient = "claude-code" | "claude-desktop" | "cursor";
+type PluginClient = "claude-code" | "codex";
+type PluginMode = "plugin" | "mcp";
+type Harness = "openclaw" | "hermes";
+type HarnessMode = "prompt" | "cli";
 
 // ── Data ────────────────────────────────────────────────────────────────────
 
-const INSTALL_METHODS: { id: InstallMethod; label: string; desc: string; logo: string | null }[] = [
-  { id: "plugin",   label: "Claude Plugin",   desc: "Memory inside Claude & agents", logo: "/logos/claude.svg"   },
-  { id: "sdk",      label: "SDK Integration", desc: "Drop into your existing agent", logo: null                  },
-  { id: "openclaw", label: "OpenClaw",        desc: "Memory across every session",   logo: "/logos/openclaw.svg" },
+const INSTALL_METHODS: { id: InstallMethod; label: string; desc: string; icon: React.ElementType }[] = [
+  { id: "plugin",   label: "Plugin",          desc: "Claude Code & Codex — plugin or MCP", icon: Puzzle },
+  { id: "sdk",      label: "SDK Integration", desc: "Drop into your existing agent",       icon: Code2  },
+  { id: "openclaw", label: "Agent Harness",   desc: "Memory across every session",         icon: Bot    },
 ];
 
 const SDK_STEPS: Record<SdkLang, { label: string; desc: string; code: string }[]> = {
@@ -334,7 +338,10 @@ function ApiKeyHint() {
 
 // ── Panels ──────────────────────────────────────────────────────────────────
 
-function OpenClawPanel() {
+function AgentHarnessPanel() {
+  const [harness, setHarness] = useState<Harness>("openclaw");
+  const [mode, setMode] = useState<HarnessMode>("prompt");
+
   const prompt = `You have access to Nous contact memory. Use it before and after every contact interaction.
 
 Before acting on any contact:
@@ -348,12 +355,51 @@ Available tools: contact_get, contact_get_activity, contacts_search, company_get
 
 Your Nous API key is set as NOUS_API_KEY in the environment.`;
 
+  const openclawCli = `openclaw plugins install @opennous/openclaw-nous
+openclaw nous init --api-key YOUR_API_KEY
+openclaw nous status   # confirm "Connected to Nous"`;
+
+  const hermesCli = `hermes plugins add @opennous/hermes-nous
+hermes nous setup --api-key YOUR_API_KEY`;
+
+  const harnessName = harness === "openclaw" ? "OpenClaw" : "Hermes Agent";
+
   return (
     <div className="space-y-4">
-      <h3 className="text-[14px] font-semibold text-gray-800">Set up OpenClaw</h3>
+      {/* Harness selector */}
+      <TabBar
+        tabs={[
+          { id: "openclaw" as Harness, label: "OpenClaw",     icon: <img src="/logos/openclaw.svg" alt="" className="w-3.5 h-3.5 object-contain" /> },
+          { id: "hermes"   as Harness, label: "Hermes Agent", icon: <Feather className="w-3.5 h-3.5" /> },
+        ]}
+        active={harness}
+        onChange={setHarness}
+        size="sm"
+      />
+
       <div className="rounded-xl border border-gray-100 bg-white p-5 space-y-4">
-        <p className="text-[12px] text-gray-400">Copy this installation prompt into OpenClaw:</p>
-        <CodeSnippet code={prompt} />
+        <TabBar
+          tabs={[
+            { id: "prompt" as HarnessMode, label: "Prompt" },
+            { id: "cli"    as HarnessMode, label: "CLI" },
+          ]}
+          active={mode}
+          onChange={setMode}
+          size="sm"
+        />
+
+        {mode === "prompt" && (
+          <>
+            <p className="text-[12px] text-gray-400">Copy this installation prompt into {harnessName}:</p>
+            <CodeSnippet code={prompt} />
+          </>
+        )}
+        {mode === "cli" && (
+          <>
+            <p className="text-[12px] text-gray-400">Run in your terminal:</p>
+            <CodeSnippet code={harness === "openclaw" ? openclawCli : hermesCli} />
+          </>
+        )}
       </div>
       <ApiKeyHint />
     </div>
@@ -407,78 +453,84 @@ function SdkPanel() {
 
 function PluginPanel() {
   const [client, setClient] = useState<PluginClient>("claude-code");
+  const [mode, setMode] = useState<PluginMode>("plugin");
 
   const claudeCodeMcp = `claude mcp add nous -e NOUS_API_KEY=YOUR_API_KEY -- npx -y @opennous/mcp`;
+  const claudeCodePluginAdd = `/plugin marketplace add bennetglinder1/nous`;
+  const claudeCodePluginInstall = `/plugin install nous@nous-plugins`;
 
-  const claudeDesktopMcp = `// ~/Library/Application Support/Claude/claude_desktop_config.json
-{
-  "mcpServers": {
-    "nous": {
-      "command": "npx",
-      "args": ["-y", "@opennous/mcp"],
-      "env": {
-        "NOUS_API_KEY": "YOUR_API_KEY"
-      }
-    }
-  }
-}`;
-
-  const cursorMcp = `// .cursor/mcp.json
-{
-  "mcpServers": {
-    "nous": {
-      "command": "npx",
-      "args": ["-y", "@opennous/mcp"],
-      "env": {
-        "NOUS_API_KEY": "YOUR_API_KEY"
-      }
-    }
-  }
-}`;
+  const codexMcp = `# ~/.codex/config.toml
+[mcp_servers.nous]
+command = "npx"
+args = ["-y", "@opennous/mcp"]
+env = { NOUS_API_KEY = "YOUR_API_KEY" }`;
 
   return (
-    <div className="space-y-5">
-      <div className="flex items-center justify-between">
-        <h3 className="text-[14px] font-semibold text-gray-800">Set up MCP Server</h3>
-        <TabBar
-          tabs={[
-            { id: "claude-code"    as PluginClient, label: "CLAUDE CODE" },
-            { id: "claude-desktop" as PluginClient, label: "CLAUDE DESKTOP" },
-            { id: "cursor"         as PluginClient, label: "CURSOR" },
-          ]}
-          active={client}
-          onChange={setClient}
-          size="sm"
-        />
-      </div>
+    <div className="space-y-4">
+      {/* Client selector */}
+      <TabBar
+        tabs={[
+          { id: "claude-code" as PluginClient, label: "Claude Code", icon: <img src="/provider-logos/claude.svg" alt="" className="w-3.5 h-3.5 object-contain" /> },
+          { id: "codex"       as PluginClient, label: "Codex",       icon: <img src="/provider-logos/openai.svg" alt="" className="w-3.5 h-3.5 object-contain" /> },
+        ]}
+        active={client}
+        onChange={setClient}
+        size="sm"
+      />
 
       <div className="rounded-xl border border-gray-100 bg-white p-5 space-y-4">
-        {client === "claude-code" && (
+        <div className="flex items-center justify-between">
+          <TabBar
+            tabs={[
+              { id: "plugin" as PluginMode, label: "Plugin" },
+              { id: "mcp"    as PluginMode, label: "MCP" },
+            ]}
+            active={mode}
+            onChange={setMode}
+            size="sm"
+          />
+          <a href="https://docs.opennous.cloud" target="_blank" rel="noopener noreferrer"
+            className="text-[12px] text-gray-400 hover:text-gray-700 transition-colors">View docs ↗</a>
+        </div>
+
+        {client === "claude-code" && mode === "plugin" && (
+          <div className="space-y-3.5">
+            <p className="text-[12px] text-gray-400">Install the Nous plugin for Claude Code:</p>
+            <div>
+              <p className="text-[12px] text-gray-500 mb-1.5">Step 1 — add the marketplace</p>
+              <CodeSnippet code={claudeCodePluginAdd} />
+            </div>
+            <div>
+              <p className="text-[12px] text-gray-500 mb-1.5">Step 2 — install the plugin</p>
+              <CodeSnippet code={claudeCodePluginInstall} />
+            </div>
+          </div>
+        )}
+
+        {client === "claude-code" && mode === "mcp" && (
           <>
             <p className="text-[12px] text-gray-400">Add the Nous MCP server with a single command in your terminal:</p>
             <CodeSnippet code={claudeCodeMcp} />
           </>
         )}
 
-        {client === "claude-desktop" && (
-          <>
-            <p className="text-[12px] text-gray-400">
-              Add to{" "}
-              <code className="bg-gray-100 px-1 rounded text-[11px]">~/Library/Application Support/Claude/claude_desktop_config.json</code>
-              , then restart Claude Desktop.
-            </p>
-            <CodeSnippet code={claudeDesktopMcp} />
-          </>
+        {client === "codex" && mode === "plugin" && (
+          <p className="text-[12px] text-gray-500 leading-relaxed">
+            Codex doesn't ship a plugin marketplace — connect Nous as an MCP server instead.
+            Switch to the{" "}
+            <button onClick={() => setMode("mcp")} className="text-gray-800 underline underline-offset-2 hover:text-gray-900">MCP</button>
+            {" "}tab.
+          </p>
         )}
 
-        {client === "cursor" && (
+        {client === "codex" && mode === "mcp" && (
           <>
             <p className="text-[12px] text-gray-400">
               Add to{" "}
-              <code className="bg-gray-100 px-1 rounded text-[11px]">.cursor/mcp.json</code>
-              {" "}in your project root, then restart Cursor.
+              <code className="bg-gray-100 px-1 rounded text-[11px]">~/.codex/config.toml</code>
+              , then restart Codex.
             </p>
-            <CodeSnippet code={cursorMcp} />
+            <CodeSnippet code={codexMcp} />
           </>
         )}
       </div>
@@ -506,14 +558,12 @@ export default function Install() {
 
   return (
     <div className="h-full overflow-y-auto bg-white">
-      <div className="p-8 max-w-3xl space-y-7">
-        <div>
-          <h2 className="text-[22px] font-bold text-gray-900 tracking-tight">Install Nous</h2>
-          <p className="text-[13px] text-gray-500 mt-1">
-            Choose how you want to integrate the account record into your AI agents.
-          </p>
-        </div>
-
+      <div className="px-8 py-7">
+        <PageHeader
+          title="Install Nous"
+          subtitle="Choose how you want to integrate the account record into your AI agents."
+        />
+        <div className="space-y-7">
         {/* Method selector */}
         <div className="grid grid-cols-3 gap-3">
           {INSTALL_METHODS.map(m => (
@@ -527,17 +577,8 @@ export default function Install() {
                   : "border-gray-100 bg-white hover:border-gray-200"
               )}
             >
-              <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 bg-gray-50 border border-gray-100 overflow-hidden">
-                {m.logo ? (
-                  <img
-                    src={m.logo}
-                    alt={m.label}
-                    className="w-5 h-5 object-contain"
-                    onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}
-                  />
-                ) : (
-                  <Code2 className="h-4 w-4 text-gray-400" />
-                )}
+              <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 bg-gray-50 border border-gray-100">
+                <m.icon className="h-4 w-4 text-gray-500" strokeWidth={1.75} />
               </div>
               <div>
                 <p className={cn("text-[13px] font-semibold", method === m.id ? "text-gray-900" : "text-gray-700")}>{m.label}</p>
@@ -548,9 +589,10 @@ export default function Install() {
         </div>
 
         {/* Panel */}
-        {method === "openclaw" && <OpenClawPanel />}
+        {method === "openclaw" && <AgentHarnessPanel />}
         {method === "sdk"      && <SdkPanel />}
         {method === "plugin"   && <PluginPanel />}
+        </div>
       </div>
     </div>
   );

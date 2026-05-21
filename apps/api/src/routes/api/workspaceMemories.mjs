@@ -1,10 +1,29 @@
 import { Router } from 'express';
-import { getSupabaseClient } from '@nous/core';
+import { getSupabaseClient, saveMemory } from '@nous/core';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
 
 export const workspaceMemoriesRouter = Router();
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// POST /api/workspace/memories — add one memory fact with a category
+// (ICP, Product, Pricing, …). Body: { workspaceId, content, category }.
+workspaceMemoriesRouter.post('/', verifySupabaseAuth, async (req, res) => {
+  try {
+    const { workspaceId, content, category } = req.body;
+    if (!workspaceId || !content?.trim()) {
+      return res.status(400).json({ error: 'workspaceId and content required' });
+    }
+    const memory = await saveMemory(getSupabaseClient(), workspaceId, {
+      content: content.trim(),
+      category: category || 'General',
+      source: 'manual',
+    });
+    return res.status(201).json({ memory });
+  } catch (err) {
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
 
 workspaceMemoriesRouter.get('/', verifySupabaseAuth, async (req, res) => {
   try {

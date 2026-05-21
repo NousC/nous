@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   Package,
@@ -11,6 +11,7 @@ import {
   Webhook,
   FileDown,
   Brain,
+  Database,
   CreditCard,
   BookOpen,
   ChevronDown,
@@ -26,6 +27,8 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { SidebarWorkspaceSelector } from "@/components/SidebarWorkspaceSelector";
 
 type NavItem = { title: string; url: string; icon: React.ElementType };
+
+const apiUrl = import.meta.env.VITE_API_URL ?? "";
 
 // SETUP — collapsible dropdown group
 const setupItems: NavItem[] = [
@@ -45,20 +48,39 @@ const mainNavItems: NavItem[] = [
   { title: "Intelligence", url: "/intelligence", icon: Brain     },
 ];
 
+// ENTERPRISE — Scale / Enterprise plans only
+const enterpriseItems: NavItem[] = [
+  { title: "CRM Sync", url: "/crm-sync", icon: Database },
+];
+
 // Bottom navigation — Settings is reached via the profile button below.
 const bottomNavItems: NavItem[] = [
   { title: "Usage & Billing", url: "/usage", icon: CreditCard },
 ];
 
 export function AppSidebar() {
-  const { userData } = useAuth();
+  const { userData, session } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const location = useLocation();
   const navigate = useNavigate();
   const [collapsed, setCollapsed] = useState(false);
   const [setupOpen, setSetupOpen] = useState(true);
+  const [enterpriseOpen, setEnterpriseOpen] = useState(true);
+  const [plan, setPlan] = useState<string | null>(null);
 
   const isAdmin = userData?.user?.is_admin === true;
+
+  // CRM sync is a Scale-tier feature — only surface the Enterprise section
+  // for workspaces actually on the Scale or Enterprise plan.
+  useEffect(() => {
+    const token = session?.access_token;
+    if (!token) return;
+    fetch(`${apiUrl}/api/billing/state`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (d?.plan) setPlan(String(d.plan).toLowerCase()); })
+      .catch(() => {});
+  }, [session?.access_token]);
+  const showEnterprise = plan === "scale" || plan === "enterprise";
 
   const isItemActive = (url: string) => {
     if (url === "/") return location.pathname === "/";
@@ -170,6 +192,32 @@ export function AppSidebar() {
           {mainNavItems.map(renderNavItem)}
         </ul>
       </nav>
+
+      {/* ENTERPRISE — Scale / Enterprise plans only */}
+      {showEnterprise && (
+        <nav className="px-2.5 pt-7">
+          {!collapsed && (
+            <button
+              onClick={() => setEnterpriseOpen(o => !o)}
+              className="flex w-full items-center justify-between px-2.5 py-1 group"
+            >
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-white/30">
+                Enterprise
+              </span>
+              <ChevronDown
+                className={`h-3.5 w-3.5 text-gray-400 dark:text-white/30 transition-transform duration-150 ${
+                  enterpriseOpen ? "" : "-rotate-90"
+                }`}
+              />
+            </button>
+          )}
+          {(enterpriseOpen || collapsed) && (
+            <ul className="flex flex-col gap-0.5 mt-0.5">
+              {enterpriseItems.map(renderNavItem)}
+            </ul>
+          )}
+        </nav>
+      )}
 
       {/* Spacer */}
       <div className="flex-1" />

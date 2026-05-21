@@ -153,7 +153,7 @@ export default function Companies() {
                   className="inline-flex items-center justify-center h-8 w-8 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 hover:text-gray-900 transition-colors">
                   <ArrowLeft className="h-4 w-4" />
                 </button>
-                <h1 className="text-[26px] font-bold tracking-tight text-gray-900">{getCoVal("name",detail.name)??detail.name}</h1>
+                <h1 className="text-[20px] font-semibold tracking-tight text-gray-900">{getCoVal("name",detail.name)??detail.name}</h1>
                 {detail.domain && <span className="text-[13px] text-gray-400">{detail.domain}</span>}
               </div>
               <div className="flex gap-6 border-b border-gray-200 overflow-x-auto">

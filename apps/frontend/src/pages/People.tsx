@@ -82,7 +82,7 @@ function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token:
             className="inline-flex items-center justify-center h-8 w-8 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 hover:text-gray-900 transition-colors flex-shrink-0">
             <ArrowLeft className="h-4 w-4" />
           </button>
-          <h1 className="text-[26px] font-bold tracking-tight text-gray-900">{contact.name}</h1>
+          <h1 className="text-[20px] font-semibold tracking-tight text-gray-900">{contact.name}</h1>
         </div>
         <div className="flex items-center gap-2 pl-11 mb-4 flex-wrap">
           {contact.email && <span className="text-[13px] text-gray-500">{contact.email}</span>}
