@@ -13,6 +13,9 @@ import { pollAllGmailWorkspaces } from './pollers/gmail.mjs';
 import { pollAllSmtpWorkspaces } from './pollers/smtp.mjs';
 import { webhookRouter } from './webhooks/index.mjs';
 import { processWebhookInbox } from './workers/webhookRetry.mjs';
+import { resolveMindEpisodes } from './workers/mindOutcomes.mjs';
+import { processLeadReplies } from './workers/leadReplies.mjs';
+import { runScorecardLoop } from './workers/scorecardLoop.mjs';
 
 // Wire webhook-driven activity logging → CRM push at module load.
 // Worker is where most logActivity() calls originate (Instantly/Lemlist replies,
@@ -101,6 +104,51 @@ async function runPipelineDecay() {
 
 cron.schedule('0 3 * * *', runPipelineDecay, { timezone: 'UTC' });
 console.log('[WORKER] Pipeline decay — daily at 03:00 UTC');
+
+// ── Mind outcome resolution — daily at 03:30 UTC ─────────────────────────────
+// Joins each ICP prediction in mind_episodes to its realized outcome (reply /
+// pipeline advance / closed-won revenue) and writes a weighted outcome_score.
+// Runs after pipeline decay so contact stages are fresh.
+// See docs/compound-intelligence-mind.md (Phase 2).
+async function runMindOutcomes() {
+  try {
+    await resolveMindEpisodes();
+  } catch (err) {
+    console.error('[WORKER] Mind outcomes error:', err.message);
+  }
+}
+
+cron.schedule('30 3 * * *', runMindOutcomes, { timezone: 'UTC' });
+console.log('[WORKER] Mind outcomes — daily at 03:30 UTC');
+
+// ── Lead reply classification — every 15 minutes ─────────────────────────────
+// Classifies inbound replies and graduates matched leads into People.
+// Decoupled from webhook ingestion. See docs/adaptive-lead-scoring.md.
+async function runLeadReplies() {
+  try {
+    await processLeadReplies();
+  } catch (err) {
+    console.error('[WORKER] Lead replies error:', err.message);
+  }
+}
+
+cron.schedule('*/15 * * * *', runLeadReplies);
+console.log('[WORKER] Lead reply classification — every 15 minutes');
+
+// ── Scorecard learning loop — daily at 04:00 UTC ─────────────────────────────
+// Refines the Scorecard from the account record's resolved predictions:
+// propose → test on a held-back split → keep only if both gates agree.
+// Runs after outcome resolution (03:30). See docs/adaptive-lead-scoring.md.
+async function runScorecard() {
+  try {
+    await runScorecardLoop();
+  } catch (err) {
+    console.error('[WORKER] Scorecard loop error:', err.message);
+  }
+}
+
+cron.schedule('0 4 * * *', runScorecard, { timezone: 'UTC' });
+console.log('[WORKER] Scorecard learning loop — daily at 04:00 UTC');
 
 // ── Webhook retry queue — every minute ───────────────────────────────────────
 // Picks up rows from webhook_inbox whose handlers failed (DB hiccup, Haiku

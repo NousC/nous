@@ -1,6 +1,8 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import React, { lazy, Suspense } from "react";
 import { AdminRoute } from "@/components/AdminRoute";
+import { AppSidebar } from "@/components/AppSidebar";
+import ComingSoon from "@/pages/ComingSoon";
 
 const lazyWithErrorBoundary = (importFn: () => Promise<any>) => {
   return lazy(() =>
@@ -25,7 +27,14 @@ const lazyWithErrorBoundary = (importFn: () => Promise<any>) => {
 };
 
 const Mind            = lazyWithErrorBoundary(() => import("@/pages/Mind"));
+const Install         = lazyWithErrorBoundary(() => import("@/pages/Install"));
+const ApiKeys         = lazyWithErrorBoundary(() => import("@/pages/ApiKeys"));
+const Webhooks        = lazyWithErrorBoundary(() => import("@/pages/Webhooks"));
+const People          = lazyWithErrorBoundary(() => import("@/pages/People"));
+const Companies       = lazyWithErrorBoundary(() => import("@/pages/Companies"));
+const Integrations    = lazyWithErrorBoundary(() => import("@/pages/Integrations"));
 const DeveloperPortal = lazyWithErrorBoundary(() => import("@/pages/DeveloperPortal"));
+const UsageBilling    = lazyWithErrorBoundary(() => import("@/pages/UsageBilling"));
 const Inbox           = lazyWithErrorBoundary(() => import("@/pages/Inbox"));
 const Reporting       = lazyWithErrorBoundary(() => import("@/pages/AdvancedAnalytics"));
 const API             = lazyWithErrorBoundary(() => import("@/pages/API"));
@@ -71,10 +80,11 @@ function AdminFullScreen({ children }: { children: React.ReactNode }) {
   );
 }
 
-// Sidebar-free shell — Mind is the chrome, pages fill the screen
+// App shell — persistent sidebar + scrollable main pane
 function StandardLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex h-screen w-full bg-background overflow-hidden">
+      <AppSidebar />
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <div className="flex-1 overflow-auto">
           {children}
@@ -98,9 +108,17 @@ export function AppRoutes() {
             {/* Live Op Log now lives inside Mind (/) — redirect stale links. */}
             <Route path="/operations" element={<Navigate to="/" replace />} />
             <Route path="/requests"   element={<Navigate to="/" replace />} />
+            {/* Setup */}
+            <Route path="/install"    element={<Suspense fallback={<MinimalLoader />}><Install /></Suspense>} />
+            <Route path="/playground" element={<ComingSoon />} />
+            <Route path="/keys"       element={<Suspense fallback={<MinimalLoader />}><ApiKeys /></Suspense>} />
+            {/* Main nav */}
+            <Route path="/webhooks"   element={<Suspense fallback={<MinimalLoader />}><Webhooks /></Suspense>} />
+            <Route path="/exports"    element={<ComingSoon />} />
+
             <Route path="/developer" element={<Suspense fallback={<MinimalLoader />}><DeveloperPortal /></Suspense>} />
-            <Route path="/billing" element={<Suspense fallback={<MinimalLoader />}><DeveloperPortal /></Suspense>} />
-            <Route path="/usage" element={<Suspense fallback={<MinimalLoader />}><DeveloperPortal /></Suspense>} />
+            <Route path="/billing" element={<Suspense fallback={<MinimalLoader />}><UsageBilling /></Suspense>} />
+            <Route path="/usage" element={<Suspense fallback={<MinimalLoader />}><UsageBilling /></Suspense>} />
 
             {/* All Mind-related URLs share one parent route element. React
                 Router keeps the parent element mounted while only its
@@ -112,15 +130,18 @@ export function AppRoutes() {
                 they only declare the URL patterns this layout handles. */}
             <Route element={<Suspense fallback={<MinimalLoader />}><Mind /></Suspense>}>
               <Route path="/" />
-              <Route path="/people" />
-              <Route path="/people/:id" />
-              <Route path="/companies" />
-              <Route path="/companies/:id" />
               <Route path="/crm" />
               <Route path="/memories" />
-              <Route path="/integrations" />
+              <Route path="/lead-lists" />
               <Route path="/settings" />
             </Route>
+
+            {/* Standalone pages — extracted from Mind */}
+            <Route path="/people"        element={<Suspense fallback={<MinimalLoader />}><People /></Suspense>} />
+            <Route path="/people/:id"    element={<Suspense fallback={<MinimalLoader />}><People /></Suspense>} />
+            <Route path="/companies"     element={<Suspense fallback={<MinimalLoader />}><Companies /></Suspense>} />
+            <Route path="/companies/:id" element={<Suspense fallback={<MinimalLoader />}><Companies /></Suspense>} />
+            <Route path="/integrations"  element={<Suspense fallback={<MinimalLoader />}><Integrations /></Suspense>} />
             <Route path="/settings/*" element={<Navigate to="/settings" replace />} />
 
             <Route path="/inbox" element={<Suspense fallback={<TableLoader />}><Inbox /></Suspense>} />

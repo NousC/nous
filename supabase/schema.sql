@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS workspaces (
   name        TEXT        NOT NULL,
   slug        TEXT        UNIQUE,
   industry    TEXT,
+  icp_text    TEXT,        -- plain-English ICP; the Scorecard seed (see docs/adaptive-lead-scoring.md)
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -869,6 +870,190 @@ CREATE TABLE IF NOT EXISTS teams (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+-- ============================================================
+-- 15. THE MIND  (prediction/outcome ledger — compound intelligence)
+--
+-- One row per scored contact per scoring run. Captures the prediction AND
+-- the workspace_memories versions that produced it (basis_memory_ids), so a
+-- later judge can attribute outcomes to specific ICP memory versions. The
+-- outcome_* columns are filled in later by a worker job that derives the
+-- realized outcome from contact_activity_log. No RLS — service-role table
+-- like webhook_inbox; the API enforces workspace scope on reads.
+-- See docs/compound-intelligence-mind.md.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS mind_episodes (
+  id            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  workspace_id  UUID        NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  contact_id    UUID        REFERENCES contacts(id)  ON DELETE SET NULL,
+  company_id    UUID        REFERENCES companies(id) ON DELETE SET NULL,
+
+  -- The prediction (snapshot at scoring time — never mutated)
+  kind              TEXT        NOT NULL DEFAULT 'icp_score',  -- 'icp_score' | 'goal_step' | …
+  predicted_score   INT,
+  predicted_fit     BOOLEAN,
+  predicted_reason  TEXT,
+  basis_memory_ids  UUID[]      NOT NULL DEFAULT '{}',
+  features          JSONB       NOT NULL DEFAULT '{}',  -- point-in-time feature snapshot
+  model             TEXT,
+  predicted_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+  -- The realized outcome (filled in later by the outcome job)
+  outcome_replied       BOOLEAN,
+  outcome_pipeline_from TEXT,
+  outcome_pipeline_to   TEXT,
+  outcome_revenue       NUMERIC,
+  outcome_score         NUMERIC,                  -- weighted 0..1
+  outcome_resolved_at   TIMESTAMPTZ,              -- NULL = still open
+  outcome_window_days   INT         NOT NULL DEFAULT 30,
+
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS mind_episodes_open
+  ON mind_episodes(workspace_id, predicted_at)
+  WHERE outcome_resolved_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS mind_episodes_resolved
+  ON mind_episodes(workspace_id, outcome_resolved_at)
+  WHERE outcome_resolved_at IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS mind_episodes_contact
+  ON mind_episodes(contact_id) WHERE contact_id IS NOT NULL;
+
+-- ============================================================
+-- 16. LEAD LISTS  (Adaptive Lead Scoring — the evidence set)
+--
+-- A lead list is the cold outreach universe — people reached out to before
+-- any back-and-forth. Leads live in their own table, separate from `contacts`
+-- (People): a 10k cold list never bloats People, and a lead carries outreach
+-- fields that have no place on a contact. The `leads` table doubles as the
+-- evidence set for the learning loop — prediction (`scorecard_score`) and
+-- label (`reply_outcome`) on one row. No RLS — service-role table like
+-- webhook_inbox; the API enforces workspace scope on reads.
+-- See docs/adaptive-lead-scoring.md.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS lead_lists (
+  id           UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  workspace_id UUID        NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  name         TEXT        NOT NULL,
+  source       TEXT        NOT NULL DEFAULT 'csv',   -- 'linkedin'|'instantly'|'csv'|'apollo'|…
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS lead_lists_workspace
+  ON lead_lists(workspace_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS leads (
+  id            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  lead_list_id  UUID        NOT NULL REFERENCES lead_lists(id) ON DELETE CASCADE,
+  workspace_id  UUID        NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+
+  -- Identity
+  email         TEXT,
+  name          TEXT,
+  company       TEXT,
+  linkedin_url  TEXT,
+
+  -- Outreach record
+  sent_at            TIMESTAMPTZ,
+  send_variant       TEXT,
+  is_repeat_contact  BOOLEAN     NOT NULL DEFAULT false,
+
+  -- The prediction
+  features         JSONB       NOT NULL DEFAULT '{}',   -- point-in-time feature snapshot
+  scorecard_score  INT,
+
+  -- The label (filled in when a reply lands)
+  reply_outcome  TEXT,                   -- 'interested'|'objection'|'wrong_fit'|'unsubscribe'
+  replied_at     TIMESTAMPTZ,
+
+  status      TEXT        NOT NULL DEFAULT 'pending',   -- 'pending'|'sent'|'replied'|'bounced'
+  contact_id  UUID        REFERENCES contacts(id) ON DELETE SET NULL,  -- set on graduation
+
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS leads_list      ON leads(lead_list_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS leads_workspace ON leads(workspace_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS leads_email
+  ON leads(workspace_id, lower(email)) WHERE email IS NOT NULL;
+CREATE INDEX IF NOT EXISTS leads_resolved
+  ON leads(workspace_id, replied_at) WHERE reply_outcome IS NOT NULL;
+CREATE INDEX IF NOT EXISTS leads_contact
+  ON leads(contact_id) WHERE contact_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS lead_suppressions (
+  id           UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  workspace_id UUID        NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  email        TEXT        NOT NULL,
+  reason       TEXT,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (workspace_id, email)
+);
+
+DROP TRIGGER IF EXISTS lead_lists_updated_at ON lead_lists;
+CREATE TRIGGER lead_lists_updated_at
+  BEFORE UPDATE ON lead_lists
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+DROP TRIGGER IF EXISTS leads_updated_at ON leads;
+CREATE TRIGGER leads_updated_at
+  BEFORE UPDATE ON leads
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================================
+-- 17. THE SCORECARD  (Adaptive Lead Scoring — weighted signals)
+--
+-- The Scorecard turns a lead into a 0–100 number: a list of weighted signals,
+-- each firing on a lead's feature snapshot via a JSONB `rule`. Scoring is
+-- arithmetic — Σ weights of firing signals, rescaled. `scorecard_runs` logs
+-- each learning-loop pass; seed signals (translated from the plain-English
+-- ICP) have `added_in = NULL`. No RLS — service-role tables.
+-- See docs/adaptive-lead-scoring.md.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS scorecard_runs (
+  id            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  workspace_id  UUID        NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  target        NUMERIC,
+  steps         INT         NOT NULL DEFAULT 0,
+  gap_before    NUMERIC,
+  gap_after     NUMERIC,
+  signal_count  INT,
+  note          TEXT,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS scorecard_runs_workspace
+  ON scorecard_runs(workspace_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS scorecard_signals (
+  id           UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  workspace_id UUID        NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  key          TEXT        NOT NULL,
+  label        TEXT        NOT NULL,
+  weight       INT         NOT NULL DEFAULT 0,
+  rule         JSONB       NOT NULL DEFAULT '{}',
+  coverage     INT         NOT NULL DEFAULT 0,
+  added_in     UUID        REFERENCES scorecard_runs(id) ON DELETE SET NULL,
+  active       BOOLEAN     NOT NULL DEFAULT true,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (workspace_id, key)
+);
+
+CREATE INDEX IF NOT EXISTS scorecard_signals_workspace
+  ON scorecard_signals(workspace_id, active);
+
+DROP TRIGGER IF EXISTS scorecard_signals_updated_at ON scorecard_signals;
+CREATE TRIGGER scorecard_signals_updated_at
+  BEFORE UPDATE ON scorecard_signals
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- ============================================================
 -- Done.

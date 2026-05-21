@@ -2,7 +2,9 @@
 
 Adaptive Lead Scoring turns a workspace's outreach into a model that improves itself. Lead lists become labeled evidence, a **Scorecard** of weighted signals turns each lead into a 0–100 number, and a nightly loop rewrites the Scorecard from the replies that came back. The user states the target once in plain English; every change after that is the system correcting itself.
 
-> Design reference — describes intended behavior; the feature is not yet built. Phases 1–3 of the Mind (the `mind_episodes` ledger, outcome resolution, the calibration metric) are documented in `compound-intelligence-mind.md`. The ICP scoring this evolves is documented in `icp-scoring-and-enrichment.md`.
+> Design reference — describes intended behavior. Phases 1–3 of the Mind (the `mind_episodes` ledger, outcome resolution, the calibration metric) are documented in `compound-intelligence-mind.md`. The ICP scoring this evolves is documented in `icp-scoring-and-enrichment.md`.
+
+> **Charter alignment (2026-05-21).** Per the Nous Founding Charter, the learning loop trains on the **account record's resolved predictions** — `mind_episodes`, closed outcomes checked against what was scored. That is the charter's Phase 1, "close the loop." The **Lead Lists** sections of this document (the `lead_lists` / `leads` tables and UI — cold top-of-funnel) are **parked**: the charter scopes cold lead acquisition out of Nous as a free skill, not a feature. Those tables remain in place, unused, pending review. The Scorecard and the loop (§3–§7) are the live, charter-aligned design.
 
 ---
 
