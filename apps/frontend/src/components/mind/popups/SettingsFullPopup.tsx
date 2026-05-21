@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { Sun, Moon, LogOut, Plus, Trash2, X, Copy, RefreshCw } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "@/contexts/ThemeContext";
@@ -17,8 +18,10 @@ export default function SettingsFullPopup({ workspaceId, onClose, initialTab = "
   const { userData, session, refreshUserData, signOut } = useAuth();
   const handleSignOut = async () => { try { await signOut(); } catch { /* ignore */ } onClose(); };
   const { theme, toggleTheme } = useTheme();
+  const navigate = useNavigate();
   const token = session?.access_token;
   const teamId = userData?.team?.id;
+  const isAdmin = userData?.user?.is_admin === true;
 
   const [tab, setTab] = useState<SettingsTab>(initialTab);
 
@@ -182,20 +185,6 @@ export default function SettingsFullPopup({ workspaceId, onClose, initialTab = "
     toast.success("Key deleted");
   };
 
-  const purchasePack = async (packId: string) => {
-    if (!token) return;
-    setCheckoutLoading(`pack:${packId}`);
-    try {
-      const res = await fetch(`${apiUrl}/api/billing/purchase-pack`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ packId }),
-      });
-      if (res.ok) { const d = await res.json(); if (d.url) window.location.href = d.url; }
-      else { const e = await res.json().catch(() => ({})); toast.error(e.error || "Checkout failed"); setCheckoutLoading(null); }
-    } catch { setCheckoutLoading(null); }
-  };
-
   const subscribe = async (plan: string) => {
     if (!token) return;
     setCheckoutLoading(`subscribe:${plan}`);
@@ -229,6 +218,17 @@ export default function SettingsFullPopup({ workspaceId, onClose, initialTab = "
     { id: "api-keys", label: "API Keys" },
     { id: "billing",  label: "Billing"  },
     { id: "usage",    label: "Usage"    },
+    ...(isAdmin ? [{ id: "admin" as SettingsTab, label: "Admin" }] : []),
+  ];
+
+  const ADMIN_PAGES: { label: string; url: string }[] = [
+    { label: "CMS",        url: "/admin/cms"        },
+    { label: "Updates",    url: "/admin/updates"    },
+    { label: "Roadmap",    url: "/admin/roadmap"    },
+    { label: "Changelog",  url: "/admin/changelog"  },
+    { label: "Media",      url: "/admin/media"      },
+    { label: "Users",      url: "/admin/support"    },
+    { label: "Affiliates", url: "/admin/affiliates" },
   ];
 
   return (
@@ -456,8 +456,8 @@ export default function SettingsFullPopup({ workspaceId, onClose, initialTab = "
                       <span className="text-[10px] text-muted-foreground/50">/ {(billing.ops?.included ?? 0).toLocaleString()} ops this period</span>
                     </div>
                     <div className="flex gap-6 text-[9px] text-muted-foreground/40">
-                      <span>top-up balance: {(billing.ops?.topupBalance ?? 0).toLocaleString()}</span>
-                      <span>remaining: {(billing.ops?.remaining ?? 0).toLocaleString()}</span>
+                      <span>ops remaining: {(billing.ops?.remaining ?? 0).toLocaleString()}</span>
+                      <span>enrichments: {(billing.enrichments?.used ?? 0).toLocaleString()} / {(billing.enrichments?.included ?? 0).toLocaleString()}</span>
                     </div>
                   </div>
 
@@ -491,42 +491,10 @@ export default function SettingsFullPopup({ workspaceId, onClose, initialTab = "
                     </div>
                   </div>
 
-                  {/* Top-up packs */}
-                  {billing.packs?.length > 0 && (
-                    <div>
-                      <div className="text-[9px] text-muted-foreground/30 tracking-widest mb-3">TOP-UP PACKS</div>
-                      <div className="grid grid-cols-3 gap-2">
-                        {billing.packs.map((p: any) => (
-                          <div key={p.id} className={`p-3 border space-y-2 ${p.popular ? "border-violet-500/30 bg-violet-500/5" : "border-border/20 bg-muted/5"}`}>
-                            <div className="flex items-baseline gap-1.5">
-                              <span className="text-[13px] font-semibold text-foreground/80">{(p.ops/1000).toFixed(0)}k</span>
-                              <span className="text-[9px] text-muted-foreground/40">ops</span>
-                            </div>
-                            <button onClick={() => purchasePack(p.id)} disabled={!!checkoutLoading}
-                              className={`w-full text-[9px] py-1 border transition-colors disabled:opacity-40 ${p.popular ? "border-violet-500/40 text-violet-400/80 hover:bg-violet-500/10" : "border-border/40 text-muted-foreground/60 hover:text-foreground hover:border-border"}`}>
-                              {checkoutLoading === `pack:${p.id}` ? "…" : `$${p.priceUsd}`}
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Recent purchases */}
-                  {billing.purchases?.length > 0 && (
-                    <div>
-                      <div className="text-[9px] text-muted-foreground/30 tracking-widest mb-3">RECENT PURCHASES</div>
-                      <div className="divide-y divide-border/10">
-                        {billing.purchases.slice(0, 5).map((p: any, i: number) => (
-                          <div key={i} className="flex items-center gap-3 py-2.5">
-                            <span className="flex-1 text-[10px] text-foreground/70">{(p.ops_granted ?? 0).toLocaleString()} ops</span>
-                            <span className="text-[9px] text-muted-foreground/35">${((p.amount_usd_cents ?? 0) / 100).toFixed(2)}</span>
-                            <span className="text-[9px] text-muted-foreground/25">{relTime(p.created_at)}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                  <p className="text-[9px] text-muted-foreground/30 leading-relaxed">
+                    Pure-tier pricing — no top-up packs. Run out of ops or enrichments?
+                    Switch to a higher plan; the change applies immediately.
+                  </p>
                 </>
               ) : null}
             </div>
@@ -547,7 +515,7 @@ export default function SettingsFullPopup({ workspaceId, onClose, initialTab = "
                   <div className="space-y-4">
                     {[
                       { label: "Ops used", cur: usageData.ops?.used, lim: usageData.ops?.included },
-                      { label: "Top-up balance", cur: usageData.ops?.topupBalance, lim: null },
+                      { label: "Enrichments used", cur: usageData.enrichments?.used, lim: usageData.enrichments?.included },
                       { label: "Workspaces", cur: usageData.workspaces?.current, lim: usageData.workspaces?.limit },
                     ].map(({ label, cur, lim }) => (
                       <div key={label}>
@@ -568,6 +536,25 @@ export default function SettingsFullPopup({ workspaceId, onClose, initialTab = "
                   </div>
                 </>
               ) : null}
+            </div>
+          )}
+
+          {/* ── Admin ── */}
+          {tab === "admin" && isAdmin && (
+            <div className="space-y-5 max-w-md">
+              <div className="text-[9px] text-muted-foreground/30 tracking-widest">ADMIN PAGES</div>
+              <div className="divide-y divide-border/10">
+                {ADMIN_PAGES.map(p => (
+                  <button
+                    key={p.url}
+                    onClick={() => { onClose(); navigate(p.url); }}
+                    className="w-full flex items-center gap-3 py-2.5 text-left group"
+                  >
+                    <span className="flex-1 text-[11px] text-foreground/80 group-hover:text-foreground transition-colors">{p.label}</span>
+                    <span className="text-[9px] text-muted-foreground/30 font-mono group-hover:text-muted-foreground/60 transition-colors">{p.url}</span>
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 

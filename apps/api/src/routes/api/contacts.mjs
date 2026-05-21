@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto';
 import { getSupabaseClient } from '@nous/core';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
 import { ensureUserAndTeam } from '../../lib/auth.mjs';
+import { requireEnrichmentQuota } from '../../lib/access.mjs';
 import { enrichContact } from '../../services/enrichment.mjs';
 import { enrichContactHistory, enrichmentJobs } from '../../services/contactHistoryEnricher.mjs';
 
@@ -360,7 +361,9 @@ contactsApiRouter.post('/import', verifySupabaseAuth, async (req, res) => {
 });
 
 // POST /api/contacts/:id/enrich
-contactsApiRouter.post('/:id/enrich', verifySupabaseAuth, async (req, res) => {
+// Gated by the plan's monthly enrichment allowance (its own metered unit —
+// not ops). requireEnrichmentQuota 402s when the allowance is exhausted.
+contactsApiRouter.post('/:id/enrich', verifySupabaseAuth, requireEnrichmentQuota, async (req, res) => {
   try {
     const supabase = getSupabaseClient();
     const { id } = req.params;
@@ -375,11 +378,12 @@ contactsApiRouter.post('/:id/enrich', verifySupabaseAuth, async (req, res) => {
 
     // Re-fetch updated contact so the frontend gets live enrichment_status + new fields
     const { data: updated } = await supabase.from('contacts').select('*').eq('id', id).single();
-    const opsUsed = updated?.enrichment_status === 'complete' ? 1 : 0;
+    const enriched = updated?.enrichment_status === 'complete';
 
-    // A successful enrichment is 1 op. Record it in the live op log — that row
-    // is the billing record (billable_ops defaults to 1).
-    if (opsUsed > 0) {
+    // A successful enrichment writes an `enrichment_run` row to the live op
+    // log — billable_ops=0, because enrichment has its own metered allowance
+    // (counted by getTeamEnrichmentUsage), it is NOT billed as an op.
+    if (enriched) {
       try {
         await supabase.from('workspace_system_log').insert({
           workspace_id: updated?.workspace_id || contact.workspace_id,
@@ -388,6 +392,7 @@ contactsApiRouter.post('/:id/enrich', verifySupabaseAuth, async (req, res) => {
           summary:      `Enriched ${updated?.first_name || updated?.email || 'contact'}`,
           contact_id:   id,
           metadata:     { provider: updated?.enrichment_provider || null },
+          billable_ops: 0,
           occurred_at:  new Date().toISOString(),
         });
       } catch (e) {
@@ -395,7 +400,7 @@ contactsApiRouter.post('/:id/enrich', verifySupabaseAuth, async (req, res) => {
       }
     }
 
-    return res.json({ contact: updated || contact, opsUsed });
+    return res.json({ contact: updated || contact, enriched });
   } catch (err) {
     console.error('[POST /api/contacts/:id/enrich]', err);
     return res.status(500).json({ error: 'internal_error' });

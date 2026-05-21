@@ -1,12 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
 import {
   Key, Sparkles, Plus, Copy, Trash2,
   CheckCircle2, ExternalLink, HelpCircle, BookOpen,
-  RotateCcw, CreditCard, Zap, Code2,
+  RotateCcw, CreditCard, Code2,
   Brain, Users, Building2, ArrowUpFromLine, ArrowDownToLine, Activity,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -32,7 +30,7 @@ interface ApiKey {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const PLAN_LABELS: Record<string, string> = {
-  free: "Free", pro: "Pro", scale: "Scale",
+  free: "Free", starter: "Starter", pro: "Pro", scale: "Scale",
 };
 
 function authH(token: string) {
@@ -85,16 +83,15 @@ function UpgradeModal({ open, onClose }: { open: boolean; onClose: () => void })
 }
 
 function Sidebar({
-  active, setActive, plan, opsRemaining, opsTotalPurchased, opsAccountsLimit, isPaid, userName, avatarUrl,
+  active, setActive, plan, opsUsed, opsIncluded, opsRemaining, userName, avatarUrl,
 }: {
   active: Section; setActive: (s: Section) => void;
-  plan: string; opsRemaining: number; opsTotalPurchased: number; opsAccountsLimit: number; isPaid: boolean;
+  plan: string; opsUsed: number; opsIncluded: number; opsRemaining: number;
   userName: string; avatarUrl?: string;
 }) {
   const [upgradeOpen, setUpgradeOpen] = useState(false);
-  const devOpsTotal = Math.max(5000, opsTotalPurchased);
-  const pct = !isPaid ? Math.min(100, Math.round(((devOpsTotal - opsRemaining) / devOpsTotal) * 100)) : 0;
-  const planLabel = isPaid ? "Production" : (PLAN_LABELS[plan] ?? plan);
+  const pct = opsIncluded > 0 ? Math.min(100, Math.round((opsUsed / opsIncluded) * 100)) : 0;
+  const planLabel = PLAN_LABELS[plan] ?? plan;
   const initials = (userName || "U").charAt(0).toUpperCase();
 
   return (
@@ -167,37 +164,24 @@ function Sidebar({
         <div className="rounded-xl bg-white border border-gray-100 p-3.5 space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-semibold text-gray-600">{planLabel}</span>
-            {!isPaid ? (
-              <button onClick={() => setActive("billing")} className="text-[11px] font-semibold text-gray-900 hover:underline">
-                Buy ops →
-              </button>
-            ) : (
-              <button onClick={() => setActive("billing")} className="text-[11px] text-gray-400 hover:text-gray-700 hover:underline">
-                Billing →
-              </button>
-            )}
+            <button onClick={() => setActive("billing")} className="text-[11px] text-gray-400 hover:text-gray-700 hover:underline">
+              Billing →
+            </button>
           </div>
           <div>
             <div className="flex justify-between text-[11px] text-gray-400 mb-1.5">
-              <span>Ops remaining</span>
+              <span>{opsRemaining.toLocaleString()} ops left this month</span>
               <span className={cn("font-medium tabular-nums", opsRemaining < 500 ? "text-amber-500" : "text-gray-600")}>
-                {opsRemaining.toLocaleString()}
+                {opsUsed.toLocaleString()}/{opsIncluded.toLocaleString()}
               </span>
             </div>
-            {!isPaid && (
-              <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                <div
-                  className={cn("h-full rounded-full transition-all duration-500",
-                    pct > 80 ? "bg-amber-400" : "bg-gray-900")}
-                  style={{ width: `${pct}%` }}
-                />
-              </div>
-            )}
-            {isPaid && (
-              <div className="text-[10px] text-gray-400">
-                Up to {opsAccountsLimit.toLocaleString()} accounts · <button onClick={() => setActive("billing")} className="underline hover:text-gray-600">top up</button>
-              </div>
-            )}
+            <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+              <div
+                className={cn("h-full rounded-full transition-all duration-500",
+                  pct > 80 ? "bg-amber-400" : "bg-gray-900")}
+                style={{ width: `${pct}%` }}
+              />
+            </div>
           </div>
         </div>
       </div>
@@ -1277,12 +1261,33 @@ function UsageSection({ token }: { token: string }) {
 
 // ── Billing ───────────────────────────────────────────────────────────────────
 
-interface BillingData {
-  packs: { id: string; ops: number; accountsLimit: number; priceUSD: number; ratePerHundred: number; popular?: boolean }[];
-  balance: { opsRemaining: number; accountsLimit: number; opsTotalPurchased: number; opsUsed: number };
-  autoTopup: { enabled: boolean; threshold: number; packId: string | null };
-  hasPaymentMethod: boolean;
-  purchases: { pack_id: string; ops_granted: number; amount_usd_cents: number; is_auto_topup: boolean; created_at: string }[];
+type BillingPlan = "free" | "starter" | "pro" | "scale";
+
+interface BillingPlanInfo {
+  id: BillingPlan;
+  name: string;
+  monthlyPriceUsd: number;
+  includedOpsPerMonth: number;
+  enrichmentsPerMonth: number;
+  workspaceLimit: number;
+}
+
+interface BillingState {
+  billing_disabled: boolean;
+  self_hosted?: boolean;
+  plan: BillingPlan;
+  planName: string;
+  subscription: {
+    status: string;
+    current_period_start: string;
+    current_period_end: string;
+    cancel_at_period_end: boolean;
+    stripe_subscription_id: string;
+    is_comp: boolean;
+  } | null;
+  ops: { used: number; included: number; remaining: number; periodStart: string };
+  enrichments: { used: number; included: number; remaining: number };
+  allPlans: BillingPlanInfo[];
 }
 
 function SelfHostedBillingNotice() {
@@ -1303,256 +1308,213 @@ function SelfHostedBillingNotice() {
   );
 }
 
+function UsageBar({ label, used, included }: { label: string; used: number; included: number }) {
+  const pct = included > 0 ? Math.min(100, Math.round((used / included) * 100)) : 0;
+  return (
+    <div>
+      <div className="flex justify-between text-[12px] mb-1.5">
+        <span className="font-medium text-gray-700">{label}</span>
+        <span className="tabular-nums text-gray-500">
+          {used.toLocaleString()} <span className="text-gray-300">/</span> {included.toLocaleString()}
+        </span>
+      </div>
+      <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+        <div
+          className={cn("h-full rounded-full transition-all duration-500", pct > 90 ? "bg-amber-400" : "bg-gray-900")}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
 function BillingSection({ token }: { token: string }) {
   if (!IS_CLOUD) return <SelfHostedBillingNotice />;
-  const [data, setData] = useState<BillingData | null>(null);
+  const [data, setData] = useState<BillingState | null>(null);
   const [loading, setLoading] = useState(true);
-  const [buying, setBuying] = useState<string | null>(null);
-  const [selectedPack, setSelectedPack] = useState<string>("50k");
-  const [savingTopup, setSavingTopup] = useState(false);
-  const [topupEnabled, setTopupEnabled] = useState(false);
-  const [topupThreshold, setTopupThreshold] = useState(1000);
-  const [topupPackId, setTopupPackId] = useState<string>("5k");
+  const [acting, setActing] = useState<string | null>(null);
   const [searchParams] = useSearchParams();
-  const successPack = searchParams.get("success") === "true" ? searchParams.get("pack") : null;
+  const success = searchParams.get("success") === "true";
 
-  const load = useCallback(async () => {
+  useEffect(() => {
     if (!token) return;
-    try {
-      const res = await fetch(`${apiUrl}/api/billing/packs`, { headers: authH(token) });
-      if (res.ok) {
-        const d: BillingData = await res.json();
-        setData(d);
-        setTopupEnabled(d.autoTopup.enabled);
-        setTopupThreshold(d.autoTopup.threshold);
-        setTopupPackId(d.autoTopup.packId ?? "5k");
-        const popular = d.packs.find(p => p.popular);
-        if (popular) setSelectedPack(popular.id);
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${apiUrl}/api/billing/state`, { headers: authH(token) });
+        if (res.ok && !cancelled) setData(await res.json() as BillingState);
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-    } finally { setLoading(false); }
+    })();
+    return () => { cancelled = true; };
   }, [token]);
 
-  useEffect(() => { load(); }, [load]);
-
-  const buyPack = async (packId: string) => {
-    setBuying(packId);
+  const subscribe = async (plan: BillingPlan) => {
+    setActing(plan);
     try {
-      const res = await fetch(`${apiUrl}/api/billing/purchase-pack`, {
+      const res = await fetch(`${apiUrl}/api/billing/subscribe`, {
         method: "POST",
         headers: { ...authH(token), "Content-Type": "application/json" },
-        body: JSON.stringify({ packId }),
+        body: JSON.stringify({ plan }),
       });
       const d = await res.json();
       if (d.url) window.location.href = d.url;
-    } finally { setBuying(null); }
+    } finally { setActing(null); }
   };
 
-  const saveAutoTopup = async () => {
-    setSavingTopup(true);
+  const openCustomerPortal = async () => {
+    setActing("portal");
     try {
-      await fetch(`${apiUrl}/api/billing/auto-topup`, {
+      const res = await fetch(`${apiUrl}/api/billing/customer-portal`, {
         method: "POST",
-        headers: { ...authH(token), "Content-Type": "application/json" },
-        body: JSON.stringify({ enabled: topupEnabled, threshold: topupThreshold, packId: topupPackId }),
+        headers: authH(token),
       });
-      await load();
-    } finally { setSavingTopup(false); }
+      const d = await res.json();
+      if (d.url) window.open(d.url, "_blank", "noopener,noreferrer");
+    } finally { setActing(null); }
   };
 
   if (loading) {
     return (
       <div className="p-8 space-y-5">
         <div className="h-8 w-32 bg-gray-100 rounded animate-pulse" />
-        <div className="flex gap-5">
-          <div className="w-[260px] flex-shrink-0 h-64 rounded-2xl bg-gray-100 animate-pulse" />
-          <div className="flex-1 h-64 rounded-2xl bg-gray-100 animate-pulse" />
+        <div className="h-44 rounded-2xl bg-gray-100 animate-pulse max-w-2xl" />
+        <div className="h-64 rounded-2xl bg-gray-100 animate-pulse max-w-2xl" />
+      </div>
+    );
+  }
+
+  if (!data) {
+    return (
+      <div className="p-8 space-y-4">
+        <h1 className="text-[22px] font-bold text-gray-900 tracking-tight">Billing</h1>
+        <p className="text-[13px] text-gray-400">Couldn't load billing information. Please try again later.</p>
+      </div>
+    );
+  }
+
+  if (data.billing_disabled) {
+    return (
+      <div className="p-8 space-y-4">
+        <div>
+          <h1 className="text-[22px] font-bold text-gray-900 tracking-tight mb-0.5">Billing</h1>
+          <p className="text-[13px] text-gray-400">Manage your subscription</p>
+        </div>
+        <div className="rounded-xl border border-gray-200 bg-gray-50 p-6 max-w-lg space-y-1.5">
+          <p className="text-[14px] font-semibold text-gray-900">Self-hosted — billing disabled</p>
+          <p className="text-[13px] text-gray-500">
+            This deployment runs without Stripe billing. Plan limits are not enforced.
+          </p>
         </div>
       </div>
     );
   }
 
-  const balance = data?.balance;
-  const packs = data?.packs ?? [];
-  const isPaidUser = (balance?.opsTotalPurchased ?? 0) > 0;
-  const devUsedPct = !isPaidUser
-    ? Math.min(100, Math.round(((5000 - (balance?.opsRemaining ?? 5000)) / 5000) * 100))
-    : 0;
-  const selectedPackData = packs.find(p => p.id === selectedPack) ?? packs[0];
+  const sub = data.subscription;
+  const hasSubscription = !!sub?.stripe_subscription_id;
 
   return (
     <div className="p-8 space-y-5">
       {/* Header */}
       <div>
         <h1 className="text-[22px] font-bold text-gray-900 tracking-tight mb-0.5">Billing</h1>
-        <p className="text-[13px] text-gray-400">Manage your ops balance</p>
+        <p className="text-[13px] text-gray-400">Manage your subscription and monitor usage</p>
       </div>
 
-      {successPack && (
-        <div className="rounded-xl bg-green-50 border border-green-200 px-4 py-3 flex items-center gap-2.5">
+      {success && (
+        <div className="rounded-xl bg-green-50 border border-green-200 px-4 py-3 flex items-center gap-2.5 max-w-2xl">
           <CheckCircle2 className="h-4 w-4 text-green-600 flex-shrink-0" />
-          <p className="text-[13px] text-green-800 font-medium">Pack purchased — ops added to your balance.</p>
+          <p className="text-[13px] text-green-800 font-medium">Subscription updated — your new plan is active.</p>
         </div>
       )}
 
-      {/* Two-column */}
-      <div className="flex gap-5 items-start">
-
-        {/* Left: balance + auto top-up */}
-        <div className="w-[250px] flex-shrink-0 space-y-3">
-          <div className="rounded-2xl border border-gray-100 bg-white p-5">
-            <p className="text-[13px] font-semibold text-gray-800 mb-4">Balance Information</p>
-            <p className={cn("text-[36px] font-bold tracking-tight leading-none mb-0.5",
-              (balance?.opsRemaining ?? 0) < 500 ? "text-amber-500" : "text-gray-900")}>
-              {(balance?.opsRemaining ?? 0).toLocaleString()}
-            </p>
-            <p className="text-[12px] text-gray-400 mb-4">Current Balance</p>
-            {!isPaidUser && (
-              <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden mb-4">
-                <div className={cn("h-full rounded-full transition-all", devUsedPct > 80 ? "bg-amber-400" : "bg-gray-900")}
-                  style={{ width: `${devUsedPct}%` }} />
-              </div>
-            )}
-            <div className="border-t border-gray-50 pt-4 space-y-2">
-              <div className="flex items-start gap-2 text-[11px] text-gray-500">
-                <span className="mt-0.5 text-gray-300">—</span>
-                Ops never expire and can be used any time
-              </div>
-              <div className="flex items-start gap-2 text-[11px] text-gray-500">
-                <span className="mt-0.5 text-gray-300">—</span>
-                {(balance?.accountsLimit ?? 50).toLocaleString()} accounts limit
-              </div>
-              <div className="flex items-start gap-2 text-[11px] text-gray-500">
-                <span className="mt-0.5 text-gray-300">—</span>
-                <span>
-                  <span className="font-semibold text-gray-700">{(balance?.opsUsed ?? 0).toLocaleString()}</span> total requests made
-                </span>
-              </div>
-              {isPaidUser && (
-                <div className="flex items-start gap-2 text-[11px] text-gray-500">
-                  <span className="mt-0.5 text-gray-300">—</span>
-                  {(balance?.opsTotalPurchased ?? 0).toLocaleString()} ops purchased all-time
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Auto top-up */}
-          <div className="rounded-2xl border border-gray-100 bg-white p-5 space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-[13px] font-semibold text-gray-800">Auto top-up</p>
-                <p className="text-[11px] text-gray-400 mt-0.5">Refill when balance runs low</p>
-              </div>
-              <Switch checked={topupEnabled} onCheckedChange={setTopupEnabled} />
-            </div>
-            {topupEnabled && (
-              <div className="space-y-3 pt-1 border-t border-gray-50">
-                {!data?.hasPaymentMethod && (
-                  <p className="text-[11px] text-amber-600">Make a purchase first to save a card.</p>
-                )}
-                <div>
-                  <Label className="text-[11px] text-gray-400 mb-1.5 block">Trigger below</Label>
-                  <div className="flex items-center gap-2">
-                    <input type="number" value={topupThreshold} onChange={e => setTopupThreshold(Number(e.target.value))}
-                      className="w-20 h-7 rounded-lg border border-gray-200 px-2.5 text-[12px] text-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-300"
-                      min={100} step={100} />
-                    <span className="text-[11px] text-gray-400">ops</span>
-                  </div>
-                </div>
-                <div>
-                  <Label className="text-[11px] text-gray-400 mb-1.5 block">Pack</Label>
-                  <select value={topupPackId} onChange={e => setTopupPackId(e.target.value)}
-                    className="h-7 w-full rounded-lg border border-gray-200 px-2 text-[12px] text-gray-900 bg-white focus:outline-none focus:ring-1 focus:ring-gray-300">
-                    {packs.map(p => (
-                      <option key={p.id} value={p.id}>{p.ops >= 1000 ? `${p.ops / 1000}K` : p.ops} ops — ${p.priceUSD}</option>
-                    ))}
-                  </select>
-                </div>
-                <Button onClick={saveAutoTopup} disabled={savingTopup || !data?.hasPaymentMethod}
-                  className="w-full h-7 text-[12px] bg-gray-900 text-white hover:bg-gray-800">
-                  {savingTopup ? "Saving…" : "Save"}
-                </Button>
-              </div>
+      {/* Current plan + usage */}
+      <div className="rounded-2xl border border-gray-100 bg-white p-5 max-w-2xl space-y-5">
+        <div className="flex items-start justify-between">
+          <div>
+            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest mb-1">Current Plan</p>
+            <p className="text-[20px] font-bold text-gray-900 tracking-tight">{data.planName}</p>
+            {sub && (
+              <p className="text-[12px] text-gray-400 mt-0.5">
+                {sub.cancel_at_period_end ? "Cancels" : "Renews"} {format(new Date(sub.current_period_end), "MMM d, yyyy")}
+                {sub.is_comp && <span className="ml-1.5 text-gray-300">· complimentary</span>}
+              </p>
             )}
           </div>
-        </div>
-
-        {/* Right: buy ops */}
-        <div className="flex-1 min-w-0 space-y-4">
-          <div className="rounded-2xl border border-gray-100 bg-white p-5 space-y-5">
-            <p className="text-[13px] font-semibold text-gray-800">Buy Ops</p>
-
-            <div>
-              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2.5">Select Package</p>
-              <div className="grid grid-cols-4 gap-2">
-                {packs.map(pack => (
-                  <button key={pack.id} onClick={() => setSelectedPack(pack.id)}
-                    className={cn("relative rounded-xl border-2 p-3.5 text-left transition-all",
-                      selectedPack === pack.id
-                        ? "border-gray-900 bg-gray-900"
-                        : "border-gray-100 bg-white hover:border-gray-300"
-                    )}>
-                    {pack.popular && selectedPack !== pack.id && (
-                      <span className="absolute -top-2 right-1.5 text-[9px] font-semibold bg-gray-800 text-white px-1.5 py-0.5 rounded-full">Best</span>
-                    )}
-                    <p className={cn("text-[20px] font-bold leading-none mb-1",
-                      selectedPack === pack.id ? "text-white" : "text-gray-900")}>
-                      ${pack.priceUSD}
-                    </p>
-                    <p className={cn("text-[11px]", selectedPack === pack.id ? "text-gray-300" : "text-gray-400")}>
-                      {pack.ops >= 1000 ? `${pack.ops / 1000}K` : pack.ops} ops
-                    </p>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {selectedPackData && (
-              <div className="rounded-xl bg-gray-50 border border-gray-100 px-4 py-2.5 flex items-center gap-3 text-[12px] text-gray-500">
-                <span className="font-semibold text-gray-800">{selectedPackData.ops >= 1000 ? `${selectedPackData.ops / 1000}K` : selectedPackData.ops} ops</span>
-                <span className="text-gray-200">·</span>
-                up to {selectedPackData.accountsLimit.toLocaleString()} accounts
-                <span className="text-gray-200">·</span>
-                ${selectedPackData.ratePerHundred}/100 ops
-              </div>
-            )}
-
-            <Button
-              className="w-full h-10 text-[13px] bg-gray-900 text-white hover:bg-gray-800 font-medium"
-              disabled={buying !== null || !selectedPackData}
-              onClick={() => selectedPackData && buyPack(selectedPackData.id)}
-            >
-              {buying ? "Redirecting…" : `Buy ${selectedPackData ? `${selectedPackData.ops >= 1000 ? `${selectedPackData.ops / 1000}K` : selectedPackData.ops} ops` : ""} for $${selectedPackData?.priceUSD ?? ""}`}
-            </Button>
-
-            <p className="text-[11px] text-gray-400">Ops never expire. Accounts limit is set by your highest pack tier.</p>
-          </div>
-
-          {/* Purchase history */}
-          {(data?.purchases ?? []).length > 0 && (
-            <div className="rounded-2xl border border-gray-100 bg-white overflow-hidden">
-              <div className="px-5 py-3.5 border-b border-gray-50">
-                <p className="text-[12px] font-semibold text-gray-600">Purchase history</p>
-              </div>
-              {data!.purchases.map((p, i) => (
-                <div key={i} className={cn("flex items-center justify-between px-5 py-3 text-[12px]", i > 0 && "border-t border-gray-50")}>
-                  <div className="flex items-center gap-2.5">
-                    <div className="h-6 w-6 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0">
-                      <Zap className="h-3 w-3 text-gray-500" />
-                    </div>
-                    <div>
-                      <p className="font-medium text-gray-800">{p.ops_granted.toLocaleString()} ops {p.is_auto_topup && <span className="text-gray-400 font-normal">(auto)</span>}</p>
-                      <p className="text-[11px] text-gray-400">{format(new Date(p.created_at), "MMM d, yyyy")}</p>
-                    </div>
-                  </div>
-                  <p className="font-medium text-gray-700">${(p.amount_usd_cents / 100).toFixed(2)}</p>
-                </div>
-              ))}
-            </div>
+          {sub && (
+            <span className={cn(
+              "px-2.5 py-1 rounded-full text-[11px] font-medium capitalize",
+              sub.status === "active" || sub.status === "trialing"
+                ? "bg-green-50 text-green-700"
+                : "bg-amber-50 text-amber-700"
+            )}>
+              {sub.status}
+            </span>
           )}
         </div>
+
+        <div className="space-y-3.5 border-t border-gray-50 pt-4">
+          <UsageBar label="Memory ops" used={data.ops.used} included={data.ops.included} />
+          <UsageBar label="Enrichments" used={data.enrichments.used} included={data.enrichments.included} />
+        </div>
+
+        {hasSubscription && (
+          <div className="border-t border-gray-50 pt-4">
+            <Button
+              onClick={openCustomerPortal}
+              disabled={acting !== null}
+              className="h-9 text-[13px] bg-gray-900 text-white hover:bg-gray-800 font-medium"
+            >
+              {acting === "portal" ? "Opening…" : "Manage subscription"}
+            </Button>
+          </div>
+        )}
       </div>
 
+      {/* Plans */}
+      <div className="rounded-2xl border border-gray-100 bg-white p-5 max-w-2xl space-y-4">
+        <p className="text-[13px] font-semibold text-gray-800">Plans</p>
+        <div className="space-y-2">
+          {data.allPlans.map(p => {
+            const isCurrent = p.id === data.plan;
+            const isPaid = p.id !== "free";
+            return (
+              <div
+                key={p.id}
+                className={cn(
+                  "rounded-xl border p-4 flex items-center justify-between gap-4 transition-colors",
+                  isCurrent ? "border-gray-900 bg-gray-50" : "border-gray-100"
+                )}
+              >
+                <div className="min-w-0">
+                  <p className="text-[13px] font-semibold text-gray-900">
+                    {p.name}
+                    <span className="text-gray-400 font-normal ml-1.5">
+                      {p.monthlyPriceUsd > 0 ? `$${p.monthlyPriceUsd}/mo` : "Free"}
+                    </span>
+                    {isCurrent && (
+                      <span className="ml-2 text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Current</span>
+                    )}
+                  </p>
+                  <p className="text-[11px] text-gray-400 mt-0.5">
+                    {p.includedOpsPerMonth.toLocaleString()} ops · {p.enrichmentsPerMonth.toLocaleString()} enrichments · {p.workspaceLimit.toLocaleString()} workspaces
+                  </p>
+                </div>
+                {!isCurrent && isPaid && (
+                  <button
+                    onClick={() => subscribe(p.id)}
+                    disabled={acting !== null}
+                    className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-gray-900 text-white text-[12px] font-medium hover:bg-gray-800 transition-colors disabled:opacity-50"
+                  >
+                    {acting === p.id ? "Redirecting…" : "Switch"}
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }

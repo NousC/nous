@@ -1,11 +1,17 @@
 /**
  * Nous Pricing — server-side mirror of apps/frontend/src/config/plans.ts.
  *
- * Plan IDs: 'free' | 'pro' | 'scale'.
- * Self-hosted (SELF_HOSTED=true) bypasses gating and metering — see access.mjs.
+ * Plan IDs: 'free' | 'starter' | 'pro' | 'scale'. Pure-tier model — no top-up
+ * packs; run out of ops/enrichments → upgrade tier.
+ *
+ * Two metered units:
+ *   - ops          — webhooks, MCP/SDK/API calls, scans (the live op log)
+ *   - enrichments  — capped monthly allowance (external provider cost)
+ *
+ * Self-hosted (SELF_HOSTED=true) bypasses all gating and metering — see access.mjs.
  */
 
-export const PLAN_IDS = ['free', 'pro', 'scale'];
+export const PLAN_IDS = ['free', 'starter', 'pro', 'scale'];
 
 export const PLANS = {
   free: {
@@ -13,59 +19,42 @@ export const PLANS = {
     name: 'Free',
     monthlyPriceUsd: 0,
     includedOpsPerMonth: 1_000,
+    enrichmentsPerMonth: 25,
     workspaceLimit: 1,
     stripePriceEnv: null,
-    features: {
-      contextualization: true,
-      campaignAnalysis: false,
-      publicSignalExtraction: false,
-      crmSync: false,
-      workspaceCreation: false,
-      supportTier: 'community',
-    },
+    features: { contextualization: true, crmSync: false, supportTier: 'community' },
+  },
+  starter: {
+    id: 'starter',
+    name: 'Starter',
+    monthlyPriceUsd: 19,
+    includedOpsPerMonth: 5_000,
+    enrichmentsPerMonth: 100,
+    workspaceLimit: 1,
+    stripePriceEnv: 'STRIPE_STARTER_PRICE_ID',
+    features: { contextualization: true, crmSync: false, supportTier: 'community' },
   },
   pro: {
     id: 'pro',
     name: 'Pro',
     monthlyPriceUsd: 79,
-    includedOpsPerMonth: 5_000,
+    includedOpsPerMonth: 25_000,
+    enrichmentsPerMonth: 500,
     workspaceLimit: 3,
     stripePriceEnv: 'STRIPE_PRO_PRICE_ID',
-    features: {
-      contextualization: true,
-      campaignAnalysis: true,
-      publicSignalExtraction: false,
-      crmSync: false,
-      workspaceCreation: true,
-      supportTier: 'email',
-    },
+    features: { contextualization: true, crmSync: false, supportTier: 'email' },
   },
   scale: {
     id: 'scale',
     name: 'Scale',
     monthlyPriceUsd: 249,
-    includedOpsPerMonth: 25_000,
+    includedOpsPerMonth: 100_000,
+    enrichmentsPerMonth: 2_000,
     workspaceLimit: null,
     stripePriceEnv: 'STRIPE_SCALE_PRICE_ID',
-    features: {
-      contextualization: true,
-      campaignAnalysis: true,
-      publicSignalExtraction: true,
-      crmSync: true,
-      workspaceCreation: true,
-      supportTier: 'priority',
-    },
+    features: { contextualization: true, crmSync: true, supportTier: 'priority' },
   },
 };
-
-export const TOP_UP_PACKS = [
-  { id: 'pro-5k',     ops: 5_000,   priceUsd: 15,  stripePriceEnv: 'STRIPE_PACK_PRO_5K_PRICE_ID',     forPlan: 'pro' },
-  { id: 'pro-25k',    ops: 25_000,  priceUsd: 60,  stripePriceEnv: 'STRIPE_PACK_PRO_25K_PRICE_ID',    forPlan: 'pro' },
-  { id: 'pro-100k',   ops: 100_000, priceUsd: 180, stripePriceEnv: 'STRIPE_PACK_PRO_100K_PRICE_ID',   forPlan: 'pro' },
-  { id: 'scale-25k',  ops: 25_000,  priceUsd: 50,  stripePriceEnv: 'STRIPE_PACK_SCALE_25K_PRICE_ID',  forPlan: 'scale' },
-  { id: 'scale-100k', ops: 100_000, priceUsd: 150, stripePriceEnv: 'STRIPE_PACK_SCALE_100K_PRICE_ID', forPlan: 'scale' },
-  { id: 'scale-500k', ops: 500_000, priceUsd: 600, stripePriceEnv: 'STRIPE_PACK_SCALE_500K_PRICE_ID', forPlan: 'scale' },
-];
 
 export function normalizePlanId(input) {
   const s = typeof input === 'string' ? input.toLowerCase() : '';
@@ -87,16 +76,6 @@ export function getPlanFromSubscription(subscription) {
     return PLANS.free;
   }
   return getPlan(subscription.plan_id ?? subscription.plan_name);
-}
-
-export function topUpPacksForPlan(planId) {
-  const id = normalizePlanId(planId);
-  if (id === 'free') return [];
-  return TOP_UP_PACKS.filter((p) => p.forPlan === id);
-}
-
-export function getTopUpPackById(id) {
-  return TOP_UP_PACKS.find((p) => p.id === id);
 }
 
 export function hasFeature(planId, feature) {
@@ -126,8 +105,7 @@ export function periodStartFor(subscription) {
 /**
  * Compute a team's ops usage for the current period off the live op log.
  * `ops used` = SUM(workspace_system_log.billable_ops) since the period start
- * (via the team_ops_used SQL function). Returns the full usage shape used by
- * /api/usage, /api/billing/state, and the ops-balance gate.
+ * (via the team_ops_used SQL function).
  */
 export async function getTeamOpsUsage(supabase, teamId, subscription) {
   const plan = getPlanFromSubscription(subscription);
@@ -141,23 +119,48 @@ export async function getTeamOpsUsage(supabase, teamId, subscription) {
     console.error('[getTeamOpsUsage] team_ops_used rpc failed:', error.message);
   }
   const used = Number(data ?? 0);
-
-  const { data: teamRow } = await supabase
-    .from('teams')
-    .select('ops_topup_balance')
-    .eq('id', teamId)
-    .maybeSingle();
-  const topupBalance = Number(teamRow?.ops_topup_balance ?? 0);
-
   const included = plan.includedOpsPerMonth;
-  const remaining = Math.max(0, included - used) + topupBalance;
 
   return {
     plan,
     used,
     included,
-    topupBalance,
-    remaining,
+    remaining: Math.max(0, included - used),
+    periodStart: periodStart.toISOString(),
+  };
+}
+
+/**
+ * Count enrichments a team has run this period. Enrichment is its own metered
+ * unit, NOT ops — each enrichment writes an `enrichment_run` row to the live
+ * op log (with billable_ops=0), so we count those rows.
+ */
+export async function getTeamEnrichmentUsage(supabase, teamId, subscription) {
+  const plan = getPlanFromSubscription(subscription);
+  const periodStart = periodStartFor(subscription);
+
+  const { data: workspaces } = await supabase
+    .from('workspaces')
+    .select('id')
+    .eq('team_id', teamId);
+  const wsIds = (workspaces ?? []).map((w) => w.id);
+
+  let used = 0;
+  if (wsIds.length) {
+    const { count } = await supabase
+      .from('workspace_system_log')
+      .select('id', { count: 'exact', head: true })
+      .in('workspace_id', wsIds)
+      .eq('event_type', 'enrichment_run')
+      .gte('occurred_at', periodStart.toISOString());
+    used = count ?? 0;
+  }
+  const included = plan.enrichmentsPerMonth;
+
+  return {
+    used,
+    included,
+    remaining: Math.max(0, included - used),
     periodStart: periodStart.toISOString(),
   };
 }

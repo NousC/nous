@@ -1,8 +1,9 @@
-// Server-side feature gating + ops-balance gating.
+// Server-side feature gating + usage gating.
 //
 // `requireFeature` blocks a request if the team's current plan does not
-// include the named feature. `requireOpsBalance` blocks a request when a
-// team has exhausted both included ops AND top-up balance.
+// include the named feature. `requireOpsBalance` blocks when the month's
+// included ops are exhausted. `requireEnrichmentQuota` blocks when the
+// month's enrichment allowance is exhausted.
 //
 // Self-hosted bypass: if SELF_HOSTED=true, every gate passes. There is no
 // concept of a paid plan on self-host — operators can do anything.
@@ -13,6 +14,7 @@ import {
   getPlan,
   getPlanFromSubscription,
   getTeamOpsUsage,
+  getTeamEnrichmentUsage,
   hasFeature,
   isSelfHosted,
 } from './plans.mjs';
@@ -57,8 +59,8 @@ export function requireFeature(feature) {
 }
 
 /**
- * Express middleware. Blocks the request when the team has zero ops
- * remaining (included + top-up). Pass-through on self-host.
+ * Express middleware. Blocks the request when the month's included ops are
+ * exhausted. Pass-through on self-host.
  */
 export async function requireOpsBalance(req, res, next) {
   if (isSelfHosted()) return next();
@@ -70,13 +72,36 @@ export async function requireOpsBalance(req, res, next) {
         error: 'ops_exhausted',
         current_plan: plan.id,
         included_per_month: ops.included,
-        topup_balance: ops.topupBalance,
         upgrade_url: '/settings?section=billing',
       });
     }
     return next();
   } catch (err) {
     console.error('[requireOpsBalance]', err);
+    return res.status(500).json({ error: 'internal_error' });
+  }
+}
+
+/**
+ * Express middleware. Blocks the request when the month's enrichment
+ * allowance is exhausted. Pass-through on self-host.
+ */
+export async function requireEnrichmentQuota(req, res, next) {
+  if (isSelfHosted()) return next();
+  try {
+    const { team, subscription, plan, supabase } = await resolveTeamAndPlan(req);
+    const enrich = await getTeamEnrichmentUsage(supabase, team.id, subscription);
+    if (enrich.remaining <= 0) {
+      return res.status(402).json({
+        error: 'enrichment_quota_exhausted',
+        current_plan: plan.id,
+        included_per_month: enrich.included,
+        upgrade_url: '/settings?section=billing',
+      });
+    }
+    return next();
+  } catch (err) {
+    console.error('[requireEnrichmentQuota]', err);
     return res.status(500).json({ error: 'internal_error' });
   }
 }
