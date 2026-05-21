@@ -195,11 +195,9 @@ Use `nous.remember({ text: '...', category: 'ICP' })` via the MCP tool, or the M
 
 ---
 
-## The Mind — adaptive scoring
+## Compound intelligence — adaptive scoring
 
-ICP scoring is the first link in a larger feedback loop. The Mind records each score as a prediction, joins it to what the contact actually did, and uses the result to improve scoring over time. The behavior described above is the current implementation; two design documents cover where it is heading:
+ICP scoring is the first link in a feedback loop. Each score is recorded as a prediction, joined to what the contact actually did, and used to sharpen scoring over time. Two documents cover it:
 
 - **`compound-intelligence-mind.md`** — the feedback loop: every prediction is written to the `mind_episodes` ledger, resolved against the realized outcome (reply, pipeline movement, revenue), and surfaced as a calibration metric.
-- **`adaptive-lead-scoring.md`** — the next stage: a deterministic, self-revising **Scorecard** of weighted signals replaces the model-reads-memories scoring described above, and a single plain-English ICP field replaces `ICP`-category memories as the way a workspace states its target.
-
-Until those land, ICP scoring works exactly as documented here.
+- **`adaptive-lead-scoring.md`** — the **Scorecard**: a deterministic, self-revising model of weighted signals. When a workspace has a Scorecard it is the live scorer; the model-reads-memories scoring described above is the fallback used until then.
