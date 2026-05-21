@@ -1,8 +1,7 @@
-// Billing API — Stripe subscription + top-up packs.
+// Billing API — Stripe subscriptions (pure-tier model, no top-up packs).
 //
-//   GET  /api/billing/state          → current plan, ops usage, eligible packs
-//   POST /api/billing/subscribe      → start Checkout for Pro or Scale subscription
-//   POST /api/billing/purchase-pack  → start Checkout for a one-time top-up pack
+//   GET  /api/billing/state           → current plan + ops/enrichment usage
+//   POST /api/billing/subscribe       → start Checkout for a paid tier
 //   POST /api/billing/customer-portal → open Stripe Customer Portal
 //
 // Self-hosted (SELF_HOSTED=true) or when STRIPE_SECRET_KEY is unset, all routes
@@ -15,11 +14,9 @@ import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
 import { ensureUserAndTeam } from '../../lib/auth.mjs';
 import {
   PLANS,
-  TOP_UP_PACKS,
-  topUpPacksForPlan,
   getPlanFromSubscription,
-  getTopUpPackById,
   getTeamOpsUsage,
+  getTeamEnrichmentUsage,
   isSelfHosted,
 } from '../../lib/plans.mjs';
 
@@ -64,35 +61,24 @@ billingRouter.get('/state', verifySupabaseAuth, async (req, res) => {
       self_hosted: isSelfHosted(),
       plan: 'free',
       ops: null,
-      packs: [],
-      purchases: [],
+      enrichments: null,
     });
   }
   try {
     const supabase = getSupabaseClient();
     const { team } = await ensureUserAndTeam(req.user);
 
-    const [{ data: teamRow }, { data: subscription }, { data: purchases }] = await Promise.all([
-      supabase
-        .from('teams')
-        .select('stripe_payment_method_id, stripe_customer_id')
-        .eq('id', team.id)
-        .single(),
-      supabase
-        .from('subscriptions')
-        .select('*')
-        .eq('team_id', team.id)
-        .maybeSingle(),
-      supabase
-        .from('op_pack_purchases')
-        .select('pack_id, ops_granted, amount_usd_cents, is_auto_topup, created_at')
-        .eq('team_id', team.id)
-        .order('created_at', { ascending: false })
-        .limit(20),
-    ]);
+    const { data: subscription } = await supabase
+      .from('subscriptions')
+      .select('*')
+      .eq('team_id', team.id)
+      .maybeSingle();
 
     const plan = getPlanFromSubscription(subscription);
-    const ops = await getTeamOpsUsage(supabase, team.id, subscription);
+    const [ops, enrichments] = await Promise.all([
+      getTeamOpsUsage(supabase, team.id, subscription),
+      getTeamEnrichmentUsage(supabase, team.id, subscription),
+    ]);
 
     return res.json({
       billing_disabled: false,
@@ -111,20 +97,22 @@ billingRouter.get('/state', verifySupabaseAuth, async (req, res) => {
       ops: {
         used: ops.used,
         included: ops.included,
-        topupBalance: ops.topupBalance,
         remaining: ops.remaining,
         periodStart: ops.periodStart,
       },
-      hasPaymentMethod: !!teamRow?.stripe_payment_method_id,
-      packs: topUpPacksForPlan(plan.id),
+      enrichments: {
+        used: enrichments.used,
+        included: enrichments.included,
+        remaining: enrichments.remaining,
+      },
       allPlans: Object.values(PLANS).map((p) => ({
         id: p.id,
         name: p.name,
         monthlyPriceUsd: p.monthlyPriceUsd,
         includedOpsPerMonth: p.includedOpsPerMonth,
+        enrichmentsPerMonth: p.enrichmentsPerMonth,
         workspaceLimit: p.workspaceLimit,
       })),
-      purchases: purchases ?? [],
     });
   } catch (err) {
     console.error('[GET /api/billing/state]', err);
@@ -132,7 +120,7 @@ billingRouter.get('/state', verifySupabaseAuth, async (req, res) => {
   }
 });
 
-// ── POST /api/billing/subscribe { plan: 'pro' | 'scale' } ──────────────────
+// ── POST /api/billing/subscribe { plan: 'starter' | 'pro' | 'scale' } ──────
 billingRouter.post('/subscribe', verifySupabaseAuth, async (req, res) => {
   if (!billingEnabled()) return res.status(403).json({ error: 'billing_disabled' });
   try {
@@ -168,58 +156,6 @@ billingRouter.post('/subscribe', verifySupabaseAuth, async (req, res) => {
   }
 });
 
-// ── POST /api/billing/purchase-pack { packId } ─────────────────────────────
-billingRouter.post('/purchase-pack', verifySupabaseAuth, async (req, res) => {
-  if (!billingEnabled()) return res.status(403).json({ error: 'billing_disabled' });
-  try {
-    const stripe = getStripe();
-    const { packId } = req.body;
-    const pack = getTopUpPackById(packId);
-    if (!pack) return res.status(400).json({ error: 'invalid_pack_id' });
-
-    const priceId = process.env[pack.stripePriceEnv];
-    if (!priceId) return res.status(500).json({ error: 'pack_not_configured', detail: pack.stripePriceEnv });
-
-    const { user, team } = await ensureUserAndTeam(req.user);
-    const supabase = getSupabaseClient();
-
-    // Plan eligibility — Free can't buy packs; Pro can only buy 'pro' packs;
-    // Scale can buy 'scale' packs (and Scale users on lower spend can also
-    // grab a Pro pack if they want — gate by `forPlan` ≤ current plan).
-    const { data: subscription } = await supabase
-      .from('subscriptions')
-      .select('plan_id, status')
-      .eq('team_id', team.id)
-      .maybeSingle();
-    const currentPlan = getPlanFromSubscription(subscription).id;
-    if (currentPlan === 'free') return res.status(403).json({ error: 'upgrade_required' });
-    if (pack.forPlan === 'scale' && currentPlan !== 'scale') {
-      return res.status(403).json({ error: 'pack_requires_scale' });
-    }
-
-    const stripeCustomerId = await ensureStripeCustomer(stripe, supabase, user, team);
-
-    const session = await stripe.checkout.sessions.create({
-      customer: stripeCustomerId,
-      mode: 'payment',
-      payment_method_types: ['card'],
-      line_items: [{ price: priceId, quantity: 1 }],
-      payment_intent_data: {
-        setup_future_usage: 'off_session',
-        metadata: { team_id: team.id, pack_id: pack.id, ops: String(pack.ops), kind: 'pack' },
-      },
-      metadata: { team_id: team.id, pack_id: pack.id, ops: String(pack.ops), kind: 'pack' },
-      success_url: `${appUrl()}/settings?section=billing&success=true&pack=${pack.id}`,
-      cancel_url: `${appUrl()}/settings?section=billing&canceled=true`,
-    });
-
-    return res.json({ url: session.url });
-  } catch (err) {
-    console.error('[POST /api/billing/purchase-pack]', err);
-    return res.status(500).json({ error: 'checkout_error', detail: err.message });
-  }
-});
-
 // ── POST /api/billing/customer-portal ──────────────────────────────────────
 billingRouter.post('/customer-portal', verifySupabaseAuth, async (req, res) => {
   if (!billingEnabled()) return res.status(403).json({ error: 'billing_disabled' });
@@ -237,23 +173,5 @@ billingRouter.post('/customer-portal', verifySupabaseAuth, async (req, res) => {
   } catch (err) {
     console.error('[POST /api/billing/customer-portal]', err);
     return res.status(500).json({ error: 'portal_error', detail: err.message });
-  }
-});
-
-// ── Legacy alias kept so the existing `GET /api/billing/packs` callers don't 404
-billingRouter.get('/packs', verifySupabaseAuth, async (req, res) => {
-  if (!billingEnabled()) {
-    return res.json({ billing_disabled: true, packs: TOP_UP_PACKS, balance: null, purchases: [] });
-  }
-  // Delegate to state and reshape lightly.
-  try {
-    const supabase = getSupabaseClient();
-    const { team } = await ensureUserAndTeam(req.user);
-    const { data: subscription } = await supabase
-      .from('subscriptions').select('plan_id, status').eq('team_id', team.id).maybeSingle();
-    const plan = getPlanFromSubscription(subscription);
-    return res.json({ packs: topUpPacksForPlan(plan.id) });
-  } catch (err) {
-    return res.status(500).json({ error: 'internal_error' });
   }
 });

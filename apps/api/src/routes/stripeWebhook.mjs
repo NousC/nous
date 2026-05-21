@@ -53,68 +53,10 @@ export async function stripeWebhookHandler(req, res) {
 
   try {
     switch (event.type) {
-      case 'checkout.session.completed': {
-        const session = event.data.object;
-        const kind = session.metadata?.kind;
-        const teamId = session.metadata?.team_id;
-        if (!teamId) break;
-
-        if (kind === 'subscription' && session.subscription) {
-          // Full subscription details are picked up by customer.subscription.created/updated.
-          // Nothing to do here — just acknowledge.
-        } else if (kind === 'pack') {
-          const packId = session.metadata?.pack_id;
-          const ops = Number(session.metadata?.ops ?? 0);
-          if (!packId || !ops) break;
-
-          // Idempotent on the payment_intent.
-          const paymentIntentId =
-            typeof session.payment_intent === 'string'
-              ? session.payment_intent
-              : session.payment_intent?.id;
-
-          const { data: existing } = await supabase
-            .from('op_pack_purchases')
-            .select('id')
-            .eq('stripe_payment_intent_id', paymentIntentId)
-            .maybeSingle();
-          if (existing) break;
-
-          await supabase.from('op_pack_purchases').insert({
-            team_id: teamId,
-            pack_id: packId,
-            ops_granted: ops,
-            amount_usd_cents: session.amount_total ?? 0,
-            stripe_payment_intent_id: paymentIntentId,
-            stripe_checkout_session_id: session.id,
-            is_auto_topup: false,
-          });
-
-          // Credit the top-up balance.
-          const { data: teamRow } = await supabase
-            .from('teams')
-            .select('ops_topup_balance')
-            .eq('id', teamId)
-            .single();
-          const next = Number(teamRow?.ops_topup_balance ?? 0) + ops;
-          await supabase
-            .from('teams')
-            .update({ ops_topup_balance: next })
-            .eq('id', teamId);
-
-          // Persist the card for future auto-topup if Stripe surfaced one.
-          if (session.payment_intent && typeof session.payment_intent !== 'string') {
-            const pm = session.payment_intent.payment_method;
-            if (pm && typeof pm === 'string') {
-              await supabase
-                .from('teams')
-                .update({ stripe_payment_method_id: pm })
-                .eq('id', teamId);
-            }
-          }
-        }
+      case 'checkout.session.completed':
+        // Subscriptions are pure-tier — full details land via
+        // customer.subscription.created/updated. Nothing to do here.
         break;
-      }
 
       case 'customer.subscription.created':
       case 'customer.subscription.updated': {

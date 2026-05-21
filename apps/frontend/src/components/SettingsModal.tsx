@@ -4285,7 +4285,7 @@ function SubscriptionSection({ session }: { session: any }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.access_token]);
 
-  const doSubscribe = async (planId: "pro" | "scale") => {
+  const doSubscribe = async (planId: "starter" | "pro" | "scale") => {
     setActionLoading(`subscribe:${planId}`);
     try {
       const r = await fetch(`${apiUrl}/api/billing/subscribe`, {
@@ -4298,23 +4298,6 @@ function SubscriptionSection({ session }: { session: any }) {
       window.location.href = data.url;
     } catch (e: any) {
       toast.error(e?.message || "Could not start checkout");
-      setActionLoading(null);
-    }
-  };
-
-  const doPurchasePack = async (packId: string) => {
-    setActionLoading(`pack:${packId}`);
-    try {
-      const r = await fetch(`${apiUrl}/api/billing/purchase-pack`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
-        body: JSON.stringify({ packId }),
-      });
-      const data = await r.json();
-      if (!r.ok || !data.url) throw new Error(data.error || "checkout_failed");
-      window.location.href = data.url;
-    } catch (e: any) {
-      toast.error(e?.message || "Could not start pack checkout");
       setActionLoading(null);
     }
   };
@@ -4397,15 +4380,17 @@ function SubscriptionSection({ session }: { session: any }) {
 
   const planId: string = state.plan;
   const ops = state.ops;
+  const enrichments = state.enrichments || { used: 0, included: 0, remaining: 0 };
   const sub = state.subscription;
-  const allPlans: { id: string; name: string; monthlyPriceUsd: number; includedOpsPerMonth: number; workspaceLimit: number | null }[] =
+  const allPlans: { id: string; name: string; monthlyPriceUsd: number; includedOpsPerMonth: number; enrichmentsPerMonth: number; workspaceLimit: number | null }[] =
     state.allPlans || [];
-  const packs: { id: string; ops: number; priceUsd: number; popular?: boolean }[] = state.packs || [];
 
   const includedPct = ops.included > 0
     ? Math.min(100, Math.round((ops.used / ops.included) * 100))
     : 0;
-  const overage = Math.max(0, ops.used - ops.included);
+  const enrichmentPct = enrichments.included > 0
+    ? Math.min(100, Math.round((enrichments.used / enrichments.included) * 100))
+    : 0;
 
   const formatNumber = (n: number) => Number(n || 0).toLocaleString();
 
@@ -4456,8 +4441,8 @@ function SubscriptionSection({ session }: { session: any }) {
             <span className="font-medium">{formatNumber(ops.used)}</span>
           </div>
           <div>
-            <span className="text-muted-foreground">Top-up balance: </span>
-            <span className="font-medium">{formatNumber(ops.topupBalance)}</span>
+            <span className="text-muted-foreground">Enrichments/mo: </span>
+            <span className="font-medium">{formatNumber(enrichments.included)}</span>
           </div>
           {sub?.current_period_end ? (
             <div>
@@ -4469,34 +4454,47 @@ function SubscriptionSection({ session }: { session: any }) {
       </div>
 
       {/* Usage progress */}
-      <div className="space-y-2">
-        <div className="flex items-baseline justify-between">
-          <h3 className="text-sm font-medium">Ops usage this period</h3>
-          <span className="text-xs text-muted-foreground tabular-nums">
-            {formatNumber(ops.used)} / {formatNumber(ops.included)}
-            {ops.topupBalance > 0 ? ` (+${formatNumber(ops.topupBalance)} top-up)` : ""}
-          </span>
+      <div className="space-y-5">
+        <div className="space-y-2">
+          <div className="flex items-baseline justify-between">
+            <h3 className="text-sm font-medium">Ops usage this period</h3>
+            <span className="text-xs text-muted-foreground tabular-nums">
+              {formatNumber(ops.used)} / {formatNumber(ops.included)}
+            </span>
+          </div>
+          <div className="h-2 rounded-full bg-muted overflow-hidden">
+            <div
+              className={cn(
+                "h-full rounded-full transition-all duration-500",
+                includedPct >= 90 ? "bg-red-500" : includedPct >= 75 ? "bg-amber-500" : "bg-foreground",
+              )}
+              style={{ width: `${includedPct}%` }}
+            />
+          </div>
         </div>
-        <div className="h-2 rounded-full bg-muted overflow-hidden">
-          <div
-            className={cn(
-              "h-full rounded-full transition-all duration-500",
-              includedPct >= 90 ? "bg-red-500" : includedPct >= 75 ? "bg-amber-500" : "bg-foreground",
-            )}
-            style={{ width: `${includedPct}%` }}
-          />
+        <div className="space-y-2">
+          <div className="flex items-baseline justify-between">
+            <h3 className="text-sm font-medium">Enrichments this period</h3>
+            <span className="text-xs text-muted-foreground tabular-nums">
+              {formatNumber(enrichments.used)} / {formatNumber(enrichments.included)}
+            </span>
+          </div>
+          <div className="h-2 rounded-full bg-muted overflow-hidden">
+            <div
+              className={cn(
+                "h-full rounded-full transition-all duration-500",
+                enrichmentPct >= 90 ? "bg-red-500" : enrichmentPct >= 75 ? "bg-amber-500" : "bg-foreground",
+              )}
+              style={{ width: `${enrichmentPct}%` }}
+            />
+          </div>
         </div>
-        {overage > 0 ? (
-          <p className="text-xs text-muted-foreground">
-            {formatNumber(overage)} ops drawn from top-up balance this period.
-          </p>
-        ) : null}
       </div>
 
       {/* Upgrade / change plan */}
       <div className="space-y-3">
         <h3 className="text-sm font-medium">Change plan</h3>
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {allPlans.map((p) => {
             const isCurrent = p.id === planId;
             const isFree = p.id === "free";
@@ -4520,6 +4518,7 @@ function SubscriptionSection({ session }: { session: any }) {
                 </div>
                 <ul className="text-xs text-muted-foreground space-y-1">
                   <li>{formatNumber(p.includedOpsPerMonth)} ops / month</li>
+                  <li>{formatNumber(p.enrichmentsPerMonth)} enrichments / month</li>
                   <li>
                     {p.workspaceLimit === null ? "Unlimited workspaces" : `${p.workspaceLimit} workspace${p.workspaceLimit === 1 ? "" : "s"}`}
                   </li>
@@ -4527,7 +4526,7 @@ function SubscriptionSection({ session }: { session: any }) {
                 {!isCurrent && !isFree ? (
                   <Button
                     size="sm"
-                    onClick={() => doSubscribe(p.id as "pro" | "scale")}
+                    onClick={() => doSubscribe(p.id as "starter" | "pro" | "scale")}
                     disabled={actionLoading === `subscribe:${p.id}`}
                     className="w-full h-8 text-xs"
                   >
@@ -4551,64 +4550,10 @@ function SubscriptionSection({ session }: { session: any }) {
         </div>
       </div>
 
-      {/* Top-up packs (only when current plan has packs) */}
-      {packs.length > 0 ? (
-        <div className="space-y-3">
-          <div>
-            <h3 className="text-sm font-medium">Top-up ops packs</h3>
-            <p className="text-xs text-muted-foreground mt-1">
-              One-time purchase. Top-up ops never expire and stack with your monthly allowance.
-            </p>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-3">
-            {packs.map((pack) => (
-              <div key={pack.id} className="rounded-xl border bg-card p-4 flex flex-col gap-3">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-semibold tabular-nums">
-                    {formatNumber(pack.ops)} ops
-                  </p>
-                  {pack.popular ? (
-                    <Badge className="bg-foreground text-background text-[10px] px-1.5 py-0">Popular</Badge>
-                  ) : null}
-                </div>
-                <div className="text-2xl font-bold tabular-nums">
-                  ${pack.priceUsd}
-                </div>
-                <Button
-                  size="sm"
-                  onClick={() => doPurchasePack(pack.id)}
-                  disabled={actionLoading === `pack:${pack.id}`}
-                  className="w-full h-8 text-xs"
-                  variant="outline"
-                >
-                  {actionLoading === `pack:${pack.id}` ? "Loading…" : "Buy pack"}
-                </Button>
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : null}
-
-      {/* Recent purchases */}
-      {state.purchases?.length ? (
-        <div className="space-y-2">
-          <h3 className="text-sm font-medium">Recent purchases</h3>
-          <ul className="rounded-xl border bg-card divide-y text-sm">
-            {state.purchases.slice(0, 8).map((p: any, i: number) => (
-              <li key={i} className="px-4 py-2.5 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <span className="font-mono text-xs">{p.pack_id}</span>
-                  <span className="text-muted-foreground">+{formatNumber(p.ops_granted)} ops</span>
-                </div>
-                <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                  <span>${(p.amount_usd_cents / 100).toFixed(2)}</span>
-                  <span>{format(new Date(p.created_at), "MMM d, yyyy")}</span>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
+      <p className="text-xs text-muted-foreground">
+        Pure-tier pricing — no top-up packs or overage charges. Run out of ops or
+        enrichments mid-month? Switch to a higher plan; it applies immediately.
+      </p>
     </div>
   );
 }

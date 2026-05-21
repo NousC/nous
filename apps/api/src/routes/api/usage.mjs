@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { getSupabaseClient } from '@nous/core';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
 import { ensureUserAndTeam } from '../../lib/auth.mjs';
-import { getPlanFromSubscription, getTeamOpsUsage } from '../../lib/plans.mjs';
+import { getPlanFromSubscription, getTeamOpsUsage, getTeamEnrichmentUsage } from '../../lib/plans.mjs';
 
 export const usageRouter = Router();
 
@@ -22,7 +22,10 @@ usageRouter.get('/', verifySupabaseAuth, async (req, res) => {
       .maybeSingle();
 
     const plan = getPlanFromSubscription(subscription);
-    const ops = await getTeamOpsUsage(supabase, team.id, subscription);
+    const [ops, enrichments] = await Promise.all([
+      getTeamOpsUsage(supabase, team.id, subscription),
+      getTeamEnrichmentUsage(supabase, team.id, subscription),
+    ]);
 
     // All-time ops total — the Mind-page lifetime counter. Sums billable_ops
     // from the live op log, PLUS the legacy memory_ops_log rows (each = 1 op)
@@ -57,10 +60,14 @@ usageRouter.get('/', verifySupabaseAuth, async (req, res) => {
       ops: {
         used: ops.used,
         included: ops.included,
-        topupBalance: ops.topupBalance,
         remaining: ops.remaining,
         periodStart: ops.periodStart,
         allTime: allTimeOps,
+      },
+      enrichments: {
+        used: enrichments.used,
+        included: enrichments.included,
+        remaining: enrichments.remaining,
       },
       workspaces: {
         current: workspaceCount,
