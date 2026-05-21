@@ -12,6 +12,7 @@ import {
   FileDown,
   Brain,
   CreditCard,
+  BookOpen,
   ChevronDown,
   PanelLeftClose,
   PanelLeft,
@@ -195,10 +196,33 @@ export function AppSidebar() {
         </div>
       )}
 
-      {/* Bottom: Settings + Usage & Billing — separate lines */}
+      {/* Bottom: Usage & Billing + Docs */}
       <nav className="px-2.5 pb-1">
         <ul className="flex flex-col gap-0.5">
           {bottomNavItems.map(renderNavItem)}
+          {/* Docs — external link to the documentation site */}
+          <li>
+            <a
+              href="https://docs.opennous.cloud"
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`group flex w-full items-center rounded-lg px-2.5 py-1.5 transition-all duration-150 hover:bg-gray-100/70 dark:hover:bg-white/8 ${
+                collapsed ? "justify-center" : ""
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <BookOpen
+                  className="h-[17px] w-[17px] flex-shrink-0 text-gray-800 dark:text-white/50 transition-colors"
+                  strokeWidth={1.75}
+                />
+                {!collapsed && (
+                  <span className="text-[13px] leading-tight truncate text-gray-700 dark:text-white/50 group-hover:text-gray-900 dark:group-hover:text-white transition-colors">
+                    Docs
+                  </span>
+                )}
+              </div>
+            </a>
+          </li>
         </ul>
       </nav>
 
