@@ -156,7 +156,7 @@ export default function UsageBilling() {
 
   const Shell = ({ children }: { children: React.ReactNode }) => (
     <div className="h-full overflow-y-auto bg-white">
-      <div className="px-8 py-8 max-w-[1180px] mx-auto">
+      <div className="p-8 max-w-[1180px]">
         <h1 className="text-[26px] font-bold text-gray-900 tracking-tight mb-6">Billing &amp; usage</h1>
         {children}
       </div>
