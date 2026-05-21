@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
-import { ArrowLeft, Check, RefreshCw, Copy } from "lucide-react";
+import { ArrowLeft, Check, RefreshCw, Plus } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/components/ui/sonner";
 import { watchOAuthPopup } from "@/lib/oauthPopup";
 import { IntegrationConn, AvailableProvider, IntegrationLogo } from "@/components/mind/entities";
 import { PageHeader } from "@/components/ui/page-header";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 const apiUrl = import.meta.env.VITE_API_URL ?? "";
 
@@ -57,9 +58,8 @@ export default function Integrations() {
   const workspaceId = userData?.workspace?.id ?? "";
 
   const [dbProviders, setDbProviders] = useState<AvailableProvider[]>([]);
-  const [webhookUrls, setWebhookUrls] = useState<{source:string;url:string;auto_registered?:boolean}[]>([]);
-  const [tab, setTab] = useState<"connected"|"available"|"webhooks">("connected");
-  const [copied, setCopied] = useState<string|null>(null);
+  const [catTab, setCatTab] = useState<string>("all");
+  const [addOpen, setAddOpen] = useState(false);
   const [connecting, setConnecting] = useState<AvailableProvider|null>(null);
   const [connApiKey, setConnApiKey] = useState("");
   const [connCreds, setConnCreds] = useState<Record<string,string>>({});
@@ -82,8 +82,6 @@ export default function Integrations() {
         const filtered = list.filter((p:any) => p.auth_type !== "none" && !EXCLUDED.has(p.name) && !hardcodedNames.has(p.name));
         setDbProviders(filtered);
       }).catch(()=>{});
-    fetch(`${apiUrl}/api/webhooks/urls?workspaceId=${workspaceId}`, { headers:{ Authorization:`Bearer ${token}` } })
-      .then(r=>r.ok?r.json():{}).then(d=>setWebhookUrls(d.urls??[])).catch(()=>{});
   }, [token, workspaceId]);
 
   const allProviders: AvailableProvider[] = [...HARDCODED_PROVIDERS, ...dbProviders];
@@ -91,10 +89,6 @@ export default function Integrations() {
   const connected  = visibleConns.filter(i=>i.is_verified);
   const needsAuth  = visibleConns.filter(i=>!i.is_verified);
   const notConnected = allProviders.filter(p=>!visibleConns.some(i=>i.provider?.name===p.name||i.name===p.name));
-
-  const copyUrl = (url: string, key: string) => {
-    navigator.clipboard.writeText(url).then(() => { setCopied(key); setTimeout(()=>setCopied(null),2000); });
-  };
 
   const isOAuth = (p: AvailableProvider | null) =>
     p?.auth_type === "oauth2" || ["airtable","notion","google_analytics","slack","gmail","granola","salesforce"].includes(p?.name ?? "");
@@ -133,7 +127,7 @@ export default function Integrations() {
           setConnOAuthLoading(false);
           setConnSuccess(connecting.display_name);
           setLiveConns(prev => [...prev, { id: Date.now().toString(), name: connName.trim() || connecting.display_name, is_verified: true, provider: { display_name: connecting.display_name, logo_url: connecting.logo_url, category: connecting.category, name: connecting.name, auth_type: connecting.auth_type } }]);
-          setTimeout(() => { setConnecting(null); setConnSuccess(null); setTab("connected"); }, 1500);
+          setTimeout(() => { setConnecting(null); setConnSuccess(null); setAddOpen(false); }, 1500);
         },
       });
     } catch { setConnTestResult({ verified: false, message: "OAuth failed" }); setConnOAuthLoading(false); }
@@ -224,7 +218,7 @@ export default function Integrations() {
         if (body.note) toast.info(body.note);
         setConnSuccess(connecting.display_name);
         setLiveConns(prev => [...prev, { id: Date.now().toString(), name: connName.trim()||connecting.display_name, is_verified: true, provider: { display_name: connecting.display_name, logo_url: connecting.logo_url, category: connecting.category, name: connecting.name } }]);
-        setTimeout(() => { setConnecting(null); setConnSuccess(null); setTab("connected"); }, 1500);
+        setTimeout(() => { setConnecting(null); setConnSuccess(null); setAddOpen(false); }, 1500);
       } else {
         const err = await res.json().catch(()=>({}));
         setConnTestResult({ verified:false, message: err.error||"Failed to save" });
@@ -233,181 +227,193 @@ export default function Integrations() {
     finally { setConnSaving(false); }
   };
 
+  // Connected list — category tabs derive from connected providers
+  const allConns = [...connected, ...needsAuth];
+  const connsWithCat = allConns.map(c => ({ ...c, category: c.provider?.category }));
+  const connectedGrouped = groupByCategory(connsWithCat);
+  const connectedCats = connectedGrouped.map(([cat]) => cat);
+  const filteredConns = catTab === "all"
+    ? connsWithCat
+    : connsWithCat.filter(c => {
+        const cat = (c.category && CATEGORY_ORDER.includes(c.category as any)) ? c.category : "other";
+        return cat === catTab;
+      });
+
   return (
     <div className="h-full overflow-y-auto bg-white">
-      {/* Inline connect panel */}
-      {connecting ? (
-        <div className="px-8 py-7 max-w-3xl">
-          <div className="flex items-center gap-3 mb-6">
-            <button onClick={()=>setConnecting(null)}
-              className="inline-flex items-center justify-center h-8 w-8 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 hover:text-gray-900 transition-colors">
-              <ArrowLeft className="h-4 w-4"/>
+      <div className="px-8 py-7">
+        <PageHeader
+          title="Integrations"
+          subtitle="Connect the tools your team already uses to push signals into Nous."
+          actions={
+            <button onClick={() => { setConnecting(null); setAddOpen(true); }}
+              aria-label="Add an integration"
+              className="h-9 w-9 rounded-lg bg-gray-900 text-white hover:bg-gray-800 flex items-center justify-center transition-colors">
+              <Plus className="h-4 w-4" />
             </button>
-            <IntegrationLogo url={connecting.logo_url} name={connecting.display_name} size={28}/>
-            <span className="text-[18px] font-bold tracking-tight text-gray-900">{connecting.display_name}</span>
-          </div>
-          {connSuccess ? (
-            <div className="text-center py-10">
-              <Check className="h-9 w-9 text-emerald-600 mx-auto mb-2"/>
-              <div className="text-[14px] font-semibold text-emerald-700">{connSuccess} connected</div>
-            </div>
-          ) : isOAuth(connecting) ? (
-            <div className="rounded-xl border border-gray-200 p-5 space-y-4">
-              <div>
-                <div className="text-[11px] font-medium text-gray-400 mb-1.5">Connection name</div>
-                <input value={connName} onChange={e=>setConnName(e.target.value)}
-                  className="w-full h-9 rounded-lg border border-gray-200 bg-white px-3 text-[13px] text-gray-900 focus:border-gray-400 outline-none"/>
-              </div>
-              {connTestResult && (
-                <div className="text-[12px] px-3 py-2 rounded-lg border text-red-600 border-red-200 bg-red-50">
-                  {connTestResult.message}
-                </div>
-              )}
-              <button onClick={handleOAuthConnect} disabled={connOAuthLoading}
-                className="w-full inline-flex items-center justify-center gap-1.5 h-9 px-3.5 rounded-lg bg-gray-900 text-white text-[13px] font-semibold hover:bg-gray-800 transition-colors disabled:opacity-40">
-                {connOAuthLoading ? <><RefreshCw className="h-3.5 w-3.5 animate-spin"/>Connecting…</> : `Connect ${connecting?.display_name} via OAuth`}
-              </button>
-              <p className="text-[12px] text-gray-400 text-center">You'll be redirected to authorize securely</p>
-            </div>
-          ) : (
-            <div className="rounded-xl border border-gray-200 p-5 space-y-4">
-              <div>
-                <div className="text-[11px] font-medium text-gray-400 mb-1.5">Connection name</div>
-                <input value={connName} onChange={e=>setConnName(e.target.value)}
-                  className="w-full h-9 rounded-lg border border-gray-200 bg-white px-3 text-[13px] text-gray-900 focus:border-gray-400 outline-none"/>
-              </div>
+          }
+        />
 
-              {isMultiField ? (
-                (connecting?.auth_fields || []).map(f => (
-                  <div key={f.name}>
-                    <div className="text-[11px] font-medium text-gray-400 mb-1.5">{f.label}{f.optional ? <span className="text-gray-300 ml-1.5">(optional)</span> : null}</div>
-                    <input
-                      type={f.type === "password" ? "password" : "text"}
-                      value={connCreds[f.name] || ""}
-                      onChange={e => setConnCreds(prev => ({ ...prev, [f.name]: e.target.value }))}
-                      placeholder={f.placeholder || ""}
-                      onKeyDown={e => { if (e.key === "Enter" && credsComplete()) testConnection(); }}
-                      className="w-full h-9 rounded-lg border border-gray-200 bg-white px-3 text-[13px] text-gray-900 focus:border-gray-400 outline-none placeholder:text-gray-400"
-                    />
-                    {f.description && <p className="text-[12px] text-gray-400 mt-1">{f.description}</p>}
-                  </div>
-                ))
-              ) : (
-                <div>
-                  <div className="text-[11px] font-medium text-gray-400 mb-1.5">API key</div>
-                  <input type="password" value={connApiKey} onChange={e=>setConnApiKey(e.target.value)}
-                    placeholder="Enter API key…"
-                    onKeyDown={e=>{if(e.key==="Enter")testConnection();}}
-                    className="w-full h-9 rounded-lg border border-gray-200 bg-white px-3 text-[13px] text-gray-900 focus:border-gray-400 outline-none placeholder:text-gray-400"/>
-                </div>
-              )}
-
-              {connTestResult && (
-                <div className={`text-[12px] px-3 py-2 rounded-lg border ${connTestResult.verified?"text-emerald-700 border-emerald-200 bg-emerald-50":"text-red-600 border-red-200 bg-red-50"}`}>
-                  {connTestResult.message}
-                </div>
-              )}
-              <div className="flex items-center gap-2 pt-1">
-                <button onClick={testConnection} disabled={connTesting||!credsComplete()}
-                  className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-white border border-gray-200 text-gray-700 text-[13px] font-semibold hover:bg-gray-50 transition-colors disabled:opacity-40">
-                  {connTesting?<><RefreshCw className="h-3.5 w-3.5 animate-spin"/>Testing…</>:"Test connection"}
-                </button>
-                <button onClick={saveConnection} disabled={connSaving||!connTestResult?.verified}
-                  className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-gray-900 text-white text-[13px] font-semibold hover:bg-gray-800 transition-colors disabled:opacity-40">
-                  {connSaving?<><RefreshCw className="h-3.5 w-3.5 animate-spin"/>Saving…</>:"Save"}
-                </button>
-              </div>
-            </div>
-          )}
+        {/* Category tab row */}
+        <div className="flex gap-6 border-b border-gray-200 mb-5 overflow-x-auto">
+          {([["all", `All (${allConns.length})`], ...connectedCats.map(c => [c, CATEGORY_LABEL[c]] as [string,string])]).map(([t,label]) => (
+            <button key={t} onClick={()=>setCatTab(t)}
+              className={`pb-2.5 text-[13px] font-medium transition-colors flex-shrink-0 ${catTab===t?"text-gray-900 border-b-2 border-gray-900 -mb-px":"text-gray-400 hover:text-gray-700"}`}>
+              {label}
+            </button>
+          ))}
         </div>
-      ) : (
-        <div className="px-8 py-7">
-          <PageHeader
-            title="Integrations"
-            subtitle="Connect the tools your team already uses to push signals into Nous."
-          />
 
-          {/* Tab bar */}
-          <div className="flex gap-6 border-b border-gray-200 mb-5">
-            {([
-              ["connected", `Connected (${connected.length + needsAuth.length})`],
-              ["available",  `Available (${notConnected.length})`],
-              ["webhooks",   `Webhooks (${webhookUrls.length})`],
-            ] as const).map(([t,label]) => (
-              <button key={t} onClick={()=>setTab(t)}
-                className={`pb-2.5 text-[13px] font-medium transition-colors ${tab===t?"text-gray-900 border-b-2 border-gray-900 -mb-px":"text-gray-400 hover:text-gray-700"}`}>
-                {label}
-              </button>
-            ))}
+        {/* Connected integrations list */}
+        {allConns.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-gray-200 py-12 text-center">
+            <p className="text-[13px] font-medium text-gray-700 mb-1">No integrations connected yet</p>
+            <p className="text-[12px] text-gray-400">Click the + button to connect your first tool.</p>
           </div>
-
-          {tab==="connected" && (() => {
-            const allConns = [...connected, ...needsAuth];
-            if (allConns.length === 0) {
-              return <div className="text-[13px] text-gray-400 text-center py-12">No integrations connected yet</div>;
-            }
-            const grouped = groupByCategory(allConns.map(c => ({ ...c, category: c.provider?.category })));
-            return (
-              <div className="space-y-5">
-                {grouped.map(([cat, items]) => (
-                  <div key={cat}>
-                    <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-2">
-                      {CATEGORY_LABEL[cat]} <span className="text-gray-300 font-normal ml-1">{items.length}</span>
-                    </div>
-                    <div className="rounded-xl border border-gray-200 overflow-hidden">
-                      {items.map((conn: any) => {
-                        const providerForConnect: AvailableProvider = {
-                          id: conn.provider?.name ?? conn.name,
-                          name: conn.provider?.name ?? conn.name,
-                          display_name: conn.provider?.display_name ?? conn.name,
-                          logo_url: conn.provider?.logo_url,
-                          category: conn.provider?.category,
-                          auth_type: conn.provider?.auth_type,
-                        };
-                        return (
-                          <div key={conn.id} className="flex items-center gap-4 px-4 py-3.5 border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors group">
-                            <IntegrationLogo url={conn.provider?.logo_url} name={conn.provider?.display_name??conn.name} />
-                            <div className="flex-1 min-w-0">
-                              <div className="text-[13px] font-semibold text-gray-900">{conn.provider?.display_name??conn.name}</div>
-                              {conn.name && conn.name !== (conn.provider?.display_name??"") && (
-                                <div className="text-[12px] text-gray-400 truncate">{conn.name}</div>
-                              )}
-                            </div>
-                            <span className={`text-[11px] px-2 py-0.5 rounded-md border flex-shrink-0 ${conn.is_verified?"text-emerald-700 border-emerald-200 bg-emerald-50":"text-amber-700 border-amber-200 bg-amber-50"}`}>
-                              {conn.is_verified ? "Connected" : "Needs auth"}
-                            </span>
-                            {(conn.provider?.name === "calendly" || conn.provider?.name === "cal_com") && conn.webhook_registered && (
-                              <span title="Webhook auto-registered — bookings and cancellations flow into your CRM automatically." className="text-[11px] px-2 py-0.5 rounded-md border border-emerald-200 bg-emerald-50 text-emerald-700 flex-shrink-0">
-                                Webhook ✓
-                              </span>
-                            )}
-                            <button onClick={()=>startConnect(providerForConnect)}
-                              className="text-[12px] font-medium text-gray-500 hover:text-gray-900 transition-colors opacity-0 group-hover:opacity-100 flex-shrink-0 ml-2 rounded-md border border-gray-200 px-2.5 py-1 hover:bg-gray-50">
-                              Update
-                            </button>
-                            <button onClick={()=>disconnect(conn)} disabled={disconnecting===conn.id}
-                              title="Disconnect this integration"
-                              className="text-[12px] font-medium text-gray-500 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100 flex-shrink-0 rounded-md border border-gray-200 px-2.5 py-1 hover:border-red-200 disabled:opacity-40">
-                              {disconnecting===conn.id ? "Removing…" : "Disconnect"}
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
+        ) : filteredConns.length === 0 ? (
+          <div className="text-[13px] text-gray-400 text-center py-12">No integrations in this category</div>
+        ) : (
+          <div className="rounded-xl border border-gray-200 overflow-hidden">
+            {filteredConns.map((conn: any) => {
+              const providerForConnect: AvailableProvider = {
+                id: conn.provider?.name ?? conn.name,
+                name: conn.provider?.name ?? conn.name,
+                display_name: conn.provider?.display_name ?? conn.name,
+                logo_url: conn.provider?.logo_url,
+                category: conn.provider?.category,
+                auth_type: conn.provider?.auth_type,
+              };
+              return (
+                <div key={conn.id} className="flex items-center gap-4 px-4 py-3.5 border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors group">
+                  <IntegrationLogo url={conn.provider?.logo_url} name={conn.provider?.display_name??conn.name} />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[13px] font-semibold text-gray-900">{conn.provider?.display_name??conn.name}</div>
+                    {conn.name && conn.name !== (conn.provider?.display_name??"") && (
+                      <div className="text-[12px] text-gray-400 truncate">{conn.name}</div>
+                    )}
                   </div>
-                ))}
-              </div>
-            );
-          })()}
+                  <span className={`text-[11px] px-2 py-0.5 rounded-md border flex-shrink-0 ${conn.is_verified?"text-emerald-700 border-emerald-200 bg-emerald-50":"text-amber-700 border-amber-200 bg-amber-50"}`}>
+                    {conn.is_verified ? "Connected" : "Needs auth"}
+                  </span>
+                  {(conn.provider?.name === "calendly" || conn.provider?.name === "cal_com") && conn.webhook_registered && (
+                    <span title="Webhook auto-registered — bookings and cancellations flow into your CRM automatically." className="text-[11px] px-2 py-0.5 rounded-md border border-emerald-200 bg-emerald-50 text-emerald-700 flex-shrink-0">
+                      Webhook ✓
+                    </span>
+                  )}
+                  <button onClick={()=>{ startConnect(providerForConnect); setAddOpen(true); }}
+                    className="text-[12px] font-medium text-gray-500 hover:text-gray-900 transition-colors opacity-0 group-hover:opacity-100 flex-shrink-0 ml-2 rounded-md border border-gray-200 px-2.5 py-1 hover:bg-gray-50">
+                    Update
+                  </button>
+                  <button onClick={()=>disconnect(conn)} disabled={disconnecting===conn.id}
+                    title="Disconnect this integration"
+                    className="text-[12px] font-medium text-gray-500 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100 flex-shrink-0 rounded-md border border-gray-200 px-2.5 py-1 hover:border-red-200 disabled:opacity-40">
+                    {disconnecting===conn.id ? "Removing…" : "Disconnect"}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
-          {tab==="available" && (() => {
-            if (notConnected.length === 0) {
-              return <div className="text-[13px] text-gray-400 text-center py-12">All providers connected</div>;
-            }
-            const grouped = groupByCategory(notConnected);
-            return (
+      {/* Add an integration modal */}
+      <Dialog open={addOpen} onOpenChange={(o)=>{ setAddOpen(o); if (!o) setConnecting(null); }}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-[18px] font-bold tracking-tight text-gray-900">
+              {connecting ? (
+                <span className="flex items-center gap-2.5">
+                  <button onClick={()=>setConnecting(null)}
+                    className="inline-flex items-center justify-center h-7 w-7 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 hover:text-gray-900 transition-colors">
+                    <ArrowLeft className="h-3.5 w-3.5"/>
+                  </button>
+                  <IntegrationLogo url={connecting.logo_url} name={connecting.display_name} size={24}/>
+                  {connecting.display_name}
+                </span>
+              ) : "Add an integration"}
+            </DialogTitle>
+          </DialogHeader>
+
+          {connecting ? (
+            connSuccess ? (
+              <div className="text-center py-10">
+                <Check className="h-9 w-9 text-emerald-600 mx-auto mb-2"/>
+                <div className="text-[14px] font-semibold text-emerald-700">{connSuccess} connected</div>
+              </div>
+            ) : isOAuth(connecting) ? (
+              <div className="rounded-xl border border-gray-200 p-5 space-y-4">
+                <div>
+                  <div className="text-[11px] font-medium text-gray-400 mb-1.5">Connection name</div>
+                  <input value={connName} onChange={e=>setConnName(e.target.value)}
+                    className="w-full h-9 rounded-lg border border-gray-200 bg-white px-3 text-[13px] text-gray-900 focus:border-gray-400 outline-none"/>
+                </div>
+                {connTestResult && (
+                  <div className="text-[12px] px-3 py-2 rounded-lg border text-red-600 border-red-200 bg-red-50">
+                    {connTestResult.message}
+                  </div>
+                )}
+                <button onClick={handleOAuthConnect} disabled={connOAuthLoading}
+                  className="w-full inline-flex items-center justify-center gap-1.5 h-9 px-3.5 rounded-lg bg-gray-900 text-white text-[13px] font-semibold hover:bg-gray-800 transition-colors disabled:opacity-40">
+                  {connOAuthLoading ? <><RefreshCw className="h-3.5 w-3.5 animate-spin"/>Connecting…</> : `Connect ${connecting?.display_name} via OAuth`}
+                </button>
+                <p className="text-[12px] text-gray-400 text-center">You'll be redirected to authorize securely</p>
+              </div>
+            ) : (
+              <div className="rounded-xl border border-gray-200 p-5 space-y-4">
+                <div>
+                  <div className="text-[11px] font-medium text-gray-400 mb-1.5">Connection name</div>
+                  <input value={connName} onChange={e=>setConnName(e.target.value)}
+                    className="w-full h-9 rounded-lg border border-gray-200 bg-white px-3 text-[13px] text-gray-900 focus:border-gray-400 outline-none"/>
+                </div>
+
+                {isMultiField ? (
+                  (connecting?.auth_fields || []).map(f => (
+                    <div key={f.name}>
+                      <div className="text-[11px] font-medium text-gray-400 mb-1.5">{f.label}{f.optional ? <span className="text-gray-300 ml-1.5">(optional)</span> : null}</div>
+                      <input
+                        type={f.type === "password" ? "password" : "text"}
+                        value={connCreds[f.name] || ""}
+                        onChange={e => setConnCreds(prev => ({ ...prev, [f.name]: e.target.value }))}
+                        placeholder={f.placeholder || ""}
+                        onKeyDown={e => { if (e.key === "Enter" && credsComplete()) testConnection(); }}
+                        className="w-full h-9 rounded-lg border border-gray-200 bg-white px-3 text-[13px] text-gray-900 focus:border-gray-400 outline-none placeholder:text-gray-400"
+                      />
+                      {f.description && <p className="text-[12px] text-gray-400 mt-1">{f.description}</p>}
+                    </div>
+                  ))
+                ) : (
+                  <div>
+                    <div className="text-[11px] font-medium text-gray-400 mb-1.5">API key</div>
+                    <input type="password" value={connApiKey} onChange={e=>setConnApiKey(e.target.value)}
+                      placeholder="Enter API key…"
+                      onKeyDown={e=>{if(e.key==="Enter")testConnection();}}
+                      className="w-full h-9 rounded-lg border border-gray-200 bg-white px-3 text-[13px] text-gray-900 focus:border-gray-400 outline-none placeholder:text-gray-400"/>
+                  </div>
+                )}
+
+                {connTestResult && (
+                  <div className={`text-[12px] px-3 py-2 rounded-lg border ${connTestResult.verified?"text-emerald-700 border-emerald-200 bg-emerald-50":"text-red-600 border-red-200 bg-red-50"}`}>
+                    {connTestResult.message}
+                  </div>
+                )}
+                <div className="flex items-center gap-2 pt-1">
+                  <button onClick={testConnection} disabled={connTesting||!credsComplete()}
+                    className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-white border border-gray-200 text-gray-700 text-[13px] font-semibold hover:bg-gray-50 transition-colors disabled:opacity-40">
+                    {connTesting?<><RefreshCw className="h-3.5 w-3.5 animate-spin"/>Testing…</>:"Test connection"}
+                  </button>
+                  <button onClick={saveConnection} disabled={connSaving||!connTestResult?.verified}
+                    className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-gray-900 text-white text-[13px] font-semibold hover:bg-gray-800 transition-colors disabled:opacity-40">
+                    {connSaving?<><RefreshCw className="h-3.5 w-3.5 animate-spin"/>Saving…</>:"Save"}
+                  </button>
+                </div>
+              </div>
+            )
+          ) : (
+            notConnected.length === 0 ? (
+              <div className="text-[13px] text-gray-400 text-center py-12">All providers connected</div>
+            ) : (
               <div className="space-y-5">
-                {grouped.map(([cat, items]) => (
+                {groupByCategory(notConnected).map(([cat, items]) => (
                   <div key={cat}>
                     <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-2">
                       {CATEGORY_LABEL[cat]} <span className="text-gray-300 font-normal ml-1">{items.length}</span>
@@ -427,7 +433,7 @@ export default function Integrations() {
                               </span>
                             ) : (
                               <button onClick={()=>startConnect(p)}
-                                className="text-[12px] font-medium text-gray-500 hover:text-gray-900 transition-colors opacity-0 group-hover:opacity-100 flex-shrink-0 rounded-md border border-gray-200 px-2.5 py-1 hover:bg-gray-50">
+                                className="text-[12px] font-medium text-gray-500 hover:text-gray-900 transition-colors flex-shrink-0 rounded-md border border-gray-200 px-2.5 py-1 hover:bg-gray-50">
                                 Connect
                               </button>
                             )}
@@ -438,41 +444,10 @@ export default function Integrations() {
                   </div>
                 ))}
               </div>
-            );
-          })()}
-
-          {tab==="webhooks" && (
-            <div>
-              <p className="text-[12px] text-gray-500 mb-4">
-                Paste these URLs into your tools to push signals in. Providers marked <span className="text-emerald-600">auto-registered</span> are wired up for you when you save the connection — no action needed.
-              </p>
-              <div className="rounded-xl border border-gray-200 overflow-hidden">
-                {webhookUrls.map(w => (
-                  <div key={w.source} className="flex items-center gap-4 px-4 py-3.5 border-b border-gray-100 last:border-0">
-                    <IntegrationLogo name={w.source} />
-                    <div className="flex-1 min-w-0">
-                      <div className="text-[13px] font-semibold text-gray-900 capitalize mb-0.5">{w.source.replace(/_/g," ")}</div>
-                      <div className="text-[12px] truncate font-mono text-gray-400">{w.url}</div>
-                    </div>
-                    {w.auto_registered ? (
-                      <span title="Nous auto-registers this webhook when you connect the integration. URL shown for debugging only — no copy/paste needed."
-                        className="text-[11px] px-2 py-0.5 rounded-md border border-emerald-200 bg-emerald-50 text-emerald-700 flex-shrink-0 flex items-center gap-1">
-                        <Check className="h-3 w-3" /> auto-registered
-                      </span>
-                    ) : (
-                      <button onClick={()=>copyUrl(w.url, w.source)}
-                        className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-white border border-gray-200 text-gray-700 text-[13px] font-semibold hover:bg-gray-50 transition-colors flex-shrink-0">
-                        {copied===w.source ? <><Check className="h-3.5 w-3.5 text-emerald-600"/>Copied</> : <><Copy className="h-3.5 w-3.5"/>Copy</>}
-                      </button>
-                    )}
-                  </div>
-                ))}
-                {webhookUrls.length===0 && <div className="text-[13px] text-gray-400 text-center py-12">No webhook URLs configured</div>}
-              </div>
-            </div>
+            )
           )}
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

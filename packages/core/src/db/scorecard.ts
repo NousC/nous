@@ -158,6 +158,22 @@ export async function setSignalActive(
   if (error) throw error;
 }
 
+// Recompute a signal's coverage — how many episodes its rule fired on.
+export async function setSignalCoverage(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  id: string,
+  coverage: number,
+): Promise<void> {
+  if (!isUUID(id)) return;
+  const { error } = await supabase
+    .from('scorecard_signals')
+    .update({ coverage })
+    .eq('id', id)
+    .eq('workspace_id', workspaceId);
+  if (error) throw error;
+}
+
 // ── Run log ───────────────────────────────────────────────────────────────────
 
 export interface ScorecardRunInput {

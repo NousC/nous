@@ -30,6 +30,7 @@ const Mind            = lazyWithErrorBoundary(() => import("@/pages/Mind"));
 const Install         = lazyWithErrorBoundary(() => import("@/pages/Install"));
 const ApiKeys         = lazyWithErrorBoundary(() => import("@/pages/ApiKeys"));
 const Webhooks        = lazyWithErrorBoundary(() => import("@/pages/Webhooks"));
+const Ops             = lazyWithErrorBoundary(() => import("@/pages/Ops"));
 const People          = lazyWithErrorBoundary(() => import("@/pages/People"));
 const Companies       = lazyWithErrorBoundary(() => import("@/pages/Companies"));
 const Integrations    = lazyWithErrorBoundary(() => import("@/pages/Integrations"));
@@ -39,6 +40,7 @@ const Inbox           = lazyWithErrorBoundary(() => import("@/pages/Inbox"));
 const Reporting       = lazyWithErrorBoundary(() => import("@/pages/AdvancedAnalytics"));
 const API             = lazyWithErrorBoundary(() => import("@/pages/API"));
 const SystemLog       = lazyWithErrorBoundary(() => import("@/pages/SystemLog"));
+const Intelligence    = lazyWithErrorBoundary(() => import("@/pages/Intelligence"));
 const NotFound        = lazyWithErrorBoundary(() => import("@/pages/NotFound"));
 
 const AdminCMS              = lazyWithErrorBoundary(() => import("@/pages/AdminCMS"));
@@ -105,9 +107,10 @@ export function AppRoutes() {
       <Route path="*" element={
         <StandardLayout>
           <Routes>
-            {/* Live Op Log now lives inside Mind (/) — redirect stale links. */}
-            <Route path="/operations" element={<Navigate to="/" replace />} />
-            <Route path="/requests"   element={<Navigate to="/" replace />} />
+            {/* Live ops log — its own page. */}
+            <Route path="/ops"        element={<Suspense fallback={<MinimalLoader />}><Ops /></Suspense>} />
+            <Route path="/operations" element={<Navigate to="/ops" replace />} />
+            <Route path="/requests"   element={<Navigate to="/ops" replace />} />
             {/* Setup */}
             <Route path="/install"    element={<Suspense fallback={<MinimalLoader />}><Install /></Suspense>} />
             <Route path="/playground" element={<ComingSoon />} />
@@ -128,8 +131,8 @@ export function AppRoutes() {
                 the URL change. Mind reads location.pathname to pick the
                 popup. The child routes have no element of their own —
                 they only declare the URL patterns this layout handles. */}
+            <Route path="/" element={<Navigate to="/ops" replace />} />
             <Route element={<Suspense fallback={<MinimalLoader />}><Mind /></Suspense>}>
-              <Route path="/" />
               <Route path="/crm" />
               <Route path="/memories" />
               <Route path="/lead-lists" />
@@ -142,6 +145,7 @@ export function AppRoutes() {
             <Route path="/companies"     element={<Suspense fallback={<MinimalLoader />}><Companies /></Suspense>} />
             <Route path="/companies/:id" element={<Suspense fallback={<MinimalLoader />}><Companies /></Suspense>} />
             <Route path="/integrations"  element={<Suspense fallback={<MinimalLoader />}><Integrations /></Suspense>} />
+            <Route path="/intelligence"  element={<Suspense fallback={<MinimalLoader />}><Intelligence /></Suspense>} />
             <Route path="/settings/*" element={<Navigate to="/settings" replace />} />
 
             <Route path="/inbox" element={<Suspense fallback={<TableLoader />}><Inbox /></Suspense>} />
