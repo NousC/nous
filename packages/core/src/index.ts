@@ -5,6 +5,7 @@ export * from './db/observations.js';
 export * from './db/claims.js';
 export * from './db/search.js';
 export * from './context.js';
+export * from './query.js';
 export * from './embed.js';
 export * from './db/contacts.js';
 export * from './db/memories.js';

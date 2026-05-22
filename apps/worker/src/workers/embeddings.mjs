@@ -1,48 +1,57 @@
-// Embedding worker — fills claim embeddings so semantic search works.
+// Embedding worker — fills claim AND observation embeddings so semantic
+// search works. Sweeps rows that have no embedding yet, embeds them in
+// batches via OpenAI, writes the vectors back. The backfilled rows and
+// every new row get embedded within a couple of minutes. No OPENAI_API_KEY
+// = no-op (semantic search stays dark; structured retrieval is unaffected).
 //
-// Sweeps claims that have no embedding yet, embeds them in batches via
-// OpenAI, and writes the vectors back. The backfilled claims and every
-// new claim get embedded within a couple of minutes. No OPENAI_API_KEY =
-// no-op (semantic search just stays dark; structured retrieval is unaffected).
+// Observations are append-only, but their `embedding` index column is
+// exempt from the immutability guard — see reject_mutation() in the schema.
 
 import { getSupabaseClient, embedBatch } from '@nous/core';
 
 const BATCH = 96;
 
-function claimText(c) {
-  let v = c.value;
+function rowText(r) {
+  let v = r.value;
   if (v && typeof v === 'object') v = JSON.stringify(v);
-  return `${c.property}: ${v ?? ''}`.slice(0, 2000);
+  return `${r.property}: ${v ?? ''}`.slice(0, 2000);
+}
+
+async function sweep(supabase, table) {
+  const { data: rows, error } = await supabase
+    .from(table)
+    .select('id, property, value')
+    .is('embedding', null)
+    .limit(BATCH);
+
+  if (error?.code === '42P01' || error?.code === 'PGRST205') return 0;
+  if (error) throw error;
+  if (!rows?.length) return 0;
+
+  const vectors = await embedBatch(rows.map(rowText));
+  if (!vectors) return 0;   // no OPENAI_API_KEY, or the call failed — retry next sweep
+
+  let embedded = 0;
+  for (let i = 0; i < rows.length; i++) {
+    const vec = vectors[i];
+    if (!vec) continue;
+    const { error: upErr } = await supabase
+      .from(table)
+      .update({ embedding: JSON.stringify(vec) })
+      .eq('id', rows[i].id);
+    if (!upErr) embedded++;
+  }
+  return embedded;
 }
 
 export async function processEmbeddings() {
   const supabase = getSupabaseClient();
   try {
-    const { data: claims, error } = await supabase
-      .from('claims')
-      .select('id, property, value')
-      .is('embedding', null)
-      .limit(BATCH);
-
-    // Migration not yet applied — skip silently.
-    if (error?.code === '42P01' || error?.code === 'PGRST205') return;
-    if (error) throw error;
-    if (!claims?.length) return;
-
-    const vectors = await embedBatch(claims.map(claimText));
-    if (!vectors) return;   // no OPENAI_API_KEY, or the call failed — retry next sweep
-
-    let embedded = 0;
-    for (let i = 0; i < claims.length; i++) {
-      const vec = vectors[i];
-      if (!vec) continue;
-      const { error: upErr } = await supabase
-        .from('claims')
-        .update({ embedding: JSON.stringify(vec) })   // array literal as text — pgvector parses it
-        .eq('id', claims[i].id);
-      if (!upErr) embedded++;
+    const claims = await sweep(supabase, 'claims');
+    const observations = await sweep(supabase, 'observations');
+    if (claims || observations) {
+      console.log(`[EMBEDDINGS] embedded ${claims} claims, ${observations} observations`);
     }
-    if (embedded) console.log(`[EMBEDDINGS] embedded ${embedded} claims`);
   } catch (err) {
     console.error('[EMBEDDINGS] sweep error:', err.message);
   }

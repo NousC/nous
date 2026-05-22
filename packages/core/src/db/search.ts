@@ -39,3 +39,41 @@ export async function searchClaims(
   }
   return (data as ClaimSearchHit[]) ?? [];
 }
+
+export interface ObservationSearchHit {
+  id: string;
+  entity_id: string;
+  property: string;
+  value: unknown;
+  source: string;
+  observed_at: string;
+  similarity: number;
+}
+
+/** Semantic search over observations, with structured pre-filters. */
+export async function searchObservations(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  query: string,
+  scope: { kind?: string; property?: string; source?: string; since?: string } = {},
+  limit = 50,
+): Promise<ObservationSearchHit[]> {
+  const vector = await embed(query);
+  if (!vector) return [];
+
+  const { data, error } = await supabase.rpc('search_observations', {
+    p_workspace_id: workspaceId,
+    p_embedding: JSON.stringify(vector),
+    p_kind: scope.kind ?? null,
+    p_property_prefix: scope.property ?? null,
+    p_source: scope.source ?? null,
+    p_since: scope.since ?? null,
+    p_limit: limit,
+  });
+  if (error) {
+    if (error.code === '42883' || error.code === 'PGRST202') return [];
+    console.error('[searchObservations]', error.message);
+    return [];
+  }
+  return (data as ObservationSearchHit[]) ?? [];
+}

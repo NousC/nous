@@ -4,11 +4,10 @@ import {
   getOrCreateEntity,
   recordObservation,
   recomputeClaim,
+  detectIdentifier,
 } from '@nous/core';
 
 export const observationsV2Router = Router();
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // POST /v2/observations — record what happened / was learned.
 // Body: {
@@ -27,20 +26,25 @@ observationsV2Router.post('/', async (req, res) => {
       return res.status(400).json({ error: 'focus_and_observations_required' });
     }
 
-    // Resolve the focus to an entity — create one if the identifier is unknown.
+    // Resolve the focus to an entity — create one if it's a new identifier.
+    // A write needs a precise identifier (id / email / LinkedIn / domain) —
+    // never a bare name (too ambiguous to record against).
+    const ident = detectIdentifier(String(focus));
+    if (!ident) {
+      return res.status(400).json({
+        error: 'invalid_focus',
+        detail: 'provide an entity id, email, LinkedIn URL, or domain — not a bare name',
+      });
+    }
     let entityId;
-    if (typeof focus === 'string' && UUID.test(focus)) {
-      entityId = focus;
-    } else if (typeof focus === 'string' && focus.includes('@')) {
-      entityId = await getOrCreateEntity(supabase, workspaceId, 'person', [
-        { kind: 'email', value: focus },
-      ]);
-    } else if (typeof focus === 'string' && focus.trim()) {
-      entityId = await getOrCreateEntity(supabase, workspaceId, 'company', [
-        { kind: 'domain', value: focus },
-      ]);
+    if (ident.kind === 'entity_id') {
+      entityId = ident.value;
+    } else if (ident.kind === 'domain') {
+      entityId = await getOrCreateEntity(supabase, workspaceId, 'company',
+        [{ kind: 'domain', value: ident.value }]);
     } else {
-      return res.status(400).json({ error: 'invalid_focus' });
+      entityId = await getOrCreateEntity(supabase, workspaceId, 'person',
+        [{ kind: ident.kind, value: ident.value }]);
     }
 
     // Append every observation to the immutable spine.

@@ -60,6 +60,7 @@ export interface AssembledContext {
   intent: ContextIntent;
   summary: string;
   claims: ContextClaim[];
+  workspace: ContextClaim[];
   timeline: TimelineItem[];
   stakeholders: Stakeholder[];
   predictions: { kind: string; value: unknown; confidence: number }[];
@@ -87,6 +88,19 @@ export async function assembleContext(
     getClaims(supabase, workspaceId, entityId),
     getObservations(supabase, workspaceId, entityId, { kind: 'event', limit: 300 }),
   ]);
+
+  // workspace-level grounding — the agent's own ICP / product / positioning,
+  // held as claims on the workspace entity. get_context self-grounds; there
+  // is no separate "get_memories" call.
+  const { data: wsEntity } = await supabase
+    .from('entities').select('id')
+    .eq('workspace_id', workspaceId).eq('type', 'workspace').maybeSingle();
+  const wsRaw = wsEntity ? await getClaims(supabase, workspaceId, wsEntity.id) : [];
+  const workspaceClaims: ContextClaim[] = wsRaw.map(c => ({
+    property: c.property, value: c.value, confidence: c.confidence,
+    freshness: c.freshness, epistemic_class: c.epistemic_class,
+    last_observed_at: c.last_observed_at,
+  }));
 
   // rank claims: on-theme first, then confidence, then recency — then budget-cap
   const ranked = [...claims].sort((a, b) => {
@@ -130,7 +144,7 @@ export async function assembleContext(
     entity: { id: entity.id, type: entity.type },
     intent,
     summary: buildSummary(entity.type, claimsOut, events.length, intent),
-    claims: claimsOut, timeline, stakeholders, predictions,
+    claims: claimsOut, workspace: workspaceClaims, timeline, stakeholders, predictions,
     meta: {
       token_estimate: 0,
       claims_total: claims.length, claims_returned: claimsOut.length,

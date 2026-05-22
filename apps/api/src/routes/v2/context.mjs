@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getSupabaseClient, assembleContext, resolveEntity, CONTEXT_INTENTS } from '@nous/core';
+import { getSupabaseClient, assembleContext, resolveFocus, CONTEXT_INTENTS } from '@nous/core';
 
 export const contextV2Router = Router();
 
@@ -19,16 +19,17 @@ contextV2Router.post('/', async (req, res) => {
       return res.status(400).json({ error: 'invalid_intent', valid_intents: CONTEXT_INTENTS });
     }
 
-    let entityId = focus;
-    if (!UUID.test(focus)) {
-      if (typeof focus !== 'string' || !focus.includes('@')) {
-        return res.status(400).json({ error: 'focus_must_be_entity_uuid_or_email' });
-      }
-      entityId = await resolveEntity(supabase, workspaceId, { kind: 'email', value: focus });
-      if (!entityId) return res.status(404).json({ error: 'entity_not_found' });
+    // focus may be a UUID, email, domain, LinkedIn URL, or a name.
+    const resolution = await resolveFocus(supabase, workspaceId, String(focus));
+    if (resolution.status === 'not_found') {
+      return res.status(404).json({ error: 'entity_not_found' });
+    }
+    if (resolution.status === 'ambiguous') {
+      // a name matched several people — the agent picks one and re-calls
+      return res.json({ status: 'ambiguous', candidates: resolution.candidates });
     }
 
-    const context = await assembleContext(supabase, workspaceId, entityId, intent, budget_tokens);
+    const context = await assembleContext(supabase, workspaceId, resolution.entity_id, intent, budget_tokens);
     if (!context) return res.status(404).json({ error: 'entity_not_found' });
     return res.json(context);
   } catch (err) {

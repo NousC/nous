@@ -23,6 +23,7 @@ import { searchRouter } from './routes/v1/search.mjs';
 import { accountsV2Router } from './routes/v2/accounts.mjs';
 import { observationsV2Router } from './routes/v2/observations.mjs';
 import { contextV2Router } from './routes/v2/context.mjs';
+import { queryV2Router } from './routes/v2/query.mjs';
 
 // /api — Frontend API (Supabase JWT auth)
 import { apiKeysRouter } from './routes/api/apiKeys.mjs';
@@ -97,6 +98,7 @@ app.use('/v1/search',    verifyApiKey, searchRouter);      // MCP search tool
 app.use('/v2/accounts',     verifyApiKey, accountsV2Router);
 app.use('/v2/observations', verifyApiKey, observationsV2Router);
 app.use('/v2/context',      verifyApiKey, contextV2Router);
+app.use('/v2/query',        verifyApiKey, queryV2Router);
 
 // ── /api — Frontend API ───────────────────────────────────────────────────────
 app.use('/me',                        meRouter); // legacy path used by AuthContext
