@@ -4,7 +4,7 @@
 // ============================================================
 
 import Anthropic from '@anthropic-ai/sdk';
-import { logActivity, listSignals, scoreLead } from '@nous/core';
+import { logActivity, listSignals, scoreLead, mirrorStateToObservations } from '@nous/core';
 import { decrypt } from '../utils/encryption.js';
 
 async function logSysEvent(supabase, workspaceId, source, eventType, summary, contactId, metadata) {
@@ -328,6 +328,15 @@ async function enrichContactViaApollo(supabase, contact, apolloKey) {
 
     await supabase.from('contacts').update(updates).eq('id', contact.id);
 
+    // Mirror the enriched fields into the v2 substrate as state observations.
+    void mirrorStateToObservations(supabase, {
+      workspaceId: contact.workspace_id,
+      entityId: contact.id,
+      type: 'person',
+      source: 'apollo',
+      facts: updates,
+    }).catch(() => {});
+
     await logActivity(supabase, {
       workspaceId: contact.workspace_id, contactId: contact.id,
       companyId: updates.company_id || contact.company_id || null,
@@ -587,11 +596,19 @@ export async function upsertCompany(supabase, workspaceId, data) {
   if (existing) {
     const { data: updated } = await supabase.from('companies')
       .update(payload).eq('id', existing.id).select('*').single();
+    void mirrorStateToObservations(supabase, {
+      workspaceId, entityId: existing.id, type: 'company', source: 'apollo', facts: payload,
+    }).catch(() => {});
     return updated;
   }
 
   const { data: created } = await supabase.from('companies')
     .insert(payload).select('*').single();
+  if (created?.id) {
+    void mirrorStateToObservations(supabase, {
+      workspaceId, entityId: created.id, type: 'company', source: 'apollo', facts: payload,
+    }).catch(() => {});
+  }
   return created;
 }
 

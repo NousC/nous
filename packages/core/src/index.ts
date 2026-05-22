@@ -4,6 +4,7 @@ export * from './db/entities.js';
 export * from './db/observations.js';
 export * from './db/claims.js';
 export * from './db/predictions.js';
+export * from './db/ingest.js';
 export * from './db/search.js';
 export * from './context.js';
 export * from './query.js';
