@@ -214,6 +214,10 @@ CREATE TABLE claims (
   epistemic_class            TEXT NOT NULL CHECK (epistemic_class IN ('observed','inferred','predicted','asserted')),
   freshness                  TEXT NOT NULL DEFAULT 'fresh' CHECK (freshness IN ('fresh','aging','suspect','expired')),
   decays_at                  TIMESTAMPTZ,                     -- predicted staleness time (decay model)
+  valid_from                 TIMESTAMPTZ,                     -- when the value became true (real-world time)
+  invalid_at                 TIMESTAMPTZ,                     -- positive evidence the fact ended; NULL = still valid.
+                                                              -- distinct from freshness='expired' (uncertainty from silence).
+                                                              -- Claims are never deleted — only invalidated.
   supporting_observation_ids UUID[] NOT NULL DEFAULT '{}',     -- provenance
   observation_count          INT  NOT NULL DEFAULT 0,
   last_observed_at           TIMESTAMPTZ,

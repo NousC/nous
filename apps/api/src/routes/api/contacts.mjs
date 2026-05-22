@@ -75,13 +75,28 @@ contactsApiRouter.get('/:id', verifySupabaseAuth, async (req, res) => {
     const { data: membership } = await supabase.from('workspace_members').select('workspace_id').eq('workspace_id', contact.workspace_id).eq('user_id', user.id).single();
     if (!membership) return res.status(403).json({ error: 'contact_not_found_or_unauthorized' });
 
-    const { data: activityRows } = await supabase.from('contact_activity_log')
-      .select('id, activity_type, description, source, occurred_at, created_at, summary, raw_data')
-      .eq('contact_id', id).order('occurred_at', { ascending: false }).limit(200);
+    // Activities are kind:'event' observations in the v2 substrate.
+    // entity_id == contact id (the v1->v2 migration convention). Same
+    // response shape as before — the frontend timeline is untouched.
+    const { data: obsRows } = await supabase.from('observations')
+      .select('id, property, value, source, observed_at, raw')
+      .eq('entity_id', id).eq('kind', 'event')
+      .order('observed_at', { ascending: false }).limit(200);
 
-    const activities = (activityRows || [])
-      .filter(a => !SYSTEM_TYPES.has(a.activity_type) && a.activity_type !== 'stage_changed')
-      .map(a => ({ id: a.id, activity_type: a.activity_type, title: a.description || a.activity_type?.replace(/_/g, ' ') || 'Activity', subtitle: a.summary || null, source: a.source || 'nous', created_at: a.occurred_at || a.created_at, raw_data: a.raw_data || null }));
+    const activities = (obsRows || [])
+      .map(o => {
+        const type = (o.property || '').replace(/^interaction\./, '');
+        return {
+          id:            o.id,
+          activity_type: type,
+          title:         o.value?.description || type.replace(/_/g, ' ') || 'Activity',
+          subtitle:      o.value?.summary || o.value?.description || null,
+          source:        o.source || 'nous',
+          created_at:    o.observed_at,
+          raw_data:      o.raw || null,
+        };
+      })
+      .filter(a => !SYSTEM_TYPES.has(a.activity_type) && a.activity_type !== 'stage_changed');
 
     let company = null;
     if (contact.company_id) {

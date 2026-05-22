@@ -47,10 +47,10 @@ const fmtGap = (g: number | null | undefined) =>
 
 function StatTile({ label, value, sub }: { label: string; value: string; sub: string }) {
   return (
-    <div className="rounded-xl border border-gray-200 bg-white px-4 py-3.5">
-      <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">{label}</div>
-      <div className="text-[22px] font-semibold text-gray-900 tabular-nums tracking-tight leading-none mt-2">{value}</div>
-      <div className="text-[12px] text-gray-400 mt-1.5">{sub}</div>
+    <div className="rounded-xl border border-border bg-background px-4 py-3.5">
+      <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">{label}</div>
+      <div className="text-[22px] font-semibold text-foreground tabular-nums tracking-tight leading-none mt-2">{value}</div>
+      <div className="text-[12px] text-muted-foreground/70 mt-1.5">{sub}</div>
     </div>
   );
 }
@@ -61,9 +61,9 @@ function Card({ label, right, children }: {
   children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-2.5 bg-gray-50 border-b border-gray-200">
-        <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">{label}</span>
+    <div className="rounded-xl border border-border bg-background overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-2.5 bg-muted/50 border-b border-border">
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">{label}</span>
         {right}
       </div>
       {children}
@@ -152,7 +152,7 @@ export default function Intelligence() {
     : "Holding steady";
 
   return (
-    <div className="h-full overflow-y-auto bg-white">
+    <div className="h-full overflow-y-auto bg-background">
       <div className="px-8 py-7">
         <PageHeader
           title="Intelligence"
@@ -160,7 +160,7 @@ export default function Intelligence() {
           actions={
             <button
               onClick={load}
-              className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-white border border-gray-200 text-gray-700 text-[13px] font-semibold hover:bg-gray-50 transition-colors"
+              className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-background border border-border text-foreground/80 text-[13px] font-semibold hover:bg-muted/50 transition-colors"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
             </button>
@@ -190,43 +190,43 @@ export default function Intelligence() {
             label="The Scorecard"
             right={
               active.length > 0 && (
-                <span className="text-[12px] text-gray-400 tabular-nums">{active.length} signals</span>
+                <span className="text-[12px] text-muted-foreground/70 tabular-nums">{active.length} signals</span>
               )
             }
           >
             {active.length === 0 ? (
               <div className="px-4 py-8 text-center">
-                <p className="text-[13px] text-gray-500">
+                <p className="text-[13px] text-muted-foreground">
                   No Scorecard yet — the weighted signals the Mind scores accounts on.
                 </p>
                 <button
                   onClick={buildScorecard}
                   disabled={seeding}
-                  className="mt-3 inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-gray-900 text-white text-[13px] font-semibold hover:bg-gray-800 transition-colors disabled:opacity-40"
+                  className="mt-3 inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-primary text-primary-foreground text-[13px] font-semibold hover:bg-primary/90 transition-colors disabled:opacity-40"
                 >
                   {seeding ? "Building…" : "Build from your ICP memory"}
                 </button>
               </div>
             ) : (
-              <div className="grid grid-cols-2 divide-x divide-gray-100">
+              <div className="grid grid-cols-2 divide-x divide-border/60">
                 {[
                   { rows: positive, head: "Predicts a fit", color: "#15803d" },
                   { rows: negative, head: "Predicts a miss", color: "#b91c1c" },
                 ].map(({ rows, head, color }) => (
                   <div key={head}>
-                    <div className="px-4 py-2 border-b border-gray-100 text-[11px] font-semibold uppercase tracking-wide"
+                    <div className="px-4 py-2 border-b border-border/60 text-[11px] font-semibold uppercase tracking-wide"
                       style={{ color }}>
                       {head}
                     </div>
                     {rows.length === 0 ? (
-                      <div className="px-4 py-4 text-[13px] text-gray-300">None</div>
+                      <div className="px-4 py-4 text-[13px] text-muted-foreground/50">None</div>
                     ) : (
                       rows.map(s => (
-                        <div key={s.id} className="flex items-baseline gap-3 px-4 py-2.5 border-b border-gray-100 last:border-0">
+                        <div key={s.id} className="flex items-baseline gap-3 px-4 py-2.5 border-b border-border/60 last:border-0">
                           <span className="text-[12px] font-semibold tabular-nums w-8 flex-shrink-0" style={{ color }}>
                             {s.weight > 0 ? "+" : ""}{s.weight}
                           </span>
-                          <span className="text-[13px] text-gray-700 leading-snug">{s.label}</span>
+                          <span className="text-[13px] text-foreground/80 leading-snug">{s.label}</span>
                         </div>
                       ))
                     )}
@@ -239,19 +239,19 @@ export default function Intelligence() {
           {/* Learning runs */}
           <Card label="Learning Runs">
             {runs.length === 0 ? (
-              <div className="px-4 py-8 text-[13px] text-gray-400 text-center">
+              <div className="px-4 py-8 text-[13px] text-muted-foreground/70 text-center">
                 The loop runs nightly once there are enough resolved predictions to learn from.
               </div>
             ) : (
               runs.map(r => (
-                <div key={r.id} className="flex items-center gap-4 px-4 py-3 border-b border-gray-100 last:border-0">
-                  <span className="text-[12px] text-gray-400 tabular-nums flex-shrink-0" style={{ width: 52 }}>
+                <div key={r.id} className="flex items-center gap-4 px-4 py-3 border-b border-border/60 last:border-0">
+                  <span className="text-[12px] text-muted-foreground/70 tabular-nums flex-shrink-0" style={{ width: 52 }}>
                     {format(new Date(r.created_at), "MMM d")}
                   </span>
-                  <span className="text-[13px] text-gray-500 tabular-nums flex-shrink-0" style={{ width: 116 }}>
+                  <span className="text-[13px] text-muted-foreground tabular-nums flex-shrink-0" style={{ width: 116 }}>
                     {fmtGap(r.gap_before)} → {fmtGap(r.gap_after)}
                   </span>
-                  <span className="text-[13px] text-gray-700 truncate">
+                  <span className="text-[13px] text-foreground/80 truncate">
                     {r.note || `${r.steps} step${r.steps === 1 ? "" : "s"}`}
                   </span>
                 </div>
@@ -266,7 +266,7 @@ export default function Intelligence() {
               !adding && (
                 <button
                   onClick={() => setAdding(true)}
-                  className="text-[12px] font-semibold text-gray-500 hover:text-gray-900 transition-colors"
+                  className="text-[12px] font-semibold text-muted-foreground hover:text-foreground transition-colors"
                 >
                   + Add fact
                 </button>
@@ -274,11 +274,11 @@ export default function Intelligence() {
             }
           >
             {adding && (
-              <div className="px-4 py-3.5 border-b border-gray-100 bg-gray-50/50 space-y-2.5">
+              <div className="px-4 py-3.5 border-b border-border/60 bg-muted/50/50 space-y-2.5">
                 <select
                   value={newCat}
                   onChange={e => setNewCat(e.target.value)}
-                  className="rounded-md border border-gray-200 bg-white text-[13px] text-gray-800 px-2 py-1.5 outline-none focus:border-gray-400"
+                  className="rounded-md border border-border bg-background text-[13px] text-foreground px-2 py-1.5 outline-none focus:border-foreground/40"
                 >
                   {MEMORY_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
@@ -288,19 +288,19 @@ export default function Intelligence() {
                   rows={3}
                   autoFocus
                   placeholder="e.g. B2B SaaS companies, 50–200 employees, RevOps and Sales Ops leaders, US."
-                  className="w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-900 placeholder:text-gray-400 outline-none focus:border-gray-400 resize-none leading-relaxed"
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-[13px] text-foreground placeholder:text-muted-foreground/70 outline-none focus:border-foreground/40 resize-none leading-relaxed"
                 />
                 <div className="flex items-center gap-2">
                   <button
                     onClick={addMemory}
                     disabled={savingMem || !newContent.trim()}
-                    className="h-8 px-3.5 rounded-md bg-gray-900 text-white text-[13px] font-semibold hover:bg-gray-800 transition-colors disabled:opacity-30"
+                    className="h-8 px-3.5 rounded-md bg-primary text-primary-foreground text-[13px] font-semibold hover:bg-primary/90 transition-colors disabled:opacity-30"
                   >
                     {savingMem ? "Saving…" : "Save"}
                   </button>
                   <button
                     onClick={() => { setAdding(false); setNewContent(""); }}
-                    className="h-8 px-3 text-[13px] text-gray-500 hover:text-gray-800 transition-colors"
+                    className="h-8 px-3 text-[13px] text-muted-foreground hover:text-foreground transition-colors"
                   >
                     Cancel
                   </button>
@@ -308,16 +308,16 @@ export default function Intelligence() {
               </div>
             )}
             {memories.length === 0 && !adding ? (
-              <div className="px-4 py-8 text-[13px] text-gray-400 text-center">
+              <div className="px-4 py-8 text-[13px] text-muted-foreground/70 text-center">
                 No facts yet — add what you know about your ICP, product, and market.
               </div>
             ) : (
               memories.slice(0, 24).map(m => (
-                <div key={m.id} className="flex items-baseline gap-3 px-4 py-2.5 border-b border-gray-100 last:border-0">
-                  <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 flex-shrink-0" style={{ width: 84 }}>
+                <div key={m.id} className="flex items-baseline gap-3 px-4 py-2.5 border-b border-border/60 last:border-0">
+                  <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-shrink-0" style={{ width: 84 }}>
                     {m.category}
                   </span>
-                  <span className="text-[13px] text-gray-700 leading-snug">{m.content}</span>
+                  <span className="text-[13px] text-foreground/80 leading-snug">{m.content}</span>
                 </div>
               ))
             )}

@@ -167,7 +167,7 @@ export default function CrmSync() {
   };
 
   return (
-    <div className="h-full overflow-y-auto bg-white">
+    <div className="h-full overflow-y-auto bg-background">
       <div className="px-8 py-7">
         <PageHeader
           title="CRM Sync"
@@ -175,13 +175,13 @@ export default function CrmSync() {
         />
 
         {loadingConns ? (
-          <div className="text-[13px] text-gray-400 text-center py-12">Loading…</div>
+          <div className="text-[13px] text-muted-foreground/70 text-center py-12">Loading…</div>
         ) : crmConns.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-gray-200 py-12 text-center">
-            <p className="text-[13px] font-medium text-gray-700 mb-1">No CRM connected yet</p>
-            <p className="text-[12px] text-gray-400 mb-4">Connect HubSpot, Pipedrive, or Attio to start syncing contacts.</p>
+          <div className="rounded-xl border border-dashed border-border py-12 text-center">
+            <p className="text-[13px] font-medium text-foreground/80 mb-1">No CRM connected yet</p>
+            <p className="text-[12px] text-muted-foreground/70 mb-4">Connect HubSpot, Pipedrive, or Attio to start syncing contacts.</p>
             <button onClick={() => navigate("/integrations")}
-              className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-gray-900 text-white text-[13px] font-semibold hover:bg-gray-800 transition-colors">
+              className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-primary text-primary-foreground text-[13px] font-semibold hover:bg-primary/90 transition-colors">
               <Plus className="h-3.5 w-3.5" /> Connect a CRM
             </button>
           </div>
@@ -195,22 +195,22 @@ export default function CrmSync() {
               const result = syncResult[provider];
               const isSyncing = syncing === provider;
               return (
-                <div key={conn.id} className="rounded-xl border border-gray-200 p-5 space-y-4">
+                <div key={conn.id} className="rounded-xl border border-border p-5 space-y-4">
                   {/* Header */}
                   <div className="flex items-center gap-3">
                     <IntegrationLogo url={meta.logo} name={meta.label} size={28} />
                     <div className="flex-1 min-w-0">
-                      <div className="text-[14px] font-semibold text-gray-900">{meta.label}</div>
-                      <div className="text-[12px] text-gray-400 truncate">{conn.name} · {conn.is_verified ? "Connected" : "Needs auth"}</div>
+                      <div className="text-[14px] font-semibold text-foreground">{meta.label}</div>
+                      <div className="text-[12px] text-muted-foreground/70 truncate">{conn.name} · {conn.is_verified ? "Connected" : "Needs auth"}</div>
                     </div>
                   </div>
 
                   {/* Stats */}
                   <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-[13px]">
-                    <div className="text-gray-400">Last sync</div>
-                    <div className="text-gray-700 tabular-nums">{last}</div>
-                    <div className="text-gray-400">Contacts pulled</div>
-                    <div className="text-gray-700 tabular-nums">{(cfg?.contacts_synced ?? 0).toLocaleString()}</div>
+                    <div className="text-muted-foreground/70">Last sync</div>
+                    <div className="text-foreground/80 tabular-nums">{last}</div>
+                    <div className="text-muted-foreground/70">Contacts pulled</div>
+                    <div className="text-foreground/80 tabular-nums">{(cfg?.contacts_synced ?? 0).toLocaleString()}</div>
                   </div>
 
                   {result && (
@@ -222,39 +222,39 @@ export default function CrmSync() {
                   {/* Controls */}
                   <div className="flex flex-wrap items-center gap-x-5 gap-y-2.5">
                     <button onClick={() => handleSync(conn)} disabled={isSyncing || !conn.is_verified}
-                      className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-gray-900 text-white text-[13px] font-semibold hover:bg-gray-800 transition-colors disabled:opacity-40">
+                      className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-primary text-primary-foreground text-[13px] font-semibold hover:bg-primary/90 transition-colors disabled:opacity-40">
                       {isSyncing
                         ? <><RefreshCw className="h-3.5 w-3.5 animate-spin" /> Syncing…</>
                         : <><Download className="h-3.5 w-3.5" /> Sync now</>}
                     </button>
-                    <label className="flex items-center gap-2 text-[13px] text-gray-700 cursor-pointer">
+                    <label className="flex items-center gap-2 text-[13px] text-foreground/80 cursor-pointer">
                       <input type="checkbox" checked={!!cfg?.auto_sync} disabled={togglingAuto === provider || !conn.is_verified}
                         onChange={e => handleToggleAuto(conn, e.target.checked)}
-                        className="h-3.5 w-3.5 accent-gray-900" />
+                        className="h-3.5 w-3.5 accent-primary" />
                       Auto-sync daily
                     </label>
-                    <label className="flex items-center gap-2 text-[13px] text-gray-700 cursor-pointer"
+                    <label className="flex items-center gap-2 text-[13px] text-foreground/80 cursor-pointer"
                       title="Push Nous touchpoints (meetings, replies, signed proposals) to this CRM as native engagements.">
                       <input type="checkbox" checked={cfg?.push_activities !== false} disabled={togglingPush === provider || !conn.is_verified}
                         onChange={e => handleTogglePush(conn, e.target.checked)}
-                        className="h-3.5 w-3.5 accent-gray-900" />
+                        className="h-3.5 w-3.5 accent-primary" />
                       Push activities
                     </label>
                   </div>
 
                   {/* Recent ops — last 15 events for this provider, refreshes every 10s */}
-                  <div className="border-t border-gray-100 pt-3.5">
-                    <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-2">Recent activity</div>
+                  <div className="border-t border-border/60 pt-3.5">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 mb-2">Recent activity</div>
                     {(ops[provider]?.length ?? 0) === 0 ? (
-                      <div className="text-[13px] text-gray-400 italic">No recent activity — push or sync something to populate.</div>
+                      <div className="text-[13px] text-muted-foreground/70 italic">No recent activity — push or sync something to populate.</div>
                     ) : (
                       <div className="space-y-1">
                         {ops[provider]!.slice(0, 8).map(o => {
                           const failed = o.event_type.includes('failed');
                           return (
                             <div key={o.id} className="flex items-baseline gap-3">
-                              <span className="font-mono text-[12px] text-gray-400 w-[68px] flex-shrink-0 tabular-nums">{format(new Date(o.ts), "HH:mm:ss")}</span>
-                              <span className={`text-[13px] flex-1 truncate ${failed ? "text-red-600" : "text-gray-700"}`} title={o.summary ?? undefined}>
+                              <span className="font-mono text-[12px] text-muted-foreground/70 w-[68px] flex-shrink-0 tabular-nums">{format(new Date(o.ts), "HH:mm:ss")}</span>
+                              <span className={`text-[13px] flex-1 truncate ${failed ? "text-red-600" : "text-foreground/80"}`} title={o.summary ?? undefined}>
                                 {o.summary || o.event_type}
                               </span>
                             </div>
@@ -269,12 +269,12 @@ export default function CrmSync() {
 
             {/* If some CRMs are connected but not all, give a path to add more */}
             {connectedProviders.size < CRM_NAMES.length && (
-              <div className="flex items-center justify-between rounded-xl border border-dashed border-gray-200 px-5 py-3.5">
-                <span className="text-[13px] text-gray-400">
+              <div className="flex items-center justify-between rounded-xl border border-dashed border-border px-5 py-3.5">
+                <span className="text-[13px] text-muted-foreground/70">
                   {CRM_NAMES.length - connectedProviders.size} more {CRM_NAMES.length - connectedProviders.size === 1 ? "CRM" : "CRMs"} available
                 </span>
                 <button onClick={() => navigate("/integrations")}
-                  className="inline-flex items-center gap-1.5 text-[12px] font-medium text-gray-500 hover:text-gray-900 transition-colors rounded-md border border-gray-200 px-2.5 py-1 hover:bg-gray-50">
+                  className="inline-flex items-center gap-1.5 text-[12px] font-medium text-muted-foreground hover:text-foreground transition-colors rounded-md border border-border px-2.5 py-1 hover:bg-muted/50">
                   <Plus className="h-3.5 w-3.5" /> Add CRM
                 </button>
               </div>

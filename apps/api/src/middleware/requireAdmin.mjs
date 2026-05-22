@@ -13,11 +13,14 @@ export async function requireAdmin(req, res, next) {
       return res.status(401).json({ error: 'auth_required' });
     }
 
-    // Check users.is_admin field
+    // Check users.is_admin field. req.user is the Supabase auth user, whose
+    // id is the auth UUID — that lives in users.supabase_user_id, NOT users.id.
+    // verifySupabaseAuth already resolved the internal users.id into
+    // req.internalUserId; use that for the lookup.
     const { data: userData, error } = await supabase
       .from('users')
       .select('is_admin, id, email, name, team_id')
-      .eq('id', user.id)
+      .eq('id', req.internalUserId || user.id)
       .single();
 
     if (error || !userData || !userData.is_admin) {

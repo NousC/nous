@@ -15,6 +15,16 @@ import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 
 type CollectionType = 'blog' | 'tutorials' | 'use-cases' | 'inside';
 
+// Coffee Shop hub categories — keep in sync with the nous-site resource page.
+const CMS_CATEGORIES = [
+  { value: 'get-started', label: 'Get Started' },
+  { value: 'gtm', label: 'GTM' },
+  { value: 'skills', label: 'Skills' },
+  { value: 'guides', label: 'Guides (hidden)' },
+  { value: 'blog', label: 'Blog' },
+  { value: 'resources', label: 'Resources' },
+] as const;
+
 interface BlogArticle {
   id: string;
   title: string;
@@ -26,6 +36,7 @@ interface BlogArticle {
   featured: boolean;
   is_guide: boolean;
   article_type?: 'article' | 'announcement' | 'founder';
+  category?: string;
   video_url?: string | null;
   intro_text?: string | null;
   related_workflow_slugs?: string[];
@@ -121,6 +132,7 @@ export default function AdminCMS() {
     featured: false,
     is_guide: false,
     article_type: 'article' as 'article' | 'founder',
+    category: 'blog' as string,
     content: {},
     date: format(new Date(), "dd.MM.yyyy"),
     // Tutorial fields
@@ -357,6 +369,7 @@ export default function AdminCMS() {
       meta_description: "",
       cover_image_url: "",
       featured: false,
+      category: 'blog',
       content: {},
       date: format(new Date(), "dd.MM.yyyy"),
       description: "",
@@ -385,6 +398,7 @@ export default function AdminCMS() {
       featured: article.featured,
       is_guide: article.is_guide || false,
       article_type: (article.article_type === 'founder' ? 'founder' : 'article') as 'article' | 'founder',
+      category: article.category || 'blog',
       content: article.content || {},
       date: article.published_at
         ? format(new Date(article.published_at), "dd.MM.yyyy")
@@ -495,6 +509,7 @@ export default function AdminCMS() {
           featured: formData.featured,
           is_guide: formData.is_guide || false,
           article_type: formData.article_type || 'article',
+          category: formData.category || 'blog',
           status: 'draft',
           related_workflow_slugs: formData.related_workflow_slugs || [],
         };
@@ -627,6 +642,7 @@ export default function AdminCMS() {
           featured: formData.featured,
           is_guide: formData.is_guide || false,
           article_type: formData.article_type || 'article',
+          category: formData.category || 'blog',
           status: 'published',
           related_workflow_slugs: formData.related_workflow_slugs || [],
         };
@@ -1117,6 +1133,14 @@ export default function AdminCMS() {
               <Megaphone className="h-4 w-4 opacity-70" />
               <span>Inside</span>
               <span className="ml-auto text-xs text-muted-foreground font-normal">{insideAnnouncements.length}</span>
+            </div>
+            <div
+              onClick={() => navigate('/admin/resources')}
+              className="flex items-center gap-2 p-2 rounded-md font-medium text-sm cursor-pointer transition-colors hover:bg-muted/50 text-muted-foreground"
+            >
+              <BookOpen className="h-4 w-4 opacity-70" />
+              <span>Resources</span>
+              <span className="ml-auto text-xs text-muted-foreground font-normal">↗</span>
             </div>
           </div>
         </div>
@@ -1672,6 +1696,19 @@ export default function AdminCMS() {
 
                       <div className="space-y-3">
                         <Label className="text-xs uppercase tracking-wider font-medium text-muted-foreground">Settings</Label>
+                        <div className="flex items-center justify-between p-3 rounded-lg border border-border/40 bg-muted/10">
+                          <Label htmlFor="category-select" className="text-sm font-normal cursor-pointer">Category</Label>
+                          <select
+                            id="category-select"
+                            value={formData.category || 'blog'}
+                            onChange={(e) => setFormData(prev => ({ ...prev, category: e.target.value }))}
+                            className="text-xs bg-background border border-border/60 rounded-md px-2 py-1.5 cursor-pointer focus:outline-none focus:border-border"
+                          >
+                            {CMS_CATEGORIES.map((c) => (
+                              <option key={c.value} value={c.value}>{c.label}</option>
+                            ))}
+                          </select>
+                        </div>
                         <div className="flex items-center justify-between p-3 rounded-lg border border-border/40 bg-muted/10">
                           <Label htmlFor="featured-toggle" className="text-sm font-normal cursor-pointer">Featured Post</Label>
                           <RadioGroup
