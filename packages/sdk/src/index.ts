@@ -1,46 +1,35 @@
+// Nous — the official TypeScript SDK.
+//
+// A thin client of the v2 Context API. The agent reads engineered,
+// epistemics-tagged context and writes observations — it never overwrites.
+//
+//   const nous = new Nous({ apiKey: process.env.NOUS_API_KEY! });
+//   const ctx  = await nous.getContext('sarah@acme.com', { intent: 'follow_up' });
+//   await nous.record('sarah@acme.com', [
+//     { kind: 'event', property: 'interaction.email_sent', value: { description: '…' } },
+//   ]);
+
 export type {
   NousConfig,
-  ActivityType,
-  TrackInput,
-  TrackResult,
-  MemoryCategory,
-  RememberInput,
-  RememberResult,
-  MemoryFact,
-  MemoriesResult,
-  DeleteMemoryResult,
-  DeleteContactResult,
-  CreateContactInput,
-  CreateContactResult,
-  UpdateContactInput,
-  UpdateContactResult,
-  Contact,
-  ContactActivity,
-  ContactFact,
-  ContactListItem,
-  ContactListOptions,
-  Company,
-  PipelineStage,
-  SearchInput,
-  SearchResult,
+  Freshness, EpistemicClass, Claim,
+  FocusCandidate, AmbiguousFocus,
+  ContextIntent, TimelineItem, Stakeholder, AssembledContext,
+  Observation, AccountRecord,
+  ObservationInput, RecordResult,
+  QueryScope, QueryItem, QueryResult,
+  AttentionItem, AttentionResult,
+  VerifyResult,
 } from './types';
 
 import type {
-  NousConfig,
-  TrackInput, TrackResult,
-  RememberInput, RememberResult,
-  MemoriesResult, DeleteMemoryResult,
-  DeleteContactResult,
-  CreateContactInput, CreateContactResult,
-  UpdateContactInput, UpdateContactResult,
-  Contact, ContactListItem, ContactListOptions,
-  Company,
-  SearchInput, SearchResult,
+  NousConfig, AmbiguousFocus,
+  ContextIntent, AssembledContext,
+  AccountRecord,
+  ObservationInput, RecordResult,
+  QueryScope, QueryResult,
+  AttentionResult, VerifyResult,
 } from './types';
 import { HttpClient } from './client';
-import { TrackResource } from './resources/track';
-import { RememberResource } from './resources/remember';
-import { ContactsResource, CompaniesResource } from './resources/contacts';
 
 export class NousError extends Error {
   readonly status: number;
@@ -54,134 +43,57 @@ export class NousError extends Error {
   }
 }
 
-export class Nous {
-  readonly contacts: ContactsResource;
-  readonly companies: CompaniesResource;
+/** True when a call returned candidate matches instead of a result. */
+export function isAmbiguous(r: unknown): r is AmbiguousFocus {
+  return !!r && typeof r === 'object' && (r as AmbiguousFocus).status === 'ambiguous';
+}
 
-  private readonly _track: TrackResource;
-  private readonly _remember: RememberResource;
+export class Nous {
   private readonly http: HttpClient;
 
   constructor({ apiKey, baseUrl = 'https://api.opennous.cloud' }: NousConfig) {
     if (!apiKey) throw new Error('Nous: apiKey is required');
-    this.http      = new HttpClient(apiKey, baseUrl.replace(/\/$/, ''));
-    this._track    = new TrackResource(this.http);
-    this._remember = new RememberResource(this.http);
-    this.contacts  = new ContactsResource(this.http);
-    this.companies = new CompaniesResource(this.http);
+    this.http = new HttpClient(apiKey, baseUrl.replace(/\/$/, ''));
   }
 
   /**
-   * Log that something happened with a contact.
-   * Auto-creates the contact if they don't exist yet.
-   *
-   * @example
-   * await nous.track({ email: 'sarah@acme.com', type: 'call_held', description: '30 min discovery call' });
+   * Engineered context for a task about one person or company. `focus` may be
+   * an email, LinkedIn URL, domain, entity UUID, or a name — a name may return
+   * candidates (check with isAmbiguous). Call before drafting or deciding.
    */
-  track(input: TrackInput): Promise<TrackResult> {
-    return this._track.log(input);
+  getContext(
+    focus: string,
+    opts: { intent?: ContextIntent; budgetTokens?: number } = {},
+  ): Promise<AssembledContext | AmbiguousFocus> {
+    return this.http.post<AssembledContext | AmbiguousFocus>('/v2/context', {
+      focus,
+      intent: opts.intent ?? 'account_review',
+      budget_tokens: opts.budgetTokens,
+    });
   }
 
-  /**
-   * Store what was learned about a contact, company, or workspace.
-   * Pass a sentence or a full transcript — AI extracts durable facts either way.
-   * Omit email/contact_id/company_id to store workspace-level facts (ICP, product, market).
-   *
-   * @example
-   * await nous.remember({ email: 'sarah@acme.com', text: 'Concerned about Salesforce migration and Q3 budget.' });
-   * await nous.remember({ text: 'ICP: technical founders of AI sales tools, 2–20 people.', category: 'ICP' });
-   */
-  remember(input: RememberInput): Promise<RememberResult> {
-    return this._remember.store(input);
+  /** The full account record — every claim with its epistemics + the timeline. */
+  getAccount(id: string): Promise<AccountRecord | AmbiguousFocus> {
+    return this.http.get<AccountRecord | AmbiguousFocus>(`/v2/accounts/${encodeURIComponent(id)}`);
   }
 
-  /**
-   * Full contact profile — summary, stage, scores, facts, activities.
-   *
-   * @example
-   * const contact = await nous.getContact('sarah@acme.com');
-   */
-  getContact(identifier: string): Promise<Contact> {
-    return this.contacts.get(identifier);
+  /** Record what happened or what you learned. You observe — Nous derives. */
+  record(focus: string, observations: ObservationInput[]): Promise<RecordResult | AmbiguousFocus> {
+    return this.http.post<RecordResult | AmbiguousFocus>('/v2/observations', { focus, observations });
   }
 
-  /**
-   * Full company profile — org details, all contacts, company facts.
-   *
-   * @example
-   * const company = await nous.getCompany('uuid');
-   */
-  getCompany(companyId: string): Promise<Company> {
-    return this.companies.get(companyId);
+  /** Retrieve and summarise a corpus of activity across many people. */
+  query(scope: QueryScope, opts: { question?: string } = {}): Promise<QueryResult> {
+    return this.http.post<QueryResult>('/v2/query', { scope, question: opts.question });
   }
 
-  /**
-   * List contacts, optionally filtered by pipeline stage.
-   *
-   * @example
-   * const { contacts } = await nous.listContacts({ stage: 'evaluating', limit: 20 });
-   */
-  listContacts(options?: ContactListOptions): Promise<{ contacts: ContactListItem[]; total: number }> {
-    return this.contacts.list(options);
+  /** What needs attention across the workspace — accounts gone quiet, facts decayed. */
+  attention(opts: { limit?: number } = {}): Promise<AttentionResult> {
+    return this.http.get<AttentionResult>(`/v2/attention${opts.limit ? `?limit=${opts.limit}` : ''}`);
   }
 
-  /**
-   * Create a new contact. Returns 409 if the email already exists.
-   *
-   * @example
-   * const contact = await nous.createContact({ email: 'sarah@acme.com', first_name: 'Sarah', company: 'Acme' });
-   */
-  createContact(input: CreateContactInput): Promise<CreateContactResult> {
-    return this.contacts.create(input);
-  }
-
-  /**
-   * Update one or more profile fields on an existing contact.
-   *
-   * @example
-   * await nous.updateContact('sarah@acme.com', { job_title: 'CTO' });
-   */
-  updateContact(identifier: string, input: UpdateContactInput): Promise<UpdateContactResult> {
-    return this.contacts.update(identifier, input);
-  }
-
-  /**
-   * Semantic search across workspace memories.
-   *
-   * @example
-   * const { results } = await nous.search({ q: 'budget concerns', contact_id: 'uuid' });
-   */
-  search(input: SearchInput): Promise<SearchResult> {
-    return this._remember.search(input);
-  }
-
-  /**
-   * Load workspace-level facts — ICP, product description, pricing, market, competitive intel.
-   *
-   * @example
-   * const { memories } = await nous.getMemories({ category: 'ICP' });
-   */
-  getMemories(options?: { category?: string; limit?: number }): Promise<MemoriesResult> {
-    return this._remember.list(options);
-  }
-
-  /**
-   * Soft-delete a workspace memory by ID. Get the ID from getMemories().
-   *
-   * @example
-   * await nous.deleteMemory('mem_uuid');
-   */
-  deleteMemory(memoryId: string): Promise<DeleteMemoryResult> {
-    return this._remember.delete(memoryId);
-  }
-
-  /**
-   * Permanently delete a contact and all their data. Cannot be undone.
-   *
-   * @example
-   * await nous.deleteContact('sarah@acme.com');
-   */
-  deleteContact(identifier: string): Promise<DeleteContactResult> {
-    return this.contacts.delete(identifier);
+  /** Re-check a claim before acting on it — the calibration check. */
+  verify(focus: string, property: string): Promise<VerifyResult | AmbiguousFocus> {
+    return this.http.post<VerifyResult | AmbiguousFocus>('/v2/verify', { focus, property });
   }
 }
