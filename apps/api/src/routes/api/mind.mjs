@@ -36,70 +36,109 @@ function weekKey(iso) {
 const round3 = (n) => Math.round(n * 1000) / 1000;
 const avg = (arr) => (arr.length ? arr.reduce((s, v) => s + v, 0) / arr.length : null);
 
-// GET /api/mind/calibration?workspaceId=…
-mindRouter.get('/calibration', async (req, res) => {
+// GET /api/mind/substrate?workspaceId=… — the compound-intelligence loop,
+// stage by stage, read straight from the v2 evidence substrate:
+//
+//   observations  →  claims (self-healing)  →  predictions  →  calibration
+//
+// Each stage is a real table. This is the loop made transparent: the
+// evidence it has seen, the beliefs it derived, the predictions it staked,
+// and how well those predictions held up.
+mindRouter.get('/substrate', async (req, res) => {
   try {
     const { workspaceId } = req.query;
     if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
     const supabase = getSupabaseClient();
+    const sevenDaysAgo = new Date(Date.now() - 7 * 86400_000).toISOString();
 
-    const [episodesRes, openRes] = await Promise.all([
-      supabase
-        .from('mind_episodes')
-        .select('predicted_score, outcome_score, predicted_at')
-        .eq('workspace_id', workspaceId)
-        .eq('kind', 'icp_score')
-        .not('outcome_resolved_at', 'is', null)
-        .not('outcome_score', 'is', null)
-        .not('predicted_score', 'is', null)
-        .order('predicted_at', { ascending: true })
-        .limit(5000),
-      supabase
-        .from('mind_episodes')
-        .select('id', { count: 'exact', head: true })
-        .eq('workspace_id', workspaceId)
-        .eq('kind', 'icp_score')
-        .is('outcome_resolved_at', null),
+    const [obsRes, obs7Res, claimsRes, jobsRes, predRes] = await Promise.all([
+      // evidence — the append-only spine; one row per observation's source
+      supabase.from('observations').select('source')
+        .eq('workspace_id', workspaceId).limit(20000),
+      supabase.from('observations').select('id', { count: 'exact', head: true })
+        .eq('workspace_id', workspaceId).gte('ingested_at', sevenDaysAgo),
+      // beliefs — each claim's freshness + epistemic class
+      supabase.from('claims').select('freshness, epistemic_class')
+        .eq('workspace_id', workspaceId).limit(20000),
+      // self-healing — the unprocessed recompute queue
+      supabase.from('claim_jobs').select('id', { count: 'exact', head: true })
+        .eq('workspace_id', workspaceId).is('picked_at', null),
+      // predictions — claims about the future, with their resolutions
+      supabase.from('predictions')
+        .select('kind, predicted_value, outcome_value, predicted_at, resolved_at')
+        .eq('workspace_id', workspaceId).limit(20000),
     ]);
-    if (episodesRes.error) throw episodesRes.error;
+    if (obsRes.error) throw obsRes.error;
+    if (claimsRes.error) throw claimsRes.error;
+    if (predRes.error) throw predRes.error;
 
-    const rows = episodesRes.data || [];
-    const high = rows.filter((r) => r.predicted_score >= 70).map((r) => r.outcome_score);
-    const low = rows.filter((r) => r.predicted_score < 70).map((r) => r.outcome_score);
-    const avgHigh = avg(high);
-    const avgLow = avg(low);
-    const gap = avgHigh != null && avgLow != null ? round3(avgHigh - avgLow) : null;
+    // ── 1. evidence ──────────────────────────────────────────────
+    const observations = obsRes.data || [];
+    const bySource = {};
+    for (const o of observations) bySource[o.source] = (bySource[o.source] || 0) + 1;
+    const sources = Object.entries(bySource)
+      .map(([source, count]) => ({ source, count }))
+      .sort((a, b) => b.count - a.count);
 
-    // Weekly trend — gap per week, computed only where both cohorts are present.
-    const byWeek = new Map();
-    for (const r of rows) {
-      const k = weekKey(r.predicted_at);
-      if (!byWeek.has(k)) byWeek.set(k, { high: [], low: [] });
-      const bucket = byWeek.get(k);
-      (r.predicted_score >= 70 ? bucket.high : bucket.low).push(r.outcome_score);
+    // ── 2. beliefs ───────────────────────────────────────────────
+    const claims = claimsRes.data || [];
+    const freshness = { fresh: 0, aging: 0, suspect: 0, expired: 0 };
+    const epistemic = { observed: 0, inferred: 0, predicted: 0, asserted: 0 };
+    for (const c of claims) {
+      if (c.freshness in freshness) freshness[c.freshness]++;
+      if (c.epistemic_class in epistemic) epistemic[c.epistemic_class]++;
     }
+
+    // ── 3 + 4. predictions and calibration ───────────────────────
+    // A well-calibrated model scores the accounts that actually convert
+    // higher than those that don't, so
+    //   gap = avg(outcome | predicted >= 70) - avg(outcome | predicted < 70)
+    // is large and positive.
+    const preds = predRes.data || [];
+    const byKind = {};
+    let open = 0, resolved = 0;
+    const high = [], low = [];
+    const byWeek = new Map();
+    for (const p of preds) {
+      byKind[p.kind] = (byKind[p.kind] || 0) + 1;
+      if (!p.resolved_at) { open++; continue; }
+      resolved++;
+      const ps = Number(p.predicted_value?.score);
+      const os = Number(p.outcome_value?.score);
+      if (!Number.isFinite(ps) || !Number.isFinite(os)) continue;
+      (ps >= 70 ? high : low).push(os);
+      const k = weekKey(p.predicted_at);
+      if (!byWeek.has(k)) byWeek.set(k, { high: [], low: [] });
+      (ps >= 70 ? byWeek.get(k).high : byWeek.get(k).low).push(os);
+    }
+    const avgHigh = avg(high), avgLow = avg(low);
+    const gap = avgHigh != null && avgLow != null ? round3(avgHigh - avgLow) : null;
     const trend = [...byWeek.entries()]
       .sort((a, b) => a[0].localeCompare(b[0]))
       .map(([week, c]) => {
-        const h = avg(c.high);
-        const l = avg(c.low);
-        return {
-          week,
-          n: c.high.length + c.low.length,
-          gap: h != null && l != null ? round3(h - l) : null,
-        };
+        const h = avg(c.high), l = avg(c.low);
+        return { week, n: c.high.length + c.low.length, gap: h != null && l != null ? round3(h - l) : null };
       });
 
     return res.json({
-      resolved: rows.length,
-      open: openRes.count ?? 0,
-      high: { count: high.length, avgOutcome: avgHigh != null ? round3(avgHigh) : null },
-      low: { count: low.length, avgOutcome: avgLow != null ? round3(avgLow) : null },
-      gap,
-      trend,
+      observations: {
+        total: observations.length,
+        last_7d: obs7Res.count ?? 0,
+        by_source: sources,
+      },
+      claims: { total: claims.length, freshness, epistemic },
+      recompute: { pending: jobsRes.count ?? 0 },
+      predictions: { total: preds.length, open, resolved, by_kind: byKind },
+      calibration: {
+        resolved: high.length + low.length,
+        gap,
+        high: { count: high.length, avg_outcome: avgHigh != null ? round3(avgHigh) : null },
+        low: { count: low.length, avg_outcome: avgLow != null ? round3(avgLow) : null },
+        trend,
+      },
     });
   } catch (err) {
-    console.error('[GET /api/mind/calibration]', err);
+    console.error('[GET /api/mind/substrate]', err);
     return res.status(500).json({ error: 'internal_error' });
   }
 });
