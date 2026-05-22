@@ -24,11 +24,13 @@ RETURNS TRIGGER LANGUAGE plpgsql AS $$
 BEGIN NEW.updated_at = now(); RETURN NEW; END; $$;
 
 -- One workspace-membership check, used by every RLS policy.
-CREATE OR REPLACE FUNCTION is_workspace_member(p_workspace_id UUID)
+-- Parameter name `workspace_uuid` is kept stable: CREATE OR REPLACE
+-- cannot rename an input parameter on an existing function.
+CREATE OR REPLACE FUNCTION is_workspace_member(workspace_uuid UUID)
 RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER AS $$
   SELECT EXISTS (
     SELECT 1 FROM workspace_members
-    WHERE workspace_id = p_workspace_id AND user_id = auth.uid()
+    WHERE workspace_id = workspace_uuid AND user_id = auth.uid()
   );
 $$;
 
