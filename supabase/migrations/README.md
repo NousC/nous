@@ -29,5 +29,6 @@ psql "$DATABASE_URL" -f supabase/migrations/<file>.sql
 | 2026-05-20 | `2026_05_20_lead_lists.sql` | Adaptive Lead Scoring (Phase 4a) — `lead_lists`, `leads`, `lead_suppressions` tables + `workspaces.icp_text`. Leads are the cold outreach universe, kept separate from `contacts`; the `leads` table is the evidence set. See docs/adaptive-lead-scoring.md. |
 | 2026-05-20 | `2026_05_20_scorecard.sql` | Adaptive Lead Scoring (Phase 4b) — `scorecard_signals` (weighted signals that score a lead) + `scorecard_runs` (learning-loop log). See docs/adaptive-lead-scoring.md. |
 | 2026-05-21 | `2026_05_21_mind_episode_features.sql` | Adaptive Lead Scoring (Phase 4c) — `mind_episodes.features` JSONB. Point-in-time feature snapshot the learning loop re-scores predictions against. See docs/adaptive-lead-scoring.md. |
+| 2026-05-21 | `2026_05_21_lead_list_columns.sql` | Lists — `lead_lists.columns` (user-defined column definitions) + `leads.fields` (per-lead values for them). Lets each list be a small table the user shapes. |
 
 Each migration is also reflected in `../schema.sql` so a fresh install never needs to touch this folder.

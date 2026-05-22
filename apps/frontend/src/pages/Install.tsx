@@ -268,13 +268,13 @@ function CodeSnippet({ code }: { code: string }) {
   const [copied, setCopied] = useState(false);
   const copy = () => { navigator.clipboard.writeText(code); setCopied(true); setTimeout(() => setCopied(false), 1500); };
   return (
-    <div className="relative group rounded-lg bg-gray-50 border border-gray-100 overflow-hidden">
-      <pre className="text-[12px] text-gray-700 px-4 py-3 overflow-x-auto font-mono whitespace-pre leading-relaxed">{code}</pre>
+    <div className="relative group rounded-lg bg-muted/50 border border-border/60 overflow-hidden">
+      <pre className="text-[12px] text-foreground/80 px-4 py-3 overflow-x-auto font-mono whitespace-pre leading-relaxed">{code}</pre>
       <button onClick={copy}
-        className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded bg-white border border-gray-200 hover:bg-gray-100">
+        className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded bg-background border border-border hover:bg-accent">
         {copied
           ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
-          : <Copy className="h-3.5 w-3.5 text-gray-400" />}
+          : <Copy className="h-3.5 w-3.5 text-muted-foreground/70" />}
       </button>
     </div>
   );
@@ -289,7 +289,7 @@ function TabBar<T extends string>({
   size?: "sm" | "md";
 }) {
   return (
-    <div className="inline-flex rounded-lg border border-gray-100 bg-gray-50 p-0.5 gap-0.5">
+    <div className="inline-flex rounded-lg border border-border/60 bg-muted/50 p-0.5 gap-0.5">
       {tabs.map(t => (
         <button
           key={t.id}
@@ -298,8 +298,8 @@ function TabBar<T extends string>({
             "flex items-center gap-1.5 rounded-md font-semibold transition-all",
             size === "sm" ? "px-3 py-1 text-[11px]" : "px-4 py-1.5 text-[12px]",
             active === t.id
-              ? "bg-white text-gray-900 shadow-sm border border-gray-100"
-              : "text-gray-400 hover:text-gray-600"
+              ? "bg-background text-foreground shadow-sm border border-border/60"
+              : "text-muted-foreground/70 hover:text-foreground/80"
           )}
         >
           {t.icon}
@@ -312,9 +312,9 @@ function TabBar<T extends string>({
 
 function ApiKeyHint() {
   return (
-    <p className="text-[12px] text-gray-400">
+    <p className="text-[12px] text-muted-foreground/70">
       Need an API key?{" "}
-      <Link to="/settings" className="text-gray-700 underline underline-offset-2 hover:text-gray-900">
+      <Link to="/settings" className="text-foreground/80 underline underline-offset-2 hover:text-foreground">
         Create one here →
       </Link>
     </p>
@@ -362,7 +362,7 @@ hermes nous setup --api-key YOUR_API_KEY`;
         size="sm"
       />
 
-      <div className="rounded-xl border border-gray-100 bg-white p-5 space-y-4">
+      <div className="rounded-xl border border-border/60 bg-background p-5 space-y-4">
         <TabBar
           tabs={[
             { id: "prompt" as HarnessMode, label: "Prompt" },
@@ -375,13 +375,13 @@ hermes nous setup --api-key YOUR_API_KEY`;
 
         {mode === "prompt" && (
           <>
-            <p className="text-[12px] text-gray-400">Copy this installation prompt into {harnessName}:</p>
+            <p className="text-[12px] text-muted-foreground/70">Copy this installation prompt into {harnessName}:</p>
             <CodeSnippet code={prompt} />
           </>
         )}
         {mode === "cli" && (
           <>
-            <p className="text-[12px] text-gray-400">Run in your terminal:</p>
+            <p className="text-[12px] text-muted-foreground/70">Run in your terminal:</p>
             <CodeSnippet code={harness === "openclaw" ? openclawCli : hermesCli} />
           </>
         )}
@@ -398,7 +398,7 @@ function SdkPanel() {
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
-        <h3 className="text-[14px] font-semibold text-gray-800">Set up SDK Integration</h3>
+        <h3 className="text-[14px] font-semibold text-foreground">Set up SDK Integration</h3>
         <TabBar
           tabs={[
             { id: "python" as SdkLang, label: "Python",  icon: <img src="/logos/python.svg" alt="" className="w-3.5 h-3.5" /> },
@@ -415,15 +415,15 @@ function SdkPanel() {
         {steps.map((step, i) => (
           <div key={i} className="flex gap-4">
             <div className="flex flex-col items-center">
-              <span className="flex items-center justify-center w-6 h-6 rounded-full bg-gray-900 text-white text-[11px] font-bold shrink-0">
+              <span className="flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-[11px] font-bold shrink-0">
                 {i + 1}
               </span>
-              {i < steps.length - 1 && <div className="w-px flex-1 bg-gray-100 mt-2" />}
+              {i < steps.length - 1 && <div className="w-px flex-1 bg-border/60 mt-2" />}
             </div>
             <div className="flex-1 pb-4 space-y-2.5">
               <div>
-                <p className="text-[13px] font-semibold text-gray-800">{step.label}</p>
-                <p className="text-[12px] text-gray-400 mt-0.5">{step.desc}</p>
+                <p className="text-[13px] font-semibold text-foreground">{step.label}</p>
+                <p className="text-[12px] text-muted-foreground/70 mt-0.5">{step.desc}</p>
               </div>
               <CodeSnippet code={step.code} />
             </div>
@@ -461,23 +461,23 @@ env = { NOUS_API_KEY = "YOUR_API_KEY" }`;
         size="sm"
       />
 
-      <div className="rounded-xl border border-gray-100 bg-white p-5 space-y-4">
+      <div className="rounded-xl border border-border/60 bg-background p-5 space-y-4">
         <div className="flex items-center justify-between">
-          <h3 className="text-[13px] font-semibold text-gray-800">
+          <h3 className="text-[13px] font-semibold text-foreground">
             {client === "claude-code" ? "Install the Nous plugin for Claude Code" : "Connect Nous in Codex"}
           </h3>
           <a href="https://docs.opennous.cloud" target="_blank" rel="noopener noreferrer"
-            className="text-[12px] text-gray-400 hover:text-gray-700 transition-colors">View docs ↗</a>
+            className="text-[12px] text-muted-foreground/70 hover:text-foreground/80 transition-colors">View docs ↗</a>
         </div>
 
         {client === "claude-code" && (
           <div className="space-y-3.5">
             <div>
-              <p className="text-[12px] text-gray-500 mb-1.5">Step 1 — add the marketplace</p>
+              <p className="text-[12px] text-muted-foreground mb-1.5">Step 1 — add the marketplace</p>
               <CodeSnippet code={claudeCodePluginAdd} />
             </div>
             <div>
-              <p className="text-[12px] text-gray-500 mb-1.5">Step 2 — install the plugin</p>
+              <p className="text-[12px] text-muted-foreground mb-1.5">Step 2 — install the plugin</p>
               <CodeSnippet code={claudeCodePluginInstall} />
             </div>
           </div>
@@ -485,9 +485,9 @@ env = { NOUS_API_KEY = "YOUR_API_KEY" }`;
 
         {client === "codex" && (
           <>
-            <p className="text-[12px] text-gray-400">
+            <p className="text-[12px] text-muted-foreground/70">
               Add to{" "}
-              <code className="bg-gray-100 px-1 rounded text-[11px]">~/.codex/config.toml</code>
+              <code className="bg-muted px-1 rounded text-[11px]">~/.codex/config.toml</code>
               , then restart Codex.
             </p>
             <CodeSnippet code={codexMcp} />
@@ -504,7 +504,7 @@ export default function Install() {
   const [method, setMethod] = useState<InstallMethod>("plugin");
 
   return (
-    <div className="h-full overflow-y-auto bg-white">
+    <div className="h-full overflow-y-auto bg-background">
       <div className="px-8 py-7">
         <PageHeader
           title="Install Nous"
@@ -520,16 +520,16 @@ export default function Install() {
               className={cn(
                 "flex items-center gap-3 p-4 rounded-xl border-2 text-left transition-all",
                 method === m.id
-                  ? "border-gray-900 bg-white shadow-sm"
-                  : "border-gray-100 bg-white hover:border-gray-200"
+                  ? "border-foreground bg-background shadow-sm"
+                  : "border-border/60 bg-background hover:border-border"
               )}
             >
-              <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 bg-gray-50 border border-gray-100">
-                <m.icon className="h-4 w-4 text-gray-500" strokeWidth={1.75} />
+              <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 bg-muted/50 border border-border/60">
+                <m.icon className="h-4 w-4 text-muted-foreground" strokeWidth={1.75} />
               </div>
               <div>
-                <p className={cn("text-[13px] font-semibold", method === m.id ? "text-gray-900" : "text-gray-700")}>{m.label}</p>
-                <p className="text-[11px] text-gray-400 mt-0.5">{m.desc}</p>
+                <p className={cn("text-[13px] font-semibold", method === m.id ? "text-foreground" : "text-foreground/80")}>{m.label}</p>
+                <p className="text-[11px] text-muted-foreground/70 mt-0.5">{m.desc}</p>
               </div>
             </button>
           ))}

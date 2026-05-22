@@ -22,7 +22,7 @@ export const PLANS = {
     enrichmentsPerMonth: 25,
     workspaceLimit: 1,
     stripePriceEnv: null,
-    features: { contextualization: true, crmSync: false, supportTier: 'community' },
+    features: { contextualization: true, crmSync: false, leadLists: false, supportTier: 'community' },
   },
   starter: {
     id: 'starter',
@@ -32,7 +32,7 @@ export const PLANS = {
     enrichmentsPerMonth: 100,
     workspaceLimit: 1,
     stripePriceEnv: 'STRIPE_STARTER_PRICE_ID',
-    features: { contextualization: true, crmSync: false, supportTier: 'community' },
+    features: { contextualization: true, crmSync: false, leadLists: false, supportTier: 'community' },
   },
   pro: {
     id: 'pro',
@@ -42,7 +42,7 @@ export const PLANS = {
     enrichmentsPerMonth: 500,
     workspaceLimit: 3,
     stripePriceEnv: 'STRIPE_PRO_PRICE_ID',
-    features: { contextualization: true, crmSync: false, supportTier: 'email' },
+    features: { contextualization: true, crmSync: false, leadLists: false, supportTier: 'email' },
   },
   scale: {
     id: 'scale',
@@ -52,7 +52,7 @@ export const PLANS = {
     enrichmentsPerMonth: 2_000,
     workspaceLimit: null,
     stripePriceEnv: 'STRIPE_SCALE_PRICE_ID',
-    features: { contextualization: true, crmSync: true, supportTier: 'priority' },
+    features: { contextualization: true, crmSync: true, leadLists: true, supportTier: 'priority' },
   },
 };
 

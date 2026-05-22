@@ -198,8 +198,8 @@ function useImportState({ workspaceId, token, onClose, onDone, testMode }: Peopl
 
 // ── Shared button styles ───────────────────────────────────────────────────
 
-const BTN_PRIMARY = "inline-flex items-center justify-center gap-1.5 h-9 px-4 rounded-lg bg-gray-900 text-white text-[13px] font-semibold hover:bg-gray-800 disabled:opacity-40 transition-colors";
-const BTN_SECONDARY = "inline-flex items-center justify-center gap-1.5 h-9 px-3.5 rounded-lg bg-white border border-gray-200 text-gray-700 text-[13px] font-semibold hover:bg-gray-50 disabled:opacity-40 transition-colors";
+const BTN_PRIMARY = "inline-flex items-center justify-center gap-1.5 h-9 px-4 rounded-lg bg-primary text-primary-foreground text-[13px] font-semibold hover:bg-primary/90 disabled:opacity-40 transition-colors";
+const BTN_SECONDARY = "inline-flex items-center justify-center gap-1.5 h-9 px-3.5 rounded-lg bg-background border border-border text-foreground/80 text-[13px] font-semibold hover:bg-accent disabled:opacity-40 transition-colors";
 
 // ── Step subtitle ──────────────────────────────────────────────────────────
 
@@ -216,12 +216,12 @@ function ImportBody(s: ReturnType<typeof useImportState>) {
         <div className="flex items-center gap-2.5 mb-4">
           {s.enrichProgress?.done
             ? <Check className="h-4 w-4 text-emerald-600" />
-            : <RefreshCw className="h-4 w-4 animate-spin text-gray-400" />}
-          <span className="text-[13px] font-medium text-gray-800">
+            : <RefreshCw className="h-4 w-4 animate-spin text-muted-foreground/70" />}
+          <span className="text-[13px] font-medium text-foreground">
             {s.enrichProgress?.done ? "Scan complete" : "Scanning contact history…"}
           </span>
           {s.importResult && (
-            <span className="text-[12px] text-gray-400 ml-auto">
+            <span className="text-[12px] text-muted-foreground/70 ml-auto">
               {s.importResult.created} new · {s.importResult.updated} updated
             </span>
           )}
@@ -233,22 +233,22 @@ function ImportBody(s: ReturnType<typeof useImportState>) {
             const active = entries.filter(([, val]) => val.status !== "skipped");
             const allSkipped = active.length === 0;
             return (
-              <div key={contact.id} className="rounded-lg border border-gray-200 px-4 py-3">
-                <div className="text-[13px] text-gray-800 mb-2">
+              <div key={contact.id} className="rounded-lg border border-border px-4 py-3">
+                <div className="text-[13px] text-foreground mb-2">
                   {contact.name}
-                  {contact.email && <span className="text-gray-400 ml-2">{contact.email}</span>}
+                  {contact.email && <span className="text-muted-foreground/70 ml-2">{contact.email}</span>}
                 </div>
                 {allSkipped ? (
-                  <div className="text-[12px] text-gray-300 italic">No integrations connected</div>
+                  <div className="text-[12px] text-muted-foreground/50 italic">No integrations connected</div>
                 ) : (
                   <div className="space-y-1.5">
                     {active.map(([src, val]) => (
                       <div key={src} className="flex items-center justify-between">
-                        <span className="text-[12px] text-gray-500">{SOURCE_LABELS[src] ?? src}</span>
-                        {val.status === "pending" && <span className="text-[12px] text-gray-300">Waiting…</span>}
+                        <span className="text-[12px] text-muted-foreground">{SOURCE_LABELS[src] ?? src}</span>
+                        {val.status === "pending" && <span className="text-[12px] text-muted-foreground/50">Waiting…</span>}
                         {val.status === "scanning" && (
-                          <span className="flex items-center gap-1.5 text-[12px] text-gray-500">
-                            <span className="w-1.5 h-1.5 rounded-full bg-gray-400 animate-pulse" />Scanning…
+                          <span className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
+                            <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/70 animate-pulse" />Scanning…
                           </span>
                         )}
                         {val.status === "done" && val.count > 0 && (
@@ -257,7 +257,7 @@ function ImportBody(s: ReturnType<typeof useImportState>) {
                           </span>
                         )}
                         {val.status === "done" && val.count === 0 && (
-                          <span className="text-[12px] text-gray-300">—</span>
+                          <span className="text-[12px] text-muted-foreground/50">—</span>
                         )}
                       </div>
                     ))}
@@ -267,18 +267,18 @@ function ImportBody(s: ReturnType<typeof useImportState>) {
             );
           })}
           {s.enrichProgress?.done && (s.enrichProgress.contacts?.length ?? 0) === 0 && (
-            <div className="rounded-lg border border-dashed border-gray-200 py-8 px-4 text-[12px] text-gray-400 text-center">
+            <div className="rounded-lg border border-dashed border-border py-8 px-4 text-[12px] text-muted-foreground/70 text-center">
               Connect Gmail, LinkedIn, or other integrations to scan contact history automatically.
             </div>
           )}
           {!s.enrichProgress && (
             <div className="flex justify-center py-10">
-              <RefreshCw className="h-5 w-5 animate-spin text-gray-300" />
+              <RefreshCw className="h-5 w-5 animate-spin text-muted-foreground/50" />
             </div>
           )}
         </div>
 
-        <div className="mt-5 pt-4 border-t border-gray-100">
+        <div className="mt-5 pt-4 border-t border-border/60">
           <button
             disabled={!s.enrichProgress?.done}
             onClick={() => { s.onDone(); s.onClose(); }}
@@ -304,17 +304,17 @@ function ImportBody(s: ReturnType<typeof useImportState>) {
           }}
           onClick={() => s.fileRef.current?.click()}
           className={`flex flex-col items-center justify-center gap-3 h-44 rounded-xl border-2 border-dashed cursor-pointer transition-colors select-none ${
-            s.dragOver ? "border-gray-900 bg-gray-50" : "border-gray-200 hover:border-gray-300 hover:bg-gray-50"
+            s.dragOver ? "border-foreground bg-muted/50" : "border-border hover:border-border hover:bg-accent"
           }`}
         >
-          <div className="h-11 w-11 rounded-xl bg-gray-100 flex items-center justify-center">
-            <Upload className="h-5 w-5 text-gray-400" />
+          <div className="h-11 w-11 rounded-xl bg-muted flex items-center justify-center">
+            <Upload className="h-5 w-5 text-muted-foreground/70" />
           </div>
           <div className="text-center">
-            <p className="text-[13px] text-gray-700">
-              Drop a CSV file here, or <span className="font-semibold text-gray-900">click to browse</span>
+            <p className="text-[13px] text-foreground/80">
+              Drop a CSV file here, or <span className="font-semibold text-foreground">click to browse</span>
             </p>
-            <p className="text-[12px] text-gray-400 mt-1">You'll map the columns in the next step.</p>
+            <p className="text-[12px] text-muted-foreground/70 mt-1">You'll map the columns in the next step.</p>
           </div>
         </div>
         <input
@@ -332,32 +332,32 @@ function ImportBody(s: ReturnType<typeof useImportState>) {
   return (
     <div>
       <div className="overflow-y-auto" style={{ maxHeight: "60vh" }}>
-        <div className="grid grid-cols-[1fr_200px_1fr] gap-4 px-6 py-2.5 border-b border-gray-200 bg-gray-50">
-          <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">CSV column</span>
-          <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Maps to</span>
-          <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Sample</span>
+        <div className="grid grid-cols-[1fr_200px_1fr] gap-4 px-6 py-2.5 border-b border-border bg-muted/50">
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">CSV column</span>
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">Maps to</span>
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">Sample</span>
         </div>
         {s.csvHeaders.map(col => (
-          <div key={col} className="grid grid-cols-[1fr_200px_1fr] gap-4 items-center px-6 py-3 border-b border-gray-100 last:border-0">
-            <span className="text-[13px] text-gray-700 truncate pr-2">{col}</span>
+          <div key={col} className="grid grid-cols-[1fr_200px_1fr] gap-4 items-center px-6 py-3 border-b border-border/60 last:border-0">
+            <span className="text-[13px] text-foreground/80 truncate pr-2">{col}</span>
             <select
               value={s.fieldMappings[col] || ""}
               onChange={e => s.setFieldMappings(p => ({ ...p, [col]: e.target.value }))}
-              className="h-9 rounded-lg border border-gray-200 bg-white text-[13px] text-gray-700 px-2.5 outline-none hover:border-gray-300 focus:border-gray-400 transition-colors"
+              className="h-9 rounded-lg border border-border bg-background text-[13px] text-foreground/80 px-2.5 outline-none hover:border-border focus:border-ring transition-colors"
             >
               <option value="">— Skip —</option>
               {IMPORT_FIELDS.map(f => <option key={f.key} value={f.key}>{f.label}</option>)}
             </select>
-            <span className="text-[12px] text-gray-400 truncate">{s.csvSampleRow[col] || "—"}</span>
+            <span className="text-[12px] text-muted-foreground/70 truncate">{s.csvSampleRow[col] || "—"}</span>
           </div>
         ))}
       </div>
-      <div className="px-6 py-3.5 border-t border-gray-100 flex items-center justify-between">
+      <div className="px-6 py-3.5 border-t border-border/60 flex items-center justify-between">
         <button onClick={() => s.setStep("upload")} className={BTN_SECONDARY}>
           <ArrowLeft className="h-3.5 w-3.5" /> Back
         </button>
         <div className="flex items-center gap-3">
-          <span className="text-[12px] text-gray-400">{s.csvAllRows.length} rows</span>
+          <span className="text-[12px] text-muted-foreground/70">{s.csvAllRows.length} rows</span>
           <button onClick={s.runImport} disabled={s.importing} className={BTN_PRIMARY}>
             {s.importing
               ? <><RefreshCw className="h-3.5 w-3.5 animate-spin" /> Importing…</>
@@ -386,18 +386,18 @@ export function PeopleImportModal(props: PeopleImportProps) {
       onClick={state.step === "scanning" ? undefined : props.onClose}
     >
       <div
-        className="bg-white rounded-xl border border-gray-200 shadow-2xl w-full"
+        className="bg-background rounded-xl border border-border shadow-2xl w-full"
         style={{ maxWidth }}
         onClick={e => e.stopPropagation()}
       >
-        <div className="flex items-start justify-between px-6 py-4 border-b border-gray-100">
+        <div className="flex items-start justify-between px-6 py-4 border-b border-border/60">
           <div>
-            <h2 className="text-[16px] font-bold tracking-tight text-gray-900">Import people</h2>
-            <p className="text-[12px] text-gray-500 mt-0.5">{stepSubtitle(state.step)}</p>
+            <h2 className="text-[16px] font-bold tracking-tight text-foreground">Import people</h2>
+            <p className="text-[12px] text-muted-foreground mt-0.5">{stepSubtitle(state.step)}</p>
           </div>
           <button
             onClick={props.onClose}
-            className="h-8 w-8 -mr-1.5 -mt-0.5 flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition-colors flex-shrink-0"
+            className="h-8 w-8 -mr-1.5 -mt-0.5 flex items-center justify-center rounded-lg text-muted-foreground/70 hover:bg-accent hover:text-foreground/80 transition-colors flex-shrink-0"
           >
             <X className="h-4 w-4" />
           </button>

@@ -9,6 +9,7 @@ registerCrmPushHandler(pushActivityToAllCrms);
 import { verifyApiKey } from './middleware/apiKey.mjs';
 import { verifySupabaseAuth } from './middleware/supabaseAuth.mjs';
 import { requireAdmin } from './middleware/requireAdmin.mjs';
+import { requireFeature } from './lib/access.mjs';
 
 // v1 — Public API (API key auth)
 import { contactsRouter } from './routes/v1/contacts.mjs';
@@ -17,6 +18,11 @@ import { captureRouter } from './routes/v1/capture.mjs';
 import { companiesRouter } from './routes/v1/companies.mjs';
 import { rememberRouter } from './routes/v1/remember.mjs';
 import { searchRouter } from './routes/v1/search.mjs';
+
+// v2 — Context API (evidence substrate)
+import { accountsV2Router } from './routes/v2/accounts.mjs';
+import { observationsV2Router } from './routes/v2/observations.mjs';
+import { contextV2Router } from './routes/v2/context.mjs';
 
 // /api — Frontend API (Supabase JWT auth)
 import { apiKeysRouter } from './routes/api/apiKeys.mjs';
@@ -49,6 +55,7 @@ import { oauthSalesforceRouter } from './routes/api/oauthSalesforce.mjs';
 // /api/admin — Admin routes
 import { blogRouter } from './routes/api/blog.mjs';
 import { adminBlogRouter } from './routes/api/admin/blog.mjs';
+import { resourcesRouter, adminResourcesRouter } from './routes/api/resources.mjs';
 import { adminChangelogRouter, publicChangelogRouter } from './routes/api/admin/changelog.mjs';
 import { roadmapRouter, adminRoadmapRouter } from './routes/api/admin/roadmap.mjs';
 import { updatesRouter, adminUpdatesRouter } from './routes/api/admin/updates.mjs';
@@ -86,6 +93,11 @@ app.use('/v1/track',     verifyApiKey, captureRouter);     // alias used by MCP 
 app.use('/v1/remember',  verifyApiKey, rememberRouter);    // MCP remember tool
 app.use('/v1/search',    verifyApiKey, searchRouter);      // MCP search tool
 
+// ── v2 — Context API (evidence substrate) ────────────────────────────────────
+app.use('/v2/accounts',     verifyApiKey, accountsV2Router);
+app.use('/v2/observations', verifyApiKey, observationsV2Router);
+app.use('/v2/context',      verifyApiKey, contextV2Router);
+
 // ── /api — Frontend API ───────────────────────────────────────────────────────
 app.use('/me',                        meRouter); // legacy path used by AuthContext
 app.use('/api/me',                    meRouter);
@@ -107,7 +119,7 @@ app.use('/api/workspace/system-log',  systemLogRouter);
 app.use('/api/workspace/api-keys',    verifySupabaseAuth, apiKeysRouter);
 app.use('/api/workspace/memories',    verifySupabaseAuth, workspaceMemoriesRouter);
 app.use('/api/mind',                  verifySupabaseAuth, mindRouter);
-app.use('/api/lead-lists',            verifySupabaseAuth, leadListsRouter);
+app.use('/api/lead-lists',            verifySupabaseAuth, requireFeature('leadLists'), leadListsRouter);
 app.use('/api/webhooks',              verifySupabaseAuth, webhooksRouter);
 app.use('/api/workflow-providers',    verifySupabaseAuth, workflowProvidersRouter);
 app.use('/api/linkedin',              verifySupabaseAuth, linkedinRouter);
@@ -122,10 +134,12 @@ app.use('/api/workflow-providers/salesforce/oauth',  oauthSalesforceRouter);
 app.use('/api/roadmap',           roadmapRouter);
 app.use('/api/updates',           updatesRouter);
 app.use('/api/blog',              blogRouter);
+app.use('/api/resources',         resourcesRouter);
 app.use('/api/changelog/entries', publicChangelogRouter);
 
 // ── /api/admin — Admin (auth + admin check applied at mount) ──────────────────
 app.use('/api/admin/blog',      verifySupabaseAuth, requireAdmin, adminBlogRouter);
+app.use('/api/admin/resources', verifySupabaseAuth, requireAdmin, adminResourcesRouter);
 app.use('/api/changelog/entries', verifySupabaseAuth, requireAdmin, adminChangelogRouter);
 app.use('/api/admin/roadmap',   verifySupabaseAuth, requireAdmin, adminRoadmapRouter);
 app.use('/api/admin/updates',   verifySupabaseAuth, requireAdmin, adminUpdatesRouter);

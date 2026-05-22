@@ -17,6 +17,7 @@ import { resolveMindEpisodes } from './workers/mindOutcomes.mjs';
 import { processLeadReplies } from './workers/leadReplies.mjs';
 import { runScorecardLoop } from './workers/scorecardLoop.mjs';
 import { processClaimJobs } from './workers/claimEngine.mjs';
+import { processEmbeddings } from './workers/embeddings.mjs';
 
 // Wire webhook-driven activity logging → CRM push at module load.
 // Worker is where most logActivity() calls originate (Instantly/Lemlist replies,
@@ -163,5 +164,11 @@ console.log('[WORKER] Webhook retry queue — every minute');
 // a new observation pulls the belief back toward truth. See docs/v2-build-plan.md.
 cron.schedule('* * * * *', processClaimJobs);
 console.log('[WORKER] Claim-derivation engine — every minute');
+
+// ── Embedding worker — every 2 minutes ───────────────────────────────────────
+// Fills claim embeddings so semantic search (the Context API retrieve step)
+// works. No-op without OPENAI_API_KEY.
+cron.schedule('*/2 * * * *', processEmbeddings);
+console.log('[WORKER] Embedding worker — every 2 minutes');
 
 console.log('[WORKER] Started');

@@ -47,6 +47,41 @@ async function advancePipelineStage(supabase: SupabaseClient, contactId: string,
   }
 }
 
+// Dual-write: mirror a logged activity into the v2 evidence substrate as a
+// kind:'event' observation. Fire-and-forget — never blocks or breaks the v1
+// activity log. Lazily ensures the person-entity exists (entity.id ==
+// contact.id, the v1->v2 migration convention). Silent on a fresh v1-only
+// install where the v2 tables do not exist yet.
+async function mirrorActivityToObservation(
+  supabase: SupabaseClient,
+  params: LogActivityParams,
+): Promise<void> {
+  const { workspaceId, contactId, type, source, externalId, occurredAt, description, summary, rawData } = params;
+
+  const ent = await supabase.from('entities').upsert(
+    { id: contactId, workspace_id: workspaceId, type: 'person', status: 'active' },
+    { onConflict: 'id', ignoreDuplicates: true },
+  );
+  if (ent.error) return;   // v2 substrate absent, or entity upsert failed — skip; never break v1
+
+  const { error } = await supabase.from('observations').insert({
+    workspace_id: workspaceId,
+    entity_id:    contactId,
+    kind:         'event',
+    property:     `interaction.${type}`,
+    value:        { description: description ?? null, summary: summary ?? null },
+    source,
+    method:       'connector',
+    observed_at:  occurredAt || new Date().toISOString(),
+    external_id:  externalId || null,
+    raw:          rawData || null,
+  });
+  // 23505 = duplicate (already mirrored); 42P01/PGRST205 = v2 tables absent — all benign.
+  if (error && !['23505', '42P01', 'PGRST205'].includes(error.code ?? '')) {
+    console.error('[ACTIVITY] observation mirror failed:', error.message);
+  }
+}
+
 export async function logActivity(
   supabase: SupabaseClient,
   params: LogActivityParams,
@@ -93,6 +128,9 @@ export async function logActivity(
 
   // Advance pipeline stage based on signal type
   await advancePipelineStage(supabase, contactId, type).catch(() => {});
+
+  // Dual-write into the v2 evidence substrate — fire-and-forget, never blocks v1.
+  void mirrorActivityToObservation(supabase, params).catch(() => {});
 
   // Fire-and-forget: push this activity to every enabled CRM connection.
   // activityId enables per-row dedup so retries / replays don't double-post engagements.

@@ -7,6 +7,7 @@ import {
   createLeadList,
   listLeadLists,
   getLeadList,
+  updateLeadListColumns,
   insertLeads,
   listLeads,
 } from '@nous/core';
@@ -53,6 +54,21 @@ leadListsRouter.get('/:id', async (req, res) => {
     return res.json({ lead_list });
   } catch (err) {
     console.error('[GET /api/lead-lists/:id]', err);
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
+// PATCH /api/lead-lists/:id — update a list's columns. Body: { workspaceId, columns }.
+leadListsRouter.patch('/:id', async (req, res) => {
+  try {
+    const { workspaceId, columns } = req.body;
+    if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
+    if (!Array.isArray(columns)) return res.status(400).json({ error: 'columns array required' });
+    const lead_list = await updateLeadListColumns(getSupabaseClient(), workspaceId, req.params.id, columns);
+    if (!lead_list) return res.status(404).json({ error: 'not_found' });
+    return res.json({ lead_list });
+  } catch (err) {
+    console.error('[PATCH /api/lead-lists/:id]', err);
     return res.status(500).json({ error: 'internal_error' });
   }
 });

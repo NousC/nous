@@ -940,6 +940,7 @@ CREATE TABLE IF NOT EXISTS lead_lists (
   workspace_id UUID        NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
   name         TEXT        NOT NULL,
   source       TEXT        NOT NULL DEFAULT 'csv',   -- 'linkedin'|'instantly'|'csv'|'apollo'|…
+  columns      JSONB       NOT NULL DEFAULT '[]',    -- user-defined columns: [{ key, label }]
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -965,6 +966,7 @@ CREATE TABLE IF NOT EXISTS leads (
 
   -- The prediction
   features         JSONB       NOT NULL DEFAULT '{}',   -- point-in-time feature snapshot
+  fields           JSONB       NOT NULL DEFAULT '{}',   -- values for the list's user-defined columns
   scorecard_score  INT,
 
   -- The label (filled in when a reply lands)

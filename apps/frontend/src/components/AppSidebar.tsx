@@ -12,18 +12,16 @@ import {
   FileDown,
   Brain,
   Database,
+  List,
   CreditCard,
   BookOpen,
   ChevronDown,
   PanelLeftClose,
   PanelLeft,
-  Sun,
-  Moon,
 } from "lucide-react";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { NavLink } from "@/components/NavLink";
 import { useAuth } from "@/contexts/AuthContext";
-import { useTheme } from "@/contexts/ThemeContext";
 import { SidebarWorkspaceSelector } from "@/components/SidebarWorkspaceSelector";
 
 type NavItem = { title: string; url: string; icon: React.ElementType };
@@ -51,6 +49,7 @@ const mainNavItems: NavItem[] = [
 // ENTERPRISE — Scale / Enterprise plans only
 const enterpriseItems: NavItem[] = [
   { title: "CRM Sync", url: "/crm-sync", icon: Database },
+  { title: "Lists",    url: "/lists",    icon: List     },
 ];
 
 // Bottom navigation — Settings is reached via the profile button below.
@@ -60,7 +59,6 @@ const bottomNavItems: NavItem[] = [
 
 export function AppSidebar() {
   const { userData, session } = useAuth();
-  const { theme, toggleTheme } = useTheme();
   const location = useLocation();
   const navigate = useNavigate();
   const [collapsed, setCollapsed] = useState(false);
@@ -277,21 +275,6 @@ export function AppSidebar() {
       {/* Profile row */}
       <div className="px-2.5 pb-3 pt-1">
         <div className="mx-1.5 mb-2 border-t border-gray-200/60 dark:border-white/10" />
-        <button
-          onClick={toggleTheme}
-          className={`group flex w-full items-center rounded-lg px-2.5 py-1.5 mb-1 transition-all duration-150 hover:bg-gray-100/70 dark:hover:bg-white/8 ${collapsed ? "justify-center" : "gap-2.5"}`}
-          title={theme === "dark" ? "Switch to light" : "Switch to dark"}
-        >
-          {theme === "dark"
-            ? <Sun className="h-[17px] w-[17px] flex-shrink-0 text-gray-500 dark:text-white/40 group-hover:text-gray-900 dark:group-hover:text-white/70 transition-colors" strokeWidth={1.75} />
-            : <Moon className="h-[17px] w-[17px] flex-shrink-0 text-gray-800 group-hover:text-gray-900 transition-colors" strokeWidth={1.75} />
-          }
-          {!collapsed && (
-            <span className="text-[13px] text-gray-700 dark:text-white/40 group-hover:text-gray-900 dark:group-hover:text-white/70 transition-colors">
-              {theme === "dark" ? "Light mode" : "Dark mode"}
-            </span>
-          )}
-        </button>
         <button
           onClick={() => navigate("/settings")}
           className={`group flex w-full items-center rounded-lg px-2.5 py-2 transition-all duration-150 hover:bg-gray-100/70 dark:hover:bg-white/8 ${

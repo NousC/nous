@@ -1,16 +1,24 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { isUUID } from '../utils/identity.js';
-import type { Lead, LeadList, LeadStatus, ReplyOutcome } from '../types.js';
+import type { Lead, LeadList, LeadColumn, LeadStatus, ReplyOutcome } from '../types.js';
 
 // DB layer for Lead Lists — the cold outreach universe, kept separate from
 // `contacts` (People). See docs/adaptive-lead-scoring.md.
 
-const LEAD_LIST_COLUMNS = 'id, workspace_id, name, source, created_at, updated_at';
+const LEAD_LIST_COLUMNS = 'id, workspace_id, name, source, columns, created_at, updated_at';
 
 const LEAD_COLUMNS =
   'id, lead_list_id, workspace_id, email, name, company, linkedin_url, ' +
-  'sent_at, send_variant, is_repeat_contact, features, scorecard_score, ' +
+  'sent_at, send_variant, is_repeat_contact, features, fields, scorecard_score, ' +
   'reply_outcome, replied_at, status, contact_id, created_at, updated_at';
+
+// Columns a new list starts with, beyond the fixed name / email / company /
+// linkedin / status. Stored on lead_lists.columns; values live in leads.fields.
+const DEFAULT_LEAD_COLUMNS: LeadColumn[] = [
+  { key: 'title',        label: 'Title' },
+  { key: 'industry',     label: 'Industry' },
+  { key: 'company_size', label: 'Company size' },
+];
 
 const cleanEmail = (email: string | null | undefined): string | null =>
   email ? email.toLowerCase().trim() || null : null;
@@ -33,11 +41,34 @@ export async function createLeadList(
       workspace_id: workspaceId,
       name: params.name.trim(),
       source: params.source ?? 'csv',
+      columns: DEFAULT_LEAD_COLUMNS,
     })
     .select(LEAD_LIST_COLUMNS)
     .single();
   if (error) throw error;
-  return data as LeadList;
+  return data as unknown as LeadList;
+}
+
+// Replace a list's user-defined column set.
+export async function updateLeadListColumns(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  id: string,
+  columns: LeadColumn[],
+): Promise<LeadList | null> {
+  if (!isUUID(id)) return null;
+  const clean = columns
+    .filter(c => c && typeof c.key === 'string' && c.key.trim())
+    .map(c => ({ key: c.key.trim(), label: String(c.label || c.key).trim() }));
+  const { data, error } = await supabase
+    .from('lead_lists')
+    .update({ columns: clean })
+    .eq('id', id)
+    .eq('workspace_id', workspaceId)
+    .select(LEAD_LIST_COLUMNS)
+    .maybeSingle();
+  if (error) throw error;
+  return (data as unknown as LeadList) ?? null;
 }
 
 export async function listLeadLists(
@@ -71,7 +102,7 @@ export async function getLeadList(
     .eq('workspace_id', workspaceId)
     .maybeSingle();
   if (error) throw error;
-  return (data as LeadList) ?? null;
+  return (data as unknown as LeadList) ?? null;
 }
 
 // ── Leads ─────────────────────────────────────────────────────────────────────
@@ -84,6 +115,7 @@ export interface LeadInput {
   send_variant?: string | null;
   is_repeat_contact?: boolean;
   features?: Record<string, unknown>;
+  fields?: Record<string, unknown>;
 }
 
 // Bulk-insert leads into a list. Rows with neither an email nor a LinkedIn URL
@@ -107,6 +139,7 @@ export async function insertLeads(
       send_variant: r.send_variant ?? null,
       is_repeat_contact: r.is_repeat_contact ?? false,
       features: r.features ?? {},
+      fields: r.fields ?? {},
     }))
     .filter(r => r.email || r.linkedin_url);
 
@@ -167,6 +200,7 @@ export interface LeadPatch {
   scorecard_score?: number | null;
   contact_id?: string | null;
   features?: Record<string, unknown>;
+  fields?: Record<string, unknown>;
 }
 
 export async function updateLead(
