@@ -16,6 +16,7 @@ import { processWebhookInbox } from './workers/webhookRetry.mjs';
 import { resolveMindEpisodes } from './workers/mindOutcomes.mjs';
 import { processLeadReplies } from './workers/leadReplies.mjs';
 import { runScorecardLoop } from './workers/scorecardLoop.mjs';
+import { processClaimJobs } from './workers/claimEngine.mjs';
 
 // Wire webhook-driven activity logging → CRM push at module load.
 // Worker is where most logActivity() calls originate (Instantly/Lemlist replies,
@@ -155,5 +156,12 @@ console.log('[WORKER] Scorecard learning loop — daily at 04:00 UTC');
 // timeout, etc.) and reprocesses them with exponential backoff.
 cron.schedule('* * * * *', processWebhookInbox);
 console.log('[WORKER] Webhook retry queue — every minute');
+
+// ── Claim-derivation engine — every minute ───────────────────────────────────
+// Drains claim_jobs (filled by a DB trigger on every observation insert) and
+// re-derives each affected claim from its observations. The self-healing loop:
+// a new observation pulls the belief back toward truth. See docs/v2-build-plan.md.
+cron.schedule('* * * * *', processClaimJobs);
+console.log('[WORKER] Claim-derivation engine — every minute');
 
 console.log('[WORKER] Started');
