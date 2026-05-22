@@ -13,7 +13,7 @@ import { pollAllGmailWorkspaces } from './pollers/gmail.mjs';
 import { pollAllSmtpWorkspaces } from './pollers/smtp.mjs';
 import { webhookRouter } from './webhooks/index.mjs';
 import { processWebhookInbox } from './workers/webhookRetry.mjs';
-import { resolveMindEpisodes } from './workers/mindOutcomes.mjs';
+import { resolveOutcomes } from './workers/mindOutcomes.mjs';
 import { processLeadReplies } from './workers/leadReplies.mjs';
 import { runScorecardLoop } from './workers/scorecardLoop.mjs';
 import { processClaimJobs } from './workers/claimEngine.mjs';
@@ -108,16 +108,16 @@ async function runPipelineDecay() {
 cron.schedule('0 3 * * *', runPipelineDecay, { timezone: 'UTC' });
 console.log('[WORKER] Pipeline decay — daily at 03:00 UTC');
 
-// ── Mind outcome resolution — daily at 03:30 UTC ─────────────────────────────
-// Joins each ICP prediction in mind_episodes to its realized outcome (reply /
-// pipeline advance / closed-won revenue) and writes a weighted outcome_score.
-// Runs after pipeline decay so contact stages are fresh.
-// See docs/compound-intelligence-mind.md (Phase 2).
+// ── Outcome resolution — daily at 03:30 UTC ──────────────────────────────────
+// Joins each open `icp_fit` prediction to its realized outcome — reply,
+// pipeline advance, closed-won revenue, all read from observations — and
+// writes a weighted outcome_value. Runs after pipeline decay so stage claims
+// are fresh. See docs/compound-intelligence-mind.md (Phase 2).
 async function runMindOutcomes() {
   try {
-    await resolveMindEpisodes();
+    await resolveOutcomes();
   } catch (err) {
-    console.error('[WORKER] Mind outcomes error:', err.message);
+    console.error('[WORKER] Outcome resolution error:', err.message);
   }
 }
 

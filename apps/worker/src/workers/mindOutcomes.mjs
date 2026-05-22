@@ -1,29 +1,40 @@
-// The Mind — outcome resolution (Phase 2).
+// The compound loop — outcome resolution (v2).
 //
-// scoreICP() writes one mind_episodes row per prediction (Phase 1). This job
-// closes the loop: it joins each open prediction to what actually happened —
-// reply, pipeline advancement, closed-won revenue — and writes a single
-// weighted outcome_score the judge can later learn from.
+// scoreAndStake() stakes one `icp_fit` prediction per entity (the
+// prediction-write worker). This job closes the loop: it joins each open
+// prediction to what actually happened — reply, pipeline advancement,
+// closed-won revenue, now all observations — and writes one weighted
+// outcome_value the learning loop trains on.
 //
-// Resolution is two-tier (see docs/compound-intelligence-mind.md §5):
-//   Pass 1 — resolve open episodes once revenue lands OR the observation
+// Two-tier resolution (see docs/compound-intelligence-mind.md §5):
+//   Pass 1 — resolve open predictions once revenue lands OR the resolution
 //            window elapses (early signal: reply + pipeline).
-//   Pass 2 — upgrade already-resolved episodes if revenue lands later,
+//   Pass 2 — upgrade already-resolved predictions if revenue lands later,
 //            within REVENUE_HORIZON_DAYS of the prediction.
 //
-// Runs daily from the worker cron. Safe to run repeatedly — it only ever
-// touches episodes whose state has actually changed.
+// Runs daily from the worker cron. Idempotent — it only ever touches
+// predictions whose state has actually changed.
 
 import { getSupabaseClient } from '@nous/core';
 
 // Pipeline stage ordering — advancement is a rise in rank.
 const STAGE_RANK = { identified: 0, aware: 1, interested: 2, evaluating: 3, client: 4 };
 
-// Activity types that count as a positive reply / engagement signal.
-const REPLY_TYPES = ['email_reply', 'linkedin_message', 'outbound_positive_reply', 'meeting_held'];
+// Observation properties that count as a positive reply / engagement signal.
+const REPLY_PROPS = [
+  'interaction.reply',
+  'interaction.email_reply',
+  'interaction.linkedin_message',
+  'interaction.outbound_positive_reply',
+  'interaction.meeting_held',
+];
 
-// Activity types that count as closed-won revenue.
-const WON_TYPES = ['deal_won', 'payment_received', 'proposal_signed'];
+// Observation properties that count as closed-won revenue.
+const WON_PROPS = [
+  'interaction.deal_won',
+  'interaction.payment_received',
+  'interaction.proposal_signed',
+];
 
 // Outcome signal weights (design §5). Must sum to 1.
 const W_REPLY = 0.25;
@@ -33,14 +44,14 @@ const W_REVENUE = 0.40;
 // How long after a prediction we keep watching for late revenue.
 const REVENUE_HORIZON_DAYS = 120;
 
-// Episodes processed per run, per pass. The job is idempotent, so a backlog
+// Predictions processed per run, per pass. The job is idempotent, so a backlog
 // simply drains over consecutive nightly runs.
 const BATCH = 200;
 
 const DAY_MS = 86_400_000;
 
 // Weighted 0..1 outcome score. Pipeline contributes proportionally to how many
-// stages the contact advanced (one stage = 0.25, identified→client = 1.0).
+// stages the entity advanced (one stage = 0.25, identified→client = 1.0).
 function computeOutcomeScore({ replied, pipelineFrom, pipelineTo, won }) {
   const replySignal = replied ? 1 : 0;
   const fromRank = STAGE_RANK[pipelineFrom] ?? 0;
@@ -51,145 +62,151 @@ function computeOutcomeScore({ replied, pipelineFrom, pipelineTo, won }) {
   return Math.round(score * 1000) / 1000;
 }
 
-// Look for a closed-won activity any time after the prediction. Revenue is
-// slow, so this is deliberately not window-bounded. dealValue (optional) is the
-// contact's current deal_value, used when the event carries no explicit amount.
-async function deriveRevenue(supabase, contactId, since, dealValue) {
-  const { data: wonRows } = await supabase
-    .from('contact_activity_log')
-    .select('raw_data')
-    .eq('contact_id', contactId)
-    .in('activity_type', WON_TYPES)
-    .gte('occurred_at', since)
-    .order('occurred_at', { ascending: false })
+// The latest closed-won observation any time after the prediction. Revenue is
+// slow, so this is deliberately not window-bounded. The amount may sit in the
+// observation's own value or in its raw provider payload.
+async function deriveRevenue(supabase, entityId, since) {
+  const { data: won } = await supabase
+    .from('observations')
+    .select('id, value, raw')
+    .eq('entity_id', entityId)
+    .in('property', WON_PROPS)
+    .gte('observed_at', since)
+    .order('observed_at', { ascending: false })
     .limit(1);
 
-  if (!wonRows?.length) return { won: false, revenue: null };
+  if (!won?.length) return { won: false, revenue: null, observationId: null };
 
-  const raw = wonRows[0].raw_data || {};
-  const amount = Number(raw.amount ?? raw.value ?? raw.deal_value ?? dealValue ?? 0) || null;
-  return { won: true, revenue: amount };
+  const value = won[0].value || {};
+  const raw = won[0].raw || {};
+  const amount = Number(
+    value.amount ?? value.value ?? raw.amount ?? raw.value ?? raw.deal_value ?? 0,
+  ) || null;
+  return { won: true, revenue: amount, observationId: won[0].id };
 }
 
-// Derive every signal for one episode: reply (inside the window), current
-// pipeline stage, and revenue (any time after the prediction).
-async function deriveSignals(supabase, ep) {
-  const since = ep.predicted_at;
-  const windowDays = ep.outcome_window_days ?? 30;
+// Derive every outcome signal for one prediction: reply (inside the resolution
+// window), pipeline movement (the stage claim vs the prediction's snapshot),
+// and revenue (any time after the prediction).
+async function deriveSignals(supabase, p) {
+  const since = p.predicted_at;
+  const windowDays = p.resolution_window_days ?? 30;
   const until = new Date(new Date(since).getTime() + windowDays * DAY_MS).toISOString();
 
-  const { data: replyRows } = await supabase
-    .from('contact_activity_log')
+  const { data: replies } = await supabase
+    .from('observations')
     .select('id')
-    .eq('contact_id', ep.contact_id)
-    .in('activity_type', REPLY_TYPES)
-    .gte('occurred_at', since)
-    .lte('occurred_at', until)
+    .eq('entity_id', p.entity_id)
+    .in('property', REPLY_PROPS)
+    .gte('observed_at', since)
+    .lte('observed_at', until)
     .limit(1);
-  const replied = (replyRows?.length ?? 0) > 0;
+  const replied = (replies?.length ?? 0) > 0;
 
-  const { data: contact } = await supabase
-    .from('contacts')
-    .select('pipeline_stage, deal_value')
-    .eq('id', ep.contact_id)
+  // Pipeline: where the entity stood at scoring time (the snapshot) vs now
+  // (the current claim).
+  const { data: stageClaim } = await supabase
+    .from('claims')
+    .select('value')
+    .eq('entity_id', p.entity_id)
+    .eq('property', 'pipeline_stage')
     .maybeSingle();
-  const pipelineTo = contact?.pipeline_stage ?? ep.outcome_pipeline_from ?? 'identified';
+  const pipelineFrom = p.feature_snapshot?.pipeline_stage?.value ?? 'identified';
+  const pipelineTo = stageClaim?.value ?? pipelineFrom;
 
-  const rev = await deriveRevenue(supabase, ep.contact_id, since, contact?.deal_value);
-
-  return { replied, pipelineTo, won: rev.won, revenue: rev.revenue };
+  const rev = await deriveRevenue(supabase, p.entity_id, since);
+  return {
+    replied,
+    pipelineFrom,
+    pipelineTo,
+    won: rev.won,
+    revenue: rev.revenue,
+    observationId: rev.observationId,
+  };
 }
 
-export async function resolveMindEpisodes() {
+export async function resolveOutcomes() {
   const supabase = getSupabaseClient();
   const now = Date.now();
   let resolved = 0;
   let upgraded = 0;
 
-  // ── Pass 1: resolve open episodes ─────────────────────────────────────────
+  // ── Pass 1: resolve open predictions ──────────────────────────────────────
   const { data: open, error } = await supabase
-    .from('mind_episodes')
-    .select('id, contact_id, predicted_at, outcome_window_days, outcome_pipeline_from')
-    .is('outcome_resolved_at', null)
-    .eq('kind', 'icp_score')
+    .from('predictions')
+    .select('id, entity_id, predicted_at, resolution_window_days, feature_snapshot')
+    .is('resolved_at', null)
+    .eq('kind', 'icp_fit')
     .order('predicted_at', { ascending: true })
     .limit(BATCH);
 
+  // Migration / tables not yet applied — skip silently so we don't spam logs.
+  if (error?.code === '42P01' || error?.code === 'PGRST205') return;
   if (error) {
-    console.error('[MIND_OUTCOMES] open-episode scan failed:', error.message);
+    console.error('[MIND_OUTCOMES] open-prediction scan failed:', error.message);
     return;
   }
 
-  for (const ep of open || []) {
-    // Contact deleted — nothing left to measure. Resolve with no score.
-    if (!ep.contact_id) {
-      await supabase
-        .from('mind_episodes')
-        .update({ outcome_resolved_at: new Date().toISOString() })
-        .eq('id', ep.id);
-      resolved++;
-      continue;
-    }
+  for (const p of open || []) {
+    const windowMs = (p.resolution_window_days ?? 30) * DAY_MS;
+    const windowElapsed = now >= new Date(p.predicted_at).getTime() + windowMs;
 
-    const windowMs = (ep.outcome_window_days ?? 30) * DAY_MS;
-    const windowElapsed = now >= new Date(ep.predicted_at).getTime() + windowMs;
+    const s = await deriveSignals(supabase, p);
 
-    const signals = await deriveSignals(supabase, ep);
-
-    // Resolve on definitive revenue, or once the observation window elapses.
+    // Resolve on definitive revenue, or once the resolution window elapses.
     // Otherwise keep observing — re-checked on the next run.
-    if (!signals.won && !windowElapsed) continue;
+    if (!s.won && !windowElapsed) continue;
 
-    const score = computeOutcomeScore({
-      replied: signals.replied,
-      pipelineFrom: ep.outcome_pipeline_from,
-      pipelineTo: signals.pipelineTo,
-      won: signals.won,
-    });
-
+    const score = computeOutcomeScore(s);
     await supabase
-      .from('mind_episodes')
+      .from('predictions')
       .update({
-        outcome_replied: signals.replied,
-        outcome_pipeline_to: signals.pipelineTo,
-        outcome_revenue: signals.revenue,
-        outcome_score: score,
-        outcome_resolved_at: new Date().toISOString(),
+        outcome_value: {
+          replied: s.replied,
+          pipeline_from: s.pipelineFrom,
+          pipeline_to: s.pipelineTo,
+          revenue: s.revenue,
+          score,
+        },
+        outcome_observation_id: s.observationId,
+        resolved_at: new Date().toISOString(),
       })
-      .eq('id', ep.id);
+      .eq('id', p.id);
     resolved++;
   }
 
   // ── Pass 2: late-revenue upgrade ──────────────────────────────────────────
-  // Episodes resolved on early signal (reply/pipeline) get their score
+  // Predictions resolved on early signal (reply/pipeline) get their score
   // upgraded if revenue lands later, within the revenue horizon.
   const horizonCutoff = new Date(now - REVENUE_HORIZON_DAYS * DAY_MS).toISOString();
-  const { data: resolvedNoRev } = await supabase
-    .from('mind_episodes')
-    .select('id, contact_id, predicted_at, outcome_replied, outcome_pipeline_from, outcome_pipeline_to')
-    .not('outcome_resolved_at', 'is', null)
-    .is('outcome_revenue', null)
-    .eq('kind', 'icp_score')
+  const { data: resolvedRecent } = await supabase
+    .from('predictions')
+    .select('id, entity_id, predicted_at, outcome_value')
+    .not('resolved_at', 'is', null)
+    .eq('kind', 'icp_fit')
     .gte('predicted_at', horizonCutoff)
     .limit(BATCH);
 
-  for (const ep of resolvedNoRev || []) {
-    if (!ep.contact_id) continue;
+  for (const p of resolvedRecent || []) {
+    const ov = p.outcome_value || {};
+    if (ov.revenue != null) continue; // already carries revenue
 
-    const rev = await deriveRevenue(supabase, ep.contact_id, ep.predicted_at);
+    const rev = await deriveRevenue(supabase, p.entity_id, p.predicted_at);
     if (!rev.won) continue;
 
     const score = computeOutcomeScore({
-      replied: ep.outcome_replied,
-      pipelineFrom: ep.outcome_pipeline_from,
-      pipelineTo: ep.outcome_pipeline_to,
+      replied: ov.replied,
+      pipelineFrom: ov.pipeline_from,
+      pipelineTo: ov.pipeline_to,
       won: true,
     });
-
     await supabase
-      .from('mind_episodes')
-      .update({ outcome_revenue: rev.revenue, outcome_score: score })
-      .eq('id', ep.id);
+      .from('predictions')
+      .update({
+        outcome_value: { ...ov, revenue: rev.revenue, score },
+        outcome_observation_id: rev.observationId,
+      })
+      .eq('id', p.id);
     upgraded++;
   }
 

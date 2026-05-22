@@ -4,10 +4,10 @@
 // Scorecard, proposes one change, tests it on a time-held-back split, and
 // ships it only if both gates agree — then logs the run.
 //
-// Charter-aligned: it trains on the account record's resolved `mind_episodes`
-// (predictions checked against real outcomes — reply, pipeline, closed-won),
-// not on cold-lead lists. "Close the loop" — closed outcomes feeding the
-// scoring model — is exactly the Founding Charter's Phase 1.
+// Charter-aligned: it trains on the account record's resolved `icp_fit`
+// predictions (scores checked against real outcomes — reply, pipeline,
+// closed-won), not on cold-lead lists. "Close the loop" — closed outcomes
+// feeding the scoring model — is exactly the Founding Charter's Phase 1.
 //
 // propose → test → keep or drop. Two gates: accuracy (does the held-back
 // calibration gap rise?) and carry-over (would the change generalize?).
@@ -216,31 +216,39 @@ async function runForWorkspace(supabase, workspaceId, episodes) {
 export async function runScorecardLoop() {
   const supabase = getSupabaseClient();
 
-  // The evidence set: resolved predictions from the account record.
-  const { data: eps, error } = await supabase
-    .from('mind_episodes')
-    .select('workspace_id, features, outcome_score, predicted_at')
-    .eq('kind', 'icp_score')
-    .not('outcome_resolved_at', 'is', null)
-    .not('outcome_score', 'is', null)
+  // The evidence set: resolved `icp_fit` predictions — each a staked score
+  // checked against a real outcome (reply, pipeline advance, closed-won).
+  const { data: preds, error } = await supabase
+    .from('predictions')
+    .select('workspace_id, feature_snapshot, outcome_value, predicted_at')
+    .eq('kind', 'icp_fit')
+    .not('resolved_at', 'is', null)
     .order('predicted_at', { ascending: true })
     .limit(10000);
 
+  // Migration / tables not yet applied — skip silently.
+  if (error?.code === '42P01' || error?.code === 'PGRST205') return;
   if (error) {
     console.error('[SCORECARD_LOOP] scan failed:', error.message);
     return;
   }
 
-  // Group by workspace; only episodes that carry a feature snapshot are usable.
+  // Group by workspace. feature_snapshot is {property: {value, confidence}};
+  // the scorer wants a flat {property: value} map. Only predictions that carry
+  // both a snapshot and a graded outcome score are usable as episodes.
   const byWorkspace = new Map();
-  for (const e of eps || []) {
-    if (!e.features || Object.keys(e.features).length === 0) continue;
-    if (!byWorkspace.has(e.workspace_id)) byWorkspace.set(e.workspace_id, []);
-    byWorkspace.get(e.workspace_id).push({
-      features: e.features,
-      outcome: e.outcome_score,
-      predicted_at: e.predicted_at,
-    });
+  for (const p of preds || []) {
+    const snapshot = p.feature_snapshot || {};
+    const keys = Object.keys(snapshot);
+    if (keys.length === 0) continue;
+    const outcome = p.outcome_value?.score;
+    if (typeof outcome !== 'number') continue;
+
+    const features = {};
+    for (const k of keys) features[k] = snapshot[k]?.value;
+
+    if (!byWorkspace.has(p.workspace_id)) byWorkspace.set(p.workspace_id, []);
+    byWorkspace.get(p.workspace_id).push({ features, outcome, predicted_at: p.predicted_at });
   }
 
   for (const [workspaceId, episodes] of byWorkspace) {
