@@ -11,14 +11,6 @@ import { verifySupabaseAuth } from './middleware/supabaseAuth.mjs';
 import { requireAdmin } from './middleware/requireAdmin.mjs';
 import { requireFeature } from './lib/access.mjs';
 
-// v1 — Public API (API key auth)
-import { contactsRouter } from './routes/v1/contacts.mjs';
-import { memoriesRouter } from './routes/v1/memories.mjs';
-import { captureRouter } from './routes/v1/capture.mjs';
-import { companiesRouter } from './routes/v1/companies.mjs';
-import { rememberRouter } from './routes/v1/remember.mjs';
-import { searchRouter } from './routes/v1/search.mjs';
-
 // v2 — Context API (evidence substrate)
 import { accountsV2Router } from './routes/v2/accounts.mjs';
 import { observationsV2Router } from './routes/v2/observations.mjs';
@@ -83,18 +75,6 @@ app.use(express.json({ limit: '10mb' }));
 
 // ── Health ────────────────────────────────────────────────────────────────────
 app.get('/health', (_req, res) => res.json({ ok: true }));
-
-// ── v1 — Public API (API key auth) ───────────────────────────────────────────
-app.use('/v1/contacts',  verifyApiKey, contactsRouter);
-app.use('/v1/contact',   verifyApiKey, contactsRouter);   // singular alias (MCP/CLI)
-app.use('/v1/companies', verifyApiKey, companiesRouter);
-app.use('/v1/company',   verifyApiKey, companiesRouter);   // singular alias (MCP)
-app.use('/v1/memories',  verifyApiKey, memoriesRouter);
-app.use('/v1/memory',    verifyApiKey, memoriesRouter);
-app.use('/v1/capture',   verifyApiKey, captureRouter);
-app.use('/v1/track',     verifyApiKey, captureRouter);     // alias used by MCP track tool
-app.use('/v1/remember',  verifyApiKey, rememberRouter);    // MCP remember tool
-app.use('/v1/search',    verifyApiKey, searchRouter);      // MCP search tool
 
 // ── v2 — Context API (evidence substrate) ────────────────────────────────────
 app.use('/v2/accounts',     verifyApiKey, accountsV2Router);
