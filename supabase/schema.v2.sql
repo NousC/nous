@@ -34,11 +34,22 @@ RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER AS $$
   );
 $$;
 
--- Append-only guard: attached to immutable tables.
+-- Observations are append-only. DELETE is never permitted. UPDATE is permitted
+-- ONLY to fill the derived `embedding` index — the evidence itself (subject,
+-- property, value, source, observed_at, …) can never change.
 CREATE OR REPLACE FUNCTION reject_mutation()
 RETURNS TRIGGER LANGUAGE plpgsql AS $$
+DECLARE probe observations%ROWTYPE;
 BEGIN
-  RAISE EXCEPTION 'table % is append-only — % is not permitted', TG_TABLE_NAME, TG_OP;
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'observations are append-only — DELETE is not permitted';
+  END IF;
+  probe := NEW;
+  probe.embedding := OLD.embedding;          -- exempt the embedding index from the check
+  IF ROW(probe.*) IS DISTINCT FROM ROW(OLD.*) THEN
+    RAISE EXCEPTION 'observations are append-only — only the embedding index may change';
+  END IF;
+  RETURN NEW;
 END; $$;
 
 
@@ -555,6 +566,35 @@ LANGUAGE sql STABLE AS $$
     AND c.embedding IS NOT NULL
     AND 1 - (c.embedding <=> p_embedding) >= p_threshold
   ORDER BY c.embedding <=> p_embedding
+  LIMIT p_limit;
+$$;
+
+-- Semantic search over observations, with structured pre-filters. Powers the
+-- question-driven path of POST /v2/query.
+CREATE OR REPLACE FUNCTION search_observations(
+  p_workspace_id    UUID,
+  p_embedding       VECTOR(1536),
+  p_kind            TEXT        DEFAULT NULL,
+  p_property_prefix TEXT        DEFAULT NULL,
+  p_source          TEXT        DEFAULT NULL,
+  p_since           TIMESTAMPTZ DEFAULT NULL,
+  p_limit           INT         DEFAULT 50
+)
+RETURNS TABLE (
+  id UUID, entity_id UUID, property TEXT, value JSONB,
+  source TEXT, observed_at TIMESTAMPTZ, similarity FLOAT
+)
+LANGUAGE sql STABLE AS $$
+  SELECT o.id, o.entity_id, o.property, o.value, o.source, o.observed_at,
+         (1 - (o.embedding <=> p_embedding))::FLOAT AS similarity
+  FROM observations o
+  WHERE o.workspace_id = p_workspace_id
+    AND o.embedding IS NOT NULL
+    AND (p_kind            IS NULL OR o.kind = p_kind)
+    AND (p_property_prefix IS NULL OR o.property ILIKE p_property_prefix || '%')
+    AND (p_source          IS NULL OR o.source = p_source)
+    AND (p_since           IS NULL OR o.observed_at >= p_since)
+  ORDER BY o.embedding <=> p_embedding
   LIMIT p_limit;
 $$;
 

@@ -12,13 +12,11 @@
  * Optional:
  *   NOUS_API_URL   — API base URL (default: https://api.opennous.cloud)
  *
- * Tools:
- *   get_context   — engineered context for a task (draft_email, follow_up, ...)
- *   get_account   — the full account record: every claim + the timeline
- *   record        — record what happened / what you learned (observe, never update)
- *   list_contacts — list contacts by stage/urgency      (transitional, v1)
- *   search        — semantic search across stored facts (transitional, v1)
- *   get_memories  — workspace-level facts (ICP, product) (transitional, v1)
+ * Tools (all v2 — thin clients of the Context API):
+ *   get_context — engineered context for a task (draft_email, follow_up, ...)
+ *   get_account — the full account record: every claim + the timeline
+ *   record      — record what happened / what you learned (observe, never update)
+ *   query       — retrieve + summarise a corpus of activity across many people
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -69,7 +67,7 @@ server.tool(
   "or making any decision about a person. A fact's freshness tells you whether to trust it: 'fresh' " +
   "act on it, 'suspect'/'expired' verify first.",
   {
-    focus: z.string().describe("Email address or entity UUID of the person or company"),
+    focus: z.string().describe("Who to look up — an email, a LinkedIn URL, a domain, an entity UUID, or a name. A name may match several people; you'll get candidates to choose from."),
     intent: z.enum(["draft_email", "follow_up", "meeting_prep", "call_prep", "account_review"])
       .optional()
       .describe("What you are about to do — shapes which context surfaces (default: account_review)"),
@@ -77,6 +75,15 @@ server.tool(
   },
   async ({ focus, intent, budget_tokens }) => {
     const ctx = await post("/v2/context", { focus, intent: intent ?? "account_review", budget_tokens });
+
+    // a name matched several people — surface the candidates to choose from
+    if (ctx.status === "ambiguous") {
+      const opts = (ctx.candidates ?? []).map(c =>
+        `  • ${c.name ?? "(unnamed)"}${c.detail ? ` — ${c.detail}` : ""}  [${c.entity_id}]`).join("\n");
+      return { content: [{ type: "text", text:
+        `"${focus}" matches several people. Call get_context again with one of these entity ids:\n${opts}` }] };
+    }
+
     const lines = [ctx.summary, ""];
 
     if (ctx.claims?.length) {
@@ -84,6 +91,11 @@ server.tool(
       for (const c of ctx.claims) {
         lines.push(`  ${c.property}: ${fmtVal(c.value)}  [${pct(c.confidence)} · ${c.freshness}]`);
       }
+      lines.push("");
+    }
+    if (ctx.workspace?.length) {
+      lines.push("YOUR CONTEXT (ICP / product / positioning):");
+      for (const w of ctx.workspace) lines.push(`  ${w.property}: ${fmtVal(w.value)}`);
       lines.push("");
     }
     if (ctx.timeline?.length) {
@@ -178,86 +190,38 @@ server.tool(
 );
 
 // ===========================================================================
-// TRANSITIONAL — v1-backed. These migrate to /v2/query when it ships.
+// TOOL: query  —  POST /v2/query
+// Retrieve a corpus of activity across many people. You do the analysis.
 // ===========================================================================
-
 server.tool(
-  "list_contacts",
-  "List contacts sorted by urgency (high ICP + longest since last touch first). Use stage to focus " +
-  "on a pipeline stage. Contacts marked !! are high-ICP and have gone cold — prioritize those.",
+  "query",
+  "Retrieve and summarise a corpus of activity across many people — e.g. the last 10 meetings, " +
+  "the last 25 LinkedIn chats, the last 100 emails. Pass a scope to filter and an optional " +
+  "question describing what you want to learn. Returns the matching items as compact summaries " +
+  "plus rollup counts — you do the pattern-finding.",
   {
-    stage: z.enum(["identified", "aware", "interested", "evaluating", "client"]).optional()
-      .describe("Filter by pipeline stage — omit to list all"),
-    limit: z.number().min(1).max(50).optional().describe("Max contacts (default 20)"),
+    scope: z.object({
+      kind: z.enum(["event", "state"]).optional(),
+      property: z.string().optional().describe("property prefix — e.g. 'interaction.meeting' or 'interaction.linkedin'"),
+      source: z.string().optional().describe("e.g. 'gmail', 'linkedin', 'slack'"),
+      entity_id: z.string().optional().describe("scope to one person/company"),
+      since_days: z.number().optional().describe("only activity within the last N days"),
+      limit: z.number().optional().describe("max items (default 50, cap 200)"),
+    }).describe("Corpus filter"),
+    question: z.string().optional().describe("What you want to learn from the corpus"),
   },
-  async ({ stage, limit = 20 }) => {
-    const params = { limit, sort: "urgency" };
-    if (stage) params.pipeline_stage = stage;
-    const data = await get("/v1/contacts", params);
-    const contacts = data.contacts ?? [];
-    if (!contacts.length) {
-      return { content: [{ type: "text", text: stage ? `No contacts in stage "${stage}".` : "No contacts found." }] };
+  async ({ scope, question }) => {
+    const r = await post("/v2/query", { scope, question });
+    const head = `${r.matched} match${r.matched !== 1 ? "es" : ""}` +
+                 (r.sampled ? ` (showing ${r.returned})` : "");
+    const roll = Object.entries(r.rollups?.by_type ?? {})
+      .map(([t, n]) => `${n}× ${fmtType(t)}`).join(" · ");
+    const lines = [head, roll, ""].filter((l, i) => l !== "" || i < 2);
+    for (const it of r.items ?? []) {
+      lines.push(`  ${relAge(it.when)}  ${it.entity_name ?? it.entity_id}  ` +
+                 `${fmtType(it.type)}${it.summary ? `: ${it.summary}` : ""}`);
     }
-    const lines = contacts.map(c => {
-      const name = c.name || c.email;
-      const d = c.last_activity_at
-        ? Math.floor((Date.now() - new Date(c.last_activity_at).getTime()) / 86400000) : 999;
-      const flag = d > 7 && (c.icp_score ?? 0) >= 70 ? "!! " : "   ";
-      const icp = c.icp_score != null ? ` · ICP:${c.icp_score}` : "";
-      const age = d === 999 ? " · never touched" : ` · ${relAge(c.last_activity_at)}`;
-      return `${flag}${name} — ${c.pipeline_stage || "identified"}${icp}${age} (${c.id})`;
-    });
-    return { content: [{ type: "text", text: `Contacts (${contacts.length}):\n${lines.join("\n")}` }] };
-  }
-);
-
-server.tool(
-  "search",
-  "Semantic search across stored facts in the workspace. Scope to one contact or company, or omit " +
-  "to search workspace-wide. Useful for finding context before drafting a message.",
-  {
-    q: z.string().describe("Search query — e.g. 'budget concerns'"),
-    contact_id: z.string().optional().describe("Scope to one contact"),
-    company_id: z.string().optional().describe("Scope to one company"),
-    limit: z.number().min(1).max(20).optional().describe("Max results (default 10)"),
-  },
-  async ({ q, contact_id, company_id, limit = 10 }) => {
-    const body = { q, limit };
-    if (contact_id) body.contact_id = contact_id;
-    if (company_id) body.company_id = company_id;
-    const data = await post("/v1/search", body);
-    const results = data.results ?? [];
-    if (!results.length) return { content: [{ type: "text", text: `No results for "${q}".` }] };
-    const lines = results.map(r => `  [${r.category}] ${r.content}`);
-    return { content: [{ type: "text", text: `Results for "${q}" (${results.length}):\n${lines.join("\n")}` }] };
-  }
-);
-
-server.tool(
-  "get_memories",
-  "Load workspace-level facts — your ICP, product, pricing, market, and competitive intel. Call " +
-  "before drafting outreach or preparing a pitch — anything needing your own company context.",
-  {
-    category: z.enum(["ICP", "Product", "Pricing", "Market", "Competitors", "Team", "Patterns", "General"])
-      .optional().describe("Filter by category — omit for all"),
-    limit: z.number().min(1).max(200).optional().describe("Max facts (default 50)"),
-  },
-  async ({ category, limit = 50 }) => {
-    const params = { limit };
-    if (category) params.category = category;
-    const data = await get("/v1/memories", params);
-    const memories = data.memories ?? [];
-    if (!memories.length) {
-      return { content: [{ type: "text", text: `No workspace facts stored yet${category ? ` in "${category}"` : ""}.` }] };
-    }
-    const byCat = {};
-    for (const m of memories) (byCat[m.category] ??= []).push(m.content);
-    const lines = [];
-    for (const [cat, facts] of Object.entries(byCat)) {
-      lines.push(`[${cat}]`);
-      for (const f of facts) lines.push(`  • ${f}`);
-    }
-    return { content: [{ type: "text", text: `Workspace knowledge (${memories.length}):\n\n${lines.join("\n")}` }] };
+    return { content: [{ type: "text", text: lines.join("\n").trim() }] };
   }
 );
 
