@@ -225,6 +225,56 @@ server.tool(
   }
 );
 
+// ===========================================================================
+// TOOL: attention  —  GET /v2/attention
+// What to look at: accounts gone quiet, key facts decayed.
+// ===========================================================================
+server.tool(
+  "attention",
+  "What needs your attention across the workspace right now — accounts that have gone quiet and " +
+  "key facts that have decayed. Returns ranked items, each with what happened and a suggested " +
+  "action. Call this to decide who to work next.",
+  {
+    limit: z.number().min(1).max(100).optional().describe("Max items (default 25)"),
+  },
+  async ({ limit }) => {
+    const r = await get("/v2/attention", limit ? { limit } : {});
+    if (!r.items?.length) {
+      return { content: [{ type: "text", text: "Nothing needs attention right now." }] };
+    }
+    const lines = r.items.map(it =>
+      `  ${it.entity_name ?? it.entity_id} — ${it.what}\n      → ${it.suggested_action}`);
+    return { content: [{ type: "text", text: `Needs attention (${r.items.length}):\n${lines.join("\n")}` }] };
+  }
+);
+
+// ===========================================================================
+// TOOL: verify  —  POST /v2/verify
+// Re-check a fact before acting on it — the calibration check.
+// ===========================================================================
+server.tool(
+  "verify",
+  "Re-check a specific fact before you act on it — e.g. an email or a deal stage that looks stale " +
+  "in get_context. Pass the person/company and the property name. Returns the fact re-derived from " +
+  "current evidence, and tells you whether it is still unverified.",
+  {
+    focus: z.string().describe("Email, LinkedIn URL, entity UUID, or name"),
+    property: z.string().describe("The fact to re-check — e.g. 'email', 'job_title', 'pipeline_stage'"),
+  },
+  async ({ focus, property }) => {
+    const r = await post("/v2/verify", { focus, property });
+    if (r.status === "ambiguous") {
+      const opts = (r.candidates ?? []).map(c =>
+        `  • ${c.name ?? "(unnamed)"}${c.detail ? ` — ${c.detail}` : ""}  [${c.entity_id}]`).join("\n");
+      return { content: [{ type: "text", text:
+        `"${focus}" matches several people. Call verify again with one of these entity ids:\n${opts}` }] };
+    }
+    const a = r.after ?? {};
+    return { content: [{ type: "text", text:
+      `${property}: ${fmtVal(a.value)}  [${pct(a.confidence)} · ${a.freshness}]\n${r.note ?? ""}` }] };
+  }
+);
+
 // ───────────────────────────────────────────────────────────────────────────
 const transport = new StdioServerTransport();
 await server.connect(transport);

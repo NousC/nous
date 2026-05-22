@@ -187,3 +187,37 @@ export async function getAccountRecord(
     recent_observations: recent,
   };
 }
+
+const CLAIM_COLUMNS =
+  'entity_id, property, value, confidence, epistemic_class, freshness, decays_at, observation_count, last_observed_at';
+
+/** A single claim for one (entity, property), or null. */
+export async function getClaim(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  entityId: string,
+  property: string,
+): Promise<Claim | null> {
+  const { data, error } = await supabase
+    .from('claims')
+    .select(CLAIM_COLUMNS)
+    .eq('workspace_id', workspaceId)
+    .eq('entity_id', entityId)
+    .eq('property', property)
+    .maybeSingle();
+  if (error) throw new Error(`failed to load claim: ${error.message}`);
+  return (data as Claim) ?? null;
+}
+
+/** Re-derive a claim on demand and report before/after — the calibration check. */
+export async function verifyClaim(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  entityId: string,
+  property: string,
+): Promise<{ before: Claim | null; after: Claim | null }> {
+  const before = await getClaim(supabase, workspaceId, entityId, property);
+  await recomputeClaim(supabase, workspaceId, entityId, property);
+  const after = await getClaim(supabase, workspaceId, entityId, property);
+  return { before, after };
+}
