@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
-import { getSupabaseClient } from '@nous/core';
+import { getSupabaseClient, listNotes, saveNote } from '@nous/core';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
 import { ensureUserAndTeam } from '../../lib/auth.mjs';
 import { requireEnrichmentQuota } from '../../lib/access.mjs';
@@ -104,12 +104,8 @@ contactsApiRouter.get('/:id', verifySupabaseAuth, async (req, res) => {
       company = c;
     }
 
-    const { data: memoryRows } = await supabase.from('workspace_memories')
-      .select('id, content, category, source, created_at, valid_from')
-      .eq('workspace_id', contact.workspace_id).eq('is_active', true)
-      .filter('metadata->>contact_id', 'eq', id).order('created_at', { ascending: false }).limit(30);
-
-    const memories = (memoryRows || []).filter(m => m.content).map(m => ({ id: m.id, content: m.content, category: m.category || 'General', source: m.source || 'agent', created_at: m.created_at || m.valid_from || null }));
+    // Notes on this contact-entity (entity_id == contact.id in v2).
+    const memories = await listNotes(supabase, contact.workspace_id, { entityId: id, limit: 30 });
 
     return res.json({ contact, activities, company, memories });
   } catch (err) {
@@ -248,12 +244,12 @@ contactsApiRouter.post('/:id/memories', verifySupabaseAuth, async (req, res) => 
     const { data: membership } = await supabase.from('workspace_members').select('workspace_id').eq('workspace_id', contact.workspace_id).eq('user_id', user.id).single();
     if (!membership) return res.status(403).json({ error: 'unauthorized' });
 
-    const { data: mem, error } = await supabase.from('workspace_memories').insert({
-      workspace_id: contact.workspace_id, category, content: content.trim(),
-      source: 'manual', is_active: true, valid_from: new Date().toISOString(),
-      metadata: { contact_id: id },
-    }).select('id, content, category, source, created_at').single();
-    if (error) throw error;
+    const mem = await saveNote(supabase, contact.workspace_id, {
+      entityId: id,
+      category,
+      content: content.trim(),
+      source: 'manual',
+    });
     return res.json({ memory: mem });
   } catch (err) {
     return res.status(500).json({ error: 'internal_error' });

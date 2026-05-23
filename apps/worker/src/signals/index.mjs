@@ -1,14 +1,12 @@
 // Signal extraction pipeline — ported from assetly-blueprint/server.mjs
 // After every qualifying private activity (LinkedIn message, email reply, meeting, Slack DM),
-// Claude Haiku extracts structured CRM facts → workspace_memories.
+// Claude Haiku extracts structured CRM facts → `note.*` claims on the contact entity.
 // Graph edges (REPORTS_TO, BUDGET_HOLDER_AT, etc.) extracted from each fact → workspace_graph_edges.
 
 import Anthropic from '@anthropic-ai/sdk';
-import OpenAI from 'openai';
-import { getSupabaseClient } from '@nous/core';
+import { listNotes, saveNote, updateNote, searchClaims } from '@nous/core';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-const openai    = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 // Activity types that warrant signal extraction — private, content-rich interactions only.
 export const SIGNAL_WORTHY_TYPES = new Set([
@@ -27,29 +25,22 @@ const SIGNAL_NOISE = [
   /set the channel topic/i,
 ];
 
-// ── Embedding + memory dedup ──────────────────────────────────────────────────
+// ── Note dedup ────────────────────────────────────────────────────────────────
+// Semantic search across `note.*` claims via the v2 search_claims RPC.
+// Embeddings are filled in by the embeddings worker; if none yet, we degrade
+// to no-dedup (always ADD), which is safe but slightly noisier.
 
-async function getEmbedding(text) {
-  const response = await openai.embeddings.create({
-    model: 'text-embedding-3-small',
-    input: text.slice(0, 8000),
-  });
-  return response.data[0].embedding;
+async function searchSimilarNotes(supabase, workspaceId, query, threshold = 0.88, limit = 5) {
+  const hits = await searchClaims(supabase, workspaceId, query, { threshold, limit: limit * 3 });
+  return hits
+    .filter(h => h.property?.startsWith('note.'))
+    .slice(0, limit)
+    .map(h => ({ id: h.id, content: (h.value && h.value.content) || '' }))
+    .filter(m => m.content);
 }
 
-async function searchSimilarMemories(supabase, workspaceId, embedding, threshold = 0.88, limit = 5) {
-  const { data, error } = await supabase.rpc('match_workspace_memories', {
-    p_workspace_id: workspaceId,
-    p_embedding:    JSON.stringify(embedding),
-    p_threshold:    threshold,
-    p_limit:        limit,
-  });
-  if (error) { console.warn('[MEMORY_SEARCH_WARN]', error.message); return []; }
-  return data || [];
-}
-
-async function decideMerge(supabase, workspaceId, newFact, embedding) {
-  const similar = embedding ? await searchSimilarMemories(supabase, workspaceId, embedding, 0.88, 5) : [];
+async function decideMerge(supabase, workspaceId, newFact) {
+  const similar = await searchSimilarNotes(supabase, workspaceId, newFact);
   if (similar.length === 0) return { action: 'ADD', supersedes: null };
 
   const existing = similar.map((f, i) => `${i + 1}. [ID:${f.id}] ${f.content}`).join('\n');
@@ -163,12 +154,11 @@ async function refreshContactBlock(supabase, contactId, workspaceId) {
       supabase.from('contact_activity_log').select('activity_type, description, occurred_at')
         .eq('contact_id', contactId).gte('occurred_at', thirtyDaysAgo)
         .order('occurred_at', { ascending: false }).limit(15),
-      supabase.from('workspace_memories').select('content')
-        .eq('workspace_id', workspaceId).eq('is_active', true)
-        .filter('metadata->>contact_id', 'eq', contactId)
-        .order('created_at', { ascending: false }).limit(15),
+      listNotes(supabase, workspaceId, { entityId: contactId, limit: 15 }),
     ]);
-    if (!contact || (!recentActs?.length && !facts?.length)) return;
+    // listNotes returns the array directly (not wrapped in {data}).
+    const factList = Array.isArray(facts) ? facts : (facts?.data ?? []);
+    if (!contact || (!recentActs?.length && !factList.length)) return;
 
     // Debounce: skip if summary was regenerated in the last 30 minutes (burst protection)
     if (contact.summary_generated_at) {
@@ -183,7 +173,7 @@ async function refreshContactBlock(supabase, contactId, workspaceId) {
     const actLines  = (recentActs || []).slice(0, 8).map(a =>
       `- ${a.activity_type}${a.description ? `: ${a.description}` : ''} (${new Date(a.occurred_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})`
     ).join('\n');
-    const factLines = (facts || []).map(f => `- ${f.content}`).join('\n');
+    const factLines = factList.map(f => `- ${f.content}`).join('\n');
 
     const prompt = `Write a 2-sentence memory summary of ${name} for an AI sales agent. Plain prose only — no markdown, no bullets.
 First sentence: who they are and where they stand in the pipeline.
@@ -209,7 +199,7 @@ Second sentence: the single most important thing to know right now — the block
 
 // ── Private activity signal extractor ────────────────────────────────────────
 // Extracts Budget / Timeline / Pain Points / Objections / Preferences / Relationships
-// from qualifying private interactions and saves as workspace_memories.
+// from qualifying private interactions and saves as `note.*` claims.
 
 async function extractActivitySignals({ supabase, activityId, contactId, workspaceId, type, source, summary }) {
   try {
@@ -269,35 +259,30 @@ If nothing meaningful: []` }],
     for (const fact of facts) {
       if (!fact.content || typeof fact.content !== 'string') continue;
 
-      let embedding = null;
-      try { embedding = await getEmbedding(fact.content); } catch { /* embeddings optional */ }
-
-      const { action, supersedes } = await decideMerge(supabase, workspaceId, fact.content, embedding);
+      const { action, supersedes } = await decideMerge(supabase, workspaceId, fact.content);
       if (action === 'SKIP') continue;
 
-      const { data: newMem, error } = await supabase.from('workspace_memories').insert({
-        workspace_id: workspaceId,
-        category:     fact.category || 'General',
-        content:      fact.content,
-        embedding:    embedding ? JSON.stringify(embedding) : null,
-        source:       'signal_extraction',
-        is_active:    true,
-        valid_from:   new Date().toISOString(),
-        metadata: {
-          contact_id:          contactId || null,
-          signal_type:         type,
-          extraction_source:   source,
-          source_activity_id:  activityId || null,
-          graph_layer:         'private',
-        },
-      }).select('id').single();
-
-      if (error) { console.warn('[SIGNAL_EXTRACTOR] Insert error:', error.message); continue; }
+      let newMem = null;
+      try {
+        newMem = await saveNote(supabase, workspaceId, {
+          entityId: contactId,
+          category: fact.category || 'General',
+          content:  fact.content,
+          source:   'signal_extraction',
+          metadata: {
+            signal_type:        type,
+            extraction_source:  source,
+            source_activity_id: activityId || null,
+            graph_layer:        'private',
+          },
+        });
+      } catch (err) {
+        console.warn('[SIGNAL_EXTRACTOR] Insert error:', err.message);
+        continue;
+      }
 
       if (action === 'UPDATE' && supersedes && uuidRe.test(supersedes)) {
-        await supabase.from('workspace_memories')
-          .update({ is_active: false, superseded_by: newMem.id })
-          .eq('id', supersedes).eq('workspace_id', workspaceId);
+        await updateNote(supabase, workspaceId, supersedes, { is_active: false }).catch(() => {});
       }
 
       if (newMem) {

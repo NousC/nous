@@ -1,72 +1,78 @@
 import { Router } from 'express';
-import { getSupabaseClient, saveMemory } from '@nous/core';
+import {
+  getSupabaseClient,
+  listNotes,
+  saveNote,
+  getNote,
+  updateNote,
+  deleteNote,
+  getWorkspaceEntityId,
+} from '@nous/core';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
+
+// Workspace memories — backed by `asserted` claims on entities in the v2
+// substrate. The on-the-wire shape is unchanged so the frontend keeps working.
 
 export const workspaceMemoriesRouter = Router();
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// POST /api/workspace/memories — add one memory fact with a category
-// (ICP, Product, Pricing, …). Body: { workspaceId, content, category }.
+// POST /api/workspace/memories — add one memory fact with a category.
+// Body: { workspaceId, content, category }
 workspaceMemoriesRouter.post('/', verifySupabaseAuth, async (req, res) => {
   try {
     const { workspaceId, content, category } = req.body;
     if (!workspaceId || !content?.trim()) {
       return res.status(400).json({ error: 'workspaceId and content required' });
     }
-    const memory = await saveMemory(getSupabaseClient(), workspaceId, {
+    const memory = await saveNote(getSupabaseClient(), workspaceId, {
       content: content.trim(),
       category: category || 'General',
       source: 'manual',
     });
     return res.status(201).json({ memory });
   } catch (err) {
+    console.error('[POST /api/workspace/memories]', err);
     return res.status(500).json({ error: 'internal_error' });
   }
 });
 
+// GET /api/workspace/memories?workspaceId&contact_id|company_id&limit&offset
 workspaceMemoriesRouter.get('/', verifySupabaseAuth, async (req, res) => {
   try {
     const supabase = getSupabaseClient();
     const { workspaceId, contact_id, company_id, limit = 100, offset = 0 } = req.query;
     if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
 
-    let query = supabase
-      .from('workspace_memories')
-      .select('*')
-      .eq('workspace_id', workspaceId)
-      .eq('is_active', true)
-      .order('created_at', { ascending: false })
-      .range(Number(offset), Number(offset) + Number(limit) - 1);
-
+    const opts = { limit: Number(limit), offset: Number(offset) };
+    let memories;
     if (contact_id) {
-      query = query.filter('metadata->>contact_id', 'eq', contact_id);
+      memories = await listNotes(supabase, workspaceId, { ...opts, entityId: contact_id });
     } else if (company_id) {
-      query = query.filter('metadata->>company_id', 'eq', company_id);
+      memories = await listNotes(supabase, workspaceId, { ...opts, entityId: company_id });
     } else {
-      // workspace-level view: exclude contact- and company-specific memories
-      // Use metadata JSONB filtering (direct contact_id column may not exist yet)
-      query = query
-        .filter('metadata->>contact_id', 'is', null)
-        .filter('metadata->>company_id', 'is', null);
+      // workspace-level view — only notes on the workspace entity
+      const workspaceEntityId = await getWorkspaceEntityId(supabase, workspaceId);
+      memories = workspaceEntityId
+        ? await listNotes(supabase, workspaceId, { ...opts, entityId: workspaceEntityId })
+        : [];
     }
-
-    const { data: memories, error, count } = await query;
-    if (error) throw error;
-    return res.json({ memories: memories || [], total: count });
+    return res.json({ memories, total: memories.length });
   } catch (err) {
+    console.error('[GET /api/workspace/memories]', err);
     return res.status(500).json({ error: 'internal_error' });
   }
 });
 
 workspaceMemoriesRouter.get('/:id', verifySupabaseAuth, async (req, res) => {
   try {
-    const supabase = getSupabaseClient();
     const { id } = req.params;
+    const { workspaceId } = req.query;
     if (!UUID.test(id)) return res.status(400).json({ error: 'invalid_id' });
-    const { data, error } = await supabase.from('workspace_memories').select('*').eq('id', id).single();
-    if (error) return res.status(404).json({ error: 'not_found' });
-    return res.json({ memory: data });
+    if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
+    const memory = await getNote(getSupabaseClient(), workspaceId, id);
+    if (!memory) return res.status(404).json({ error: 'not_found' });
+    return res.json({ memory });
   } catch (err) {
     return res.status(500).json({ error: 'internal_error' });
   }
@@ -74,50 +80,49 @@ workspaceMemoriesRouter.get('/:id', verifySupabaseAuth, async (req, res) => {
 
 workspaceMemoriesRouter.patch('/:id', verifySupabaseAuth, async (req, res) => {
   try {
-    const supabase = getSupabaseClient();
     const { id } = req.params;
+    const { workspaceId, content, category, is_active } = req.body;
     if (!UUID.test(id)) return res.status(400).json({ error: 'invalid_id' });
-    const { content, is_active } = req.body;
-    const updates = { updated_at: new Date().toISOString() };
-    if (content !== undefined) updates.content = content;
-    if (is_active !== undefined) updates.is_active = is_active;
-    const { data, error } = await supabase.from('workspace_memories').update(updates).eq('id', id).select('*').single();
-    if (error) throw error;
-    return res.json({ memory: data });
+    if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
+    const memory = await updateNote(getSupabaseClient(), workspaceId, id, {
+      content, category, is_active,
+    });
+    if (!memory) return res.status(404).json({ error: 'not_found' });
+    return res.json({ memory });
   } catch (err) {
+    console.error('[PATCH /api/workspace/memories]', err);
     return res.status(500).json({ error: 'internal_error' });
   }
 });
 
 workspaceMemoriesRouter.delete('/:id', verifySupabaseAuth, async (req, res) => {
   try {
-    const supabase = getSupabaseClient();
     const { id } = req.params;
+    const { workspaceId } = req.body;
     if (!UUID.test(id)) return res.status(400).json({ error: 'invalid_id' });
-    await supabase.from('workspace_memories').update({ is_active: false }).eq('id', id);
+    if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
+    await deleteNote(getSupabaseClient(), workspaceId, id);
     return res.json({ ok: true });
   } catch (err) {
     return res.status(500).json({ error: 'internal_error' });
   }
 });
 
+// POST /api/workspace/memories/ingest — used by signal extractors / agents.
+// Body: { workspaceId, content, contact_id?, source?, metadata? }
 workspaceMemoriesRouter.post('/ingest', verifySupabaseAuth, async (req, res) => {
   try {
-    const supabase = getSupabaseClient();
     const { workspaceId, content, contact_id, source = 'manual', metadata = {} } = req.body;
     if (!workspaceId || !content) return res.status(400).json({ error: 'workspaceId and content required' });
-    const { data, error } = await supabase.from('workspace_memories').insert({
-      workspace_id: workspaceId,
+    const memory = await saveNote(getSupabaseClient(), workspaceId, {
+      entityId: contact_id || undefined,
       content,
-      contact_id: contact_id || null,
       source,
       metadata,
-      is_active: true,
-      graph_layer: 'private',
-    }).select('*').single();
-    if (error) throw error;
-    return res.json({ memory: data });
+    });
+    return res.json({ memory });
   } catch (err) {
+    console.error('[POST /api/workspace/memories/ingest]', err);
     return res.status(500).json({ error: 'internal_error' });
   }
 });
