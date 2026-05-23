@@ -339,4 +339,42 @@ program
   });
 
 // ---------------------------------------------------------------------------
-program.name("nous").version("0.2.0").parse();
+// nous classify — pre-flight cold-outbound dedup
+// ---------------------------------------------------------------------------
+program
+  .command("classify")
+  .description("Classify a list of emails against the workspace's engagement history")
+  .option("--emails <list>", "Comma-separated emails (or use --file)")
+  .option("--file <path>", "Path to a file with one email per line (or any text with emails)")
+  .option("--json", "Print the raw JSON response")
+  .action(async ({ emails, file, json }) => {
+    const api = apiClient();
+    let list = [];
+    if (file) {
+      const { readFileSync } = await import("fs");
+      const text = readFileSync(file, "utf8");
+      list = text.match(/[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}/gi) || [];
+    } else if (emails) {
+      list = emails.split(/[\s,]+/).filter(Boolean);
+    } else {
+      console.error("Pass --emails <comma-list> or --file <path>");
+      process.exit(1);
+    }
+    list = [...new Set(list.map(e => e.toLowerCase().trim()))].filter(Boolean);
+    if (!list.length) { console.error("No emails found."); process.exit(1); }
+
+    const data = await api.post("/v2/dedup", { emails: list });
+    if (json) { console.log(JSON.stringify(data, null, 2)); return; }
+    const s = data.summary || {};
+    const pad = (n, w = 6) => String(n).padStart(w);
+    console.log(`\n  ${pad(s.total)}  total`);
+    console.log(`  ${pad(s.net_new)}  net_new       ← safe to send`);
+    console.log(`  ${pad(s.engaged)}  engaged       skip (in an active convo)`);
+    console.log(`  ${pad(s.recent)}  recent        defer (contacted in last 30d)`);
+    console.log(`  ${pad(s.bounced)}  bounced       skip`);
+    console.log(`  ${pad(s.unsubscribed)}  unsubscribed  skip`);
+    console.log(`  ${pad(s.suppressed)}  suppressed    skip (workspace policy)\n`);
+  });
+
+// ---------------------------------------------------------------------------
+program.name("nous").version("0.3.0").parse();

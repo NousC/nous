@@ -19,6 +19,7 @@ export type {
   QueryScope, QueryItem, QueryResult,
   AttentionItem, AttentionResult,
   VerifyResult,
+  DedupStatus, DedupItem, DedupSummary, DedupResult,
 } from './types';
 
 import type {
@@ -28,6 +29,7 @@ import type {
   ObservationInput, RecordResult,
   QueryScope, QueryResult,
   AttentionResult, VerifyResult,
+  DedupResult,
 } from './types';
 import { HttpClient } from './client';
 
@@ -95,5 +97,15 @@ export class Nous {
   /** Re-check a claim before acting on it — the calibration check. */
   verify(focus: string, property: string): Promise<VerifyResult | AmbiguousFocus> {
     return this.http.post<VerifyResult | AmbiguousFocus>('/v2/verify', { focus, property });
+  }
+
+  /**
+   * Cross-list cold-outbound dedup. Given a list of emails, returns which
+   * are safe to cold-send (net_new) and which are not (engaged / recent /
+   * bounced / unsubscribed / suppressed) — checked against every list and
+   * every engagement signal this workspace has ever seen. Max 10,000 per call.
+   */
+  classify(emails: string[]): Promise<DedupResult> {
+    return this.http.post<DedupResult>('/v2/dedup', { emails });
   }
 }
