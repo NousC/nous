@@ -25,6 +25,29 @@ export function normaliseIdentifier(kind: string, value: string): string {
   return kind === 'email' || kind === 'domain' ? v.toLowerCase() : v;
 }
 
+/** Build the v2 Identifier[] list from a v1-style contact data blob. */
+export function identifiersFromContactData(data: {
+  email?: string | null;
+  linkedin_url?: string | null;
+  linkedin_member_id?: string | null;
+  hubspot_id?: string | null;
+  pipedrive_id?: string | null;
+  apollo_id?: string | null;
+  rb2b_id?: string | null;
+  attio_id?: string | null;
+}): Identifier[] {
+  const out: Identifier[] = [];
+  if (data.email)              out.push({ kind: 'email',              value: data.email });
+  if (data.linkedin_url)       out.push({ kind: 'linkedin_url',       value: data.linkedin_url });
+  if (data.linkedin_member_id) out.push({ kind: 'linkedin_member_id', value: data.linkedin_member_id });
+  if (data.hubspot_id)         out.push({ kind: 'hubspot',            value: data.hubspot_id });
+  if (data.pipedrive_id)       out.push({ kind: 'pipedrive',          value: data.pipedrive_id });
+  if (data.apollo_id)          out.push({ kind: 'apollo',             value: data.apollo_id });
+  if (data.rb2b_id)            out.push({ kind: 'rb2b',               value: data.rb2b_id });
+  if (data.attio_id)           out.push({ kind: 'attio',              value: data.attio_id });
+  return out;
+}
+
 /** Resolve a single identifier to its entity id, or null if unknown. */
 export async function resolveEntity(
   supabase: SupabaseClient,
