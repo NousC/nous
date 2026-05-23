@@ -5,7 +5,7 @@
 
 import {
   getSupabaseClient, countActivities,
-  resolveEntity, getOrCreateEntity, mirrorStateToObservations,
+  resolveEntity, getOrCreateEntity,
 } from '@nous/core';
 import { logActivity } from '../../utils/activity.mjs';
 import { enqueueForRetry } from '../../utils/webhookInbox.mjs';
@@ -160,17 +160,7 @@ async function resolveLinkedInContact(supabase, workspaceId, { linkedinUrl, full
     return { contact: null, created: false };
   }
 
-  // Mirror initial state to the v2 substrate.
-  void mirrorStateToObservations(supabase, {
-    workspaceId, entityId: created.id, type: 'person', source: 'linkedin',
-    facts: {
-      first_name: nameParts[0] || null,
-      last_name:  nameParts.slice(1).join(' ') || null,
-      linkedin_url: linkedinUrl || null,
-      pipeline_stage: 'identified',
-    },
-  }).catch(() => {});
-
+  // (No explicit state mirror: the contacts view's INSERT trigger handled it.)
   return { contact: created, created: true };
 }
 
@@ -331,9 +321,6 @@ export async function handleLinkedIn(req, res, workspaceId) {
     const li = ch.linkedin || {};
     const nextChannels = { ...ch, linkedin: { ...li, state: 'connected', connected_at: new Date().toISOString() } };
     await supabase.from('contacts').update({ channels: nextChannels }).eq('id', contact.id);
-    void mirrorStateToObservations(supabase, {
-      workspaceId, entityId: contact.id, type: 'person', source: 'linkedin', facts: { channels: nextChannels },
-    }).catch(() => {});
 
     logSysEvent(supabase, workspaceId, 'linkedin', 'webhook_received',
       `New LinkedIn connection${fullName ? `: ${fullName}` : ''}`,
@@ -415,9 +402,6 @@ export async function handleLinkedIn(req, res, workspaceId) {
         };
         const nextChannels = { ...(row?.channels || {}), linkedin: updatedLi };
         await supabase.from('contacts').update({ channels: nextChannels }).eq('id', contact.id);
-        void mirrorStateToObservations(supabase, {
-          workspaceId, entityId: contact.id, type: 'person', source: 'linkedin', facts: { channels: nextChannels },
-        }).catch(() => {});
 
         // Infer linkedin_connected from DISTANCE_1 if new_relation webhook never fired
         if (isConnected) {

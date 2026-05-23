@@ -4,7 +4,6 @@
 
 import {
   getSupabaseClient,
-  mirrorStateToObservations,
   resolveEntity,
   getOrCreateEntity,
   identifiersFromContactData,
@@ -36,9 +35,6 @@ export async function upsertCompany(supabase, workspaceId, { name, domain }) {
     if (Object.keys(updates).length) {
       const { data: updated } = await supabase.from('companies').update(updates)
         .eq('id', existing.id).select('id').single();
-      void mirrorStateToObservations(supabase, {
-        workspaceId, entityId: existing.id, type: 'company', source: 'webhook', facts: updates,
-      }).catch(() => {});
       return updated || existing;
     }
     return existing;
@@ -47,12 +43,6 @@ export async function upsertCompany(supabase, workspaceId, { name, domain }) {
   const { data: created } = await supabase.from('companies')
     .insert({ workspace_id: workspaceId, name: name || null, domain: normalizedDomain })
     .select('id').single();
-  if (created?.id) {
-    void mirrorStateToObservations(supabase, {
-      workspaceId, entityId: created.id, type: 'company', source: 'webhook',
-      facts: { name, domain: normalizedDomain },
-    }).catch(() => {});
-  }
   return created;
 }
 
@@ -93,17 +83,10 @@ async function mergeContact(supabase, existing, incoming) {
   if (!Object.keys(updates).length) return existing;
   updates.updated_at = new Date().toISOString();
 
+  // The `contacts` view's INSTEAD OF UPDATE trigger writes the v2 state
+  // observations for each changed field — no explicit mirror needed.
   const { data: updated } = await supabase.from('contacts')
     .update(updates).eq('id', existing.id).select('id, company_id, email, channels').single();
-
-  // Mirror the filled fields into the v2 substrate as state observations.
-  void mirrorStateToObservations(supabase, {
-    workspaceId: existing.workspace_id,
-    entityId: existing.id,
-    type: 'person',
-    source: incoming.source || 'webhook',
-    facts: updates,
-  }).catch(() => {});
 
   return { ...existing, ...updates, ...(updated || {}) };
 }
@@ -209,22 +192,9 @@ export async function resolveContact(supabase, workspaceId, data, { createIfMiss
     return { contact: null, created: false };
   }
 
-  // Mirror the new contact's known fields into the v2 substrate.
-  void mirrorStateToObservations(supabase, {
-    workspaceId,
-    entityId: created.id,
-    type: 'person',
-    source: source || 'webhook',
-    facts: {
-      first_name: first_name || name?.split(' ')[0] || null,
-      last_name:  last_name  || name?.split(' ').slice(1).join(' ') || null,
-      job_title, phone, linkedin_url,
-      company: company_name || null,
-      pipeline_stage: 'identified',
-      source: source || 'webhook',
-      first_seen_at: new Date().toISOString(),
-    },
-  }).catch(() => {});
+  // (No explicit state observation mirror: the contacts view's INSERT trigger
+  // already wrote the entity, identifiers, and state observations for every
+  // claim-worthy field above.)
 
   // Fire-and-forget enrichment — never block the webhook response
   enrichContact(supabase, { ...created, workspace_id: workspaceId }).catch(() => {});
