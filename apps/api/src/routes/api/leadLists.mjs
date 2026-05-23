@@ -30,10 +30,13 @@ leadListsRouter.get('/', async (req, res) => {
   }
 });
 
-// POST /api/lead-lists — create a list. Body: { workspaceId, name, source }.
+// POST /api/lead-lists — create a list. Body: { workspaceId?, name, source }.
+// `workspaceId` is optional under API-key auth (the key implies the workspace);
+// required under JWT auth where it identifies the workspace to act on.
 leadListsRouter.post('/', async (req, res) => {
   try {
-    const { workspaceId, name, source } = req.body;
+    const { name, source } = req.body;
+    const workspaceId = req.body.workspaceId || req.workspaceId;
     if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
     if (!name?.trim()) return res.status(400).json({ error: 'name required' });
     const lead_list = await createLeadList(getSupabaseClient(), workspaceId, { name, source });
@@ -89,10 +92,16 @@ leadListsRouter.get('/:id/leads', async (req, res) => {
   }
 });
 
-// POST /api/lead-lists/:id/leads — bulk import. Body: { workspaceId, leads: [...] }.
+// POST /api/lead-lists/:id/leads — bulk import.
+// Body: { workspaceId?, leads: [...], importDuplicates?: boolean }.
+// `workspaceId` is optional under API-key auth (the key implies the workspace).
+// `importDuplicates` defaults to false: rows whose email or normalized
+// linkedin_url already exists in the workspace are skipped. Set true to
+// force-insert; the response always includes a `duplicate_skipped` count.
 leadListsRouter.post('/:id/leads', async (req, res) => {
   try {
-    const { workspaceId, leads } = req.body;
+    const { leads, importDuplicates } = req.body;
+    const workspaceId = req.body.workspaceId || req.workspaceId;
     if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
     if (!Array.isArray(leads) || leads.length === 0) {
       return res.status(400).json({ error: 'leads array required' });
@@ -104,7 +113,9 @@ leadListsRouter.post('/:id/leads', async (req, res) => {
     // The list must exist in this workspace before we bulk-insert into it.
     const lead_list = await getLeadList(supabase, workspaceId, req.params.id);
     if (!lead_list) return res.status(404).json({ error: 'not_found' });
-    const result = await insertLeads(supabase, workspaceId, req.params.id, leads);
+    const result = await insertLeads(supabase, workspaceId, req.params.id, leads, {
+      importDuplicates: Boolean(importDuplicates),
+    });
     return res.status(201).json(result);
   } catch (err) {
     console.error('[POST /api/lead-lists/:id/leads]', err);

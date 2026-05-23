@@ -8,6 +8,7 @@ registerCrmPushHandler(pushActivityToAllCrms);
 
 import { verifyApiKey } from './middleware/apiKey.mjs';
 import { verifySupabaseAuth } from './middleware/supabaseAuth.mjs';
+import { verifyAuthEither } from './middleware/authEither.mjs';
 import { requireAdmin } from './middleware/requireAdmin.mjs';
 import { requireFeature } from './lib/access.mjs';
 
@@ -105,7 +106,7 @@ app.use('/api/workspace/system-log',  systemLogRouter);
 app.use('/api/workspace/api-keys',    verifySupabaseAuth, apiKeysRouter);
 app.use('/api/workspace/memories',    verifySupabaseAuth, workspaceMemoriesRouter);
 app.use('/api/mind',                  verifySupabaseAuth, mindRouter);
-app.use('/api/lead-lists',            verifySupabaseAuth, requireFeature('leadLists'), leadListsRouter);
+app.use('/api/lead-lists',            verifyAuthEither, requireFeature('leadLists'), leadListsRouter);
 app.use('/api/webhooks',              verifySupabaseAuth, webhooksRouter);
 app.use('/api/workflow-providers',    verifySupabaseAuth, workflowProvidersRouter);
 app.use('/api/linkedin',              verifySupabaseAuth, linkedinRouter);
