@@ -13,7 +13,7 @@
 // See docs/adaptive-lead-scoring.md.
 
 import Anthropic from '@anthropic-ai/sdk';
-import { getSupabaseClient, findLeadByEmail, updateLead, addSuppression } from '@nous/core';
+import { getSupabaseClient, findLeadByEmail, updateLead, addSuppression, listActivities } from '@nous/core';
 import { logSysEvent } from '../utils/systemLog.mjs';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -57,26 +57,30 @@ export async function processLeadReplies() {
   const supabase = getSupabaseClient();
   const since = new Date(Date.now() - LOOKBACK_HOURS * 3_600_000).toISOString();
 
-  // Recent inbound reply activities, joined to the contact's email.
-  const { data: activities, error } = await supabase
-    .from('contact_activity_log')
-    .select(
-      'id, workspace_id, contact_id, activity_type, description, summary, ' +
-      'raw_data, occurred_at, contacts(email)',
-    )
-    .in('activity_type', REPLY_ACTIVITY_TYPES)
-    .gte('created_at', since)
-    .order('created_at', { ascending: false })
-    .limit(BATCH);
-
-  if (error) {
-    console.error('[LEAD_REPLIES] scan failed:', error.message);
+  // Recent inbound reply activities (v2: from observations). The email join
+  // moved off the FK chain — we fetch contact emails in a second pass.
+  let activities = [];
+  try {
+    activities = await listActivities(supabase, {
+      types: REPLY_ACTIVITY_TYPES,
+      ingestedSince: since,
+      limit: BATCH,
+    });
+  } catch (err) {
+    console.error('[LEAD_REPLIES] scan failed:', err.message);
     return;
+  }
+
+  if (activities.length) {
+    const ids = [...new Set(activities.map(a => a.contact_id))];
+    const { data: contacts } = await supabase.from('contacts').select('id, email').in('id', ids);
+    const emailById = new Map((contacts || []).map(c => [c.id, c.email]));
+    activities = activities.map(a => ({ ...a, contacts: { email: emailById.get(a.contact_id) || null } }));
   }
 
   let graduated = 0;
 
-  for (const act of activities || []) {
+  for (const act of activities) {
     const email = act.contacts?.email;
     if (!email || !act.contact_id) continue;
 

@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { isUUID, isEmail, normaliseLinkedInUrl, VALID_PIPELINE_STAGES } from '../utils/identity.js';
 import { computeLinkedInChannel } from '../utils/linkedin.js';
 import { listNotes } from './notes.js';
+import { listActivities } from './activities.js';
 import type {
   Contact, ContactProfile, ContactListItem,
   ListContactsParams, CreateContactParams, UpdateContactParams,
@@ -139,22 +140,19 @@ export async function getContactByIdentifier(
     { data: contactMems },
     companyMemResult,
   ] = await Promise.all([
-    supabase.from('contact_activity_log')
-      .select('id, activity_type, description, summary, source, occurred_at, raw_data')
-      .eq('contact_id', row.id).order('occurred_at', { ascending: false }).limit(25),
+    listActivities(supabase, { contactId: row.id as string, limit: 25 }).then(data => ({ data })),
     row.company_id
       ? supabase.from('companies').select('name, domain, industry, employee_count, location').eq('id', row.company_id).single()
       : Promise.resolve({ data: null }),
-    supabase.from('contact_activity_log')
-      .select('activity_type').eq('contact_id', row.id).gte('occurred_at', thirtyDaysAgo),
+    listActivities(supabase, { contactId: row.id as string, since: thirtyDaysAgo, limit: 500 }).then(data => ({ data })),
     listNotes(supabase, workspaceId, { entityId: row.id as string, limit: 20 }).then(data => ({ data })),
     row.company_id
       ? listNotes(supabase, workspaceId, { entityId: row.company_id as string, limit: 20 }).then(data => ({ data }))
       : Promise.resolve({ data: [] }),
   ]);
 
-  const signals30d = (recentSignals || []).reduce<Record<string, number>>((acc, a) => {
-    acc[(a as Record<string, string>).activity_type] = (acc[(a as Record<string, string>).activity_type] || 0) + 1;
+  const signals30d = ((recentSignals as { activity_type: string }[] | null) || []).reduce<Record<string, number>>((acc, a) => {
+    acc[a.activity_type] = (acc[a.activity_type] || 0) + 1;
     return acc;
   }, {});
 
@@ -195,11 +193,11 @@ export async function getContactByIdentifier(
     last_activity_at: (row.last_activity_at as string) || null,
     memory_summary: (row.memory_summary as string) || null,
     company_details: companyResult.data as ContactProfile['company_details'],
-    activities: (activityRows || []).map(a => ({
+    activities: ((activityRows as Array<{ id: string; activity_type: string; description: string | null; summary: string | null; raw_data: Record<string, unknown> | null; source: string | null; occurred_at: string }> | null) || []).map(a => ({
       id: a.id,
       type: a.activity_type,
       description: a.description || a.summary || null,
-      body: a.raw_data?.body || a.raw_data?.message || null,
+      body: ((a.raw_data as Record<string, unknown> | null)?.body as string | null) || ((a.raw_data as Record<string, unknown> | null)?.message as string | null) || null,
       source: a.source || null,
       occurred_at: a.occurred_at,
     })),
@@ -277,17 +275,15 @@ export async function deleteContact(
   const existing = await getContactByIdentifier(supabase, workspaceId, identifier);
   if (!existing) return null;
 
-  // Delete related data first
-  await Promise.all([
-    supabase.from('contact_activity_log').delete().eq('contact_id', existing.id),
-    // Invalidate every note on this contact-entity (claims are never hard-deleted).
-    supabase
-      .from('claims')
-      .update({ invalid_at: new Date().toISOString() })
-      .eq('workspace_id', workspaceId)
-      .eq('entity_id', existing.id)
-      .like('property', 'note.%'),
-  ]);
+  // Invalidate every note on this contact-entity. Event observations stay —
+  // they're the append-only audit trail (deleting a contact doesn't unhappen
+  // the emails/meetings). They go away when the entity row is deleted.
+  await supabase
+    .from('claims')
+    .update({ invalid_at: new Date().toISOString() })
+    .eq('workspace_id', workspaceId)
+    .eq('entity_id', existing.id)
+    .like('property', 'note.%');
 
   await supabase.from('contacts').delete().eq('id', existing.id).eq('workspace_id', workspaceId);
 
