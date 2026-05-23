@@ -3,7 +3,10 @@
 //   message_received — inbound/outbound LinkedIn messages
 //   new_relation     — new 1st-degree connection accepted
 
-import { getSupabaseClient, countActivities } from '@nous/core';
+import {
+  getSupabaseClient, countActivities,
+  resolveEntity, getOrCreateEntity, mirrorStateToObservations,
+} from '@nous/core';
 import { logActivity } from '../../utils/activity.mjs';
 import { enqueueForRetry } from '../../utils/webhookInbox.mjs';
 
@@ -49,30 +52,43 @@ async function matchContactByLinkedInUrl(supabase, workspaceId, rawUrl) {
 async function resolveLinkedInContact(supabase, workspaceId, { linkedinUrl, fullName, memberId }) {
   const SELECT = 'id, company_id, linkedin_url, linkedin_member_id, email, channels, first_name, last_name';
 
-  // Step 1: permanent member ID match
-  if (memberId) {
-    const { data: byMemberId } = await supabase
-      .from('contacts')
-      .select(SELECT)
-      .eq('workspace_id', workspaceId)
-      .eq('linkedin_member_id', memberId)
-      .maybeSingle();
-    if (byMemberId) {
-      if (!byMemberId.linkedin_url && linkedinUrl)
-        await supabase.from('contacts').update({ linkedin_url: linkedinUrl }).eq('id', byMemberId.id).then(null, () => {});
-      return { contact: byMemberId, created: false };
+  // Step 1: v2 entity_identifiers fast path — exact match by member_id / URL.
+  for (const ident of [
+    memberId    && { kind: 'linkedin_member_id', value: memberId },
+    linkedinUrl && { kind: 'linkedin_url',       value: linkedinUrl },
+  ].filter(Boolean)) {
+    const entityId = await resolveEntity(supabase, workspaceId, ident);
+    if (!entityId) continue;
+    const { data } = await supabase.from('contacts').select(SELECT).eq('id', entityId).maybeSingle();
+    if (data) {
+      const patch = {};
+      if (memberId    && !data.linkedin_member_id) patch.linkedin_member_id = memberId;
+      if (linkedinUrl && !data.linkedin_url)       patch.linkedin_url       = linkedinUrl;
+      if (Object.keys(patch).length)
+        await supabase.from('contacts').update(patch).eq('id', data.id).then(null, () => {});
+      return { contact: { ...data, ...patch }, created: false };
     }
   }
 
-  // Step 2: URL slug match
+  // Step 2: URL slug ilike — handles linkedin_url variants entity_identifiers
+  // doesn't catch (www/no-www, query params, trailing slash).
   const byUrl = await matchContactByLinkedInUrl(supabase, workspaceId, linkedinUrl);
   if (byUrl) {
-    if (memberId && !byUrl.linkedin_member_id)
-      await supabase.from('contacts').update({ linkedin_member_id: memberId }).eq('id', byUrl.id).then(null, () => {});
-    return { contact: byUrl, created: false };
+    const patch = {};
+    if (memberId    && !byUrl.linkedin_member_id) patch.linkedin_member_id = memberId;
+    if (linkedinUrl && !byUrl.linkedin_url)       patch.linkedin_url       = linkedinUrl;
+    if (Object.keys(patch).length)
+      await supabase.from('contacts').update(patch).eq('id', byUrl.id).then(null, () => {});
+    // Register what we know in entity_identifiers so step 1 hits next time.
+    const inserts = [];
+    if (memberId)    inserts.push({ workspace_id: workspaceId, entity_id: byUrl.id, kind: 'linkedin_member_id', value: memberId });
+    if (linkedinUrl) inserts.push({ workspace_id: workspaceId, entity_id: byUrl.id, kind: 'linkedin_url',       value: linkedinUrl });
+    if (inserts.length)
+      await supabase.from('entity_identifiers').upsert(inserts, { onConflict: 'workspace_id,kind,value', ignoreDuplicates: true }).then(null, () => {});
+    return { contact: { ...byUrl, ...patch }, created: false };
   }
 
-  // Step 3: first + last name match — use array query to avoid null on multiple matches
+  // Step 3: first + last name match — contacts-only fallback (names aren't v2 identifiers).
   if (fullName) {
     const parts = fullName.trim().split(/\s+/);
     const first = parts[0];
@@ -85,7 +101,6 @@ async function resolveLinkedInContact(supabase, workspaceId, { linkedinUrl, full
         .ilike('first_name', first)
         .ilike('last_name', last)
         .order('created_at', { ascending: true });
-      // Prefer record with existing linkedin_url — more data = more likely canonical
       const byName = nameMatches?.find(c => c.linkedin_url) || nameMatches?.[0] || null;
       if (byName) {
         const patch = {};
@@ -93,18 +108,38 @@ async function resolveLinkedInContact(supabase, workspaceId, { linkedinUrl, full
         if (!byName.linkedin_member_id && memberId)  patch.linkedin_member_id = memberId;
         if (Object.keys(patch).length)
           await supabase.from('contacts').update(patch).eq('id', byName.id).then(null, () => {});
+        const inserts = [];
+        if (memberId)    inserts.push({ workspace_id: workspaceId, entity_id: byName.id, kind: 'linkedin_member_id', value: memberId });
+        if (linkedinUrl) inserts.push({ workspace_id: workspaceId, entity_id: byName.id, kind: 'linkedin_url',       value: linkedinUrl });
+        if (inserts.length)
+          await supabase.from('entity_identifiers').upsert(inserts, { onConflict: 'workspace_id,kind,value', ignoreDuplicates: true }).then(null, () => {});
         return { contact: { ...byName, ...patch }, created: false };
       }
     }
   }
 
-  // Step 4: create — requires at least a LinkedIn URL or a full name
+  // Step 4: create — requires at least a LinkedIn URL or a full name.
   if (!linkedinUrl && !fullName) return { contact: null, created: false };
+
+  const identifiers = [];
+  if (memberId)    identifiers.push({ kind: 'linkedin_member_id', value: memberId });
+  if (linkedinUrl) identifiers.push({ kind: 'linkedin_url',       value: linkedinUrl });
+
+  let entityId;
+  if (identifiers.length) {
+    entityId = await getOrCreateEntity(supabase, workspaceId, 'person', identifiers);
+  } else {
+    const { data: ent } = await supabase.from('entities')
+      .insert({ workspace_id: workspaceId, type: 'person', status: 'active' })
+      .select('id').single();
+    entityId = ent?.id;
+  }
 
   const nameParts = fullName?.trim().split(/\s+/) || [];
   const { data: created, error } = await supabase
     .from('contacts')
     .insert({
+      id:                 entityId,
       workspace_id:       workspaceId,
       first_name:         nameParts[0] || null,
       last_name:          nameParts.slice(1).join(' ') || null,
@@ -117,9 +152,25 @@ async function resolveLinkedInContact(supabase, workspaceId, { linkedinUrl, full
     .single();
 
   if (error) {
+    if (error.code === '23505') {
+      const { data: existing } = await supabase.from('contacts').select(SELECT).eq('id', entityId).maybeSingle();
+      if (existing) return { contact: existing, created: false };
+    }
     console.error('[LINKEDIN_WEBHOOK] contact create failed:', error.message);
     return { contact: null, created: false };
   }
+
+  // Mirror initial state to the v2 substrate.
+  void mirrorStateToObservations(supabase, {
+    workspaceId, entityId: created.id, type: 'person', source: 'linkedin',
+    facts: {
+      first_name: nameParts[0] || null,
+      last_name:  nameParts.slice(1).join(' ') || null,
+      linkedin_url: linkedinUrl || null,
+      pipeline_stage: 'identified',
+    },
+  }).catch(() => {});
+
   return { contact: created, created: true };
 }
 

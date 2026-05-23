@@ -2,7 +2,13 @@
 // Waterfall: external_id → email → linkedin_url → name+email heal → create
 // Used by all webhook handlers except LinkedIn (which has its own linkedin_member_id step).
 
-import { getSupabaseClient, mirrorStateToObservations } from '@nous/core';
+import {
+  getSupabaseClient,
+  mirrorStateToObservations,
+  resolveEntity,
+  getOrCreateEntity,
+  identifiersFromContactData,
+} from '@nous/core';
 import { enrichContact } from './enrichContact.mjs';
 
 // ── Company upsert ────────────────────────────────────────────────────────────
@@ -114,34 +120,23 @@ export async function resolveContact(supabase, workspaceId, data, { createIfMiss
   } = data;
 
   const SELECT = 'id, company_id, email, first_name, last_name, channels, linkedin_url, workspace_id';
+  const identifiers = identifiersFromContactData({
+    email, linkedin_url, hubspot_id, pipedrive_id, apollo_id,
+  });
 
-  // Step 1 — external integration IDs (fastest, zero fuzzy logic)
-  for (const [col, val] of [
-    ['hubspot_id',   hubspot_id],
-    ['pipedrive_id', pipedrive_id],
-    ['apollo_id',    apollo_id],
-  ]) {
-    if (!val) continue;
+  // Step 1 — resolve via entity_identifiers (the v2 lookup); fetch the contact
+  // row by id (entity.id == contact.id under the migration convention).
+  for (const ident of identifiers) {
+    const entityId = await resolveEntity(supabase, workspaceId, ident);
+    if (!entityId) continue;
     const { data: match } = await supabase.from('contacts').select(SELECT)
-      .eq('workspace_id', workspaceId).eq(col, val).maybeSingle();
+      .eq('id', entityId).maybeSingle();
     if (match) return { contact: await mergeContact(supabase, match, data), created: false };
   }
 
-  // Step 2 — email (ground truth)
-  if (email) {
-    const { data: match } = await supabase.from('contacts').select(SELECT)
-      .eq('workspace_id', workspaceId).eq('email', email.toLowerCase().trim()).maybeSingle();
-    if (match) return { contact: await mergeContact(supabase, match, data), created: false };
-  }
-
-  // Step 3 — LinkedIn URL
-  if (linkedin_url) {
-    const { data: match } = await supabase.from('contacts').select(SELECT)
-      .eq('workspace_id', workspaceId).eq('linkedin_url', linkedin_url).maybeSingle();
-    if (match) return { contact: await mergeContact(supabase, match, data), created: false };
-  }
-
-  // Step 3.5 — name heal: contact exists with matching name but no email → patch email in
+  // Step 2 — name heal: contact exists with matching name but no email → patch
+  // email in. Names aren't v2 identifiers (not unique); this is a contacts-only
+  // fallback that Phase 4 retires.
   if (email) {
     const name = full_name || [first_name, last_name].filter(Boolean).join(' ') || null;
     if (name) {
@@ -154,14 +149,18 @@ export async function resolveContact(supabase, workspaceId, data, { createIfMiss
         if (nameMatches?.length === 1) {
           const cleanEmail = email.toLowerCase().trim();
           await supabase.from('contacts').update({ email: cleanEmail }).eq('id', nameMatches[0].id);
-          console.log(`[IDENTITY] Name heal "${name}" → ${cleanEmail} (contact ${nameMatches[0].id})`);
+          // The healed contact now has an email — register it in entity_identifiers
+          await supabase.from('entity_identifiers').insert({
+            workspace_id: workspaceId, entity_id: nameMatches[0].id, kind: 'email', value: cleanEmail,
+          }).then(() => {}, () => {});
+          console.log(`[IDENTITY] Name heal "${name}" → ${cleanEmail} (entity ${nameMatches[0].id})`);
           return { contact: await mergeContact(supabase, { ...nameMatches[0], email: cleanEmail }, data), created: false };
         }
       }
     }
   }
 
-  // Step 4 — no match
+  // Step 3 — no match
   if (!createIfMissing) return { contact: null, created: false };
   if (!email && !linkedin_url) {
     console.warn('[IDENTITY] Cannot create contact without email or linkedin_url');
@@ -178,7 +177,13 @@ export async function resolveContact(supabase, workspaceId, data, { createIfMiss
     companyId = co?.id || null;
   }
 
+  // Create the v2 entity first (and register every identifier on it); then
+  // create the v1 contact row using the entity's id as its primary key, so the
+  // migration convention `contact.id == entity.id` holds for new ingestion.
+  const entityId = await getOrCreateEntity(supabase, workspaceId, 'person', identifiers);
+
   const { data: created, error } = await supabase.from('contacts').insert({
+    id: entityId,
     workspace_id: workspaceId,
     email:        email ? email.toLowerCase().trim() : null,
     first_name:   first_name || name?.split(' ')[0] || null,
@@ -194,11 +199,11 @@ export async function resolveContact(supabase, workspaceId, data, { createIfMiss
   }).select(SELECT).single();
 
   if (error) {
-    // Unique constraint on (workspace_id, email) — race condition, fetch existing
-    if (error.code === '23505' && email) {
+    // PK conflict (entity-first id already has a contact row) — fetch + merge.
+    if (error.code === '23505') {
       const { data: existing } = await supabase.from('contacts').select(SELECT)
-        .eq('workspace_id', workspaceId).eq('email', email.toLowerCase().trim()).maybeSingle();
-      if (existing) return { contact: existing, created: false };
+        .eq('id', entityId).maybeSingle();
+      if (existing) return { contact: await mergeContact(supabase, existing, data), created: false };
     }
     console.error('[IDENTITY] Create error:', error.message);
     return { contact: null, created: false };
