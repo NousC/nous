@@ -9,7 +9,7 @@ import { PageHeader } from "@/components/ui/page-header";
 const apiUrl = import.meta.env.VITE_API_URL ?? "";
 const PAGE_SIZE = 50;
 
-type CoTab = "overview" | "activity" | "memory";
+type CoTab = "overview" | "activity" | "facts";
 type CoSort = { col: string; dir: "asc"|"desc" };
 
 export default function Companies() {
@@ -140,7 +140,7 @@ export default function Companies() {
     const CO_TABS: { id: CoTab; label: string; count?: number }[] = [
       { id:"overview",  label:"Overview"                    },
       { id:"activity",  label:"Activity",  count:coActs.length },
-      { id:"memory",    label:"Memory",    count:coMems.length },
+      { id:"facts",     label:"Facts",     count:coMems.length },
     ];
     return (
       <div className="h-full bg-background">
@@ -214,7 +214,7 @@ export default function Companies() {
                     </div>
               ) : (
                 coMems.length === 0
-                  ? <p className="text-[13px] text-muted-foreground/70 text-center py-12">No memories yet</p>
+                  ? <p className="text-[13px] text-muted-foreground/70 text-center py-12">No facts yet</p>
                   : <div className="divide-y divide-border/60">
                       {coMems.map((m:any) => (
                         <div key={m.id} className="py-3">
