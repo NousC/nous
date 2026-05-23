@@ -4,7 +4,7 @@
 // ============================================================
 
 import Anthropic from '@anthropic-ai/sdk';
-import { logActivity, listSignals, scoreLead, mirrorStateToObservations, listNotes } from '@nous/core';
+import { logActivity, listSignals, scoreLead, mirrorStateToObservations, listNotes, listActivities } from '@nous/core';
 import { decrypt } from '../utils/encryption.js';
 
 async function logSysEvent(supabase, workspaceId, source, eventType, summary, contactId, metadata) {
@@ -801,14 +801,8 @@ export async function updateDealHealthScore(supabase, contactId, workspaceId, tr
   const days30Iso = new Date(nowMs - 30 * 86400000).toISOString();
   const days60Iso = new Date(nowMs - 60 * 86400000).toISOString();
 
-  // Fetch all activities for this contact
-  const { data: activities } = await supabase
-    .from('contact_activity_log')
-    .select('activity_type, occurred_at, source, raw_data')
-    .eq('contact_id', contactId)
-    .order('occurred_at', { ascending: false });
-
-  const rows = activities || [];
+  // Fetch all activities for this contact (v2: from observations).
+  const rows = await listActivities(supabase, { contactId, limit: 2000 });
 
   // Hard rule: fewer than 2 qualified activities → insufficient data
   const qualifiedCount = rows.filter(a => QUALIFIED_TYPES.has(a.activity_type)).length;
@@ -978,15 +972,22 @@ export async function updateDealHealthScore(supabase, contactId, workspaceId, tr
   let s12 = null;
 
   if (contact.company_id) {
-    // Signal 11: Stakeholder coverage (max 15)
-    const { data: stakeholderRows } = await supabase
-      .from('contact_activity_log')
-      .select('contact_id')
-      .eq('company_id', contact.company_id)
-      .gte('occurred_at', days60Iso)
-      .in('activity_type', [...QUALIFIED_TYPES]);
-
-    const distinctStakeholders = new Set((stakeholderRows || []).map(r => r.contact_id)).size;
+    // Signal 11: Stakeholder coverage (max 15) — distinct contacts at this
+    // company with a qualified interaction in the last 60 days.
+    const { data: companyContacts } = await supabase
+      .from('contacts')
+      .select('id')
+      .eq('company_id', contact.company_id);
+    const companyContactIds = (companyContacts || []).map(c => c.id);
+    const stakeholderRows = companyContactIds.length
+      ? await listActivities(supabase, {
+          contactIds: companyContactIds,
+          since: days60Iso,
+          types: [...QUALIFIED_TYPES],
+          limit: 500,
+        })
+      : [];
+    const distinctStakeholders = new Set(stakeholderRows.map(r => r.contact_id)).size;
     s11 = distinctStakeholders >= 3 ? 15 : distinctStakeholders === 2 ? 10 : 5;
     rawPositive += s11; activeMax += 15;
     breakdown.s11_stakeholders = s11;
@@ -1008,14 +1009,13 @@ export async function updateDealHealthScore(supabase, contactId, workspaceId, tr
         .neq('id', contactId);
 
       if (seniorContacts?.length > 0) {
-        const { data: seniorActivity } = await supabase
-          .from('contact_activity_log')
-          .select('contact_id')
-          .in('contact_id', seniorContacts.map(c => c.id))
-          .gte('occurred_at', days60Iso)
-          .in('activity_type', [...QUALIFIED_TYPES])
-          .limit(1);
-        s12 = seniorActivity?.length > 0 ? 15 : 0;
+        const seniorActivity = await listActivities(supabase, {
+          contactIds: seniorContacts.map(c => c.id),
+          since: days60Iso,
+          types: [...QUALIFIED_TYPES],
+          limit: 1,
+        });
+        s12 = seniorActivity.length > 0 ? 15 : 0;
       } else {
         s12 = 0; // Case C: IC/manager, no senior contact at company
       }

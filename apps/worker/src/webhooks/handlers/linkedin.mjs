@@ -3,7 +3,7 @@
 //   message_received — inbound/outbound LinkedIn messages
 //   new_relation     — new 1st-degree connection accepted
 
-import { getSupabaseClient } from '@nous/core';
+import { getSupabaseClient, countActivities } from '@nous/core';
 import { logActivity } from '../../utils/activity.mjs';
 import { enqueueForRetry } from '../../utils/webhookInbox.mjs';
 
@@ -254,12 +254,9 @@ export async function handleLinkedIn(req, res, workspaceId) {
     if (!contact) return res.json({ ok: true, skipped: 'could not resolve contact' });
 
     // Deduplicate — Unipile re-fires new_relation on re-auth
-    const { count: alreadyConnected } = await supabase
-      .from('contact_activity_log')
-      .select('id', { count: 'exact', head: true })
-      .eq('contact_id', contact.id)
-      .eq('activity_type', 'linkedin_connected')
-      .eq('source', 'linkedin');
+    const alreadyConnected = await countActivities(supabase, {
+      contactId: contact.id, types: ['linkedin_connected'], source: 'linkedin',
+    });
     if (alreadyConnected > 0) {
       console.log(`[LINKEDIN_WEBHOOK] ${contact.id} already has linkedin_connected — skipping duplicate`);
       return res.json({ ok: true, contactId: contact.id, type: 'connection_already_logged' });
@@ -369,12 +366,9 @@ export async function handleLinkedIn(req, res, workspaceId) {
 
         // Infer linkedin_connected from DISTANCE_1 if new_relation webhook never fired
         if (isConnected) {
-          const { count: alreadyConnected } = await supabase
-            .from('contact_activity_log')
-            .select('id', { count: 'exact', head: true })
-            .eq('contact_id', contact.id)
-            .eq('activity_type', 'linkedin_connected')
-            .eq('source', 'linkedin');
+          const alreadyConnected = await countActivities(supabase, {
+            contactId: contact.id, types: ['linkedin_connected'], source: 'linkedin',
+          });
           if (!alreadyConnected) {
             await logActivity(supabase, {
               workspaceId,
@@ -418,12 +412,9 @@ export async function handleLinkedIn(req, res, workspaceId) {
     if (created) {
       backfillLinkedInMessages(supabase, workspaceId, contact.id, { linkedinUrl, chatId }).catch(() => {});
     } else {
-      const { count: priorMsgCount } = await supabase
-        .from('contact_activity_log')
-        .select('id', { count: 'exact', head: true })
-        .eq('contact_id', contact.id)
-        .eq('activity_type', 'linkedin_message')
-        .eq('source', 'linkedin');
+      const priorMsgCount = await countActivities(supabase, {
+        contactId: contact.id, types: ['linkedin_message'], source: 'linkedin',
+      });
       if (!priorMsgCount) {
         backfillLinkedInMessages(supabase, workspaceId, contact.id, { linkedinUrl, chatId }).catch(() => {});
       }

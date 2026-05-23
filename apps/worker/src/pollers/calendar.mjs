@@ -4,7 +4,7 @@
 // Dedup is handled by externalId (gcal_{event.id}).
 
 import { google } from 'googleapis';
-import { getSupabaseClient } from '@nous/core';
+import { getSupabaseClient, listActivities } from '@nous/core';
 import { logActivity } from '../utils/activity.mjs';
 import { refreshGoogleToken } from '../utils/googleOAuth.mjs';
 
@@ -124,14 +124,14 @@ async function pollWorkspace(supabase, conn) {
         contact = candidates[0];
       } else {
         // Tiebreak: contact with recent meeting-intent activity wins
-        const { data: recentActs } = await supabase
-          .from('contact_activity_log')
-          .select('contact_id, description')
-          .in('contact_id', candidates.map(c => c.id))
-          .gte('occurred_at', new Date(Date.now() - 14 * 86400000).toISOString());
+        const recentActs = await listActivities(supabase, {
+          contactIds: candidates.map(c => c.id),
+          since: new Date(Date.now() - 14 * 86400000).toISOString(),
+          limit: 500,
+        });
 
         const scores = new Map(candidates.map(c => [c.id, 0]));
-        for (const act of recentActs || []) {
+        for (const act of recentActs) {
           if (MEETING_RE.test(act.description || '')) {
             scores.set(act.contact_id, (scores.get(act.contact_id) || 0) + 1);
           }

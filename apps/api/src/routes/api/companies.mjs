@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getSupabaseClient, listNotes } from '@nous/core';
+import { getSupabaseClient, listNotes, listActivities } from '@nous/core';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
 import { enrichCompany } from '../../services/enrichment.mjs';
 
@@ -112,8 +112,7 @@ companiesApiRouter.get('/:id/activity-and-memory', verifySupabaseAuth, async (re
 
     let activities = [], memories = [];
     if (contactIds.length) {
-      const { data: acts } = await supabase.from('contact_activity_log').select('*').in('contact_id', contactIds).order('occurred_at', { ascending: false }).limit(50);
-      activities = acts || [];
+      activities = await listActivities(supabase, { contactIds, limit: 50 });
 
       // Notes attached to any of the company's contacts (entity_id == contact_id).
       memories = await listNotes(supabase, workspaceId, { entityIds: contactIds, limit: 20 });
@@ -142,9 +141,9 @@ companiesApiRouter.get('/:id/graph', verifySupabaseAuth, async (req, res) => {
     let signals = [], memories = [];
     if (contactIds.length) {
       const cutoff = new Date(Date.now() - 90 * 86400000).toISOString();
-      const { data: acts } = await supabase.from('contact_activity_log').select('id, contact_id, activity_type, source, occurred_at, summary').in('contact_id', contactIds).gte('occurred_at', cutoff).order('occurred_at', { ascending: false }).limit(contactIds.length * 4);
+      const acts = await listActivities(supabase, { contactIds, since: cutoff, limit: contactIds.length * 4 });
       const counts = {};
-      signals = (acts || []).filter(a => { counts[a.contact_id] = (counts[a.contact_id] || 0) + 1; return counts[a.contact_id] <= 4; });
+      signals = acts.filter(a => { counts[a.contact_id] = (counts[a.contact_id] || 0) + 1; return counts[a.contact_id] <= 4; });
 
       // Latest 2 notes per contact — entity_id == contact_id in v2.
       const memResults = await Promise.all(contactIds.map(cid =>
@@ -210,9 +209,9 @@ companiesApiRouter.get('/contact-graph', verifySupabaseAuth, async (req, res) =>
     const { data: contacts } = await supabase.from('contacts').select('id, first_name, last_name, email, job_title, pipeline_stage, deal_health_score, last_activity_at').eq('workspace_id', workspaceId).in('id', contactIds);
 
     const cutoff = new Date(Date.now() - 90 * 86400000).toISOString();
-    const { data: acts } = await supabase.from('contact_activity_log').select('id, contact_id, activity_type, source, occurred_at, summary').in('contact_id', contactIds).gte('occurred_at', cutoff).order('occurred_at', { ascending: false }).limit(contactIds.length * 4);
+    const acts = await listActivities(supabase, { contactIds, since: cutoff, limit: contactIds.length * 4 });
     const counts = {};
-    const signals = (acts || []).filter(a => { counts[a.contact_id] = (counts[a.contact_id] || 0) + 1; return counts[a.contact_id] <= 4; });
+    const signals = acts.filter(a => { counts[a.contact_id] = (counts[a.contact_id] || 0) + 1; return counts[a.contact_id] <= 4; });
 
     const synthetic = { id: 'synthetic', name: companyName || 'Company', deal_health_score: null };
     return res.json({ company: synthetic, contacts: contacts || [], signals, memories: [] });

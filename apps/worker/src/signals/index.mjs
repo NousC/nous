@@ -4,7 +4,7 @@
 // Graph edges (REPORTS_TO, BUDGET_HOLDER_AT, etc.) extracted from each fact → workspace_graph_edges.
 
 import Anthropic from '@anthropic-ai/sdk';
-import { listNotes, saveNote, updateNote, searchClaims } from '@nous/core';
+import { listNotes, saveNote, updateNote, searchClaims, listActivities } from '@nous/core';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -149,16 +149,12 @@ Return [] if no clear two-entity relationship. ONLY valid JSON array, no other t
 async function refreshContactBlock(supabase, contactId, workspaceId) {
   try {
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-    const [{ data: contact }, { data: recentActs }, { data: facts }] = await Promise.all([
+    const [{ data: contact }, recentActs, factList] = await Promise.all([
       supabase.from('contacts').select('first_name, last_name, email, pipeline_stage, company, summary_generated_at').eq('id', contactId).single(),
-      supabase.from('contact_activity_log').select('activity_type, description, occurred_at')
-        .eq('contact_id', contactId).gte('occurred_at', thirtyDaysAgo)
-        .order('occurred_at', { ascending: false }).limit(15),
+      listActivities(supabase, { contactId, since: thirtyDaysAgo, limit: 15 }),
       listNotes(supabase, workspaceId, { entityId: contactId, limit: 15 }),
     ]);
-    // listNotes returns the array directly (not wrapped in {data}).
-    const factList = Array.isArray(facts) ? facts : (facts?.data ?? []);
-    if (!contact || (!recentActs?.length && !factList.length)) return;
+    if (!contact || (!recentActs.length && !factList.length)) return;
 
     // Debounce: skip if summary was regenerated in the last 30 minutes (burst protection)
     if (contact.summary_generated_at) {
@@ -170,7 +166,7 @@ async function refreshContactBlock(supabase, contactId, workspaceId) {
     }
 
     const name = [contact.first_name, contact.last_name].filter(Boolean).join(' ') || contact.email;
-    const actLines  = (recentActs || []).slice(0, 8).map(a =>
+    const actLines  = recentActs.slice(0, 8).map(a =>
       `- ${a.activity_type}${a.description ? `: ${a.description}` : ''} (${new Date(a.occurred_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})`
     ).join('\n');
     const factLines = factList.map(f => `- ${f.content}`).join('\n');

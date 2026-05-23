@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
-import { getSupabaseClient } from '@nous/core';
+import { getSupabaseClient, logActivity, hasActivityWithExternalId } from '@nous/core';
 import { resolveContact } from '../../services/enrichment.mjs';
 
 export const signalsRouter = Router();
@@ -74,19 +74,17 @@ publicSignalsRouter.post('/ingest', async (req, res) => {
 
       const pageSlug = (page || 'visit').replace(/[^a-z0-9]/gi, '_').slice(0, 30);
       const externalId = `rb2b_${(email || linkedin_url).replace(/[^a-z0-9@.]/gi, '_')}_${pageSlug}`;
-      const { data: dup } = await supabase.from('contact_activity_log').select('id')
-        .eq('workspace_id', workspaceId).eq('external_id', externalId).maybeSingle();
-      if (dup) return;
+      if (await hasActivityWithExternalId(supabase, workspaceId, 'rb2b', externalId)) return;
 
-      await supabase.from('contact_activity_log').insert({
-        workspace_id:  workspaceId,
-        contact_id:    contact.id,
-        company_id:    contact.company_id || null,
-        activity_type: 'website_visit',
-        source:        'rb2b',
-        external_id:   externalId,
-        occurred_at:   new Date().toISOString(),
-        description:   page ? `Visited ${page}` : 'Website visit detected',
+      await logActivity(supabase, {
+        workspaceId,
+        contactId:   contact.id,
+        companyId:   contact.company_id || null,
+        type:        'website_visit',
+        source:      'rb2b',
+        externalId,
+        occurredAt:  new Date().toISOString(),
+        description: page ? `Visited ${page}` : 'Website visit detected',
       });
       console.log(`[SIGNALS_INGEST] rb2b website_visit — contact=${contact.id}`);
 
@@ -116,18 +114,18 @@ publicSignalsRouter.post('/ingest', async (req, res) => {
 
       const domainKey = normalDomain || company_name.replace(/\s/g, '_').toLowerCase();
       const externalId = `signalbase_${domainKey}_${new Date().toISOString().slice(0, 10)}`;
-      const { data: dup } = await supabase.from('contact_activity_log').select('id')
-        .eq('workspace_id', workspaceId).eq('external_id', externalId).maybeSingle();
-      if (dup) return;
+      if (await hasActivityWithExternalId(supabase, workspaceId, 'signalbase', externalId)) return;
 
-      await supabase.from('contact_activity_log').insert({
-        workspace_id:  workspaceId,
-        company_id:    companyId,
-        activity_type: 'website_visit',
-        source:        'signalbase',
-        external_id:   externalId,
-        occurred_at:   new Date().toISOString(),
-        description:   page
+      // Company-scoped event — attach to the company entity directly.
+      await logActivity(supabase, {
+        workspaceId,
+        contactId:   companyId,         // entityId fallback
+        entityId:    companyId,
+        type:        'website_visit',
+        source:      'signalbase',
+        externalId,
+        occurredAt:  new Date().toISOString(),
+        description: page
           ? `${company_name || domain} visited ${page}`
           : `Company website visit: ${company_name || domain}`,
       });
