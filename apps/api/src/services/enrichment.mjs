@@ -616,8 +616,7 @@ export async function upsertCompany(supabase, workspaceId, data) {
 // ── ICP scoring ──────────────────────────────────────────────────────────────
 
 export async function scoreICP(supabase, workspaceId, contact) {
-  // Point-in-time feature snapshot — drives Scorecard scoring AND the
-  // mind_episodes record the learning loop re-scores against. Company-level
+  // Point-in-time feature snapshot that drives Scorecard scoring. Company-level
   // features are merged in below once the contact's company is known.
   let features = {
     job_title:  contact.job_title  || null,
@@ -717,28 +716,9 @@ export async function scoreICP(supabase, workspaceId, contact) {
       icp_scored_at: new Date().toISOString(),
     }).eq('id', contact.id);
 
-    // The Mind — snapshot this prediction so the outcome job and learning loop
-    // can join it to the realized outcome. Non-fatal: a failed snapshot must
-    // not block scoring. See docs/adaptive-lead-scoring.md.
-    const { data: stageRow } = await supabase
-      .from('contacts')
-      .select('pipeline_stage')
-      .eq('id', contact.id)
-      .maybeSingle();
-    const { error: episodeErr } = await supabase.from('mind_episodes').insert({
-      workspace_id:          workspaceId,
-      contact_id:            contact.id,
-      company_id:            contact.company_id || null,
-      kind:                  'icp_score',
-      predicted_score:       score,
-      predicted_fit:         fit,
-      predicted_reason:      reasoning,
-      basis_memory_ids:      basisMemoryIds,
-      model,
-      outcome_pipeline_from: stageRow?.pipeline_stage || contact.pipeline_stage || 'identified',
-      features,
-    });
-    if (episodeErr) console.warn('[MIND_EPISODE] snapshot failed for contact', contact.id, ':', episodeErr.message);
+    // The prediction snapshot now lives in the v2 substrate: the scoreEntities
+    // worker stakes an `icp_fit` prediction from the entity's claims, and the
+    // outcome job resolves it. (Was: a mind_episodes insert here.)
 
     const fitLabel = score >= 75 ? 'Strong fit' : score >= 50 ? 'Potential fit' : 'Weak fit';
     await logActivity(supabase, {
