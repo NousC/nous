@@ -200,7 +200,8 @@ SELECT
   e.created_at,
   COALESCE((SELECT max(computed_at) FROM claims WHERE entity_id = e.id), e.created_at) AS updated_at
 FROM entities e
-LEFT JOIN collection_entities ce ON ce.entity_id = e.id
+INNER JOIN collection_entities ce ON ce.entity_id = e.id
+INNER JOIN collections c ON c.id = ce.collection_id AND c.kind = 'list'
 WHERE e.type = 'person' AND e.status = 'active';
 
 -- ── Step 5: INSTEAD OF triggers ───────────────────────────────────────────
