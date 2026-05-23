@@ -29,7 +29,7 @@ CROSS JOIN LATERAL (VALUES
 ) AS k(kind, value)
 WHERE k.value IS NOT NULL
   AND c.id IN (SELECT id FROM entities)
-ON CONFLICT (workspace_id, kind, value) DO NOTHING;
+ON CONFLICT DO NOTHING;
 
 -- 1b) Remaining contact claim-worthy columns
 INSERT INTO claims (workspace_id, entity_id, property, value,
@@ -112,7 +112,7 @@ CROSS JOIN LATERAL (VALUES
 ) AS k(kind, value)
 WHERE k.value IS NOT NULL
   AND co.id IN (SELECT id FROM entities)
-ON CONFLICT (workspace_id, kind, value) DO NOTHING;
+ON CONFLICT DO NOTHING;
 
 INSERT INTO claims (workspace_id, entity_id, property, value,
                     confidence, epistemic_class, freshness, last_observed_at, computed_at)
@@ -301,7 +301,7 @@ BEGIN
     ('stripe',             NULLIF(trim(NEW.stripe_customer_id),''))
   ) AS k(kind, value)
   WHERE k.value IS NOT NULL
-  ON CONFLICT (workspace_id, kind, value) DO NOTHING;
+  ON CONFLICT DO NOTHING;
 
   -- state observations for every claim-worthy field that's non-null
   INSERT INTO observations (workspace_id, entity_id, kind, property, value, source, method, observed_at)
@@ -402,7 +402,7 @@ BEGIN
     ('stripe',             NULLIF(trim(NEW.stripe_customer_id),''))
   ) AS k(kind, value)
   WHERE k.value IS NOT NULL
-  ON CONFLICT (workspace_id, kind, value) DO NOTHING;
+  ON CONFLICT DO NOTHING;
 
   -- State observations for every field that materially changed
   INSERT INTO observations (workspace_id, entity_id, kind, property, value, source, method, observed_at)
@@ -514,7 +514,7 @@ BEGIN
     ('attio_company',   NULLIF(trim(NEW.attio_company_id),''))
   ) AS k(kind, value)
   WHERE k.value IS NOT NULL
-  ON CONFLICT (workspace_id, kind, value) DO NOTHING;
+  ON CONFLICT DO NOTHING;
 
   INSERT INTO observations (workspace_id, entity_id, kind, property, value, source, method, observed_at)
   SELECT ws, new_id, 'state', k.property, k.value, 'v1_compat', 'trigger', now() FROM (VALUES
@@ -558,7 +558,7 @@ BEGIN
     ('attio_company',   NULLIF(trim(NEW.attio_company_id),''))
   ) AS k(kind, value)
   WHERE k.value IS NOT NULL
-  ON CONFLICT (workspace_id, kind, value) DO NOTHING;
+  ON CONFLICT DO NOTHING;
 
   INSERT INTO observations (workspace_id, entity_id, kind, property, value, source, method, observed_at)
   SELECT ws, OLD.id, 'state', k.property, k.new_v, 'v1_compat', 'trigger', now() FROM (VALUES
