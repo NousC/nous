@@ -3,6 +3,7 @@ import { isUUID, isEmail, normaliseLinkedInUrl, VALID_PIPELINE_STAGES } from '..
 import { computeLinkedInChannel } from '../utils/linkedin.js';
 import { listNotes } from './notes.js';
 import { listActivities } from './activities.js';
+import { fetchEntityOverlays, applyContactOverlay } from './entities.js';
 import type {
   Contact, ContactProfile, ContactListItem,
   ListContactsParams, CreateContactParams, UpdateContactParams,
@@ -104,8 +105,13 @@ export async function listContacts(
   const { data, error, count } = await query;
   if (error) throw error;
 
+  // Overlay v2 substrate values on top of the v1 rows where claims/identifiers/
+  // predictions carry fresher data. Phase 4a — v1 columns remain the fallback.
+  const rows = (data || []) as Record<string, unknown>[];
+  const overlays = await fetchEntityOverlays(supabase, rows.map(r => r.id as string));
+
   return {
-    contacts: (data || []).map(formatContact),
+    contacts: rows.map(r => formatContact(applyContactOverlay(r, overlays.get(r.id as string)))),
     total: count || 0,
     limit: limitNum,
     offset: offsetNum,
@@ -130,6 +136,10 @@ export async function getContactByIdentifier(
   }
 
   if (!row) return null;
+
+  // Overlay the v2 substrate onto the v1 contact row.
+  const overlays = await fetchEntityOverlays(supabase, [row.id as string]);
+  row = applyContactOverlay(row, overlays.get(row.id as string));
 
   const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
