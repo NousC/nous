@@ -4,7 +4,7 @@
 // Graph edges (REPORTS_TO, BUDGET_HOLDER_AT, etc.) extracted from each fact → workspace_graph_edges.
 
 import Anthropic from '@anthropic-ai/sdk';
-import { listNotes, saveNote, updateNote, searchClaims, listActivities } from '@nous/core';
+import { listNotes, saveNote, updateNote, searchClaims, listActivities, mirrorStateToObservations } from '@nous/core';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -186,6 +186,10 @@ Second sentence: the single most important thing to know right now — the block
         memory_summary: newSummary,
         summary_generated_at: new Date().toISOString(),
       }).eq('id', contactId);
+      void mirrorStateToObservations(supabase, {
+        workspaceId, entityId: contactId, type: 'person', source: 'signal_extraction',
+        facts: { memory_summary: newSummary },
+      }).catch(() => {});
       console.log(`[CONTACT_BLOCK] summary refreshed — contact ${contactId}`);
     }
   } catch (err) {

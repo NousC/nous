@@ -329,9 +329,11 @@ export async function handleLinkedIn(req, res, workspaceId) {
     const { data: chRow } = await supabase.from('contacts').select('channels').eq('id', contact.id).single();
     const ch = chRow?.channels || {};
     const li = ch.linkedin || {};
-    await supabase.from('contacts').update({
-      channels: { ...ch, linkedin: { ...li, state: 'connected', connected_at: new Date().toISOString() } },
-    }).eq('id', contact.id);
+    const nextChannels = { ...ch, linkedin: { ...li, state: 'connected', connected_at: new Date().toISOString() } };
+    await supabase.from('contacts').update({ channels: nextChannels }).eq('id', contact.id);
+    void mirrorStateToObservations(supabase, {
+      workspaceId, entityId: contact.id, type: 'person', source: 'linkedin', facts: { channels: nextChannels },
+    }).catch(() => {});
 
     logSysEvent(supabase, workspaceId, 'linkedin', 'webhook_received',
       `New LinkedIn connection${fullName ? `: ${fullName}` : ''}`,
@@ -411,9 +413,11 @@ export async function handleLinkedIn(req, res, workspaceId) {
           awaiting_reply:    isSender,
           last_message_at:   occurredAt,
         };
-        await supabase.from('contacts').update({
-          channels: { ...(row?.channels || {}), linkedin: updatedLi },
-        }).eq('id', contact.id);
+        const nextChannels = { ...(row?.channels || {}), linkedin: updatedLi };
+        await supabase.from('contacts').update({ channels: nextChannels }).eq('id', contact.id);
+        void mirrorStateToObservations(supabase, {
+          workspaceId, entityId: contact.id, type: 'person', source: 'linkedin', facts: { channels: nextChannels },
+        }).catch(() => {});
 
         // Infer linkedin_connected from DISTANCE_1 if new_relation webhook never fired
         if (isConnected) {

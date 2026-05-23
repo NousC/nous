@@ -13,12 +13,26 @@ import type { EntityType } from './entities.js';
 // Columns that carry a real, claim-worthy fact. Anything not listed — ids,
 // timestamps, status flags, raw blobs — is v1 bookkeeping, not a belief.
 const PERSON_PROPS = new Set([
+  // Profile
   'first_name', 'last_name', 'job_title', 'seniority', 'department',
-  'phone', 'city', 'country', 'linkedin_url', 'company', 'pipeline_stage',
+  'phone', 'city', 'country', 'linkedin_url', 'company', 'photo_url',
+  // Pipeline / lifecycle
+  'pipeline_stage', 'stage_locked', 'source', 'first_seen_at',
+  // Channels (LinkedIn / email / etc. state — JSONB)
+  'channels',
+  // Deal state
+  'deal_health_score', 'deal_health_breakdown', 'deal_stage', 'deal_value',
+  // Enrichment process state
+  'enrichment_status', 'enriched_at',
+  // LLM-derived summary
+  'memory_summary',
 ]);
 const COMPANY_PROPS = new Set([
   'name', 'domain', 'industry', 'employee_count', 'location',
   'revenue_range', 'tech_stack',
+  'enrichment_status', 'enriched_at',
+  'deal_health_score',
+  'hubspot_company_id', 'apollo_account_id',
 ]);
 
 const PROPS_BY_TYPE: Partial<Record<EntityType, Set<string>>> = {
