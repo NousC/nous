@@ -118,15 +118,42 @@ export interface LeadInput {
   fields?: Record<string, unknown>;
 }
 
+// Normalize a LinkedIn URL for cross-list dedup. Same transforms Proply
+// Connect's engagement engine uses, so the two stay in sync: lowercase, force
+// https, drop www., drop query/fragment, drop trailing slashes.
+function normalizeLinkedInUrl(u: string | null | undefined): string | null {
+  if (!u) return null;
+  const trimmed = u.trim();
+  if (!trimmed) return null;
+  return trimmed
+    .toLowerCase()
+    .replace(/^http:\/\//, 'https://')
+    .replace(/^https?:\/\/www\./, 'https://')
+    .replace(/[?#].*$/, '')
+    .replace(/\/+$/, '');
+}
+
 // Bulk-insert leads into a list. Rows with neither an email nor a LinkedIn URL
 // are dropped — there would be no way to resolve a reply back to them.
+//
+// By default rows whose email or normalized LinkedIn URL already exists in the
+// workspace are skipped (workspace-wide dedup, matching how operators expect
+// re-imports to behave). Pass `{ importDuplicates: true }` to force-insert.
+//
+// Response counts:
+//   - inserted          rows actually written
+//   - skipped           total rows not written (no-identifier + duplicates)
+//   - duplicate_skipped of `skipped`, how many were dedup matches
 export async function insertLeads(
   supabase: SupabaseClient,
   workspaceId: string,
   leadListId: string,
   rows: LeadInput[],
-): Promise<{ inserted: number; skipped: number }> {
-  if (!isUUID(leadListId) || rows.length === 0) return { inserted: 0, skipped: 0 };
+  opts: { importDuplicates?: boolean } = {},
+): Promise<{ inserted: number; skipped: number; duplicate_skipped: number }> {
+  if (!isUUID(leadListId) || rows.length === 0) {
+    return { inserted: 0, skipped: 0, duplicate_skipped: 0 };
+  }
 
   const payload = rows
     .map(r => ({
@@ -143,12 +170,58 @@ export async function insertLeads(
     }))
     .filter(r => r.email || r.linkedin_url);
 
-  const skipped = rows.length - payload.length;
-  if (payload.length === 0) return { inserted: 0, skipped };
+  const droppedNoIdentifier = rows.length - payload.length;
 
-  const { data, error } = await supabase.from('leads').insert(payload).select('id');
+  let toInsert = payload;
+  let duplicateSkipped = 0;
+
+  if (!opts.importDuplicates && payload.length > 0) {
+    // Pull every existing email + linkedin_url in the workspace, paginated,
+    // and filter the incoming payload through them. Workspace-wide so the
+    // same person doesn't end up in two lists as two rows.
+    const existingEmails = new Set<string>();
+    const existingUrls = new Set<string>();
+    const PAGE = 1000;
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await supabase
+        .from('leads')
+        .select('email, linkedin_url')
+        .eq('workspace_id', workspaceId)
+        .range(from, from + PAGE - 1);
+      if (error) throw error;
+      if (!data || data.length === 0) break;
+      for (const row of data) {
+        if (row.email) existingEmails.add(row.email.toLowerCase().trim());
+        const u = normalizeLinkedInUrl(row.linkedin_url);
+        if (u) existingUrls.add(u);
+      }
+      if (data.length < PAGE) break;
+    }
+
+    toInsert = payload.filter(r => {
+      if (r.email && existingEmails.has(r.email)) return false;
+      const u = normalizeLinkedInUrl(r.linkedin_url);
+      if (u && existingUrls.has(u)) return false;
+      return true;
+    });
+    duplicateSkipped = payload.length - toInsert.length;
+  }
+
+  if (toInsert.length === 0) {
+    return {
+      inserted: 0,
+      skipped: droppedNoIdentifier + duplicateSkipped,
+      duplicate_skipped: duplicateSkipped,
+    };
+  }
+
+  const { data, error } = await supabase.from('leads').insert(toInsert).select('id');
   if (error) throw error;
-  return { inserted: data?.length ?? 0, skipped };
+  return {
+    inserted: data?.length ?? 0,
+    skipped: droppedNoIdentifier + duplicateSkipped,
+    duplicate_skipped: duplicateSkipped,
+  };
 }
 
 export async function listLeads(
