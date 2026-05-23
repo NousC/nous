@@ -18,15 +18,29 @@ function rowText(r) {
 }
 
 async function sweep(supabase, table) {
+  // Pull the candidate batch first — keep the join cheap.
   const { data: rows, error } = await supabase
     .from(table)
-    .select('id, property, value')
+    .select('id, property, value, entity_id')
     .is('embedding', null)
     .limit(BATCH);
 
   if (error?.code === '42P01' || error?.code === 'PGRST205') return 0;
   if (error) throw error;
   if (!rows?.length) return 0;
+
+  // Skip rows whose entity is archived — Phase 5 introduced `archived` status
+  // for retired cold prospects so we stop paying the embedding cost on them.
+  const entityIds = [...new Set(rows.map(r => r.entity_id))];
+  const { data: ents } = await supabase
+    .from('entities')
+    .select('id, status')
+    .in('id', entityIds);
+  const archived = new Set((ents ?? []).filter(e => e.status === 'archived').map(e => e.id));
+  if (archived.size) {
+    rows.splice(0, rows.length, ...rows.filter(r => !archived.has(r.entity_id)));
+    if (!rows.length) return 0;
+  }
 
   const vectors = await embedBatch(rows.map(rowText));
   if (!vectors) return 0;   // no OPENAI_API_KEY, or the call failed — retry next sweep
