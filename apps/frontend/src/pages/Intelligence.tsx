@@ -44,6 +44,11 @@ interface Substrate {
 interface Signal {
   id: string; key: string; label: string; weight: number; coverage: number; active: boolean;
 }
+interface IcpFact {
+  id: string; category: string; content: string; created_at?: string | null;
+}
+
+const ICP_CATEGORIES = ["ICP", "Market", "Product", "Pricing", "Competitors"];
 
 const fmtGap = (g: number | null | undefined) =>
   g == null ? "—" : `${g > 0 ? "+" : ""}${g.toFixed(2)}`;
@@ -115,6 +120,13 @@ export default function Intelligence() {
   const [loading, setLoading] = useState(true);
   const [seeding, setSeeding] = useState(false);
 
+  // ICP facts — workspace-level notes (asserted claims). Loaded only when the
+  // Scorecard is empty so the user has an inline path to bootstrap one.
+  const [icpFacts, setIcpFacts] = useState<IcpFact[]>([]);
+  const [newCategory, setNewCategory] = useState("ICP");
+  const [newContent, setNewContent] = useState("");
+  const [savingFact, setSavingFact] = useState(false);
+
   const load = useCallback(() => {
     if (!workspaceId || !token) return;
     const h = { Authorization: `Bearer ${token}` };
@@ -122,15 +134,47 @@ export default function Intelligence() {
     Promise.all([
       fetch(`${apiUrl}/api/mind/substrate?workspaceId=${workspaceId}`, { headers: h }).then(r => (r.ok ? r.json() : null)),
       fetch(`${apiUrl}/api/mind/scorecard?workspaceId=${workspaceId}`, { headers: h }).then(r => (r.ok ? r.json() : null)),
+      fetch(`${apiUrl}/api/workspace/memories?workspaceId=${workspaceId}&limit=80`, { headers: h }).then(r => (r.ok ? r.json() : null)),
     ])
-      .then(([sub, sc]) => {
+      .then(([sub, sc, mem]) => {
         if (sub) setSubstrate(sub);
         if (sc) setSignals(sc.signals ?? []);
+        if (mem) {
+          const facts: IcpFact[] = (mem.memories ?? [])
+            .filter((m: any) => ICP_CATEGORIES.includes(m.category))
+            .map((m: any) => ({ id: m.id, category: m.category, content: m.content, created_at: m.created_at }));
+          setIcpFacts(facts);
+        }
       })
       .finally(() => setLoading(false));
   }, [workspaceId, token]);
 
   useEffect(() => { load(); }, [load]);
+
+  const addIcpFact = async () => {
+    if (!newContent.trim() || savingFact) return;
+    setSavingFact(true);
+    try {
+      await fetch(`${apiUrl}/api/workspace/memories`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ workspaceId, category: newCategory, content: newContent.trim() }),
+      });
+      setNewContent("");
+      load();
+    } finally { setSavingFact(false); }
+  };
+
+  const removeIcpFact = async (id: string) => {
+    try {
+      await fetch(`${apiUrl}/api/workspace/memories/${id}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ workspaceId }),
+      });
+      load();
+    } catch { /* ignore */ }
+  };
 
   const buildScorecard = async () => {
     if (seeding) return;
@@ -370,17 +414,82 @@ export default function Intelligence() {
             }
           >
             {active.length === 0 ? (
-              <div className="px-4 py-8 text-center">
+              <div className="px-4 py-4 space-y-4">
                 <p className="text-[13px] text-muted-foreground">
-                  No Scorecard yet — the weighted signals the model scores accounts on.
+                  No Scorecard yet — describe your ICP in a few sentences below and we'll
+                  translate it into a weighted signal list the model scores accounts against.
                 </p>
-                <button
-                  onClick={buildScorecard}
-                  disabled={seeding}
-                  className="mt-3 inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-primary text-primary-foreground text-[13px] font-semibold hover:bg-primary/90 transition-colors disabled:opacity-40"
-                >
-                  {seeding ? "Building…" : "Build from your ICP memory"}
-                </button>
+
+                {/* Inline ICP facts list — only shown while bootstrapping */}
+                {icpFacts.length > 0 && (
+                  <div className="divide-y divide-border/60 rounded-lg border border-border/60">
+                    {icpFacts.map(f => (
+                      <div key={f.id} className="flex items-start gap-3 px-3 py-2">
+                        <span
+                          className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70 mt-0.5"
+                          style={{ width: 80 }}
+                        >
+                          {f.category}
+                        </span>
+                        <span className="text-[13px] text-foreground/80 leading-snug flex-1">{f.content}</span>
+                        <button
+                          onClick={() => removeIcpFact(f.id)}
+                          className="text-[11px] text-muted-foreground/60 hover:text-foreground transition-colors"
+                          aria-label="Remove fact"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Add-fact row */}
+                <div className="flex flex-col gap-2">
+                  <div className="flex gap-2 items-stretch">
+                    <select
+                      value={newCategory}
+                      onChange={e => setNewCategory(e.target.value)}
+                      className="rounded-md border border-border bg-background text-[13px] text-foreground px-2 py-1.5 outline-none focus:border-foreground/40"
+                    >
+                      {ICP_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                    <input
+                      type="text"
+                      value={newContent}
+                      onChange={e => setNewContent(e.target.value)}
+                      onKeyDown={e => { if (e.key === "Enter") addIcpFact(); }}
+                      placeholder="e.g. B2B SaaS, 50–200 employees, RevOps and Sales Ops leaders, US."
+                      className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-[13px] text-foreground placeholder:text-muted-foreground/70 outline-none focus:border-foreground/40"
+                    />
+                    <button
+                      onClick={addIcpFact}
+                      disabled={savingFact || !newContent.trim()}
+                      className="h-9 px-3.5 rounded-md bg-background border border-border text-foreground/80 text-[13px] font-semibold hover:bg-muted/50 transition-colors disabled:opacity-30"
+                    >
+                      Add fact
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3 pt-2 border-t border-border/60">
+                  <button
+                    onClick={buildScorecard}
+                    disabled={seeding || icpFacts.length === 0}
+                    className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-primary text-primary-foreground text-[13px] font-semibold hover:bg-primary/90 transition-colors disabled:opacity-30"
+                  >
+                    {seeding
+                      ? "Building…"
+                      : icpFacts.length === 0
+                        ? "Add at least one ICP fact"
+                        : `Build Scorecard from ${icpFacts.length} fact${icpFacts.length === 1 ? "" : "s"}`}
+                  </button>
+                  {icpFacts.length > 0 && (
+                    <span className="text-[12px] text-muted-foreground/70">
+                      Claude translates these into 4–8 weighted signals.
+                    </span>
+                  )}
+                </div>
               </div>
             ) : (
               <div className="grid grid-cols-2 divide-x divide-border/60">
