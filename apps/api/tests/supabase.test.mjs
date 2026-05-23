@@ -31,11 +31,6 @@ skip('contacts table is accessible', async () => {
   assert.equal(error, null, `contacts query failed: ${error?.message}`);
 });
 
-skip('workspace_memories table is accessible', async () => {
-  const { error } = await supabase.from('workspace_memories').select('id').limit(1);
-  assert.equal(error, null, `workspace_memories query failed: ${error?.message}`);
-});
-
 skip('contact_activity_log table is accessible', async () => {
   const { error } = await supabase.from('contact_activity_log').select('id').limit(1);
   assert.equal(error, null, `contact_activity_log query failed: ${error?.message}`);

@@ -4,7 +4,7 @@
 // ============================================================
 
 import Anthropic from '@anthropic-ai/sdk';
-import { logActivity, listSignals, scoreLead, mirrorStateToObservations } from '@nous/core';
+import { logActivity, listSignals, scoreLead, mirrorStateToObservations, listNotes } from '@nous/core';
 import { decrypt } from '../utils/encryption.js';
 
 async function logSysEvent(supabase, workspaceId, source, eventType, summary, contactId, metadata) {
@@ -676,16 +676,12 @@ export async function scoreICP(supabase, workspaceId, contact) {
         : 'Scorecard: no signals matched this profile';
       model = 'scorecard';
     } else {
-      const { data: memories } = await supabase
-        .from('workspace_memories')
-        .select('id, category, content')
-        .eq('workspace_id', workspaceId)
-        .eq('is_active', true)
-        .in('category', ['ICP', 'Market', 'Company', 'Product'])
-        .order('created_at', { ascending: false })
-        .limit(60);
+      const memories = await listNotes(supabase, workspaceId, {
+        categories: ['ICP', 'Market', 'Company', 'Product'],
+        limit: 60,
+      });
 
-      const prompt = memories?.length
+      const prompt = memories.length
         ? `Workspace ICP criteria:\n${memories.map(m => `[${m.category}] ${m.content}`).join('\n')}\n\nContact:\n${contactSummary}\n\nScore this contact's ICP fit 0-100 and give a one-sentence reason. Respond as JSON: {"score": <int>, "fit": <bool>, "reasoning": "<one sentence>"}`
         : `Contact profile:\n${contactSummary}\n\nScore this B2B contact's ICP fit 0-100 based on their role alone. Use seniority as the primary signal: C-suite/VP/Director = high (75-95), Manager/Senior = medium (45-70), IC/unknown = low (20-40). Give a one-sentence reason. Note: no specific ICP criteria configured. Respond as JSON: {"score": <int>, "fit": <bool>, "reasoning": "<one sentence>"}`;
 

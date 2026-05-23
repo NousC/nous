@@ -1,9 +1,11 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { isUUID, isEmail, normaliseLinkedInUrl, VALID_PIPELINE_STAGES } from '../utils/identity.js';
 import { computeLinkedInChannel } from '../utils/linkedin.js';
+import { listNotes } from './notes.js';
 import type {
   Contact, ContactProfile, ContactListItem,
   ListContactsParams, CreateContactParams, UpdateContactParams,
+  MemoryCategory,
 } from '../types.js';
 
 const CONTACT_SELECT = 'id, email, first_name, last_name, company, job_title, linkedin_url, photo_url, channels, pipeline_stage, deal_health_score, icp_score, icp_fit, last_activity_at, company_id, memory_summary';
@@ -145,15 +147,9 @@ export async function getContactByIdentifier(
       : Promise.resolve({ data: null }),
     supabase.from('contact_activity_log')
       .select('activity_type').eq('contact_id', row.id).gte('occurred_at', thirtyDaysAgo),
-    supabase.from('workspace_memories')
-      .select('category, content, metadata, created_at').eq('workspace_id', workspaceId).eq('is_active', true)
-      .filter('metadata->>contact_id', 'eq', row.id)
-      .order('created_at', { ascending: false }).limit(20),
+    listNotes(supabase, workspaceId, { entityId: row.id as string, limit: 20 }).then(data => ({ data })),
     row.company_id
-      ? supabase.from('workspace_memories')
-          .select('category, content, metadata, created_at').eq('workspace_id', workspaceId).eq('is_active', true)
-          .filter('metadata->>company_id', 'eq', row.company_id)
-          .order('created_at', { ascending: false }).limit(20)
+      ? listNotes(supabase, workspaceId, { entityId: row.company_id as string, limit: 20 }).then(data => ({ data }))
       : Promise.resolve({ data: [] }),
   ]);
 
@@ -162,9 +158,18 @@ export async function getContactByIdentifier(
     return acc;
   }, {});
 
+  // MemoryFact.category is the v1 fixed enum; notes carry an open string.
+  // Cast at the boundary — runtime values are user-supplied either way.
+  const toFact = (scope: 'contact' | 'company') => (m: import('./notes.js').Note) => ({
+    scope,
+    category: m.category as MemoryCategory,
+    content: m.content,
+    written_at: m.created_at ? m.created_at.split('T')[0] : null,
+    graph_layer: ((m.metadata?.graph_layer as string) ?? 'private') as 'private' | 'public',
+  });
   const facts = [
-    ...(contactMems || []).map(m => ({ scope: 'contact' as const, category: m.category, content: m.content, written_at: m.created_at ? (m.created_at as string).split('T')[0] : null, graph_layer: (m.metadata?.graph_layer ?? 'private') as 'private' | 'public' })),
-    ...(companyMemResult.data || []).map(m => ({ scope: 'company' as const, category: m.category, content: m.content, written_at: m.created_at ? (m.created_at as string).split('T')[0] : null, graph_layer: (m.metadata?.graph_layer ?? 'private') as 'private' | 'public' })),
+    ...((contactMems || []) as import('./notes.js').Note[]).map(toFact('contact')),
+    ...((companyMemResult.data || []) as import('./notes.js').Note[]).map(toFact('company')),
   ];
 
   const channels = (() => {
@@ -275,10 +280,13 @@ export async function deleteContact(
   // Delete related data first
   await Promise.all([
     supabase.from('contact_activity_log').delete().eq('contact_id', existing.id),
-    supabase.from('workspace_memories')
-      .update({ is_active: false })
-      .filter('metadata->>contact_id', 'eq', existing.id)
-      .eq('workspace_id', workspaceId),
+    // Invalidate every note on this contact-entity (claims are never hard-deleted).
+    supabase
+      .from('claims')
+      .update({ invalid_at: new Date().toISOString() })
+      .eq('workspace_id', workspaceId)
+      .eq('entity_id', existing.id)
+      .like('property', 'note.%'),
   ]);
 
   await supabase.from('contacts').delete().eq('id', existing.id).eq('workspace_id', workspaceId);

@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { isUUID } from '../utils/identity.js';
+import { listNotes } from './notes.js';
 
 export interface CompanyProfile {
   company_id: string;
@@ -49,14 +50,7 @@ export async function getCompanyProfile(
       .eq('workspace_id', workspaceId)
       .order('last_activity_at', { ascending: false })
       .limit(20),
-    supabase
-      .from('workspace_memories')
-      .select('category, content, created_at')
-      .eq('workspace_id', workspaceId)
-      .eq('is_active', true)
-      .filter('metadata->>company_id', 'eq', companyId)
-      .order('created_at', { ascending: false })
-      .limit(20),
+    listNotes(supabase, workspaceId, { entityId: companyId, limit: 20 }).then(data => ({ data })),
   ]);
 
   if (!companyResult.data) return null;

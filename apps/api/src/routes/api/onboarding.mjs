@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getSupabaseClient } from '@nous/core';
+import { getSupabaseClient, saveNote } from '@nous/core';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
 import { ensureUserAndTeam } from '../../lib/auth.mjs';
 
@@ -33,17 +33,15 @@ onboardingRouter.post('/step-1', verifySupabaseAuth, async (req, res) => {
         .eq('id', workspaceId);
     }
 
-    // Store use-case and website as workspace memories for AI context
+    // Store use-case and website as workspace-entity notes for AI context.
     const memories = [];
     if (use_case?.trim()) memories.push(`Use case: ${use_case.trim()}`);
     if (website?.trim()) memories.push(`Company website: ${website.trim()}`);
     for (const content of memories) {
-      await supabase.from('workspace_memories').insert({
-        workspace_id: workspaceId,
+      await saveNote(supabase, workspaceId, {
         category: 'Company',
         content,
         source: 'onboarding',
-        is_active: true,
       }).catch(() => {});
     }
 

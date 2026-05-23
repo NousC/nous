@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getSupabaseClient } from '@nous/core';
+import { getSupabaseClient, countActiveNotes } from '@nous/core';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
 import { ensureUserAndTeam } from '../../lib/auth.mjs';
 
@@ -102,7 +102,9 @@ requestsRouter.get('/stats', verifySupabaseAuth, async (req, res) => {
     if (workspace_id && allWsIds.includes(workspace_id)) wsFilter = [workspace_id];
 
     const [factsRes, contactsRes, companiesRes, opsRes] = await Promise.all([
-      supabase.from('workspace_memories').select('id', { count: 'exact', head: true }).eq('is_active', true).in('workspace_id', wsFilter),
+      Promise.all(wsFilter.map(id => countActiveNotes(supabase, id))).then(counts => ({
+        count: counts.reduce((s, n) => s + n, 0),
+      })),
       supabase.from('contacts').select('id', { count: 'exact', head: true }).in('workspace_id', wsFilter),
       supabase.from('companies').select('id', { count: 'exact', head: true }).in('workspace_id', wsFilter),
       (() => {
