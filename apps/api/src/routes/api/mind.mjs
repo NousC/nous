@@ -51,29 +51,52 @@ mindRouter.get('/substrate', async (req, res) => {
     const supabase = getSupabaseClient();
     const sevenDaysAgo = new Date(Date.now() - 7 * 86400_000).toISOString();
 
-    const [obsRes, obs7Res, claimsRes, jobsRes, predRes] = await Promise.all([
-      // evidence — the append-only spine; one row per observation's source
+    // Totals via count('exact') — Supabase/PostgREST caps row-returning
+    // queries at 1000 server-side, so .length of a fetched array LIES about
+    // total count. Use head:true count queries for the headline numbers and
+    // separate (capped) sample queries for breakdowns.
+    const [
+      obsTotalRes, obsSampleRes, obs7Res,
+      claimsTotalRes, claimsSampleRes,
+      jobsRes,
+      predTotalRes, predSampleRes,
+    ] = await Promise.all([
+      // observations total
+      supabase.from('observations').select('id', { count: 'exact', head: true })
+        .eq('workspace_id', workspaceId),
+      // observations sample for by-source breakdown (top sources, not exhaustive)
       supabase.from('observations').select('source')
-        .eq('workspace_id', workspaceId).limit(20000),
+        .eq('workspace_id', workspaceId).limit(2000),
+      // last-7d observations count
       supabase.from('observations').select('id', { count: 'exact', head: true })
         .eq('workspace_id', workspaceId).gte('ingested_at', sevenDaysAgo),
-      // beliefs — each claim's freshness + epistemic class
+      // claims total
+      supabase.from('claims').select('id', { count: 'exact', head: true })
+        .eq('workspace_id', workspaceId).is('invalid_at', null),
+      // claims sample for freshness + epistemic-class breakdown
       supabase.from('claims').select('freshness, epistemic_class')
-        .eq('workspace_id', workspaceId).limit(20000),
+        .eq('workspace_id', workspaceId).is('invalid_at', null).limit(2000),
       // self-healing — the unprocessed recompute queue
       supabase.from('claim_jobs').select('id', { count: 'exact', head: true })
         .eq('workspace_id', workspaceId).is('picked_at', null),
-      // predictions — claims about the future, with their resolutions
+      // predictions total
+      supabase.from('predictions').select('id', { count: 'exact', head: true })
+        .eq('workspace_id', workspaceId),
+      // predictions sample for kind/open/resolved + calibration trend
       supabase.from('predictions')
         .select('kind, predicted_value, outcome_value, predicted_at, resolved_at')
-        .eq('workspace_id', workspaceId).limit(20000),
+        .eq('workspace_id', workspaceId).limit(2000),
     ]);
-    if (obsRes.error) throw obsRes.error;
-    if (claimsRes.error) throw claimsRes.error;
-    if (predRes.error) throw predRes.error;
+    if (obsSampleRes.error) throw obsSampleRes.error;
+    if (claimsSampleRes.error) throw claimsSampleRes.error;
+    if (predSampleRes.error) throw predSampleRes.error;
+
+    const observationsTotal = obsTotalRes.count ?? 0;
+    const claimsTotal = claimsTotalRes.count ?? 0;
+    const predictionsTotal = predTotalRes.count ?? 0;
 
     // ── 1. evidence ──────────────────────────────────────────────
-    const observations = obsRes.data || [];
+    const observations = obsSampleRes.data || [];
     const bySource = {};
     for (const o of observations) bySource[o.source] = (bySource[o.source] || 0) + 1;
     const sources = Object.entries(bySource)
@@ -81,7 +104,7 @@ mindRouter.get('/substrate', async (req, res) => {
       .sort((a, b) => b.count - a.count);
 
     // ── 2. beliefs ───────────────────────────────────────────────
-    const claims = claimsRes.data || [];
+    const claims = claimsSampleRes.data || [];
     const freshness = { fresh: 0, aging: 0, suspect: 0, expired: 0 };
     const epistemic = { observed: 0, inferred: 0, predicted: 0, asserted: 0 };
     for (const c of claims) {
@@ -94,7 +117,7 @@ mindRouter.get('/substrate', async (req, res) => {
     // higher than those that don't, so
     //   gap = avg(outcome | predicted >= 70) - avg(outcome | predicted < 70)
     // is large and positive.
-    const preds = predRes.data || [];
+    const preds = predSampleRes.data || [];
     const byKind = {};
     let open = 0, resolved = 0;
     const high = [], low = [];
@@ -228,13 +251,13 @@ mindRouter.get('/substrate', async (req, res) => {
 
     return res.json({
       observations: {
-        total: observations.length,
+        total: observationsTotal,
         last_7d: obs7Res.count ?? 0,
         by_source: sources,
       },
-      claims: { total: claims.length, freshness, epistemic },
+      claims: { total: claimsTotal, freshness, epistemic },
       recompute: { pending: jobsRes.count ?? 0 },
-      predictions: { total: preds.length, open, resolved, by_kind: byKind },
+      predictions: { total: predictionsTotal, open, resolved, by_kind: byKind },
       calibration: {
         resolved: high.length + low.length,
         gap,
