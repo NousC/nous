@@ -165,3 +165,31 @@ export interface VerifyResult {
   after: Claim | null;
   note: string;
 }
+
+// ─── dedup ────────────────────────────────────────────────────────────────────
+
+export type DedupStatus =
+  | 'net_new'        // no prior record — safe to send
+  | 'engaged'        // in an active conversation — don't cold-send
+  | 'recent'         // contacted within the cooldown window — defer
+  | 'bounced'        // last delivery bounced — skip
+  | 'unsubscribed'   // opted out or do-not-contact — skip
+  | 'suppressed';    // workspace-level suppression (policy)
+
+export interface DedupItem {
+  email: string;
+  status: DedupStatus;
+  entity_id?: string;
+  reason?: string | null;
+}
+
+export interface DedupSummary {
+  net_new: number; engaged: number; recent: number;
+  bounced: number; unsubscribed: number; suppressed: number;
+  total: number;
+}
+
+export interface DedupResult {
+  results: DedupItem[];
+  summary: DedupSummary;
+}

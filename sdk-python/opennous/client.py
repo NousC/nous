@@ -153,6 +153,26 @@ class NousClient:
         """
         return self._post("/v2/verify", {"focus": focus, "property": prop})
 
+    def classify(self, emails: list[str]) -> dict[str, Any]:
+        """Cross-list cold-outbound dedup.
+
+        Given a list of emails, returns which are safe to cold-send
+        (``net_new``) and which are not (``engaged`` / ``recent`` /
+        ``bounced`` / ``unsubscribed`` / ``suppressed``) — checked against
+        every list and every engagement signal this workspace has ever
+        seen. Max 10,000 per call.
+
+        Returns::
+
+            {
+              "results": [{"email": ..., "status": ..., "entity_id"?: ..., "reason"?: ...}, ...],
+              "summary": {"net_new": int, "engaged": int, "recent": int,
+                          "bounced": int, "unsubscribed": int, "suppressed": int,
+                          "total": int}
+            }
+        """
+        return self._post("/v2/dedup", {"emails": emails})
+
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
     def close(self) -> None:

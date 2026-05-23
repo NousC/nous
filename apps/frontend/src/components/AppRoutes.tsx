@@ -40,6 +40,7 @@ const UsageBilling    = lazyWithErrorBoundary(() => import("@/pages/UsageBilling
 const Inbox           = lazyWithErrorBoundary(() => import("@/pages/Inbox"));
 const Intelligence    = lazyWithErrorBoundary(() => import("@/pages/Intelligence"));
 const Lists           = lazyWithErrorBoundary(() => import("@/pages/Lists"));
+const CleanList       = lazyWithErrorBoundary(() => import("@/pages/CleanList"));
 const NotFound        = lazyWithErrorBoundary(() => import("@/pages/NotFound"));
 
 const AdminCMS              = lazyWithErrorBoundary(() => import("@/pages/AdminCMS"));
@@ -135,6 +136,7 @@ export function AppRoutes() {
             <Route path="/crm-sync"      element={<Suspense fallback={<MinimalLoader />}><CrmSync /></Suspense>} />
             <Route path="/crm"           element={<Navigate to="/crm-sync" replace />} />
             <Route path="/lists"         element={<Suspense fallback={<MinimalLoader />}><Lists /></Suspense>} />
+            <Route path="/lists/clean"   element={<Suspense fallback={<MinimalLoader />}><CleanList /></Suspense>} />
             <Route path="/intelligence"  element={<Suspense fallback={<MinimalLoader />}><Intelligence /></Suspense>} />
             <Route path="/settings/*" element={<Navigate to="/settings" replace />} />
 

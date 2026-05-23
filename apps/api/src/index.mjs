@@ -19,6 +19,7 @@ import { contextV2Router } from './routes/v2/context.mjs';
 import { queryV2Router } from './routes/v2/query.mjs';
 import { attentionV2Router } from './routes/v2/attention.mjs';
 import { verifyV2Router } from './routes/v2/verify.mjs';
+import { dedupV2Router } from './routes/v2/dedup.mjs';
 
 // /api — Frontend API (Supabase JWT auth)
 import { apiKeysRouter } from './routes/api/apiKeys.mjs';
@@ -84,6 +85,7 @@ app.use('/v2/context',      verifyApiKey, contextV2Router);
 app.use('/v2/query',        verifyApiKey, queryV2Router);
 app.use('/v2/attention',    verifyApiKey, attentionV2Router);
 app.use('/v2/verify',       verifyApiKey, verifyV2Router);
+app.use('/v2/dedup',        verifyAuthEither, dedupV2Router);
 
 // ── /api — Frontend API ───────────────────────────────────────────────────────
 app.use('/me',                        meRouter); // legacy path used by AuthContext

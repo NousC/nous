@@ -332,14 +332,23 @@ export default function Lists() {
           title="Lists"
           subtitle="Upload lead lists and store them as context for the workspace."
           actions={
-            activeList && (
+            <>
               <button
-                onClick={() => { if (importing) resetImport(); else { setImporting(true); setResult(null); } }}
-                className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-foreground text-background text-[13px] font-semibold hover:opacity-90 transition-opacity"
+                onClick={() => navigate("/lists/clean")}
+                className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-background border border-border text-foreground/80 text-[13px] font-semibold hover:bg-muted/50 transition-colors"
+                title="Pre-flight dedup any list against the workspace's engagement history"
               >
-                <Upload className="h-3.5 w-3.5" /> Import CSV
+                Clean a list →
               </button>
-            )
+              {activeList && (
+                <button
+                  onClick={() => { if (importing) resetImport(); else { setImporting(true); setResult(null); } }}
+                  className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-foreground text-background text-[13px] font-semibold hover:opacity-90 transition-opacity"
+                >
+                  <Upload className="h-3.5 w-3.5" /> Import CSV
+                </button>
+              )}
+            </>
           }
         />
 
