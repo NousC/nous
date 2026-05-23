@@ -12,7 +12,7 @@
 
 import { Router } from 'express';
 import Anthropic from '@anthropic-ai/sdk';
-import { getSupabaseClient, listSignals, seedSignals, listNotes } from '@nous/core';
+import { getSupabaseClient, listSignals, seedSignals, listNotes, scoreLead, getAttention } from '@nous/core';
 
 export const mindRouter = Router();
 
@@ -120,6 +120,112 @@ mindRouter.get('/substrate', async (req, res) => {
         return { week, n: c.high.length + c.low.length, gap: h != null && l != null ? round3(h - l) : null };
       });
 
+    // ── 5. compound-intelligence layer — signals, predictions feed, misses, attention ──
+
+    // Active scorecard signals (used both for hit-rate analysis and ranking)
+    const activeSignals = await listSignals(supabase, workspaceId, { activeOnly: true });
+
+    // Top firing signals — by re-evaluating each resolved prediction's
+    // feature_snapshot through the current Scorecard. We count fires + hits
+    // (positive outcome = outcome_value.score >= 0.5).
+    const signalStats = new Map();
+    for (const s of activeSignals) signalStats.set(s.key, { signal: s, fires: 0, hits: 0 });
+    for (const p of preds) {
+      if (!p.resolved_at) continue;
+      const snap = p.feature_snapshot || {};
+      const features = {};
+      for (const [k, v] of Object.entries(snap)) features[k] = v?.value;
+      const { fired } = scoreLead(features, activeSignals);
+      const out = Number(p.outcome_value?.score);
+      const positive = Number.isFinite(out) && out >= 0.5;
+      for (const f of fired) {
+        const stat = signalStats.get(f.key);
+        if (!stat) continue;
+        stat.fires++;
+        if (positive) stat.hits++;
+      }
+    }
+    const topSignals = [...signalStats.values()]
+      .filter(s => s.fires > 0)
+      .sort((a, b) => b.fires - a.fires)
+      .slice(0, 8)
+      .map(s => ({
+        key: s.signal.key,
+        label: s.signal.label,
+        weight: s.signal.weight,
+        fires: s.fires,
+        hits: s.hits,
+        hit_rate: s.fires ? Math.round((s.hits / s.fires) * 100) : 0,
+      }));
+
+    // Recent predictions feed (last 20) — enriched with entity name + email
+    const recentPredsRes = await supabase
+      .from('predictions')
+      .select('id, entity_id, predicted_value, predicted_at, outcome_value, resolved_at')
+      .eq('workspace_id', workspaceId).eq('kind', 'icp_fit')
+      .order('predicted_at', { ascending: false }).limit(20);
+    const recentRows = recentPredsRes.data || [];
+    const recentEntityIds = [...new Set(recentRows.map(r => r.entity_id))];
+
+    let nameByEntity = {}, emailByEntity = {};
+    if (recentEntityIds.length) {
+      const [{ data: claimsForNames }, { data: emailIdents }] = await Promise.all([
+        supabase.from('claims').select('entity_id, property, value')
+          .in('entity_id', recentEntityIds).is('invalid_at', null)
+          .in('property', ['first_name', 'last_name']),
+        supabase.from('entity_identifiers').select('entity_id, value')
+          .in('entity_id', recentEntityIds).eq('kind', 'email').eq('status', 'active'),
+      ]);
+      for (const c of claimsForNames || []) {
+        if (!nameByEntity[c.entity_id]) nameByEntity[c.entity_id] = { first_name: null, last_name: null };
+        nameByEntity[c.entity_id][c.property] = c.value;
+      }
+      for (const i of emailIdents || []) emailByEntity[i.entity_id] = i.value;
+    }
+
+    const buildRecent = (p) => {
+      const n = nameByEntity[p.entity_id];
+      const name = n ? [n.first_name, n.last_name].filter(Boolean).join(' ') || null : null;
+      // Top firing signal keys (recompute, lightweight)
+      const snap = p.feature_snapshot || {};
+      const features = {};
+      for (const [k, v] of Object.entries(snap)) features[k] = v?.value;
+      const fired = scoreLead(features, activeSignals).fired.slice(0, 3).map(f => f.key);
+      return {
+        id: p.id,
+        entity_id: p.entity_id,
+        name,
+        email: emailByEntity[p.entity_id] || null,
+        score: p.predicted_value?.score ?? null,
+        fit: p.predicted_value?.fit ?? null,
+        predicted_at: p.predicted_at,
+        resolved_at: p.resolved_at,
+        outcome_score: p.outcome_value?.score ?? null,
+        replied: p.outcome_value?.replied ?? null,
+        fired,
+      };
+    };
+    const recentEnriched = recentRows.map(buildRecent);
+
+    // Misses — resolved predictions where the model and reality disagreed
+    const misses = recentEnriched
+      .filter(p => {
+        if (!p.resolved_at || typeof p.outcome_score !== 'number') return false;
+        const s = Number(p.score);
+        if (!Number.isFinite(s)) return false;
+        return (s >= 70 && p.outcome_score < 0.3) || (s < 30 && p.outcome_score > 0.7);
+      })
+      .slice(0, 10);
+
+    // Attention — accounts going quiet, claims decayed. Already a v2 helper.
+    let attention = [];
+    try {
+      const atRes = await getAttention(supabase, workspaceId, { limit: 8 });
+      attention = atRes.items ?? [];
+    } catch (e) {
+      console.warn('[GET /api/mind/substrate] attention failed:', e?.message);
+    }
+
     return res.json({
       observations: {
         total: observations.length,
@@ -136,6 +242,10 @@ mindRouter.get('/substrate', async (req, res) => {
         low: { count: low.length, avg_outcome: avgLow != null ? round3(avgLow) : null },
         trend,
       },
+      top_signals: topSignals,
+      recent_predictions: recentEnriched,
+      misses,
+      attention,
     });
   } catch (err) {
     console.error('[GET /api/mind/substrate]', err);
