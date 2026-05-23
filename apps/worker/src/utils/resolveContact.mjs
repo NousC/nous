@@ -221,6 +221,8 @@ export async function resolveContact(supabase, workspaceId, data, { createIfMiss
       job_title, phone, linkedin_url,
       company: company_name || null,
       pipeline_stage: 'identified',
+      source: source || 'webhook',
+      first_seen_at: new Date().toISOString(),
     },
   }).catch(() => {});
 

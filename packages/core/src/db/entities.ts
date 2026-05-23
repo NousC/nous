@@ -208,12 +208,14 @@ export function applyContactOverlay(
   };
   return {
     ...row,
+    // Identifiers
     email:              pick(identifiers.email,              row.email as unknown),
     linkedin_url:       pick(identifiers.linkedin_url,       row.linkedin_url as unknown),
     linkedin_member_id: pick(identifiers.linkedin_member_id, row.linkedin_member_id as unknown),
     hubspot_id:         pick(identifiers.hubspot,            row.hubspot_id as unknown),
     pipedrive_id:       pick(identifiers.pipedrive,          row.pipedrive_id as unknown),
     apollo_id:          pick(identifiers.apollo,             row.apollo_id as unknown),
+    // Profile claims
     first_name:         pick(claims.first_name,              row.first_name),
     last_name:          pick(claims.last_name,               row.last_name),
     job_title:          pick(claims.job_title,               row.job_title),
@@ -223,11 +225,30 @@ export function applyContactOverlay(
     country:            pick(claims.country,                 row.country),
     phone:              pick(claims.phone,                   row.phone),
     company:            pick(claims.company,                 row.company),
+    photo_url:          pick(claims.photo_url,               row.photo_url),
+    // Pipeline / lifecycle
     pipeline_stage:     pick(claims.pipeline_stage,          row.pipeline_stage),
+    stage_locked:       pick(claims.stage_locked,            row.stage_locked),
+    source:             pick(claims.source,                  row.source),
+    first_seen_at:      pick(claims.first_seen_at,           row.first_seen_at as unknown),
+    // Channels (LinkedIn / email state, JSONB)
+    channels:           pick(claims.channels,                row.channels),
+    // Relations
     company_id:         pick(worksAtCompanyId,               row.company_id as unknown),
+    // Deal state
+    deal_health_score:  pick(claims.deal_health_score,       row.deal_health_score),
+    deal_stage:         pick(claims.deal_stage,              row.deal_stage),
+    deal_value:         pick(claims.deal_value,              row.deal_value),
+    // Enrichment process state
+    enrichment_status:  pick(claims.enrichment_status,       row.enrichment_status),
+    enriched_at:        pick(claims.enriched_at,             row.enriched_at as unknown),
+    // LLM-derived summary
+    memory_summary:     pick(claims.memory_summary,          row.memory_summary),
+    // Scores (from the latest icp_fit prediction)
     icp_score:          pick(prediction?.score,              row.icp_score),
     icp_fit:            pick(prediction?.fit,                row.icp_fit),
     icp_reasoning:      pick(prediction?.reason,             row.icp_reasoning),
+    // Derived from observations
     last_activity_at:   pick(latestObservedAt,               row.last_activity_at as unknown),
   };
 }
@@ -245,13 +266,18 @@ export function applyCompanyOverlay(
   };
   return {
     ...row,
-    name:           pick(claims.name,           row.name),
-    domain:         pick(identifiers.domain,    row.domain as unknown),
-    industry:       pick(claims.industry,       row.industry),
-    employee_count: pick(claims.employee_count, row.employee_count),
-    location:       pick(claims.location,       row.location),
-    revenue_range:  pick(claims.revenue_range,  row.revenue_range),
-    tech_stack:     pick(claims.tech_stack,     row.tech_stack),
+    name:               pick(claims.name,               row.name),
+    domain:             pick(identifiers.domain,        row.domain as unknown),
+    industry:           pick(claims.industry,           row.industry),
+    employee_count:     pick(claims.employee_count,     row.employee_count),
+    location:           pick(claims.location,           row.location),
+    revenue_range:      pick(claims.revenue_range,      row.revenue_range),
+    tech_stack:         pick(claims.tech_stack,         row.tech_stack),
+    enrichment_status:  pick(claims.enrichment_status,  row.enrichment_status),
+    enriched_at:        pick(claims.enriched_at,        row.enriched_at as unknown),
+    deal_health_score:  pick(claims.deal_health_score,  row.deal_health_score),
+    hubspot_company_id: pick(claims.hubspot_company_id, row.hubspot_company_id as unknown),
+    apollo_account_id:  pick(claims.apollo_account_id,  row.apollo_account_id as unknown),
   };
 }
 
