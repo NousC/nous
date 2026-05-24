@@ -180,11 +180,14 @@ console.log('[WORKER] Scorecard prediction-write — every 10 minutes');
 cron.schedule('*/2 * * * *', processEmbeddings);
 console.log('[WORKER] Embedding worker — every 2 minutes');
 
-// ── CRM auto-sync — every 15 minutes ─────────────────────────────────────────
+// ── CRM auto-sync — daily at 02:00 UTC ───────────────────────────────────────
 // For every workspace with auto_sync=true on a CRM config, pulls new/updated
 // contacts + companies + deals incrementally (since last_synced_at) and
-// upserts into the v2 substrate. See workers/crmSync.mjs.
-cron.schedule('*/15 * * * *', runCrmAutoSync);
-console.log('[WORKER] CRM auto-sync — every 15 minutes');
+// upserts into the v2 substrate. Runs BEFORE pipeline decay (03:00) so the
+// calibration chain (decay → outcomes → scorecard) sees fresh CRM state.
+// Users can always trigger an on-demand pull via the "Sync now" button.
+// See workers/crmSync.mjs.
+cron.schedule('0 2 * * *', runCrmAutoSync, { timezone: 'UTC' });
+console.log('[WORKER] CRM auto-sync — daily at 02:00 UTC');
 
 console.log('[WORKER] Started');
