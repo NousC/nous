@@ -143,14 +143,13 @@ function StepWelcome({
 
 // ─── Step 2: Import contacts (real column-mapping importer) ──────────────────
 function StepImport({
-  onAdvance, onBack, onSkip, session, workspaceId, testMode,
+  onAdvance, onBack, onSkip, session, workspaceId,
 }: {
   onAdvance: () => void;
   onBack: () => void;
   onSkip: () => void;
   session: any;
   workspaceId: string | undefined;
-  testMode?: boolean;
 }) {
   return (
     <div className="space-y-6">
@@ -165,7 +164,6 @@ function StepImport({
           token={session?.access_token ?? ""}
           onDone={onAdvance}
           onClose={onAdvance}
-          testMode={testMode}
         />
       </div>
 
@@ -314,13 +312,9 @@ function StepIndicator({ current, total }: { current: number; total: number }) {
 }
 
 // ─── Main ────────────────────────────────────────────────────────────────────
-interface OnboardingProps {
-  testMode?: boolean;
-}
-
 type Phase = 1 | 2 | 3 | "finishing";
 
-export default function Onboarding({ testMode = false }: OnboardingProps) {
+export default function Onboarding() {
   const navigate = useNavigate();
   const { session, userData, refreshUserData } = useAuth();
 
@@ -341,10 +335,10 @@ export default function Onboarding({ testMode = false }: OnboardingProps) {
   const [generatingKey, setGeneratingKey] = useState(false);
 
   useEffect(() => {
-    if (!testMode && userData?.onboarding_completed) {
+    if (userData?.onboarding_completed) {
       navigate("/", { replace: true });
     }
-  }, [testMode, userData?.onboarding_completed, navigate]);
+  }, [userData?.onboarding_completed, navigate]);
 
   useEffect(() => {
     try {
@@ -369,32 +363,23 @@ export default function Onboarding({ testMode = false }: OnboardingProps) {
   const submitStep1 = async () => {
     if (!name.trim() || !companyName.trim()) return;
     setStepLoading(true);
-    if (!testMode) {
-      try {
-        await fetch(`${API_URL}/api/onboarding/step-1`, {
-          method: "POST",
-          headers: auth,
-          body: JSON.stringify({
-            name: name.trim(),
-            company_name: companyName.trim(),
-            website: website.trim() || undefined,
-            icp_description: icpDescription.trim() || undefined,
-          }),
-        });
-      } catch { /* non-blocking */ }
-    }
+    try {
+      await fetch(`${API_URL}/api/onboarding/step-1`, {
+        method: "POST",
+        headers: auth,
+        body: JSON.stringify({
+          name: name.trim(),
+          company_name: companyName.trim(),
+          website: website.trim() || undefined,
+          icp_description: icpDescription.trim() || undefined,
+        }),
+      });
+    } catch { /* non-blocking */ }
     setStepLoading(false);
     setPhase(2);
   };
 
   const generateApiKey = async (name: string) => {
-    if (testMode) {
-      setGeneratingKey(true);
-      await new Promise(r => setTimeout(r, 400));
-      setApiKey("pk_test_demo_3c1f8a92b7e4d650f1ac");
-      setGeneratingKey(false);
-      return;
-    }
     const workspaceId = userData?.workspace?.id;
     if (!workspaceId) { toast.error("workspace not ready — try again in a moment"); return; }
     setGeneratingKey(true);
@@ -416,14 +401,6 @@ export default function Onboarding({ testMode = false }: OnboardingProps) {
 
   const finish = async () => {
     setPhase("finishing");
-    if (testMode) {
-      await new Promise(r => setTimeout(r, 2500));
-      toast.success("test run complete — restarting");
-      localStorage.removeItem(STORAGE_KEY);
-      setApiKey(null);
-      setPhase(1);
-      return;
-    }
     try {
       await fetch(`${API_URL}/api/onboarding/complete`, {
         method: "POST",
@@ -458,13 +435,8 @@ export default function Onboarding({ testMode = false }: OnboardingProps) {
     >
       <div className="w-full mx-6 flex flex-col" style={{ maxWidth: contentMaxWidth }}>
         {phase !== "finishing" && (
-          <div className="mb-6 flex items-center justify-between gap-4">
+          <div className="mb-6">
             <StepIndicator current={currentStep} total={TOTAL_STEPS} />
-            {testMode && (
-              <span className="text-[11px] font-semibold text-amber-600 dark:text-amber-300 border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-950/40 rounded-md px-2 py-0.5 flex-shrink-0">
-                Test mode
-              </span>
-            )}
           </div>
         )}
 
@@ -481,7 +453,6 @@ export default function Onboarding({ testMode = false }: OnboardingProps) {
           <StepImport
             session={session}
             workspaceId={userData?.workspace?.id}
-            testMode={testMode}
             onAdvance={() => setPhase(3)}
             onBack={() => setPhase(1)}
             onSkip={() => setPhase(3)}
