@@ -108,6 +108,15 @@ export function AppRoutes() {
       <Route path="/admin/resources" element={<AdminFullScreen><Suspense fallback={<MinimalLoader />}><AdminResources /></Suspense></AdminFullScreen>} />
       <Route path="/admin/support" element={<AdminFullScreen><Suspense fallback={<MinimalLoader />}><AdminSupportDashboard /></Suspense></AdminFullScreen>} />
 
+      {/* Playground is its own immersive canvas — no app sidebar.
+          Lives outside StandardLayout so the chat + tool-trace UI gets the
+          full viewport, matching the Mem0 playground pattern. */}
+      <Route path="/playground" element={
+        <div className="h-screen w-full bg-background overflow-hidden">
+          <Suspense fallback={<MinimalLoader />}><Playground /></Suspense>
+        </div>
+      } />
+
       {/* Standard layout — sidebar + conditional header */}
       <Route path="*" element={
         <StandardLayout>
@@ -118,7 +127,7 @@ export function AppRoutes() {
             <Route path="/requests"   element={<Navigate to="/ops" replace />} />
             {/* Setup */}
             <Route path="/install"    element={<Suspense fallback={<MinimalLoader />}><Install /></Suspense>} />
-            <Route path="/playground" element={<Suspense fallback={<MinimalLoader />}><Playground /></Suspense>} />
+            {/* /playground is mounted above as a full-screen route — no sidebar */}
             <Route path="/keys"       element={<Suspense fallback={<MinimalLoader />}><ApiKeys /></Suspense>} />
             {/* Main nav */}
             <Route path="/webhooks"   element={<Suspense fallback={<MinimalLoader />}><Webhooks /></Suspense>} />
