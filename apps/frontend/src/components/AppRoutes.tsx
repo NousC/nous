@@ -29,6 +29,7 @@ const lazyWithErrorBoundary = (importFn: () => Promise<any>) => {
 
 const Settings        = lazyWithErrorBoundary(() => import("@/pages/Settings"));
 const Install         = lazyWithErrorBoundary(() => import("@/pages/Install"));
+const Playground      = lazyWithErrorBoundary(() => import("@/pages/Playground"));
 const ApiKeys         = lazyWithErrorBoundary(() => import("@/pages/ApiKeys"));
 const Webhooks        = lazyWithErrorBoundary(() => import("@/pages/Webhooks"));
 const Ops             = lazyWithErrorBoundary(() => import("@/pages/Ops"));
@@ -117,7 +118,7 @@ export function AppRoutes() {
             <Route path="/requests"   element={<Navigate to="/ops" replace />} />
             {/* Setup */}
             <Route path="/install"    element={<Suspense fallback={<MinimalLoader />}><Install /></Suspense>} />
-            <Route path="/playground" element={<ComingSoon />} />
+            <Route path="/playground" element={<Suspense fallback={<MinimalLoader />}><Playground /></Suspense>} />
             <Route path="/keys"       element={<Suspense fallback={<MinimalLoader />}><ApiKeys /></Suspense>} />
             {/* Main nav */}
             <Route path="/webhooks"   element={<Suspense fallback={<MinimalLoader />}><Webhooks /></Suspense>} />

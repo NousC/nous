@@ -1,0 +1,252 @@
+// Playground chat agent — the loop behind /playground.
+//
+// User types a question ("What do we know about Arnold?"). We hand it to
+// Haiku with the six READ-ONLY Nous verbs as tools. Haiku picks which to
+// call, calls them through @nous/core (in-process — no HTTP self-call),
+// and synthesises a natural-language answer. We return both the answer
+// AND a structured trace of every tool call so the right-hand panel can
+// show the substrate working in real time.
+//
+// Read-only by design — no `record` tool here. The Playground must not
+// pollute the user's workspace from experiments. CRM mutations stay on
+// the explicit code paths (SDK, MCP, /v2/observations).
+
+import Anthropic from '@anthropic-ai/sdk';
+import {
+  assembleContext, CONTEXT_INTENTS,
+  resolveFocus, getAccountRecord, verifyClaim,
+  runQuery, getAttention,
+  classifyIdentifiers,
+} from '@nous/core';
+
+const MODEL       = 'claude-haiku-4-5-20251001';
+const MAX_TURNS   = 6;          // hard cap on tool-call iterations per message
+const MAX_TOKENS  = 1500;
+const SYSTEM_PROMPT = [
+  "You are the Nous Playground assistant. The user is exploring what their Nous workspace knows — try their questions out before they integrate the API into their own agent.",
+  "",
+  "You have six READ-ONLY tools for inspecting the workspace. Pick the smallest set that answers the question:",
+  "  • get_context     — engineered context block for a task about one entity + intent. Best for 'help me draft', 'what should I do about', 'prep me for'.",
+  "  • get_account     — the full Account Record (every claim with epistemics + recent observation timeline). Best for 'what do we know about', 'tell me about', 'show me'.",
+  "  • query           — retrieve+summarise observations across many entities for a corpus question. Best for 'across all', 'last 30 days', 'which segments'.",
+  "  • attention       — workspace-wide: who's gone quiet, what facts have decayed. Best for 'what needs attention', 'who should I follow up with'.",
+  "  • verify          — re-check one claim against current observations. Best for 'is X still true', 'verify that'.",
+  "  • classify        — cross-list dedup for cold-outbound — net_new vs engaged vs bounced. Best for 'have I touched these leads', 'pre-flight check'.",
+  "",
+  "Focus identifiers are universal: pass an email, domain, LinkedIn URL, entity UUID, or a name. If a name returns ambiguous, surface the candidates and ask the user to pick.",
+  "",
+  "Rules:",
+  "  1. Ground every claim you make in tool output. If a tool returns nothing, say so plainly — never invent.",
+  "  2. Prefer concise answers. The right-hand panel will show the raw API responses; you don't need to dump JSON.",
+  "  3. When you cite a fact, briefly note its source/freshness if the tool exposed it (e.g. 'from HubSpot, 3 days old').",
+  "  4. If the user asks for something a tool can't do (e.g. writing data), say it's read-only and point them at /install for the SDK.",
+].join('\n');
+
+// ─── Tool schemas — what we give Haiku ──────────────────────────────────────
+
+const TOOLS = [
+  {
+    name: 'get_context',
+    description: 'Engineered context block for one entity + intent. Returns the budgeted, ranked, claim-tagged context an agent would consume before acting. Focus accepts email, domain, LinkedIn URL, UUID, or a name (ambiguous names return candidates).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        focus:         { type: 'string', description: 'email / domain / LinkedIn / UUID / name' },
+        intent:        { type: 'string', enum: CONTEXT_INTENTS, description: 'the task you are about to do' },
+        budget_tokens: { type: 'number', description: 'optional token budget for the assembled context' },
+      },
+      required: ['focus'],
+    },
+  },
+  {
+    name: 'get_account',
+    description: 'The full Account Record: entity + every claim with epistemics (source, freshness, confidence) + recent observation timeline. Use when the user wants to know WHAT you know about a person or company.',
+    input_schema: {
+      type: 'object',
+      properties: { focus: { type: 'string', description: 'email / domain / LinkedIn / UUID / name' } },
+      required: ['focus'],
+    },
+  },
+  {
+    name: 'query',
+    description: 'Retrieve + compact observations across many entities. Use when the user asks a corpus question — "across all accounts this week", "which segments replied", etc. The substrate retrieves; the user/agent finds the pattern.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        scope: {
+          type: 'object',
+          description: 'filter: { kind?, property?, source?, entity_id?, since_days?, limit? }',
+        },
+        question: { type: 'string', description: 'the analytical question — echoed in the response' },
+      },
+      required: ['scope'],
+    },
+  },
+  {
+    name: 'attention',
+    description: 'Workspace-wide ranked decisions: accounts gone quiet, key facts decayed. Each item comes with a suggested action.',
+    input_schema: {
+      type: 'object',
+      properties: { limit: { type: 'number', description: 'max items, default 10' } },
+    },
+  },
+  {
+    name: 'verify',
+    description: 'Re-derive one claim from current observations. Returns before+after — the calibration check. Use when the user wants to know if a fact is still reliable.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        focus:    { type: 'string', description: 'email / domain / LinkedIn / UUID / name' },
+        property: { type: 'string', description: 'the claim property, e.g. "title" or "stage"' },
+      },
+      required: ['focus', 'property'],
+    },
+  },
+  {
+    name: 'classify',
+    description: 'Cross-list cold-outbound dedup. Pass emails and/or LinkedIn URLs — get back net_new / engaged / recent / bounced / unsubscribed / suppressed for each.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        emails:        { type: 'array', items: { type: 'string' } },
+        linkedin_urls: { type: 'array', items: { type: 'string' } },
+      },
+    },
+  },
+];
+
+// ─── Tool dispatcher — runs a tool call against the live substrate ──────────
+
+async function executeTool(supabase, workspaceId, name, input) {
+  switch (name) {
+    case 'get_context': {
+      const intent = input.intent ?? 'account_review';
+      if (!CONTEXT_INTENTS.includes(intent)) return { error: 'invalid_intent', valid: CONTEXT_INTENTS };
+      const res = await resolveFocus(supabase, workspaceId, String(input.focus));
+      if (res.status === 'not_found') return { error: 'entity_not_found' };
+      if (res.status === 'ambiguous') return { status: 'ambiguous', candidates: res.candidates };
+      const ctx = await assembleContext(supabase, workspaceId, res.entity_id, intent, input.budget_tokens);
+      return ctx ?? { error: 'entity_not_found' };
+    }
+    case 'get_account': {
+      const res = await resolveFocus(supabase, workspaceId, String(input.focus));
+      if (res.status === 'not_found') return { error: 'entity_not_found' };
+      if (res.status === 'ambiguous') return { status: 'ambiguous', candidates: res.candidates };
+      const acc = await getAccountRecord(supabase, workspaceId, res.entity_id);
+      return acc ?? { error: 'entity_not_found' };
+    }
+    case 'query': {
+      const out = await runQuery(supabase, workspaceId, input.scope ?? {}, input.question);
+      return { ...out, question: input.question ?? null };
+    }
+    case 'attention': {
+      return await getAttention(supabase, workspaceId, { limit: input.limit });
+    }
+    case 'verify': {
+      const res = await resolveFocus(supabase, workspaceId, String(input.focus));
+      if (res.status === 'not_found') return { error: 'entity_not_found' };
+      if (res.status === 'ambiguous') return { status: 'ambiguous', candidates: res.candidates };
+      const { before, after } = await verifyClaim(supabase, workspaceId, res.entity_id, input.property);
+      if (!after) return { error: 'claim_not_found' };
+      return { property: input.property, before, after };
+    }
+    case 'classify': {
+      const emails        = Array.isArray(input.emails)        ? input.emails        : [];
+      const linkedin_urls = Array.isArray(input.linkedin_urls) ? input.linkedin_urls : [];
+      if (!emails.length && !linkedin_urls.length) {
+        return { error: 'identifiers_required', message: 'pass emails or linkedin_urls' };
+      }
+      const results = await classifyIdentifiers(supabase, workspaceId, { emails, linkedin_urls });
+      const summary = { net_new: 0, engaged: 0, recent: 0, bounced: 0, unsubscribed: 0, suppressed: 0, total: results.length };
+      for (const r of results) summary[r.status] = (summary[r.status] || 0) + 1;
+      return { results, summary };
+    }
+    default:
+      return { error: 'unknown_tool', name };
+  }
+}
+
+// ─── Public entry point ─────────────────────────────────────────────────────
+
+/**
+ * Run one chat turn against the user's workspace.
+ *
+ * @param {object}      args
+ * @param {object}      args.supabase     — service-role Supabase client
+ * @param {string}      args.workspaceId
+ * @param {Array<{role: 'user'|'assistant', content: string}>} args.history  — prior conversation (oldest → newest), excluding the current user message
+ * @param {string}      args.userMessage  — the message just typed by the user
+ * @returns {Promise<{ content: string, toolCalls: Array<{name, input, output, duration_ms, status, error?}> }>}
+ */
+export async function runPlaygroundTurn({ supabase, workspaceId, history, userMessage }) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error('ANTHROPIC_API_KEY not configured');
+  const anthropic = new Anthropic({ apiKey });
+
+  // Build the Anthropic-shape message list. We never persist assistant tool_use
+  // blocks (they belong to the orchestrator's internal loop); the DB stores
+  // the user-visible text only + a sidecar tool_calls array.
+  const messages = [
+    ...history.map(m => ({ role: m.role, content: m.content })),
+    { role: 'user', content: userMessage },
+  ];
+
+  const toolCalls = [];
+  let finalText = '';
+
+  for (let turn = 0; turn < MAX_TURNS; turn++) {
+    const resp = await anthropic.messages.create({
+      model:      MODEL,
+      max_tokens: MAX_TOKENS,
+      system:     SYSTEM_PROMPT,
+      tools:      TOOLS,
+      messages,
+    });
+
+    // Surface any text Haiku produced this turn (it may interleave text + tool_use).
+    const texts = resp.content.filter(b => b.type === 'text').map(b => b.text).join('');
+    if (texts) finalText += (finalText ? '\n\n' : '') + texts;
+
+    // If Haiku didn't ask for tools, we're done.
+    const toolUses = resp.content.filter(b => b.type === 'tool_use');
+    if (toolUses.length === 0 || resp.stop_reason !== 'tool_use') {
+      break;
+    }
+
+    // Execute every requested tool, in order, and collect tool_result blocks
+    // to feed back to Haiku for synthesis.
+    const toolResultBlocks = [];
+    for (const tu of toolUses) {
+      const startedAt = Date.now();
+      let output, status = 'ok', error;
+      try {
+        output = await executeTool(supabase, workspaceId, tu.name, tu.input ?? {});
+        if (output && typeof output === 'object' && output.error) {
+          status = 'error'; error = output.error;
+        }
+      } catch (e) {
+        status = 'error';
+        error = e.message || String(e);
+        output = { error: 'tool_threw', message: error };
+      }
+      const duration_ms = Date.now() - startedAt;
+      toolCalls.push({ name: tu.name, input: tu.input ?? {}, output, duration_ms, status, error });
+      toolResultBlocks.push({
+        type:        'tool_result',
+        tool_use_id: tu.id,
+        // Anthropic accepts string content here; cap to keep the next prompt bounded.
+        content:     JSON.stringify(output ?? null).slice(0, 24_000),
+        is_error:    status === 'error',
+      });
+    }
+
+    // Append the assistant tool-use turn + our tool_result turn, then loop.
+    messages.push({ role: 'assistant', content: resp.content });
+    messages.push({ role: 'user',      content: toolResultBlocks });
+  }
+
+  if (!finalText) {
+    finalText = "I couldn't compose an answer for that — try rephrasing the question or asking about a specific person, company, or list.";
+  }
+  return { content: finalText, toolCalls };
+}

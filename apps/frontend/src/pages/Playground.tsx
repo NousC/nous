@@ -1,0 +1,473 @@
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import {
+  Plus, Send, Trash2, Sparkles, Loader2, ChevronRight, ChevronDown,
+  MessageSquare, Wrench, Clock, AlertTriangle, CheckCircle2,
+} from "lucide-react";
+import { formatDistanceToNow, format, isToday, isYesterday } from "date-fns";
+import { useAuth } from "@/contexts/AuthContext";
+import { toast } from "@/components/ui/sonner";
+import { PageHeader } from "@/components/ui/page-header";
+import { cn } from "@/lib/utils";
+
+const apiUrl = import.meta.env.VITE_API_URL ?? "";
+
+// ─── Types ──────────────────────────────────────────────────────────────────
+
+type Thread = {
+  id: string;
+  title: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type ToolCall = {
+  name: string;
+  input: Record<string, unknown>;
+  output: unknown;
+  duration_ms: number;
+  status: "ok" | "error";
+  error?: string;
+};
+
+type Message = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  tool_calls: ToolCall[] | null;
+  created_at: string;
+};
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+function dayLabel(date: Date) {
+  if (isToday(date))     return "Today";
+  if (isYesterday(date)) return "Yesterday";
+  return format(date, "MMM d");
+}
+
+function groupThreadsByDay(threads: Thread[]) {
+  const map = new Map<string, Thread[]>();
+  for (const t of threads) {
+    const k = dayLabel(new Date(t.updated_at));
+    if (!map.has(k)) map.set(k, []);
+    map.get(k)!.push(t);
+  }
+  return [...map.entries()];
+}
+
+const SUGGESTIONS = [
+  "What do we know about my most recent contact?",
+  "Who has gone quiet that I should follow up with?",
+  "Across all accounts this week, who replied positively?",
+  "Give me prep for my next meeting — pick someone in the evaluating stage.",
+];
+
+// ─── Right panel: tool-call trace card ──────────────────────────────────────
+
+function ToolCallCard({ call }: { call: ToolCall }) {
+  const [open, setOpen] = useState(false);
+  const Icon = call.status === "error" ? AlertTriangle : CheckCircle2;
+  const color = call.status === "error" ? "text-red-600" : "text-emerald-600";
+
+  // A compact summary of what came back, picked per-tool.
+  const summary = useMemo(() => {
+    const o = call.output as Record<string, unknown> | null;
+    if (!o || typeof o !== "object") return null;
+    if ("error" in o) return String(o.error);
+    if (call.name === "get_account") {
+      const claims = Array.isArray((o as any).claims) ? (o as any).claims.length : null;
+      const name   = (o as any).entity?.name ?? (o as any).entity?.primary_identifier;
+      return [name, claims != null ? `${claims} claims` : null].filter(Boolean).join(" · ");
+    }
+    if (call.name === "get_context") {
+      const tokens = (o as any).token_count ?? (o as any).budget_tokens;
+      const items  = Array.isArray((o as any).timeline) ? (o as any).timeline.length : null;
+      return [tokens ? `${tokens} tokens` : null, items != null ? `${items} timeline items` : null].filter(Boolean).join(" · ");
+    }
+    if (call.name === "query") {
+      const n = Array.isArray((o as any).items) ? (o as any).items.length : null;
+      return n != null ? `${n} observations` : null;
+    }
+    if (call.name === "attention") {
+      const n = Array.isArray((o as any).items) ? (o as any).items.length : null;
+      return n != null ? `${n} items` : null;
+    }
+    if (call.name === "verify") {
+      const fresh = (o as any).after?.freshness;
+      return fresh ? `freshness: ${fresh}` : null;
+    }
+    if (call.name === "classify") {
+      const s = (o as any).summary;
+      if (!s) return null;
+      return `${s.total ?? 0} total · ${s.net_new ?? 0} net-new`;
+    }
+    return null;
+  }, [call]);
+
+  return (
+    <div className="rounded-lg border border-border/60 bg-background overflow-hidden">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-accent transition-colors">
+        <Icon className={cn("h-3.5 w-3.5 shrink-0", color)} />
+        <span className="text-[12px] font-mono font-semibold text-foreground/90">{call.name}</span>
+        <span className="text-[11px] text-muted-foreground/70 flex-1 truncate">{summary ?? "—"}</span>
+        <span className="text-[10px] tabular-nums text-muted-foreground/70 shrink-0">{call.duration_ms}ms</span>
+        {open
+          ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground/60" />
+          : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/60" />}
+      </button>
+      {open && (
+        <div className="border-t border-border/60 bg-muted/30 px-3 py-2.5 space-y-2.5">
+          <div>
+            <p className="text-[10px] uppercase tracking-wide text-muted-foreground/70 mb-1">input</p>
+            <pre className="text-[11px] font-mono text-foreground/80 whitespace-pre-wrap break-all leading-relaxed">
+{JSON.stringify(call.input, null, 2)}
+            </pre>
+          </div>
+          <div>
+            <p className="text-[10px] uppercase tracking-wide text-muted-foreground/70 mb-1">output</p>
+            <pre className="text-[11px] font-mono text-foreground/80 whitespace-pre-wrap break-all leading-relaxed max-h-96 overflow-y-auto">
+{JSON.stringify(call.output, null, 2)}
+            </pre>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Page ───────────────────────────────────────────────────────────────────
+
+export default function Playground() {
+  const { session, userData } = useAuth();
+  const token = session?.access_token ?? "";
+  const workspaceId = userData?.workspace?.id ?? "";
+  const h = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
+
+  const [threads, setThreads] = useState<Thread[]>([]);
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [loadingMessages, setLoadingMessages] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [sending, setSending] = useState(false);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // ── Load threads on mount ──
+  const loadThreads = useCallback(async () => {
+    if (!workspaceId || !token) return;
+    try {
+      const r = await fetch(`${apiUrl}/api/playground/threads?workspaceId=${workspaceId}`, { headers: h });
+      if (!r.ok) return;
+      const d = await r.json();
+      setThreads(d.threads ?? []);
+    } catch { /* silent */ }
+  }, [apiUrl, h, token, workspaceId]);
+
+  useEffect(() => { loadThreads(); }, [loadThreads]);
+
+  // ── When the active thread changes, load its messages ──
+  useEffect(() => {
+    if (!activeThreadId || !workspaceId) { setMessages([]); return; }
+    setLoadingMessages(true);
+    fetch(`${apiUrl}/api/playground/threads/${activeThreadId}/messages?workspaceId=${workspaceId}`, { headers: h })
+      .then(r => (r.ok ? r.json() : { messages: [] }))
+      .then(d => setMessages(d.messages ?? []))
+      .catch(() => setMessages([]))
+      .finally(() => setLoadingMessages(false));
+  }, [activeThreadId, apiUrl, h, workspaceId]);
+
+  // ── Auto-scroll on new messages ──
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [messages, sending]);
+
+  // ── New thread ──
+  const newThread = useCallback(async () => {
+    if (!workspaceId) return;
+    try {
+      const r = await fetch(`${apiUrl}/api/playground/threads`, {
+        method: "POST",
+        headers: { ...h, "Content-Type": "application/json" },
+        body: JSON.stringify({ workspaceId }),
+      });
+      if (!r.ok) { toast.error("Failed to create thread"); return; }
+      const d = await r.json();
+      setThreads(prev => [d.thread, ...prev]);
+      setActiveThreadId(d.thread.id);
+      setMessages([]);
+      setTimeout(() => inputRef.current?.focus(), 50);
+    } catch { toast.error("Failed to create thread"); }
+  }, [apiUrl, h, workspaceId]);
+
+  // ── Delete thread ──
+  const deleteThread = useCallback(async (id: string) => {
+    if (!workspaceId) return;
+    try {
+      const r = await fetch(`${apiUrl}/api/playground/threads/${id}?workspaceId=${workspaceId}`, {
+        method: "DELETE", headers: h,
+      });
+      if (!r.ok) { toast.error("Failed to delete"); return; }
+      setThreads(prev => prev.filter(t => t.id !== id));
+      if (activeThreadId === id) { setActiveThreadId(null); setMessages([]); }
+    } catch { toast.error("Failed to delete"); }
+  }, [activeThreadId, apiUrl, h, workspaceId]);
+
+  // ── Send message ──
+  const send = useCallback(async (text: string) => {
+    const message = text.trim();
+    if (!message || !workspaceId || sending) return;
+
+    // Ensure we have a thread to send in.
+    let threadId = activeThreadId;
+    if (!threadId) {
+      try {
+        const r = await fetch(`${apiUrl}/api/playground/threads`, {
+          method: "POST", headers: { ...h, "Content-Type": "application/json" },
+          body: JSON.stringify({ workspaceId }),
+        });
+        if (!r.ok) { toast.error("Failed to start thread"); return; }
+        const d = await r.json();
+        setThreads(prev => [d.thread, ...prev]);
+        threadId = d.thread.id;
+        setActiveThreadId(threadId);
+      } catch { toast.error("Failed to start thread"); return; }
+    }
+
+    setSending(true);
+    setDraft("");
+    // Optimistic user message
+    const optimisticUser: Message = {
+      id: `optimistic-${Date.now()}`,
+      role: "user", content: message, tool_calls: null,
+      created_at: new Date().toISOString(),
+    };
+    setMessages(prev => [...prev, optimisticUser]);
+
+    try {
+      const r = await fetch(`${apiUrl}/api/playground/chat`, {
+        method: "POST",
+        headers: { ...h, "Content-Type": "application/json" },
+        body: JSON.stringify({ workspaceId, threadId, message }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d?.error || "chat_failed");
+      // Replace the optimistic message with the real pair from the server.
+      setMessages(prev => [
+        ...prev.filter(m => m.id !== optimisticUser.id),
+        d.userMessage, d.assistantMessage,
+      ]);
+      // Bump the thread to the top of the sidebar.
+      setThreads(prev => {
+        const idx = prev.findIndex(t => t.id === threadId);
+        if (idx < 0) return prev;
+        const updated = { ...prev[idx], updated_at: new Date().toISOString(),
+          title: prev[idx].title === "New chat" ? message.slice(0, 80) : prev[idx].title };
+        return [updated, ...prev.slice(0, idx), ...prev.slice(idx + 1)];
+      });
+    } catch (e: any) {
+      toast.error(e?.message || "Chat failed");
+      // Roll back the optimistic message on failure.
+      setMessages(prev => prev.filter(m => m.id !== optimisticUser.id));
+      setDraft(message);
+    } finally {
+      setSending(false);
+    }
+  }, [activeThreadId, apiUrl, h, sending, workspaceId]);
+
+  // ── Right-panel data: tool calls from the most recent assistant message ──
+  const lastAssistantCalls = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === "assistant" && messages[i].tool_calls?.length) {
+        return { calls: messages[i].tool_calls!, ts: messages[i].created_at };
+      }
+    }
+    return null;
+  }, [messages]);
+
+  const grouped = useMemo(() => groupThreadsByDay(threads), [threads]);
+
+  return (
+    <div className="h-full flex flex-col overflow-hidden bg-background">
+      <div className="px-8 pt-7 pb-4 border-b border-border/60">
+        <PageHeader
+          title="Playground"
+          subtitle="Chat with your workspace context. Every API call the agent makes lands in the right panel — see the substrate working in real time."
+        />
+      </div>
+
+      <div className="flex-1 grid grid-cols-[240px_1fr_360px] min-h-0">
+        {/* ── LEFT: thread list ── */}
+        <aside className="border-r border-border/60 flex flex-col min-h-0 bg-muted/20">
+          <div className="p-3 border-b border-border/60">
+            <button
+              onClick={newThread}
+              className="w-full inline-flex items-center justify-center gap-1.5 h-9 px-3 rounded-lg bg-primary text-primary-foreground text-[12px] font-semibold hover:bg-primary/90 transition-colors">
+              <Plus className="h-3.5 w-3.5" /> New chat
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto px-2 py-2">
+            {threads.length === 0 ? (
+              <p className="text-[11px] text-muted-foreground/70 px-2 py-3">No chats yet. Start one above.</p>
+            ) : grouped.map(([label, group]) => (
+              <div key={label} className="mb-3">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70 px-2 mb-1">{label}</p>
+                {group.map(t => (
+                  <div
+                    key={t.id}
+                    className={cn(
+                      "group flex items-center gap-1 rounded-md mx-0 px-2 py-1.5 cursor-pointer transition-colors",
+                      activeThreadId === t.id ? "bg-accent" : "hover:bg-muted/60"
+                    )}
+                    onClick={() => setActiveThreadId(t.id)}
+                  >
+                    <MessageSquare className="h-3 w-3 shrink-0 text-muted-foreground/70" />
+                    <span className="text-[12px] flex-1 truncate text-foreground/85">{t.title || "New chat"}</span>
+                    <button
+                      onClick={e => { e.stopPropagation(); deleteThread(t.id); }}
+                      title="Delete chat"
+                      className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-background transition-opacity">
+                      <Trash2 className="h-3 w-3 text-muted-foreground/70 hover:text-red-600" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        </aside>
+
+        {/* ── CENTER: chat ── */}
+        <main className="flex flex-col min-h-0">
+          <div ref={scrollRef} className="flex-1 overflow-y-auto px-8 py-6">
+            {activeThreadId === null && messages.length === 0 ? (
+              <EmptyState onPick={text => send(text)} />
+            ) : loadingMessages ? (
+              <div className="flex items-center justify-center py-12 text-[12px] text-muted-foreground/70">
+                <Loader2 className="h-4 w-4 animate-spin mr-2" /> Loading…
+              </div>
+            ) : (
+              <div className="max-w-3xl mx-auto space-y-5">
+                {messages.map(m => <Bubble key={m.id} msg={m} />)}
+                {sending && (
+                  <div className="flex items-center gap-2 text-[12px] text-muted-foreground/70">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <span>Asking the substrate…</span>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Composer */}
+          <div className="border-t border-border/60 px-8 py-4 bg-background">
+            <div className="max-w-3xl mx-auto">
+              <div className="flex items-end gap-2 rounded-xl border border-border/60 bg-background px-3 py-2 focus-within:border-foreground/40 transition-colors">
+                <textarea
+                  ref={inputRef}
+                  value={draft}
+                  onChange={e => setDraft(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(draft); }
+                  }}
+                  placeholder="What do we know about…"
+                  rows={1}
+                  disabled={sending}
+                  className="flex-1 resize-none bg-transparent text-[13px] text-foreground placeholder:text-muted-foreground/60 focus:outline-none py-1.5 max-h-40"
+                />
+                <button
+                  onClick={() => send(draft)}
+                  disabled={!draft.trim() || sending}
+                  className="shrink-0 inline-flex items-center justify-center h-8 w-8 rounded-lg bg-primary text-primary-foreground disabled:opacity-30 hover:bg-primary/90 transition-colors">
+                  {sending
+                    ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    : <Send className="h-3.5 w-3.5" />}
+                </button>
+              </div>
+              <p className="text-[10px] text-muted-foreground/60 mt-2 text-center">
+                Read-only — the agent inspects your workspace but never writes. Enter to send · Shift+Enter for new line.
+              </p>
+            </div>
+          </div>
+        </main>
+
+        {/* ── RIGHT: live context trace ── */}
+        <aside className="border-l border-border/60 flex flex-col min-h-0 bg-muted/20">
+          <div className="px-4 py-3 border-b border-border/60 flex items-center gap-2">
+            <Wrench className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="text-[12px] font-semibold text-foreground">Context</span>
+            <span className="text-[11px] text-muted-foreground/70 ml-auto">
+              {lastAssistantCalls ? `${lastAssistantCalls.calls.length} call${lastAssistantCalls.calls.length === 1 ? "" : "s"}` : "no calls yet"}
+            </span>
+          </div>
+          <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2">
+            {!lastAssistantCalls ? (
+              <div className="text-[12px] text-muted-foreground/70 px-2 py-6 text-center leading-relaxed">
+                The agent's API calls will appear here.<br />
+                <span className="text-[11px]">Each shows the input, output, and latency.</span>
+              </div>
+            ) : (
+              <>
+                <p className="text-[10px] uppercase tracking-wide text-muted-foreground/70 px-1 mb-1 flex items-center gap-1">
+                  <Clock className="h-2.5 w-2.5" />
+                  {formatDistanceToNow(new Date(lastAssistantCalls.ts), { addSuffix: true })}
+                </p>
+                {lastAssistantCalls.calls.map((c, i) => <ToolCallCard key={i} call={c} />)}
+              </>
+            )}
+          </div>
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+// ─── Subcomponents ──────────────────────────────────────────────────────────
+
+function Bubble({ msg }: { msg: Message }) {
+  const isUser = msg.role === "user";
+  return (
+    <div className={cn("flex flex-col gap-1", isUser ? "items-end" : "items-start")}>
+      <div className={cn(
+        "rounded-2xl px-4 py-2.5 max-w-[85%] text-[13px] leading-relaxed whitespace-pre-wrap break-words",
+        isUser
+          ? "bg-primary text-primary-foreground"
+          : "bg-muted text-foreground"
+      )}>
+        {msg.content}
+      </div>
+      {!isUser && msg.tool_calls && msg.tool_calls.length > 0 && (
+        <p className="text-[10px] text-muted-foreground/70 px-1 flex items-center gap-1">
+          <Wrench className="h-2.5 w-2.5" />
+          {msg.tool_calls.length} Nous {msg.tool_calls.length === 1 ? "call" : "calls"}
+          <span className="text-muted-foreground/40">·</span>
+          {msg.tool_calls.map(c => c.name).join(", ")}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function EmptyState({ onPick }: { onPick: (text: string) => void }) {
+  return (
+    <div className="max-w-2xl mx-auto pt-10">
+      <div className="text-center mb-8">
+        <Sparkles className="h-7 w-7 text-muted-foreground/60 mx-auto mb-3" />
+        <h2 className="text-[18px] font-semibold text-foreground">Ask anything about your workspace</h2>
+        <p className="text-[13px] text-muted-foreground/70 mt-1.5 max-w-md mx-auto leading-relaxed">
+          The Playground runs a small agent with read-only access to your Nous workspace. It uses the same six tools your real agents would.
+        </p>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+        {SUGGESTIONS.map(s => (
+          <button
+            key={s}
+            onClick={() => onPick(s)}
+            className="text-left rounded-xl border border-border/60 bg-background px-4 py-3 hover:border-border hover:bg-accent transition-colors">
+            <p className="text-[12px] text-foreground/85 leading-relaxed">{s}</p>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
