@@ -198,3 +198,19 @@ export interface DedupResult {
   results: DedupItem[];
   summary: DedupSummary;
 }
+
+// ─── Workspace facts (the user's own playbook) ──────────────────────────────
+
+export interface WorkspaceFact {
+  id: string;
+  category: string;          // 'ICP', 'Market', 'Product', 'Pricing', 'Competitors', or anything the user adds
+  content: string;
+  source: string;            // 'manual', 'agent', etc.
+  recorded_at: string;       // ISO timestamp
+}
+
+export interface WorkspaceFactsResult {
+  facts: WorkspaceFact[];
+  count: number;
+  by_category: Record<string, number>;
+}

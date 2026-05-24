@@ -187,6 +187,35 @@ class NousClient:
             raise ValueError("Pass at least one of `emails` or `linkedin_urls`.")
         return self._post("/v2/dedup", body)
 
+    def get_workspace_facts(
+        self,
+        *,
+        categories: list[str] | None = None,
+        limit: int | None = None,
+    ) -> dict[str, Any]:
+        """Workspace-level facts the user has recorded about THEIR OWN business.
+
+        ICP, target market, product, pricing, competitors, playbooks —
+        NOT facts about individual people/companies. The user's own playbook.
+        Reach for this when answering questions about the user's business, not
+        about a contact. Optional ``categories`` filter — omit for all.
+
+        Returns::
+
+            {
+              "facts": [
+                {"id": ..., "category": "ICP", "content": ..., "source": ...,
+                 "recorded_at": ...}, ...
+              ],
+              "count": int,
+              "by_category": {"ICP": 2, "Market": 1, ...}
+            }
+        """
+        params: dict[str, Any] = {}
+        if categories: params["categories"] = ",".join(categories)
+        if limit is not None: params["limit"] = limit
+        return self._get("/v2/workspace/facts", params=params)
+
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
     def close(self) -> None:

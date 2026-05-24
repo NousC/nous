@@ -20,6 +20,7 @@ export type {
   AttentionItem, AttentionResult,
   VerifyResult,
   DedupStatus, DedupKind, DedupItem, DedupSummary, DedupResult,
+  WorkspaceFact, WorkspaceFactsResult,
 } from './types';
 
 import type {
@@ -30,6 +31,7 @@ import type {
   QueryScope, QueryResult,
   AttentionResult, VerifyResult,
   DedupResult,
+  WorkspaceFactsResult,
 } from './types';
 import { HttpClient } from './client';
 
@@ -110,5 +112,22 @@ export class Nous {
   classify(input: { emails?: string[]; linkedin_urls?: string[] } | string[]): Promise<DedupResult> {
     const body = Array.isArray(input) ? { emails: input } : input;
     return this.http.post<DedupResult>('/v2/dedup', body);
+  }
+
+  /**
+   * Workspace-level facts the workspace owner has recorded about THEIR OWN
+   * business — ICP, target market, product, pricing, competitors, playbooks.
+   * NOT facts about individual people/companies; the workspace's own playbook.
+   * Reach for this when answering questions about the user's business, not
+   * about a contact. Optional categories filter — omit for all.
+   */
+  getWorkspaceFacts(
+    opts: { categories?: string[]; limit?: number } = {},
+  ): Promise<WorkspaceFactsResult> {
+    const q = new URLSearchParams();
+    if (opts.categories?.length) q.set('categories', opts.categories.join(','));
+    if (opts.limit != null)      q.set('limit', String(opts.limit));
+    const qs = q.toString();
+    return this.http.get<WorkspaceFactsResult>(`/v2/workspace/facts${qs ? `?${qs}` : ''}`);
   }
 }
