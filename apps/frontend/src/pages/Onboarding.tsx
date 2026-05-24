@@ -11,18 +11,20 @@ const TOTAL_STEPS = 3;
 const STORAGE_KEY = "nous_onboarding_v7";
 const API_URL    = import.meta.env.VITE_API_URL ?? "";
 
-// ─── Shared button styles ────────────────────────────────────────────────────
+// ─── Shared button styles (theme-aware) ──────────────────────────────────────
 const BTN_PRIMARY =
-  "inline-flex items-center justify-center gap-1.5 h-10 px-5 rounded-lg bg-gray-900 text-white text-[13px] font-semibold hover:bg-gray-800 disabled:opacity-40 transition-colors";
+  "inline-flex items-center justify-center gap-1.5 h-10 px-5 rounded-lg text-[13px] font-semibold disabled:opacity-40 transition-colors " +
+  "bg-foreground text-background hover:bg-foreground/90 " +
+  "dark:bg-muted dark:text-foreground dark:hover:bg-muted/70 dark:border dark:border-border";
 const BTN_SECONDARY =
-  "inline-flex items-center justify-center gap-1.5 h-10 px-4 rounded-lg bg-white border border-gray-200 text-gray-700 text-[13px] font-semibold hover:bg-gray-50 disabled:opacity-40 transition-colors";
+  "inline-flex items-center justify-center gap-1.5 h-10 px-4 rounded-lg bg-background border border-border text-foreground/80 text-[13px] font-semibold hover:bg-muted/50 hover:text-foreground disabled:opacity-40 transition-colors";
 
 // ─── Tiny primitives ─────────────────────────────────────────────────────────
 function FieldLabel({ children, optional }: { children: React.ReactNode; optional?: boolean }) {
   return (
-    <div className="text-[13px] font-medium text-gray-700 mb-1.5">
+    <div className="text-[13px] font-medium text-foreground/80 mb-1.5">
       {children}
-      {optional && <span className="ml-1.5 text-[12px] font-normal text-gray-400">Optional</span>}
+      {optional && <span className="ml-1.5 text-[12px] font-normal text-muted-foreground">Optional</span>}
     </div>
   );
 }
@@ -32,8 +34,8 @@ function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
     <input
       {...props}
       className={
-        "w-full h-10 rounded-lg border border-gray-200 bg-white px-3 text-[13px] text-gray-900 " +
-        "placeholder:text-gray-400 focus:border-gray-400 outline-none transition-colors " +
+        "w-full h-10 rounded-lg border border-border bg-background px-3 text-[13px] text-foreground " +
+        "placeholder:text-muted-foreground/70 focus:border-foreground/40 outline-none transition-colors " +
         (props.className ?? "")
       }
     />
@@ -45,8 +47,8 @@ function TextArea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
     <textarea
       {...props}
       className={
-        "w-full min-h-[88px] rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-[13px] text-gray-900 " +
-        "placeholder:text-gray-400 focus:border-gray-400 outline-none transition-colors resize-y " +
+        "w-full min-h-[88px] rounded-lg border border-border bg-background px-3 py-2.5 text-[13px] text-foreground " +
+        "placeholder:text-muted-foreground/70 focus:border-foreground/40 outline-none transition-colors resize-y " +
         (props.className ?? "")
       }
     />
@@ -157,7 +159,7 @@ function StepImport({
         desc="Drop a CSV and map columns to Nous fields, or skip to start with demo data."
       />
 
-      <div className="rounded-xl border border-gray-200 overflow-hidden">
+      <div className="rounded-xl border border-border overflow-hidden">
         <PeopleImportPanel
           workspaceId={workspaceId ?? ""}
           token={session?.access_token ?? ""}
@@ -173,7 +175,7 @@ function StepImport({
         </button>
         <button
           onClick={onSkip}
-          className="text-[13px] font-medium text-gray-500 hover:text-gray-900 transition-colors"
+          className="text-[13px] font-medium text-muted-foreground hover:text-foreground transition-colors"
         >
           Skip — use demo data
         </button>
@@ -235,35 +237,35 @@ function StepCreateKey({
         </div>
       ) : (
         <div className="space-y-3">
-          <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-5">
-            <div className="flex items-center gap-2 mb-3 text-[12px] font-semibold text-emerald-600">
+          <div className="rounded-xl border border-emerald-200 dark:border-emerald-900/40 bg-emerald-50 dark:bg-emerald-950/30 p-5">
+            <div className="flex items-center gap-2 mb-3 text-[12px] font-semibold text-emerald-600 dark:text-emerald-300">
               <Check className="h-4 w-4" />
               <span>Key created</span>
             </div>
-            <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 h-10">
+            <div className="flex items-center gap-2 rounded-lg border border-border bg-background px-3 h-10">
               <input
                 readOnly
                 value={apiKey}
                 type={showKey ? "text" : "password"}
-                className="flex-1 bg-transparent text-[13px] text-gray-900 outline-none truncate font-mono"
+                className="flex-1 bg-transparent text-[13px] text-foreground outline-none truncate font-mono"
               />
               <button
                 type="button"
                 onClick={() => setShowKey(!showKey)}
-                className="text-gray-400 hover:text-gray-700 transition-colors"
+                className="text-muted-foreground hover:text-foreground transition-colors"
               >
                 {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </button>
               <button
                 type="button"
                 onClick={copy}
-                className="text-gray-400 hover:text-gray-700 transition-colors"
+                className="text-muted-foreground hover:text-foreground transition-colors"
               >
-                {copied ? <Check className="h-4 w-4 text-emerald-600" /> : <Copy className="h-4 w-4" />}
+                {copied ? <Check className="h-4 w-4 text-emerald-600 dark:text-emerald-400" /> : <Copy className="h-4 w-4" />}
               </button>
             </div>
           </div>
-          <p className="text-[13px] text-gray-500">
+          <p className="text-[13px] text-muted-foreground">
             You can revoke or rotate this any time from settings.
           </p>
         </div>
@@ -459,7 +461,7 @@ export default function Onboarding({ testMode = false }: OnboardingProps) {
           <div className="mb-6 flex items-center justify-between gap-4">
             <StepIndicator current={currentStep} total={TOTAL_STEPS} />
             {testMode && (
-              <span className="text-[11px] font-semibold text-amber-600 border border-amber-200 bg-amber-50 rounded-md px-2 py-0.5 flex-shrink-0">
+              <span className="text-[11px] font-semibold text-amber-600 dark:text-amber-300 border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-950/40 rounded-md px-2 py-0.5 flex-shrink-0">
                 Test mode
               </span>
             )}
