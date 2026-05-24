@@ -13,10 +13,13 @@
  *   NOUS_API_URL   — API base URL (default: https://api.opennous.cloud)
  *
  * Tools (all v2 — thin clients of the Context API):
- *   get_context — engineered context for a task (draft_email, follow_up, ...)
- *   get_account — the full account record: every claim + the timeline
- *   record      — record what happened / what you learned (observe, never update)
- *   query       — retrieve + summarise a corpus of activity across many people
+ *   get_context          — engineered context for a task (draft_email, follow_up, ...)
+ *   get_account          — the full account record: every claim + the timeline
+ *   record               — record what happened / what you learned (observe, never update)
+ *   query                — retrieve + summarise a corpus of activity across many people
+ *   attention            — what needs your attention (accounts gone quiet, facts decayed)
+ *   verify               — re-check a fact before acting on it
+ *   get_workspace_facts  — workspace-level facts (ICP, market, pricing, product, competitors)
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -272,6 +275,45 @@ server.tool(
     const a = r.after ?? {};
     return { content: [{ type: "text", text:
       `${property}: ${fmtVal(a.value)}  [${pct(a.confidence)} · ${a.freshness}]\n${r.note ?? ""}` }] };
+  }
+);
+
+// ===========================================================================
+// TOOL: get_workspace_facts  —  GET /v2/workspace/facts
+// The user's OWN playbook: ICP, market, product, pricing, competitors.
+// Use this for any question about the user's business — NOT get_account.
+// ===========================================================================
+server.tool(
+  "get_workspace_facts",
+  "Get workspace-level facts the user has recorded about THEIR OWN business — ICP, target market, " +
+  "product, pricing, competitors, playbooks. These are NOT facts about people or companies; they " +
+  "are the user's own playbook. Use this for any question about the user's ICP, target buyer, " +
+  "pricing, market, or differentiators. ALWAYS prefer this over query/get_account when the " +
+  "question is about the user's business.",
+  {
+    categories: z.array(z.string()).optional()
+      .describe("Optional category filter, e.g. ['ICP'] or ['Pricing','Competitors']. Omit for all."),
+    limit: z.number().min(1).max(500).optional()
+      .describe("Max facts to return (default 50)"),
+  },
+  async ({ categories, limit }) => {
+    const params = {};
+    if (categories?.length) params.categories = categories.join(",");
+    if (limit != null) params.limit = limit;
+    const r = await get("/v2/workspace/facts", params);
+    if (!r.facts?.length) {
+      return { content: [{ type: "text", text:
+        "No workspace facts recorded yet. The user can add them in the Intelligence tab." }] };
+    }
+    const groups = {};
+    for (const f of r.facts) (groups[f.category] ??= []).push(f);
+    const lines = [];
+    for (const [cat, facts] of Object.entries(groups)) {
+      lines.push(`${cat.toUpperCase()} (${facts.length}):`);
+      for (const f of facts) lines.push(`  ${f.content}  [${relAge(f.recorded_at)}]`);
+      lines.push("");
+    }
+    return { content: [{ type: "text", text: lines.join("\n").trim() }] };
   }
 );
 
