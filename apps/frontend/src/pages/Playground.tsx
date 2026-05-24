@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Link } from "react-router-dom";
+import ReactMarkdown from "react-markdown";
 import {
-  Plus, Send, Trash2, Sparkles, Loader2, ChevronRight, ChevronDown,
-  MessageSquare, Wrench, Clock, AlertTriangle, CheckCircle2, ArrowLeft,
+  Plus, Send, Trash2, Loader2, ChevronRight, ChevronDown,
+  MessageSquare, Wrench, AlertTriangle, CheckCircle2, ArrowLeft,
 } from "lucide-react";
-import { formatDistanceToNow, format, isToday, isYesterday } from "date-fns";
+import { format, isToday, isYesterday } from "date-fns";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/components/ui/sonner";
 import { cn } from "@/lib/utils";
@@ -151,6 +152,10 @@ export default function Playground() {
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  // The assistant message id that JUST arrived from the server in this session.
+  // Only that one gets the streaming/typewriter animation — replaying history
+  // on thread-switch shouldn't visually re-type everything.
+  const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -258,6 +263,8 @@ export default function Playground() {
         ...prev.filter(m => m.id !== optimisticUser.id),
         d.userMessage, d.assistantMessage,
       ]);
+      // Mark the assistant message for the typewriter animation.
+      setStreamingMessageId(d.assistantMessage.id);
       // Bump the thread to the top of the sidebar.
       setThreads(prev => {
         const idx = prev.findIndex(t => t.id === threadId);
@@ -276,15 +283,19 @@ export default function Playground() {
     }
   }, [activeThreadId, apiUrl, h, sending, workspaceId]);
 
-  // ── Right-panel data: tool calls from the most recent assistant message ──
-  const lastAssistantCalls = useMemo(() => {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].role === "assistant" && messages[i].tool_calls?.length) {
-        return { calls: messages[i].tool_calls!, ts: messages[i].created_at };
+  // ── Right-panel data: EVERY tool call across the whole conversation ──
+  // Grouped by assistant turn so the user can see how each question fired —
+  // critical for the "see the substrate working" promise. Newest at the top.
+  const traceTurns = useMemo(() => {
+    const turns: Array<{ messageId: string; ts: string; calls: ToolCall[] }> = [];
+    for (const m of messages) {
+      if (m.role === "assistant" && m.tool_calls && m.tool_calls.length > 0) {
+        turns.push({ messageId: m.id, ts: m.created_at, calls: m.tool_calls });
       }
     }
-    return null;
+    return turns.reverse();
   }, [messages]);
+  const totalCalls = useMemo(() => traceTurns.reduce((n, t) => n + t.calls.length, 0), [traceTurns]);
 
   const grouped = useMemo(() => groupThreadsByDay(threads), [threads]);
 
@@ -306,7 +317,6 @@ export default function Playground() {
           Back to dashboard
         </Link>
         <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
-          <Sparkles className="h-3.5 w-3.5 text-muted-foreground/70" />
           <span className="font-semibold tracking-wide">Playground</span>
           <span className="text-muted-foreground/40">·</span>
           <span className="text-muted-foreground/70">read-only</span>
@@ -314,7 +324,7 @@ export default function Playground() {
         <div className="w-[140px]" />
       </div>
 
-      <div className="flex-1 grid grid-cols-[240px_1fr_360px] min-h-0">
+      <div className="flex-1 grid grid-cols-[240px_1fr_420px] min-h-0">
         {/* ── LEFT: thread list ── */}
         <aside className="border-r border-border/60 flex flex-col min-h-0 bg-muted/20">
           <div className="p-3 border-b border-border/60">
@@ -334,17 +344,22 @@ export default function Playground() {
                   <div
                     key={t.id}
                     className={cn(
-                      "group flex items-center gap-1 rounded-md mx-0 px-2 py-1.5 cursor-pointer transition-colors",
+                      "group flex items-start gap-1.5 rounded-md mx-0 px-2 py-2 cursor-pointer transition-colors",
                       activeThreadId === t.id ? "bg-accent" : "hover:bg-muted/60"
                     )}
                     onClick={() => setActiveThreadId(t.id)}
                   >
-                    <MessageSquare className="h-3 w-3 shrink-0 text-muted-foreground/70" />
-                    <span className="text-[12px] flex-1 truncate text-foreground/85">{t.title || "New chat"}</span>
+                    <MessageSquare className="h-3 w-3 shrink-0 text-muted-foreground/70 mt-0.5" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[12px] truncate text-foreground/90 leading-tight">{t.title || "New chat"}</p>
+                      <p className="text-[10px] text-muted-foreground/60 mt-0.5 tabular-nums">
+                        {format(new Date(t.updated_at), "MMM d, yyyy, h:mm:ss a")}
+                      </p>
+                    </div>
                     <button
                       onClick={e => { e.stopPropagation(); deleteThread(t.id); }}
                       title="Delete chat"
-                      className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-background transition-opacity">
+                      className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-background transition-opacity self-start">
                       <Trash2 className="h-3 w-3 text-muted-foreground/70 hover:text-red-600" />
                     </button>
                   </div>
@@ -365,13 +380,16 @@ export default function Playground() {
               </div>
             ) : (
               <div className="max-w-3xl mx-auto space-y-5">
-                {messages.map(m => <Bubble key={m.id} msg={m} />)}
-                {sending && (
-                  <div className="flex items-center gap-2 text-[12px] text-muted-foreground/70">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    <span>Asking the substrate…</span>
-                  </div>
-                )}
+                {messages.map(m => (
+                  <Bubble
+                    key={m.id}
+                    msg={m}
+                    // Only the just-arrived assistant message gets the typewriter
+                    // animation; replayed history renders instantly.
+                    animate={m.id === streamingMessageId}
+                  />
+                ))}
+                {sending && <TypingIndicator />}
               </div>
             )}
           </div>
@@ -408,29 +426,32 @@ export default function Playground() {
           </div>
         </main>
 
-        {/* ── RIGHT: live context trace ── */}
+        {/* ── RIGHT: live context trace — every API call across the turn ── */}
         <aside className="border-l border-border/60 flex flex-col min-h-0 bg-muted/20">
           <div className="px-4 py-3 border-b border-border/60 flex items-center gap-2">
             <Wrench className="h-3.5 w-3.5 text-muted-foreground" />
             <span className="text-[12px] font-semibold text-foreground">Context</span>
-            <span className="text-[11px] text-muted-foreground/70 ml-auto">
-              {lastAssistantCalls ? `${lastAssistantCalls.calls.length} call${lastAssistantCalls.calls.length === 1 ? "" : "s"}` : "no calls yet"}
+            <span className="text-[11px] text-muted-foreground/70 ml-auto tabular-nums">
+              {totalCalls === 0 ? "no calls yet" : `${totalCalls} call${totalCalls === 1 ? "" : "s"} · ${traceTurns.length} turn${traceTurns.length === 1 ? "" : "s"}`}
             </span>
           </div>
-          <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2">
-            {!lastAssistantCalls ? (
+          <div className="flex-1 overflow-y-auto px-3 py-3 space-y-4">
+            {traceTurns.length === 0 ? (
               <div className="text-[12px] text-muted-foreground/70 px-2 py-6 text-center leading-relaxed">
                 The agent's API calls will appear here.<br />
                 <span className="text-[11px]">Each shows the input, output, and latency.</span>
               </div>
             ) : (
-              <>
-                <p className="text-[10px] uppercase tracking-wide text-muted-foreground/70 px-1 mb-1 flex items-center gap-1">
-                  <Clock className="h-2.5 w-2.5" />
-                  {formatDistanceToNow(new Date(lastAssistantCalls.ts), { addSuffix: true })}
-                </p>
-                {lastAssistantCalls.calls.map((c, i) => <ToolCallCard key={i} call={c} />)}
-              </>
+              traceTurns.map(turn => (
+                <div key={turn.messageId} className="space-y-1.5">
+                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground/70 px-1 tabular-nums">
+                    {format(new Date(turn.ts), "h:mm:ss a")} · {turn.calls.length} call{turn.calls.length === 1 ? "" : "s"}
+                  </p>
+                  <div className="space-y-1.5">
+                    {turn.calls.map((c, i) => <ToolCallCard key={i} call={c} />)}
+                  </div>
+                </div>
+              ))
             )}
           </div>
         </aside>
@@ -441,24 +462,83 @@ export default function Playground() {
 
 // ─── Subcomponents ──────────────────────────────────────────────────────────
 
-function Bubble({ msg }: { msg: Message }) {
-  const isUser = msg.role === "user";
+// ── Typewriter: progressively reveals a target string, char by char.
+// We fake streaming because the API is request-response — feels native enough.
+// Per the user: the assistant message should "stream in" rather than pop.
+function useTypewriter(target: string, enabled: boolean, charsPerTick = 4, tickMs = 18) {
+  const [shown, setShown] = useState(enabled ? "" : target);
+  const targetRef = useRef(target);
+  useEffect(() => { targetRef.current = target; }, [target]);
+
+  useEffect(() => {
+    if (!enabled) { setShown(target); return; }
+    setShown("");
+    let cancelled = false;
+    let i = 0;
+    const tick = () => {
+      if (cancelled) return;
+      i = Math.min(i + charsPerTick, targetRef.current.length);
+      setShown(targetRef.current.slice(0, i));
+      if (i < targetRef.current.length) setTimeout(tick, tickMs);
+    };
+    tick();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled]);
+
+  return shown;
+}
+
+// ── A clean three-dot typing indicator while the model+tools are running.
+// Better than the previous "Asking the substrate…" — matches the chat idiom.
+function TypingIndicator() {
   return (
-    <div className={cn("flex flex-col gap-1", isUser ? "items-end" : "items-start")}>
-      <div className={cn(
-        "rounded-2xl px-4 py-2.5 max-w-[85%] text-[13px] leading-relaxed whitespace-pre-wrap break-words",
-        isUser
-          ? "bg-primary text-primary-foreground"
-          : "bg-muted text-foreground"
-      )}>
-        {msg.content}
+    <div className="flex items-end gap-2 py-1">
+      <div className="flex items-end gap-1 h-5">
+        <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/60 animate-bounce" style={{ animationDelay: "0ms" }} />
+        <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/60 animate-bounce" style={{ animationDelay: "120ms" }} />
+        <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/60 animate-bounce" style={{ animationDelay: "240ms" }} />
       </div>
-      {!isUser && msg.tool_calls && msg.tool_calls.length > 0 && (
-        <p className="text-[10px] text-muted-foreground/70 px-1 flex items-center gap-1">
+    </div>
+  );
+}
+
+function Bubble({ msg, animate }: { msg: Message; animate: boolean }) {
+  const isUser = msg.role === "user";
+  const streamed = useTypewriter(msg.content, !isUser && animate);
+
+  if (isUser) {
+    // Keep the user message in a pill bubble — visually distinguishes turns.
+    return (
+      <div className="flex justify-end">
+        <div className="rounded-2xl px-4 py-2.5 max-w-[85%] text-[13px] leading-relaxed whitespace-pre-wrap break-words bg-primary text-primary-foreground">
+          {msg.content}
+        </div>
+      </div>
+    );
+  }
+
+  // Assistant: no bubble. Just clean rendered markdown directly on the canvas.
+  // The streamed body is rendered through ReactMarkdown so partial fragments
+  // (e.g. an in-progress bold tag) still degrade gracefully.
+  return (
+    <div className="flex flex-col gap-1.5 max-w-[90%]">
+      <div className="prose prose-sm dark:prose-invert max-w-none text-[13.5px] leading-relaxed text-foreground
+                      prose-p:my-2 prose-p:leading-relaxed
+                      prose-strong:font-semibold prose-strong:text-foreground
+                      prose-ol:my-2 prose-ul:my-2 prose-li:my-0.5
+                      prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-[12px]
+                      prose-code:before:content-[''] prose-code:after:content-['']
+                      prose-pre:bg-muted prose-pre:text-foreground prose-pre:text-[12px]
+                      prose-a:text-foreground prose-a:underline prose-a:underline-offset-2">
+        <ReactMarkdown>{streamed}</ReactMarkdown>
+      </div>
+      {msg.tool_calls && msg.tool_calls.length > 0 && (
+        <p className="text-[10px] text-muted-foreground/70 flex items-center gap-1 flex-wrap">
           <Wrench className="h-2.5 w-2.5" />
           {msg.tool_calls.length} Nous {msg.tool_calls.length === 1 ? "call" : "calls"}
           <span className="text-muted-foreground/40">·</span>
-          {msg.tool_calls.map(c => c.name).join(", ")}
+          <span className="font-mono">{msg.tool_calls.map(c => c.name).join(", ")}</span>
         </p>
       )}
     </div>
