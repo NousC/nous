@@ -37,6 +37,7 @@ const Signup          = lazyPage(() => import("./pages/Signup"));
 const AcceptInvitation = lazyPage(() => import("./pages/AcceptInvitation"));
 const NotFound        = lazyPage(() => import("./pages/NotFound"));
 const OnboardingPage  = lazyPage(() => import("./pages/Onboarding"));
+const LivePage        = lazyPage(() => import("./pages/Live"));
 // Legal pages
 const PrivacyPolicy   = lazyPage(() => import("./pages/legal/PrivacyPolicy"));
 const TermsOfService  = lazyPage(() => import("./pages/legal/TermsOfService"));
@@ -102,6 +103,9 @@ const App = () => (
                   </ProtectedRoute>
                 }
               />
+
+              {/* Public — live ops dashboard, no auth */}
+              <Route path="/live" element={<Suspense fallback={<PageLoader />}><LivePage /></Suspense>} />
 
               {/* Legal */}
               <Route path="/privacy" element={<Suspense fallback={<PageLoader />}><PrivacyPolicy /></Suspense>} />
