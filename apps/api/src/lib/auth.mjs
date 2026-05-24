@@ -126,10 +126,12 @@ export async function ensureUserAndTeam(supabaseUser, skipTeamCreation = false) 
       await supabase.from('workspace_members').insert({ workspace_id: newWorkspace.id, user_id: user.id, role: 'owner' }).catch(() => {});
     }
 
-    // Create dev plan subscription
+    // Every new team starts on Free (1k ops, 25 enrichments/mo). Upgrades to a
+    // paid tier go through Stripe → stripeWebhook.mjs updates this row.
     await supabase.from('subscriptions').insert({
       team_id: team.id,
-      plan_name: 'dev',
+      plan_id: 'free',
+      plan_name: 'free',
       status: 'active',
       current_period_start: new Date().toISOString(),
     }).catch(e => console.warn('[ensureUserAndTeam] Error creating subscription:', e));
