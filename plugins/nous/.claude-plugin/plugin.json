@@ -1,0 +1,40 @@
+{
+  "$schema": "https://code.claude.com/schemas/claude-plugin.json",
+  "name": "nous",
+  "version": "0.1.0",
+  "description": "Nous — GTM data infrastructure for agents. One MCP call returns the full identity-resolved Account Record.",
+  "author": {
+    "name": "Nous",
+    "url": "https://opennous.cloud"
+  },
+  "homepage": "https://opennous.cloud",
+  "repository": "https://github.com/bennetglinder1/nous",
+  "license": "AGPL-3.0",
+  "keywords": ["mcp", "gtm", "crm", "memory", "agents", "context"],
+  "userConfig": {
+    "api_key": {
+      "type": "string",
+      "title": "Nous API key",
+      "description": "Create one at https://opennous.cloud → Settings → API Keys. The key is workspace-scoped — no separate workspace ID required.",
+      "sensitive": true,
+      "required": true
+    },
+    "api_url": {
+      "type": "string",
+      "title": "API base URL (optional)",
+      "description": "Override only if you self-host. Defaults to https://api.opennous.cloud.",
+      "default": "https://api.opennous.cloud",
+      "required": false
+    }
+  },
+  "mcpServers": {
+    "nous": {
+      "command": "npx",
+      "args": ["-y", "@opennous/mcp"],
+      "env": {
+        "NOUS_API_KEY": "${user_config.api_key}",
+        "NOUS_API_URL": "${user_config.api_url}"
+      }
+    }
+  }
+}
