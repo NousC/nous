@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useMemo } from "react";
-import { Link } from "react-router-dom";
 import { Pause, Play, Zap, Globe2, Activity, ArrowUpRight } from "lucide-react";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -448,37 +447,6 @@ export default function Live() {
               </div>
             </div>
           </div>
-        </section>
-
-        {/* ─── Friends row ──────────────────────────────── */}
-        <section className="mt-14 pt-8 border-t border-zinc-900">
-          <div className="flex items-end justify-between mb-5">
-            <h3 className="text-[11px] uppercase tracking-[0.2em] text-zinc-400">Friends running on Nous</h3>
-            <Link to="/signup" className="text-[11px] text-zinc-500 hover:text-zinc-200 transition-colors">
-              Be the first → put your logo here
-            </Link>
-          </div>
-          <div className="flex items-center">
-            {/* Empty state placeholders — replaced by real opt-in favicons once Friends ships */}
-            {[0, 1, 2, 3, 4].map((i) => (
-              <div
-                key={i}
-                className={`h-10 w-10 rounded-full bg-zinc-900 border border-zinc-800/80 flex items-center justify-center text-zinc-700 text-[14px] ${i > 0 ? "-ml-3" : ""}`}
-                style={{ zIndex: 10 - i }}
-              >
-                ◦
-              </div>
-            ))}
-            <div
-              className="-ml-3 h-10 w-10 rounded-full border-2 border-dashed border-zinc-700 flex items-center justify-center text-zinc-500 text-[12px] bg-zinc-950"
-              style={{ zIndex: 1 }}
-            >
-              +
-            </div>
-          </div>
-          <p className="text-[10px] text-zinc-600 mt-3 italic">
-            Real favicons appear here once Nous customers opt in from settings.
-          </p>
         </section>
 
         {/* ─── Footer tagline ───────────────────────────── */}
