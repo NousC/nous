@@ -426,7 +426,12 @@ export default function Onboarding({ testMode = false }: OnboardingProps) {
       await fetch(`${API_URL}/api/onboarding/complete`, {
         method: "POST",
         headers: auth,
-        body: JSON.stringify({}),
+        body: JSON.stringify({
+          name: name.trim() || undefined,
+          company_name: companyName.trim() || undefined,
+          website: website.trim() || undefined,
+          icp_description: icpDescription.trim() || undefined,
+        }),
       });
       localStorage.removeItem(STORAGE_KEY);
       localStorage.setItem("nous_just_onboarded", "true");

@@ -179,7 +179,7 @@ async function fireOnboardingWebhook(payload) {
 onboardingRouter.post('/complete', verifySupabaseAuth, async (req, res) => {
   try {
     const supabase = getSupabaseClient();
-    const { template_id } = req.body;
+    const { template_id, name, company_name, website, icp_description } = req.body;
     const { user, team } = await ensureUserAndTeam(req.user);
 
     let workspace = null;
@@ -219,9 +219,18 @@ onboardingRouter.post('/complete', verifySupabaseAuth, async (req, res) => {
       fireOnboardingWebhook({
         event: 'onboarding.completed',
         timestamp: new Date().toISOString(),
-        user: { id: user.id, name: user.name || null, email: user.email || null },
+        user: {
+          id: user.id,
+          name: (typeof name === 'string' && name.trim()) || user.name || null,
+          email: user.email || null,
+        },
         workspace: workspace ? { id: workspace.id, name: workspace.name } : null,
         team: { id: team.id, name: team.name || null },
+        company: {
+          name: (typeof company_name === 'string' && company_name.trim()) || workspace?.name || null,
+          website: (typeof website === 'string' && website.trim()) || null,
+        },
+        icp_description: (typeof icp_description === 'string' && icp_description.trim()) || null,
       });
     }
 
