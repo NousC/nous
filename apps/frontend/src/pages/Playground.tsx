@@ -57,9 +57,9 @@ function groupThreadsByDay(threads: Thread[]) {
 }
 
 const SUGGESTIONS = [
-  "What do we know about my most recent contact?",
+  "What's our ICP?",
   "Who has gone quiet that I should follow up with?",
-  "Across all accounts this week, who replied positively?",
+  "What do we know about my most recent contact?",
   "Give me prep for my next meeting — pick someone in the evaluating stage.",
 ];
 
@@ -75,6 +75,12 @@ function ToolCallCard({ call }: { call: ToolCall }) {
     const o = call.output as Record<string, unknown> | null;
     if (!o || typeof o !== "object") return null;
     if ("error" in o) return String(o.error);
+    if (call.name === "get_workspace_facts") {
+      const n     = (o as any).count;
+      const cats  = (o as any).by_category;
+      const top   = cats && typeof cats === "object" ? Object.entries(cats).slice(0, 3).map(([k, v]) => `${k} ${v}`).join(" · ") : "";
+      return [n != null ? `${n} fact${n === 1 ? "" : "s"}` : null, top].filter(Boolean).join(" · ");
+    }
     if (call.name === "get_account") {
       const claims = Array.isArray((o as any).claims) ? (o as any).claims.length : null;
       const name   = (o as any).entity?.name ?? (o as any).entity?.primary_identifier;

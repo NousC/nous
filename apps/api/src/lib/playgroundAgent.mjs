@@ -17,6 +17,7 @@ import {
   resolveFocus, getAccountRecord, verifyClaim,
   runQuery, getAttention,
   classifyIdentifiers,
+  listNotes, getWorkspaceEntityId,
 } from '@nous/core';
 
 const MODEL       = 'claude-haiku-4-5-20251001';
@@ -25,13 +26,19 @@ const MAX_TOKENS  = 1500;
 const SYSTEM_PROMPT = [
   "You are the Nous Playground assistant. The user is exploring what their Nous workspace knows — try their questions out before they integrate the API into their own agent.",
   "",
-  "You have six READ-ONLY tools for inspecting the workspace. Pick the smallest set that answers the question:",
-  "  • get_context     — engineered context block for a task about one entity + intent. Best for 'help me draft', 'what should I do about', 'prep me for'.",
-  "  • get_account     — the full Account Record (every claim with epistemics + recent observation timeline). Best for 'what do we know about', 'tell me about', 'show me'.",
-  "  • query           — retrieve+summarise observations across many entities for a corpus question. Best for 'across all', 'last 30 days', 'which segments'.",
-  "  • attention       — workspace-wide: who's gone quiet, what facts have decayed. Best for 'what needs attention', 'who should I follow up with'.",
-  "  • verify          — re-check one claim against current observations. Best for 'is X still true', 'verify that'.",
-  "  • classify        — cross-list dedup for cold-outbound — net_new vs engaged vs bounced. Best for 'have I touched these leads', 'pre-flight check'.",
+  "You have seven READ-ONLY tools for inspecting the workspace. Pick the smallest set that answers the question:",
+  "  • get_workspace_facts — workspace-level facts the user has explicitly recorded: ICP, target market, product details, pricing, competitors, playbooks. ALWAYS use this for 'what's our ICP', 'who do we target', 'what's our pricing', 'what differentiates us'.",
+  "  • get_context         — engineered context block for a task about one entity + intent. Best for 'help me draft', 'what should I do about', 'prep me for'.",
+  "  • get_account         — the full Account Record (every claim with epistemics + recent observation timeline). Best for 'what do we know about', 'tell me about', 'show me' for ONE PERSON OR COMPANY.",
+  "  • query               — retrieve+summarise observations across many entities for a corpus question. Best for 'across all', 'last 30 days', 'which segments'. NOT for workspace-level facts — those are in get_workspace_facts.",
+  "  • attention           — workspace-wide: who's gone quiet, what facts have decayed. Best for 'what needs attention', 'who should I follow up with'.",
+  "  • verify              — re-check one claim against current observations. Best for 'is X still true', 'verify that'.",
+  "  • classify            — cross-list dedup for cold-outbound — net_new vs engaged vs bounced. Best for 'have I touched these leads', 'pre-flight check'.",
+  "",
+  "WHERE THINGS LIVE — important distinction:",
+  "  - Workspace-level facts (ICP, market, pricing, product, competitors, playbooks) → get_workspace_facts",
+  "  - Per-person/per-company claims (title, stage, intent, sentiment, observations) → get_account or get_context",
+  "If asked about the user's OWN business (what we sell, who we target, how we price), reach for get_workspace_facts FIRST.",
   "",
   "Focus identifiers are universal: pass an email, domain, LinkedIn URL, entity UUID, or a name. If a name returns ambiguous, surface the candidates and ask the user to pick.",
   "",
@@ -45,6 +52,21 @@ const SYSTEM_PROMPT = [
 // ─── Tool schemas — what we give Haiku ──────────────────────────────────────
 
 const TOOLS = [
+  {
+    name: 'get_workspace_facts',
+    description: "Workspace-level facts the user has explicitly recorded about THEIR OWN business — ICP, target market, product, pricing, competitors, playbooks. These are NOT facts about individual people or companies; they are the user's own playbook. Use this for any question about the user's ICP, target buyer, pricing, market, or differentiators. Optional category filter (common categories: 'ICP', 'Market', 'Product', 'Pricing', 'Competitors').",
+    input_schema: {
+      type: 'object',
+      properties: {
+        categories: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Optional. Filter to these categories (e.g. ["ICP"]). Omit to load all categories.',
+        },
+        limit: { type: 'number', description: 'Max facts to return (default 50)' },
+      },
+    },
+  },
   {
     name: 'get_context',
     description: 'Engineered context block for one entity + intent. Returns the budgeted, ranked, claim-tagged context an agent would consume before acting. Focus accepts email, domain, LinkedIn URL, UUID, or a name (ambiguous names return candidates).',
@@ -119,6 +141,27 @@ const TOOLS = [
 
 async function executeTool(supabase, workspaceId, name, input) {
   switch (name) {
+    case 'get_workspace_facts': {
+      const workspaceEntityId = await getWorkspaceEntityId(supabase, workspaceId);
+      if (!workspaceEntityId) {
+        return { facts: [], note: 'No workspace entity yet — no facts have been recorded.' };
+      }
+      const notes = await listNotes(supabase, workspaceId, {
+        entityId: workspaceEntityId,
+        categories: Array.isArray(input.categories) && input.categories.length ? input.categories : undefined,
+        limit: typeof input.limit === 'number' ? input.limit : 50,
+      });
+      const facts = notes.map(n => ({
+        id: n.id,
+        category: n.category,
+        content: n.content,
+        source: n.source,
+        recorded_at: n.created_at,
+      }));
+      const by_category = {};
+      for (const f of facts) by_category[f.category] = (by_category[f.category] || 0) + 1;
+      return { facts, count: facts.length, by_category };
+    }
     case 'get_context': {
       const intent = input.intent ?? 'account_review';
       if (!CONTEXT_INTENTS.includes(intent)) return { error: 'invalid_intent', valid: CONTEXT_INTENTS };
