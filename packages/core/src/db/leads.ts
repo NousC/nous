@@ -310,53 +310,83 @@ export type EmailClassificationStatus =
   | 'suppressed';    // workspace-level suppression (policy layer)
 
 export interface EmailClassification {
+  /** @deprecated use `value` (kept for backward compat). */
   email: string;
+  kind: 'email' | 'linkedin_url';
+  value: string;
   status: EmailClassificationStatus;
   entity_id?: string;
   reason?: string | null;
+}
+
+export interface ClassifyInput {
+  emails?: string[];
+  linkedin_urls?: string[];
 }
 
 const STAGE_ENGAGED = new Set(['aware', 'interested', 'evaluating', 'client']);
 const RECENT_WINDOW_DAYS = 30;
 
 /**
- * Classify a batch of emails against the workspace's existing engagement
- * graph. Pure read — does not mutate anything.
+ * Classify a batch of identifiers (emails and/or LinkedIn URLs) against the
+ * workspace's existing engagement graph. Pure read; does not mutate.
+ *
+ * The Apollo-pre-flight unlock: pass LinkedIn URLs from the preview (visible
+ * for free, before you pay to reveal emails) and you know your overlap with
+ * the workspace before spending any money on the export.
  */
-export async function classifyEmails(
+export async function classifyIdentifiers(
   supabase: SupabaseClient,
   workspaceId: string,
-  emails: string[],
+  input: ClassifyInput,
 ): Promise<EmailClassification[]> {
-  const normalized = Array.from(new Set(
-    emails.map(e => (e ?? '').toLowerCase().trim()).filter(Boolean),
+  const emails = Array.from(new Set(
+    (input.emails ?? []).map(e => (e ?? '').toLowerCase().trim()).filter(Boolean),
   ));
-  if (normalized.length === 0) return [];
+  const linkedinUrls = Array.from(new Set(
+    (input.linkedin_urls ?? []).map(u => normalizeLinkedInUrl(u)).filter((u): u is string => !!u),
+  ));
+  if (emails.length === 0 && linkedinUrls.length === 0) return [];
 
-  // 1. Workspace policy: suppressions
-  const { data: suppressed } = await supabase
-    .from('lead_suppressions')
-    .select('email, reason')
-    .eq('workspace_id', workspaceId)
-    .in('email', normalized);
-  const supByEmail = new Map<string, string | null>(
-    (suppressed ?? []).map(s => [(s as { email: string }).email, (s as { reason: string | null }).reason]),
-  );
+  // 1. Workspace policy: suppressions (email-only — LinkedIn doesn't have an
+  // equivalent opt-out registry).
+  const supByEmail = new Map<string, string | null>();
+  if (emails.length) {
+    const { data: suppressed } = await supabase
+      .from('lead_suppressions')
+      .select('email, reason')
+      .eq('workspace_id', workspaceId)
+      .in('email', emails);
+    for (const s of (suppressed ?? []) as { email: string; reason: string | null }[]) {
+      supByEmail.set(s.email, s.reason);
+    }
+  }
 
-  // 2. Existing entity_identifiers (the v2 identity index)
-  const { data: idents } = await supabase
-    .from('entity_identifiers')
-    .select('value, entity_id')
-    .eq('workspace_id', workspaceId)
-    .eq('kind', 'email')
-    .eq('status', 'active')
-    .in('value', normalized);
+  // 2. Existing entity_identifiers — resolve both kinds in parallel.
+  const [emailIdentsRes, linkedinIdentsRes] = await Promise.all([
+    emails.length
+      ? supabase.from('entity_identifiers').select('value, entity_id')
+          .eq('workspace_id', workspaceId).eq('kind', 'email').eq('status', 'active')
+          .in('value', emails)
+      : Promise.resolve({ data: [] as any[] }),
+    linkedinUrls.length
+      ? supabase.from('entity_identifiers').select('value, entity_id')
+          .eq('workspace_id', workspaceId).eq('kind', 'linkedin_url').eq('status', 'active')
+          .in('value', linkedinUrls)
+      : Promise.resolve({ data: [] as any[] }),
+  ]);
   const entityByEmail = new Map<string, string>(
-    (idents ?? []).map(i => [(i as { value: string }).value, (i as { entity_id: string }).entity_id]),
+    (emailIdentsRes.data ?? []).map((i: any) => [i.value, i.entity_id]),
+  );
+  const entityByLinkedIn = new Map<string, string>(
+    (linkedinIdentsRes.data ?? []).map((i: any) => [i.value, i.entity_id]),
   );
 
-  // 3. For matched entities — what we know about them
-  const entityIds = [...new Set(entityByEmail.values())];
+  // 3. For matched entities — what we know about them.
+  const entityIds = [...new Set([
+    ...entityByEmail.values(),
+    ...entityByLinkedIn.values(),
+  ])];
   const claimsByEntity = new Map<string, Record<string, unknown>>();
   const recentByEntity = new Set<string>();
 
@@ -386,37 +416,51 @@ export async function classifyEmails(
     }
   }
 
-  // 4. Classify (suppression > bounced > unsubscribed > engaged > recent > net_new)
-  return normalized.map((email): EmailClassification => {
-    if (supByEmail.has(email)) {
-      return { email, status: 'suppressed', reason: supByEmail.get(email) ?? 'workspace suppression' };
+  // 4. Classify (suppression > bounced > unsubscribed > engaged > recent > net_new).
+  const classifyOne = (kind: 'email' | 'linkedin_url', value: string, entityId?: string): EmailClassification => {
+    if (kind === 'email' && supByEmail.has(value)) {
+      return { email: value, kind, value, status: 'suppressed',
+               reason: supByEmail.get(value) ?? 'workspace suppression' };
     }
-    const entityId = entityByEmail.get(email);
-    if (!entityId) return { email, status: 'net_new' };
+    if (!entityId) return { email: value, kind, value, status: 'net_new' };
 
     const claims = claimsByEntity.get(entityId) ?? {};
     const reach = claims.reachability_status as string | undefined;
-    if (reach === 'bounced')      return { email, status: 'bounced', entity_id: entityId };
-    if (reach === 'unsubscribed') return { email, status: 'unsubscribed', entity_id: entityId };
+    if (reach === 'bounced')      return { email: value, kind, value, status: 'bounced', entity_id: entityId };
+    if (reach === 'unsubscribed') return { email: value, kind, value, status: 'unsubscribed', entity_id: entityId };
 
     const sentiment = claims.sentiment as string | undefined;
     if (sentiment === 'do_not_contact') {
-      return { email, status: 'unsubscribed', entity_id: entityId, reason: 'do_not_contact' };
+      return { email: value, kind, value, status: 'unsubscribed', entity_id: entityId, reason: 'do_not_contact' };
     }
 
     const stage = claims.pipeline_stage as string | undefined;
     if (stage && STAGE_ENGAGED.has(stage)) {
-      return { email, status: 'engaged', entity_id: entityId, reason: stage };
+      return { email: value, kind, value, status: 'engaged', entity_id: entityId, reason: stage };
     }
-
     if (recentByEntity.has(entityId)) {
-      return { email, status: 'recent', entity_id: entityId };
+      return { email: value, kind, value, status: 'recent', entity_id: entityId };
     }
+    return { email: value, kind, value, status: 'net_new', entity_id: entityId, reason: 'cold' };
+  };
 
-    // Entity exists but stage is cold/identified and no recent activity — could be re-touched.
-    return { email, status: 'net_new', entity_id: entityId, reason: 'cold' };
-  });
+  return [
+    ...emails.map(e => classifyOne('email', e, entityByEmail.get(e))),
+    ...linkedinUrls.map(u => classifyOne('linkedin_url', u, entityByLinkedIn.get(u))),
+  ];
 }
+
+/**
+ * Backward-compat: emails-only classify. Prefer classifyIdentifiers().
+ */
+export async function classifyEmails(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  emails: string[],
+): Promise<EmailClassification[]> {
+  return classifyIdentifiers(supabase, workspaceId, { emails });
+}
+
 
 // ── Suppression list ──────────────────────────────────────────────────────────
 

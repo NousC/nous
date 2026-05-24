@@ -176,8 +176,13 @@ export type DedupStatus =
   | 'unsubscribed'   // opted out or do-not-contact — skip
   | 'suppressed';    // workspace-level suppression (policy)
 
+export type DedupKind = 'email' | 'linkedin_url';
+
 export interface DedupItem {
-  email: string;
+  kind: DedupKind;
+  value: string;
+  /** @deprecated kept for back-compat; equal to `value` when kind === 'email' */
+  email?: string;
   status: DedupStatus;
   entity_id?: string;
   reason?: string | null;
