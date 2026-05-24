@@ -30,7 +30,9 @@ export const dedupV2Router = Router();
 //   unsubscribed  — opted out or do-not-contact. Skip.
 //   suppressed    — workspace-level suppression policy. Skip.
 
-const MAX_PER_BATCH = 10_000;
+// The core helper chunks every IN query internally, so this ceiling reflects
+// reasonable per-request work, not a URL-length constraint.
+const MAX_PER_BATCH = 50_000;
 
 dedupV2Router.post('/', async (req, res) => {
   try {
