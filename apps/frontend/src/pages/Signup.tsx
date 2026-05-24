@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Checkbox } from "@/components/ui/checkbox";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/components/ui/sonner";
 import { Eye, EyeOff, Pencil } from "lucide-react";
@@ -13,11 +12,8 @@ import { NousBrandingPanel } from "./auth-shared/NousBrandingPanel";
 const SignupContent = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMeState] = useState(true);
-  const [newsletterConsent, setNewsletterConsent] = useState(true);
   const [step, setStep] = useState<"signup" | "verify">("signup");
   const [otpCode, setOtpCode] = useState("");
   const [resendCountdown, setResendCountdown] = useState(0);
@@ -44,21 +40,18 @@ const SignupContent = () => {
     e.preventDefault();
     setLoading(true);
 
-    setRememberMe(rememberMe);
+    setRememberMe(true);
 
-    // Standard signup flow - sends OTP email
-    const { error, data } = await signUp(email, password, name, newsletterConsent);
+    const { error, data } = await signUp(email, password, undefined, true);
 
     if (error) {
       toast.error(error.message || "Failed to sign up");
       setLoading(false);
     } else {
-      // If session exists (email confirmation disabled in Supabase), go straight to onboarding
       if (data?.session) {
         navigate("/onboarding", { replace: true });
         return;
       }
-      // Otherwise show OTP verification screen
       setStep("verify");
       setResendCountdown(30);
       setLoading(false);
@@ -84,7 +77,7 @@ const SignupContent = () => {
   const handleResendCode = async () => {
     if (resendCountdown > 0) return;
 
-    const { error } = await signUp(email, password, name, newsletterConsent);
+    const { error } = await signUp(email, password, undefined, true);
     if (error) {
       toast.error("Failed to resend code. Please try again.");
     } else {
@@ -96,7 +89,7 @@ const SignupContent = () => {
 
   const handleGoogleSignIn = async () => {
     setLoading(true);
-    setRememberMe(rememberMe);
+    setRememberMe(true);
 
     const ref = searchParams.get("ref") || searchParams.get("affiliate");
     if (ref) {
@@ -123,19 +116,16 @@ const SignupContent = () => {
             backgroundSize: "18px 18px",
           }}
         >
-          <div className="w-full max-w-[420px] text-center relative">
+          <div className="w-full max-w-[380px] text-center relative">
             <div className="mb-8">
-              <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#8a7568] mb-3">
-                <span className="text-[#c97e5c]">#</span> verify
-              </div>
-              <h1 className="text-[34px] font-bold tracking-[-0.03em] leading-[1.05] text-[#1f1410] mb-3">
-                Check your email.
+              <h1 className="text-[28px] font-bold tracking-[-0.03em] leading-[1.1] text-[#1f1410] mb-3">
+                Check your email
               </h1>
-              <p className="text-[15px] text-[#6b5a50]">
+              <p className="text-[14px] text-[#6b5a50]">
                 We sent a verification code to
               </p>
-              <div className="flex items-center justify-center gap-1.5 mt-2">
-                <span className="text-[15px] text-[#1f1410] font-mono">{email}</span>
+              <div className="flex items-center justify-center gap-1.5 mt-1.5">
+                <span className="text-[14px] text-[#1f1410] font-mono">{email}</span>
                 <button
                   onClick={() => {
                     setStep("signup");
@@ -148,8 +138,7 @@ const SignupContent = () => {
               </div>
             </div>
 
-            {/* OTP Input */}
-            <div className="flex justify-center mb-7">
+            <div className="flex justify-center mb-6">
               <InputOTP
                 maxLength={8}
                 value={otpCode}
@@ -161,22 +150,21 @@ const SignupContent = () => {
                     <InputOTPSlot
                       key={i}
                       index={i}
-                      className="w-11 h-14 text-lg border-[#e6dccf] bg-white rounded-lg first:rounded-l-lg last:rounded-r-lg"
+                      className="w-10 h-12 text-base border-[#e6dccf] bg-white rounded-lg first:rounded-l-lg last:rounded-r-lg"
                     />
                   ))}
                 </InputOTPGroup>
               </InputOTP>
             </div>
 
-            {/* Resend */}
-            <p className="text-sm text-[#6b5a50] mb-7">
+            <p className="text-sm text-[#6b5a50] mb-6">
               Didn&apos;t receive a code?{" "}
               {resendCountdown > 0 ? (
                 <span className="text-[#a08c7e]">Resend ({resendCountdown})</span>
               ) : (
                 <button
                   onClick={handleResendCode}
-                  className="font-medium text-[#3d2517] hover:text-[#c97e5c] underline underline-offset-2 decoration-dotted"
+                  className="font-medium text-[#3d2517] hover:text-[#c97e5c]"
                 >
                   Resend
                 </button>
@@ -215,27 +203,17 @@ const SignupContent = () => {
           backgroundSize: "18px 18px",
         }}
       >
-        <div className="w-full max-w-[420px] relative">
-          {/* Mobile Logo */}
-          <div className="flex items-center gap-2 mb-12 lg:hidden">
+        <div className="w-full max-w-[380px] relative">
+          <div className="flex items-center gap-2 mb-10 lg:hidden">
             <img src="/nous-logo.svg" alt="" className="w-7 h-7 object-contain" />
             <span className="font-bold text-[18px] tracking-[-0.02em] text-[#1f1410]">nous</span>
           </div>
 
-          <div className="mb-9">
-            <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#8a7568] mb-3">
-              <span className="text-[#c97e5c]">#</span> create account
-            </div>
-            <h1 className="text-[34px] font-bold tracking-[-0.03em] leading-[1.05] text-[#1f1410] mb-3">
-              Get started for free.
-            </h1>
-            <p className="text-[15px] text-[#6b5a50]">
-              No credit card. Unlimited contacts on the Free tier.
-            </p>
-          </div>
+          <h1 className="text-[28px] font-bold tracking-[-0.03em] leading-[1.1] text-[#1f1410] mb-8">
+            Create account
+          </h1>
 
-          <div className="space-y-5">
-            {/* Google Sign Up */}
+          <div className="space-y-4">
             <Button
               type="button"
               onClick={handleGoogleSignIn}
@@ -263,95 +241,37 @@ const SignupContent = () => {
               </div>
             </div>
 
-            <form onSubmit={handleSignup} className="space-y-4">
-              <div>
-                <label className="text-[13px] font-medium text-[#3d2517] mb-1.5 block tracking-tight">
-                  Full name
-                </label>
-                <Input
-                  type="text"
-                  placeholder="John Doe"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  required
-                  className="h-11 rounded-lg text-sm border-[#e6dccf] bg-white text-[#1f1410] placeholder:text-[#a08c7e] focus-visible:ring-[#c97e5c] focus-visible:border-[#c97e5c]"
-                  disabled={loading}
-                  autoFocus
-                />
-              </div>
+            <form onSubmit={handleSignup} className="space-y-3">
+              <Input
+                type="email"
+                placeholder="you@company.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                className="h-11 rounded-lg text-sm border-[#e6dccf] bg-white text-[#1f1410] placeholder:text-[#a08c7e] focus-visible:ring-[#c97e5c] focus-visible:border-[#c97e5c]"
+                disabled={loading}
+                autoFocus
+              />
 
-              <div>
-                <label className="text-[13px] font-medium text-[#3d2517] mb-1.5 block tracking-tight">
-                  Email
-                </label>
+              <div className="relative">
                 <Input
-                  type="email"
-                  placeholder="you@company.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  type={showPassword ? "text" : "password"}
+                  placeholder="Password (min 6 characters)"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
                   required
-                  className="h-11 rounded-lg text-sm border-[#e6dccf] bg-white text-[#1f1410] placeholder:text-[#a08c7e] focus-visible:ring-[#c97e5c] focus-visible:border-[#c97e5c]"
+                  minLength={6}
+                  className="h-11 rounded-lg text-sm border-[#e6dccf] bg-white text-[#1f1410] placeholder:text-[#a08c7e] pr-10 focus-visible:ring-[#c97e5c] focus-visible:border-[#c97e5c]"
                   disabled={loading}
                 />
-              </div>
-
-              <div>
-                <label className="text-[13px] font-medium text-[#3d2517] mb-1.5 block tracking-tight">
-                  Password
-                </label>
-                <div className="relative">
-                  <Input
-                    type={showPassword ? "text" : "password"}
-                    placeholder="Min 6 characters"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                    minLength={6}
-                    className="h-11 rounded-lg text-sm border-[#e6dccf] bg-white text-[#1f1410] placeholder:text-[#a08c7e] pr-10 focus-visible:ring-[#c97e5c] focus-visible:border-[#c97e5c]"
-                    disabled={loading}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[#a08c7e] hover:text-[#3d2517]"
-                    tabIndex={-1}
-                  >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
-
-              <div className="space-y-3 pt-1">
-                <div className="flex items-center space-x-2.5">
-                  <Checkbox
-                    id="remember-me-signup"
-                    checked={rememberMe}
-                    onCheckedChange={(checked) => setRememberMeState(checked === true)}
-                    disabled={loading}
-                    className="border-[#cbb9a8] data-[state=checked]:bg-[#3d2517] data-[state=checked]:border-[#3d2517]"
-                  />
-                  <label
-                    htmlFor="remember-me-signup"
-                    className="text-[13px] cursor-pointer select-none text-[#6b5a50]"
-                  >
-                    Remember me
-                  </label>
-                </div>
-                <div className="flex items-start space-x-2.5">
-                  <Checkbox
-                    id="newsletter-consent"
-                    checked={newsletterConsent}
-                    onCheckedChange={(checked) => setNewsletterConsent(checked === true)}
-                    disabled={loading}
-                    className="mt-0.5 border-[#cbb9a8] data-[state=checked]:bg-[#3d2517] data-[state=checked]:border-[#3d2517]"
-                  />
-                  <label
-                    htmlFor="newsletter-consent"
-                    className="text-[13px] cursor-pointer select-none text-[#6b5a50] leading-relaxed"
-                  >
-                    Send me product updates and build-in-public notes
-                  </label>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#a08c7e] hover:text-[#3d2517]"
+                  tabIndex={-1}
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
               </div>
 
               <Button
@@ -359,7 +279,7 @@ const SignupContent = () => {
                 className="w-full h-12 rounded-lg pl-5 pr-1.5 flex items-center justify-between gap-2 font-medium text-sm bg-[#f1e2d4] hover:bg-[#e8d4c0] text-[#3d2517] transition-transform hover:scale-[1.005] disabled:opacity-60 disabled:hover:scale-100"
                 disabled={loading}
               >
-                <span>{loading ? "Creating account..." : "Create account"}</span>
+                <span>{loading ? "Creating account..." : "Continue"}</span>
                 <span
                   className="inline-flex items-center justify-center w-8 h-8 rounded-md bg-[#1f1410] text-[#FAF9F7]"
                   aria-hidden="true"
@@ -370,18 +290,18 @@ const SignupContent = () => {
             </form>
           </div>
 
-          <p className="text-xs text-center mt-6 text-[#a08c7e] leading-relaxed">
-            By signing up, you agree to our{" "}
-            <Link to="/terms" className="hover:underline underline-offset-2 decoration-dotted text-[#6b5a50]">
+          <p className="text-[11px] text-center mt-5 text-[#a08c7e] leading-relaxed">
+            By continuing, you agree to our{" "}
+            <Link to="/terms" className="text-[#6b5a50] hover:text-[#3d2517]">
               Terms
             </Link>{" "}
             and{" "}
-            <Link to="/privacy" className="hover:underline underline-offset-2 decoration-dotted text-[#6b5a50]">
+            <Link to="/privacy" className="text-[#6b5a50] hover:text-[#3d2517]">
               Privacy Policy
             </Link>
           </p>
 
-          <div className="text-center text-sm mt-8 pt-6 border-t border-[#e6dccf]">
+          <div className="text-center text-sm mt-6">
             <span className="text-[#6b5a50]">Already have an account? </span>
             <Link to="/login" className="font-semibold text-[#1f1410] hover:text-[#c97e5c] transition-colors">
               Sign in →
