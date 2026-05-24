@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { getSupabaseClient } from '@nous/core';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
 import { ensureUserAndTeam } from '../../lib/auth.mjs';
+import { getCountryFromRequest } from '../../lib/geo.mjs';
 
 export const meRouter = Router();
 
@@ -108,6 +109,22 @@ meRouter.get('/', verifySupabaseAuth, async (req, res) => {
         workspace = memberships[0].workspaces;
       }
       if (workspace?.id) userActiveWorkspace.set(user.id, workspace.id);
+
+      // Lazy country backfill — first authenticated /me call after the
+      // 2026_05_26_workspace_country migration populates the field for
+      // existing workspaces, and captures it for new signups. Fully
+      // non-blocking: failures are swallowed.
+      if (workspace?.id && !workspace.country) {
+        const country = getCountryFromRequest(req);
+        if (country) {
+          supabase
+            .from('workspaces')
+            .update({ country })
+            .eq('id', workspace.id)
+            .then(() => { workspace.country = country; })
+            .catch(() => { /* silent — column may not exist yet */ });
+        }
+      }
     }
 
     const onboardingCompleted = isFounder ? !!user.account_setup_completed_at : true;

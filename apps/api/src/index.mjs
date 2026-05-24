@@ -63,6 +63,10 @@ import { adminUsersRouter } from './routes/api/admin/users.mjs';
 
 const app = express();
 
+// Behind Caddy → req.ip resolves to the real client IP, not the proxy hop.
+// Needed for IP-based country geolocation (see lib/geo.mjs).
+app.set('trust proxy', 1);
+
 const allowedOrigins = process.env.CORS_ORIGINS
   ? process.env.CORS_ORIGINS.split(',').map(o => o.trim())
   : true;

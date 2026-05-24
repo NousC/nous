@@ -3,6 +3,7 @@ import { getSupabaseClient } from '@nous/core';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
 import { ensureUserAndTeam } from '../../lib/auth.mjs';
 import { getPlanFromSubscription, isSelfHosted } from '../../lib/plans.mjs';
+import { getCountryFromRequest } from '../../lib/geo.mjs';
 
 export const workspacesRouter = Router();
 
@@ -63,9 +64,10 @@ workspacesRouter.post('/', verifySupabaseAuth, async (req, res) => {
       }
     }
 
+    const country = getCountryFromRequest(req);
     const { data: newWorkspace, error: wsError } = await supabase
       .from('workspaces')
-      .insert({ team_id: team.id, name: name.trim(), icon: icon || null })
+      .insert({ team_id: team.id, name: name.trim(), icon: icon || null, country })
       .select()
       .single();
     if (wsError) throw wsError;
