@@ -172,11 +172,15 @@ playgroundRouter.post('/chat', verifySupabaseAuth, async (req, res) => {
     // If this is the first user message in the thread, derive a title.
     if (history.length === 0) {
       const title = text.slice(0, 80) + (text.length > 80 ? '…' : '');
-      await supabase
-        .from('playground_threads')
-        .update({ title })
-        .eq('id', threadId)
-        .catch(() => {});
+      // PostgrestFilterBuilder is thenable but not a real Promise — `.catch()`
+      // isn't on the builder; wrap in try/await/catch instead. Best-effort:
+      // a title bump must never block the chat reply.
+      try {
+        await supabase
+          .from('playground_threads')
+          .update({ title })
+          .eq('id', threadId);
+      } catch { /* ignore */ }
     }
 
     // Run the agent loop.
