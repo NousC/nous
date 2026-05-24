@@ -130,14 +130,36 @@ export interface QueryItem {
   summary: string | null;
   similarity?: number;
 }
+/** Returned when `return: 'entities'` — one row per entity, ranked by most-recent matching activity. */
+export interface QueryEntityItem {
+  entity_id: string;
+  entity_name: string | null;
+  /** observations in scope for this entity */
+  matches: number;
+  most_recent_at: string;
+  most_recent_type: string;
+  most_recent_source: string;
+  most_recent_summary: string | null;
+  /** present for state observations (e.g. funnel queries) */
+  most_recent_value?: unknown;
+}
 export interface QueryResult {
   scope: QueryScope;
+  /** present when the request used `without` */
+  without?: QueryScope;
   mode: 'structured' | 'semantic';
+  /** which shape `items` is in — controlled by the request's `return` */
+  return: 'observations' | 'entities';
   matched: number;
   returned: number;
   sampled: boolean;
-  items: QueryItem[];
-  rollups: { by_type: Record<string, number>; by_source: Record<string, number> };
+  items: QueryItem[] | QueryEntityItem[];
+  rollups: {
+    by_type:   Record<string, number>;
+    by_source: Record<string, number>;
+    /** populated when scope.kind = 'state' — counts entities by current value (funnel reports) */
+    by_value?: Record<string, number>;
+  };
   question: string | null;
   meta: { token_estimate: number };
 }
