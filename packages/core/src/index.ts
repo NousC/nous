@@ -20,3 +20,4 @@ export * from './utils/identity.js';
 export * from './utils/linkedin.js';
 export * from './utils/encryption.js';
 export * from './services/crmPush.js';
+export * from './integrations/crm/index.js';

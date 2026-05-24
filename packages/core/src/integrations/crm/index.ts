@@ -1,0 +1,522 @@
+// CRM integrations — shared by the API (manual sync) and the worker
+// (auto-sync cron). Each provider exposes incremental fetchers for contacts,
+// companies, and deals. The orchestrator pulls all three and upserts into
+// the v2 substrate via the contacts/companies views (entity + identifiers +
+// state observations via INSTEAD OF triggers) and entities directly for
+// deals (which don't have a v1-shape view).
+
+import type { SupabaseClient } from '@supabase/supabase-js';
+
+// ─── shared types ────────────────────────────────────────────────────────────
+
+export type CrmProvider = 'hubspot' | 'pipedrive' | 'attio';
+
+export interface CrmContact {
+  id: string;
+  name: string | null;
+  email: string | null;
+  company: string | null;
+  domain?: string | null;
+  phone?: string | null;
+  owner_name?: string | null;
+  updated_at?: string | null;
+}
+
+export interface CrmCompany {
+  id: string;
+  name: string | null;
+  domain: string | null;
+  industry?: string | null;
+  city?: string | null;
+  country?: string | null;
+  updated_at?: string | null;
+}
+
+export interface CrmDeal {
+  id: string;
+  name: string | null;
+  value: number | null;
+  currency: string | null;
+  stage: string | null;
+  close_date?: string | null;
+  owner_name?: string | null;
+  contact_ids?: string[];   // CRM-side contact ids associated with the deal
+  company_id?: string | null;
+  updated_at?: string | null;
+}
+
+export interface FetchOpts {
+  since?: string;          // ISO timestamp — only records updated after this
+  cursor?: string | number; // provider-specific pagination token
+  limit?: number;          // page size; default 100, max 200
+}
+
+export interface FetchResult<T> {
+  records: T[];
+  cursor: string | number | null;  // next page cursor, or null if done
+}
+
+// ─── HubSpot ─────────────────────────────────────────────────────────────────
+
+const HUBSPOT_PROPS = {
+  contacts:  ['firstname', 'lastname', 'email', 'company', 'phone', 'lastmodifieddate'],
+  companies: ['name', 'domain', 'industry', 'city', 'country', 'phone', 'hs_lastmodifieddate'],
+  deals:     ['dealname', 'amount', 'dealstage', 'closedate', 'pipeline', 'hs_lastmodifieddate'],
+};
+
+async function hubspotSearch<T>(
+  token: string,
+  object: 'contacts' | 'companies' | 'deals',
+  opts: FetchOpts,
+  mapper: (r: any) => T,
+): Promise<FetchResult<T>> {
+  const propName = object === 'companies' || object === 'deals'
+    ? 'hs_lastmodifieddate' : 'lastmodifieddate';
+  const body: any = {
+    properties: HUBSPOT_PROPS[object],
+    limit: Math.min(opts.limit ?? 100, 200),
+    sorts: [{ propertyName: propName, direction: 'ASCENDING' }],
+  };
+  if (opts.since) {
+    body.filterGroups = [{
+      filters: [{ propertyName: propName, operator: 'GTE', value: new Date(opts.since).getTime() }],
+    }];
+  }
+  if (opts.cursor) body.after = opts.cursor;
+
+  const res = await fetch(`https://api.hubapi.com/crm/v3/objects/${object}/search`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`HubSpot ${object} ${res.status} — ${await res.text().catch(() => '')}`);
+  const d = await res.json();
+  return {
+    records: (d.results ?? []).map(mapper),
+    cursor: d.paging?.next?.after ?? null,
+  };
+}
+
+export const hubspot = {
+  fetchContacts: (token: string, opts: FetchOpts = {}) => hubspotSearch<CrmContact>(token, 'contacts', opts, r => {
+    const p = r.properties || {};
+    return {
+      id: r.id,
+      name: [p.firstname, p.lastname].filter(Boolean).join(' ') || null,
+      email: p.email ?? null,
+      company: p.company ?? null,
+      phone: p.phone ?? null,
+      updated_at: p.lastmodifieddate ?? null,
+    };
+  }),
+  fetchCompanies: (token: string, opts: FetchOpts = {}) => hubspotSearch<CrmCompany>(token, 'companies', opts, r => {
+    const p = r.properties || {};
+    return {
+      id: r.id,
+      name: p.name ?? null,
+      domain: p.domain ?? null,
+      industry: p.industry ?? null,
+      city: p.city ?? null,
+      country: p.country ?? null,
+      updated_at: p.hs_lastmodifieddate ?? null,
+    };
+  }),
+  fetchDeals: (token: string, opts: FetchOpts = {}) => hubspotSearch<CrmDeal>(token, 'deals', opts, r => {
+    const p = r.properties || {};
+    return {
+      id: r.id,
+      name: p.dealname ?? null,
+      value: p.amount ? Number(p.amount) : null,
+      currency: '$',
+      stage: p.dealstage ?? null,
+      close_date: p.closedate ?? null,
+      updated_at: p.hs_lastmodifieddate ?? null,
+    };
+  }),
+};
+
+// ─── Pipedrive ───────────────────────────────────────────────────────────────
+
+async function pipedriveList<T>(
+  token: string,
+  endpoint: 'persons' | 'organizations' | 'deals',
+  opts: FetchOpts,
+  mapper: (r: any) => T,
+): Promise<FetchResult<T>> {
+  // Pipedrive's incremental endpoint: /v1/recents — returns items modified
+  // since a unix timestamp, paginated via `start`. We page through it.
+  // Falls back to /v1/<endpoint> for full sync when `since` is absent.
+  const limit = Math.min(opts.limit ?? 100, 200);
+  const start = typeof opts.cursor === 'number' ? opts.cursor : 0;
+
+  if (opts.since) {
+    const sinceTs = new Date(opts.since).toISOString().slice(0, 19).replace('T', ' ');
+    const item = endpoint === 'persons' ? 'person' : endpoint === 'organizations' ? 'organization' : 'deal';
+    const url = `https://api.pipedrive.com/v1/recents?since_timestamp=${encodeURIComponent(sinceTs)}&items=${item}&start=${start}&limit=${limit}&api_token=${encodeURIComponent(token)}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Pipedrive recents ${res.status}`);
+    const d = await res.json();
+    const items = (d.data ?? []).map((row: any) => row.data ?? row);
+    const nextStart = d.additional_data?.pagination?.more_items_in_collection
+      ? (d.additional_data.pagination.next_start ?? null)
+      : null;
+    return { records: items.map(mapper), cursor: nextStart };
+  }
+
+  const url = `https://api.pipedrive.com/v1/${endpoint}?start=${start}&limit=${limit}&api_token=${encodeURIComponent(token)}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Pipedrive ${endpoint} ${res.status}`);
+  const d = await res.json();
+  const items = d.data ?? [];
+  const nextStart = d.additional_data?.pagination?.more_items_in_collection
+    ? (d.additional_data.pagination.next_start ?? null)
+    : null;
+  return { records: items.map(mapper), cursor: nextStart };
+}
+
+export const pipedrive = {
+  fetchContacts: (token: string, opts: FetchOpts = {}) => pipedriveList<CrmContact>(token, 'persons', opts, r => ({
+    id: String(r.id),
+    name: r.name ?? null,
+    email: r.email?.[0]?.value ?? r.primary_email ?? null,
+    company: r.org_name ?? r.organization?.name ?? null,
+    phone: r.phone?.[0]?.value ?? null,
+    owner_name: r.owner_name ?? null,
+    updated_at: r.update_time ?? r.add_time ?? null,
+  })),
+  fetchCompanies: (token: string, opts: FetchOpts = {}) => pipedriveList<CrmCompany>(token, 'organizations', opts, r => ({
+    id: String(r.id),
+    name: r.name ?? null,
+    domain: null,
+    city: r.address_city ?? null,
+    country: r.address_country ?? null,
+    updated_at: r.update_time ?? r.add_time ?? null,
+  })),
+  fetchDeals: (token: string, opts: FetchOpts = {}) => pipedriveList<CrmDeal>(token, 'deals', opts, r => ({
+    id: String(r.id),
+    name: r.title ?? null,
+    value: r.value != null ? Number(r.value) : null,
+    currency: r.currency ?? '$',
+    stage: r.stage_name ?? r.stage?.name ?? null,
+    close_date: r.close_time ?? null,
+    owner_name: r.owner_name ?? null,
+    company_id: r.org_id?.value ? String(r.org_id.value) : null,
+    contact_ids: r.person_id?.value ? [String(r.person_id.value)] : [],
+    updated_at: r.update_time ?? r.add_time ?? null,
+  })),
+};
+
+// ─── Attio ───────────────────────────────────────────────────────────────────
+
+async function attioQuery<T>(
+  apiKey: string,
+  objectSlug: 'people' | 'companies' | 'deals',
+  opts: FetchOpts,
+  mapper: (r: any) => T,
+): Promise<FetchResult<T>> {
+  const limit = Math.min(opts.limit ?? 100, 500);
+  const offset = typeof opts.cursor === 'number' ? opts.cursor : 0;
+  const body: any = {
+    limit,
+    offset,
+    sorts: [{ attribute: 'updated_at', direction: 'asc' }],
+  };
+  if (opts.since) {
+    body.filter = { updated_at: { $gt: opts.since } };
+  }
+  const res = await fetch(`https://api.attio.com/v2/objects/${objectSlug}/records/query`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`Attio ${objectSlug} ${res.status} — ${await res.text().catch(() => '')}`);
+  const d = await res.json();
+  const records = (d.data ?? []).map(mapper);
+  return { records, cursor: records.length === limit ? offset + limit : null };
+}
+
+const attioVal = (r: any, field: string) => r.values?.[field]?.[0]?.value ?? null;
+
+export const attio = {
+  fetchContacts: (apiKey: string, opts: FetchOpts = {}) => attioQuery<CrmContact>(apiKey, 'people', opts, r => {
+    const first = r.values?.name?.[0]?.first_name ?? '';
+    const last  = r.values?.name?.[0]?.last_name ?? '';
+    return {
+      id: r.id?.record_id ?? r.id,
+      name: [first, last].filter(Boolean).join(' ') || null,
+      email: r.values?.email_addresses?.[0]?.email_address ?? null,
+      company: null,   // Attio represents this as a relationship; we skip name-lookup here
+      phone: r.values?.phone_numbers?.[0]?.phone_number ?? null,
+      updated_at: r.updated_at ?? null,
+    };
+  }),
+  fetchCompanies: (apiKey: string, opts: FetchOpts = {}) => attioQuery<CrmCompany>(apiKey, 'companies', opts, r => ({
+    id: r.id?.record_id ?? r.id,
+    name: attioVal(r, 'name'),
+    domain: r.values?.domains?.[0]?.domain ?? null,
+    industry: attioVal(r, 'categories'),
+    city: null,
+    country: null,
+    updated_at: r.updated_at ?? null,
+  })),
+  fetchDeals: (apiKey: string, opts: FetchOpts = {}) => attioQuery<CrmDeal>(apiKey, 'deals', opts, r => ({
+    id: r.id?.record_id ?? r.id,
+    name: attioVal(r, 'name'),
+    value: r.values?.value?.[0]?.value?.amount ?? null,
+    currency: r.values?.value?.[0]?.value?.currency_code ?? '$',
+    stage: attioVal(r, 'stage'),
+    close_date: null,
+    company_id: null,
+    contact_ids: [],
+    updated_at: r.updated_at ?? null,
+  })),
+};
+
+// ─── Upsert into the v2 substrate ────────────────────────────────────────────
+// Contacts + companies go through the v1-shape views — the INSTEAD OF triggers
+// translate writes into entity / identifier / observation rows. Deals go
+// straight to entities + claims since there's no v1 deals table to mirror.
+
+async function upsertContact(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  provider: CrmProvider,
+  c: CrmContact,
+): Promise<'inserted' | 'updated' | 'skipped'> {
+  if (!c.email && !c.id) return 'skipped';
+  const idColumn = provider === 'hubspot' ? 'hubspot_id'
+                 : provider === 'pipedrive' ? 'pipedrive_id'
+                 : 'attio_id';
+
+  // Match priority: by external CRM id first, then by email.
+  let existing: { id: string } | null = null;
+  {
+    const { data } = await supabase.from('contacts').select('id')
+      .eq('workspace_id', workspaceId).eq(idColumn, c.id).maybeSingle();
+    existing = data ?? null;
+  }
+  if (!existing && c.email) {
+    const { data } = await supabase.from('contacts').select('id')
+      .eq('workspace_id', workspaceId).eq('email', c.email.toLowerCase().trim()).maybeSingle();
+    existing = data ?? null;
+  }
+
+  const [firstName, ...rest] = (c.name ?? '').split(' ');
+  const payload: Record<string, unknown> = {
+    workspace_id: workspaceId,
+    email: c.email ? c.email.toLowerCase().trim() : null,
+    first_name: firstName || null,
+    last_name: rest.length ? rest.join(' ') : null,
+    company: c.company,
+    phone: c.phone,
+    source: provider,
+    [idColumn]: c.id,
+  };
+
+  if (existing) {
+    await supabase.from('contacts').update(payload).eq('id', existing.id);
+    return 'updated';
+  }
+  await supabase.from('contacts').insert(payload);
+  return 'inserted';
+}
+
+async function upsertCompany(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  provider: CrmProvider,
+  co: CrmCompany,
+): Promise<'inserted' | 'updated' | 'skipped'> {
+  if (!co.name && !co.domain) return 'skipped';
+  const idColumn = provider === 'hubspot' ? 'hubspot_company_id'
+                 : provider === 'pipedrive' ? 'pipedrive_org_id'
+                 : 'attio_company_id';
+
+  let existing: { id: string } | null = null;
+  {
+    const { data } = await supabase.from('companies').select('id')
+      .eq('workspace_id', workspaceId).eq(idColumn, co.id).maybeSingle();
+    existing = data ?? null;
+  }
+  if (!existing && co.domain) {
+    const normalized = co.domain.replace(/^www\./, '').toLowerCase().trim();
+    const { data } = await supabase.from('companies').select('id')
+      .eq('workspace_id', workspaceId).eq('domain', normalized).maybeSingle();
+    existing = data ?? null;
+  }
+
+  const payload: Record<string, unknown> = {
+    workspace_id: workspaceId,
+    name: co.name,
+    domain: co.domain ? co.domain.replace(/^www\./, '').toLowerCase().trim() : null,
+    industry: co.industry,
+    location: [co.city, co.country].filter(Boolean).join(', ') || null,
+    [idColumn]: co.id,
+  };
+
+  if (existing) {
+    await supabase.from('companies').update(payload).eq('id', existing.id);
+    return 'updated';
+  }
+  await supabase.from('companies').insert(payload);
+  return 'inserted';
+}
+
+// Deals → entities of type='deal' with claims. No view wrapper yet.
+async function upsertDeal(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  provider: CrmProvider,
+  d: CrmDeal,
+): Promise<'inserted' | 'updated' | 'skipped'> {
+  if (!d.name && !d.id) return 'skipped';
+  const kind = `deal_${provider}`;
+
+  // Resolve to an existing deal entity via entity_identifiers, else create.
+  let entityId: string | null = null;
+  {
+    const { data } = await supabase.from('entity_identifiers')
+      .select('entity_id')
+      .eq('workspace_id', workspaceId).eq('kind', kind).eq('value', d.id).eq('status', 'active')
+      .maybeSingle();
+    entityId = data?.entity_id ?? null;
+  }
+
+  if (!entityId) {
+    const { data: created, error } = await supabase.from('entities')
+      .insert({ workspace_id: workspaceId, type: 'deal', status: 'active' })
+      .select('id').single();
+    if (error || !created) return 'skipped';
+    entityId = created.id;
+    await supabase.from('entity_identifiers').insert({
+      workspace_id: workspaceId, entity_id: entityId, kind, value: d.id,
+    }).then(() => {}, () => {});
+  }
+
+  // Write current state as observations (the claim engine will derive claims).
+  const facts: Array<[string, unknown]> = [
+    ['name',       d.name],
+    ['value',      d.value],
+    ['currency',   d.currency],
+    ['stage',      d.stage],
+    ['close_date', d.close_date],
+    ['owner_name', d.owner_name],
+  ];
+  const rows = facts
+    .filter(([, v]) => v != null && v !== '')
+    .map(([property, value]) => ({
+      workspace_id: workspaceId,
+      entity_id: entityId,
+      kind: 'state',
+      property,
+      value,
+      source: provider,
+      method: 'crm_sync',
+      observed_at: d.updated_at ?? new Date().toISOString(),
+    }));
+  if (rows.length) await supabase.from('observations').insert(rows).then(() => {}, () => {});
+
+  return entityId ? 'updated' : 'inserted';
+}
+
+// ─── The orchestrator ────────────────────────────────────────────────────────
+
+export interface SyncRunResult {
+  contacts: { fetched: number; inserted: number; updated: number; skipped: number };
+  companies: { fetched: number; inserted: number; updated: number; skipped: number };
+  deals: { fetched: number; inserted: number; updated: number; skipped: number };
+  errors: string[];
+}
+
+const PROVIDER_FETCHERS: Record<CrmProvider, typeof hubspot> = { hubspot, pipedrive, attio };
+
+const PAGE_LIMIT = 100;
+const MAX_PAGES_PER_RUN = 20;   // safety cap → 2k records per kind per run
+
+/**
+ * Pull every record updated since `since` from a single CRM provider
+ * (contacts + companies + deals) and upsert into the v2 substrate.
+ * Paginates with a safety cap so a runaway dataset can't peg the worker.
+ */
+export async function syncCrmProvider(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  provider: CrmProvider,
+  token: string,
+  since: string | null,
+): Promise<SyncRunResult> {
+  const fetcher = PROVIDER_FETCHERS[provider];
+  if (!fetcher) throw new Error(`Unsupported CRM provider: ${provider}`);
+
+  const result: SyncRunResult = {
+    contacts:  { fetched: 0, inserted: 0, updated: 0, skipped: 0 },
+    companies: { fetched: 0, inserted: 0, updated: 0, skipped: 0 },
+    deals:     { fetched: 0, inserted: 0, updated: 0, skipped: 0 },
+    errors: [],
+  };
+
+  // ── contacts ──
+  try {
+    let cursor: string | number | null = null;
+    for (let page = 0; page < MAX_PAGES_PER_RUN; page++) {
+      const { records, cursor: next } = await fetcher.fetchContacts(token, {
+        since: since ?? undefined,
+        cursor: cursor ?? undefined,
+        limit: PAGE_LIMIT,
+      });
+      result.contacts.fetched += records.length;
+      for (const r of records) {
+        const outcome = await upsertContact(supabase, workspaceId, provider, r);
+        result.contacts[outcome]++;
+      }
+      if (!next) break;
+      cursor = next;
+    }
+  } catch (e: any) {
+    result.errors.push(`contacts: ${e?.message ?? e}`);
+  }
+
+  // ── companies ──
+  try {
+    let cursor: string | number | null = null;
+    for (let page = 0; page < MAX_PAGES_PER_RUN; page++) {
+      const { records, cursor: next } = await fetcher.fetchCompanies(token, {
+        since: since ?? undefined,
+        cursor: cursor ?? undefined,
+        limit: PAGE_LIMIT,
+      });
+      result.companies.fetched += records.length;
+      for (const r of records) {
+        const outcome = await upsertCompany(supabase, workspaceId, provider, r);
+        result.companies[outcome]++;
+      }
+      if (!next) break;
+      cursor = next;
+    }
+  } catch (e: any) {
+    result.errors.push(`companies: ${e?.message ?? e}`);
+  }
+
+  // ── deals ──
+  try {
+    let cursor: string | number | null = null;
+    for (let page = 0; page < MAX_PAGES_PER_RUN; page++) {
+      const { records, cursor: next } = await fetcher.fetchDeals(token, {
+        since: since ?? undefined,
+        cursor: cursor ?? undefined,
+        limit: PAGE_LIMIT,
+      });
+      result.deals.fetched += records.length;
+      for (const r of records) {
+        const outcome = await upsertDeal(supabase, workspaceId, provider, r);
+        result.deals[outcome]++;
+      }
+      if (!next) break;
+      cursor = next;
+    }
+  } catch (e: any) {
+    result.errors.push(`deals: ${e?.message ?? e}`);
+  }
+
+  return result;
+}

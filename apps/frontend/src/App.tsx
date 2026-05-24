@@ -102,6 +102,11 @@ const App = () => (
                   </ProtectedRoute>
                 }
               />
+              {/* Public preview — no auth, no backend writes, loops back to step 1 on finish */}
+              <Route
+                path="/onboarding/preview"
+                element={<Suspense fallback={<PageLoader />}><OnboardingPage testMode /></Suspense>}
+              />
 
               {/* Legal */}
               <Route path="/privacy" element={<Suspense fallback={<PageLoader />}><PrivacyPolicy /></Suspense>} />
