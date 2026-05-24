@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { Link } from "react-router-dom";
 import {
   Plus, Send, Trash2, Sparkles, Loader2, ChevronRight, ChevronDown,
-  MessageSquare, Wrench, Clock, AlertTriangle, CheckCircle2,
+  MessageSquare, Wrench, Clock, AlertTriangle, CheckCircle2, ArrowLeft,
 } from "lucide-react";
 import { formatDistanceToNow, format, isToday, isYesterday } from "date-fns";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/components/ui/sonner";
-import { PageHeader } from "@/components/ui/page-header";
 import { cn } from "@/lib/utils";
 
 const apiUrl = import.meta.env.VITE_API_URL ?? "";
@@ -288,13 +288,30 @@ export default function Playground() {
 
   const grouped = useMemo(() => groupThreadsByDay(threads), [threads]);
 
+  // Personalize the greeting. Pull first name from /me; fall back to "there".
+  const firstName = useMemo(() => {
+    const full = (userData?.user?.name as string | undefined)?.trim();
+    if (!full) return "there";
+    return full.split(/\s+/)[0];
+  }, [userData]);
+
   return (
     <div className="h-full flex flex-col overflow-hidden bg-background">
-      <div className="px-8 pt-7 pb-4 border-b border-border/60">
-        <PageHeader
-          title="Playground"
-          subtitle="Chat with your workspace context. Every API call the agent makes lands in the right panel — see the substrate working in real time."
-        />
+      {/* ── Top chrome — back-to-dashboard pill + title strip ── */}
+      <div className="h-12 flex items-center justify-between px-4 border-b border-border/60 bg-background/95 backdrop-blur shrink-0">
+        <Link
+          to="/ops"
+          className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-border/60 bg-background text-[12px] font-semibold text-foreground/80 hover:bg-accent transition-colors">
+          <ArrowLeft className="h-3.5 w-3.5" />
+          Back to dashboard
+        </Link>
+        <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
+          <Sparkles className="h-3.5 w-3.5 text-muted-foreground/70" />
+          <span className="font-semibold tracking-wide">Playground</span>
+          <span className="text-muted-foreground/40">·</span>
+          <span className="text-muted-foreground/70">read-only</span>
+        </div>
+        <div className="w-[140px]" />
       </div>
 
       <div className="flex-1 grid grid-cols-[240px_1fr_360px] min-h-0">
@@ -341,7 +358,7 @@ export default function Playground() {
         <main className="flex flex-col min-h-0">
           <div ref={scrollRef} className="flex-1 overflow-y-auto px-8 py-6">
             {activeThreadId === null && messages.length === 0 ? (
-              <EmptyState onPick={text => send(text)} />
+              <EmptyState firstName={firstName} onPick={text => send(text)} />
             ) : loadingMessages ? (
               <div className="flex items-center justify-center py-12 text-[12px] text-muted-foreground/70">
                 <Loader2 className="h-4 w-4 animate-spin mr-2" /> Loading…
@@ -448,14 +465,15 @@ function Bubble({ msg }: { msg: Message }) {
   );
 }
 
-function EmptyState({ onPick }: { onPick: (text: string) => void }) {
+function EmptyState({ firstName, onPick }: { firstName: string; onPick: (text: string) => void }) {
   return (
-    <div className="max-w-2xl mx-auto pt-10">
-      <div className="text-center mb-8">
-        <Sparkles className="h-7 w-7 text-muted-foreground/60 mx-auto mb-3" />
-        <h2 className="text-[18px] font-semibold text-foreground">Ask anything about your workspace</h2>
-        <p className="text-[13px] text-muted-foreground/70 mt-1.5 max-w-md mx-auto leading-relaxed">
-          The Playground runs a small agent with read-only access to your Nous workspace. It uses the same six tools your real agents would.
+    <div className="max-w-2xl mx-auto pt-16 sm:pt-24">
+      <div className="text-center mb-10">
+        <h1 className="text-[40px] sm:text-[48px] font-semibold tracking-tight text-foreground leading-tight">
+          Hey {firstName}!
+        </h1>
+        <p className="text-[14px] text-muted-foreground mt-3 max-w-md mx-auto leading-relaxed">
+          See Nous in action. Ask about any person, company, or pattern — the agent inspects your workspace with the same six tools your real agents would.
         </p>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
