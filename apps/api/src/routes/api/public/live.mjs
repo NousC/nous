@@ -50,13 +50,27 @@ publicLiveRouter.get('/snapshot', async (_req, res) => {
       hour.filter((e) => e.occurred_at >= sinceFiveMinIso).map((e) => e.workspace_id)
     ).size;
 
-    // 2) Region aggregation — fetch country per workspace touched in the
-    //    last hour, then sum ops per country. Defensive against the
-    //    column not yet existing (pre-migration deploys): if the select
-    //    errors on missing column, we just return empty regions.
+    // 2) Recent events — newest first, ANY time. Drives the feed AND the
+    //    region map (so a quiet last-hour doesn't leave the map dead).
+    const { data: recentRows } = await supabase
+      .from('workspace_system_log')
+      .select('workspace_id, event_type, billable_ops, occurred_at')
+      .order('occurred_at', { ascending: false })
+      .limit(RECENT_EVENT_LIMIT);
+
+    const recentEventTypes = (recentRows || []).map((e) => ({
+      type: e.event_type || 'op',
+      ts: new Date(e.occurred_at).getTime(),
+      inc: Math.max(1, e.billable_ops || 1),
+    }));
+
+    // 3) Region aggregation — pulled from `recentRows` (latest events
+    //    regardless of age) so the map always shows where activity is
+    //    actually happening, even if the last hour is quiet. Defensive
+    //    against the country column not existing yet.
     let recentRegions = [];
     let countries = 0;
-    const wsIds = Array.from(new Set(hour.map((e) => e.workspace_id).filter(Boolean)));
+    const wsIds = Array.from(new Set((recentRows || []).map((e) => e.workspace_id).filter(Boolean)));
     if (wsIds.length > 0) {
       try {
         const { data: wsCountries } = await supabase
@@ -64,8 +78,8 @@ publicLiveRouter.get('/snapshot', async (_req, res) => {
           .select('id, country')
           .in('id', wsIds);
         const wsToCountry = new Map((wsCountries || []).map((w) => [w.id, w.country]));
-        const counts = new Map(); // country → ops
-        for (const e of hour) {
+        const counts = new Map();
+        for (const e of (recentRows || [])) {
           const c = wsToCountry.get(e.workspace_id);
           if (!c) continue;
           counts.set(c, (counts.get(c) || 0) + (e.billable_ops || 1));
@@ -75,24 +89,10 @@ publicLiveRouter.get('/snapshot', async (_req, res) => {
           .sort((a, b) => b.ops - a.ops);
         countries = recentRegions.length;
       } catch {
-        // Migration not applied yet — leave regions empty, frontend handles it.
         recentRegions = [];
         countries = 0;
       }
     }
-
-    // 3) Recent events — newest first, ANY time. Drives the feed.
-    const { data: recentRows } = await supabase
-      .from('workspace_system_log')
-      .select('event_type, billable_ops, occurred_at')
-      .order('occurred_at', { ascending: false })
-      .limit(RECENT_EVENT_LIMIT);
-
-    const recentEventTypes = (recentRows || []).map((e) => ({
-      type: e.event_type || 'op',
-      ts: new Date(e.occurred_at).getTime(),
-      inc: Math.max(1, e.billable_ops || 1),
-    }));
 
     // 4) Total-ever — union current op log + legacy memory_ops_log.
     const [currentRes, legacyRes] = await Promise.all([
