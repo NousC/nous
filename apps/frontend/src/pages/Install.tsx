@@ -9,14 +9,14 @@ import { PageHeader } from "@/components/ui/page-header";
 type InstallMethod = "plugin" | "sdk" | "client";
 type SdkLang = "python" | "nodejs" | "curl";
 type PluginClient = "claude-code" | "codex";
-type McpClient = "claude-desktop" | "cursor" | "cline" | "generic";
+type McpClient = "claude-desktop" | "cursor" | "generic";
 
 // ─── Data ────────────────────────────────────────────────────────────────────
 
 const INSTALL_METHODS: { id: InstallMethod; label: string; desc: string; icon: React.ElementType }[] = [
   { id: "plugin", label: "Plugin",            desc: "Claude Code & Codex",            icon: Puzzle },
   { id: "sdk",    label: "SDK Integration",   desc: "Drop into your own agent",       icon: Code2  },
-  { id: "client", label: "Other MCP Clients", desc: "Claude Desktop, Cursor, Cline",  icon: Plug   },
+  { id: "client", label: "Other MCP Clients", desc: "Claude Desktop, Cursor",         icon: Plug   },
 ];
 
 // ── SDK steps (every snippet hits the real /v2/* surface) ───────────────────
@@ -325,7 +325,7 @@ env = { NOUS_API_KEY = "YOUR_API_KEY" }`;
       <TabBar
         tabs={[
           { id: "claude-code" as PluginClient, label: "Claude Code", icon: <img src="/provider-logos/claude.svg" alt="" className="w-3.5 h-3.5 object-contain" /> },
-          { id: "codex"       as PluginClient, label: "Codex",       icon: <img src="/provider-logos/openai.svg" alt="" className="w-3.5 h-3.5 object-contain" /> },
+          { id: "codex"       as PluginClient, label: "Codex",       icon: <img src="/provider-logos/openai.svg" alt="" className="w-3.5 h-3.5 object-contain dark:invert" /> },
         ]}
         active={client}
         onChange={setClient}
@@ -450,40 +450,38 @@ function McpClientPanel() {
   }
 }`;
 
-  const cline = `// In VS Code settings.json:
-{
-  "cline.mcpServers": {
-    "nous": {
-      "command": "npx",
-      "args": ["-y", "@opennous/mcp"],
-      "env": { "NOUS_API_KEY": "YOUR_API_KEY" }
-    }
-  }
-}`;
-
   const generic = `# Any MCP-compatible client. The server is published on npm — no clone needed.
 NOUS_API_KEY=YOUR_API_KEY npx -y @opennous/mcp
 
 # Or pin a version:
 NOUS_API_KEY=YOUR_API_KEY npx -y @opennous/mcp@0.8.9`;
 
-  const META: Record<McpClient, { label: string; copy: string; code: string }> = {
-    "claude-desktop": { label: "Claude Desktop", copy: "Add to your Claude Desktop config (path differs by OS), then restart Claude Desktop.", code: claudeDesktop },
-    "cursor":         { label: "Cursor",         copy: "Add to Cursor's MCP config and reload — Cursor picks it up automatically.",          code: cursor          },
-    "cline":          { label: "Cline",          copy: "Cline (the VS Code extension) reads MCP servers from your VS Code settings.",         code: cline           },
-    "generic":        { label: "Any MCP client", copy: "The MCP server is just a stdio process — point any compliant client at it.",          code: generic         },
+  const META: Record<McpClient, { label: string; icon: React.ReactNode; copy: string; code: string }> = {
+    "claude-desktop": {
+      label: "Claude Desktop",
+      icon: <img src="/provider-logos/claude.svg" alt="" className="w-3.5 h-3.5 object-contain" />,
+      copy: "Add to your Claude Desktop config (path differs by OS), then restart Claude Desktop.",
+      code: claudeDesktop,
+    },
+    "cursor": {
+      label: "Cursor",
+      icon: <img src="/provider-logos/cursor.svg" alt="" className="w-3.5 h-3.5 object-contain dark:invert" />,
+      copy: "Add to Cursor's MCP config and reload — Cursor picks it up automatically.",
+      code: cursor,
+    },
+    "generic": {
+      label: "Any MCP client",
+      icon: <Plug className="w-3.5 h-3.5" />,
+      copy: "The MCP server is just a stdio process — point any compliant client at it.",
+      code: generic,
+    },
   };
   const active = META[client];
 
   return (
     <div className="space-y-4">
       <TabBar
-        tabs={[
-          { id: "claude-desktop" as McpClient, label: "Claude Desktop" },
-          { id: "cursor"         as McpClient, label: "Cursor" },
-          { id: "cline"          as McpClient, label: "Cline" },
-          { id: "generic"        as McpClient, label: "Any MCP client" },
-        ]}
+        tabs={(Object.keys(META) as McpClient[]).map(id => ({ id, label: META[id].label, icon: META[id].icon }))}
         active={client}
         onChange={setClient}
         size="sm"
