@@ -216,14 +216,13 @@ async function attioQuery<T>(
 ): Promise<FetchResult<T>> {
   const limit = Math.min(opts.limit ?? 100, 500);
   const offset = typeof opts.cursor === 'number' ? opts.cursor : 0;
-  const body: any = {
-    limit,
-    offset,
-    sorts: [{ attribute: 'updated_at', direction: 'asc' }],
-  };
-  if (opts.since) {
-    body.filter = { updated_at: { $gt: opts.since } };
-  }
+
+  // Attio's filter/sort syntax varies by attribute and isn't well-documented
+  // for our use case — we tried `sorts: [{ attribute: 'updated_at' }]` and got
+  // validation errors. Until we wire up proper incremental support, just
+  // paginate and filter client-side on updated_at if a `since` is provided.
+  const body: Record<string, unknown> = { limit, offset };
+
   const res = await fetch(`https://api.attio.com/v2/objects/${objectSlug}/records/query`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
@@ -231,8 +230,18 @@ async function attioQuery<T>(
   });
   if (!res.ok) throw new Error(`Attio ${objectSlug} ${res.status} — ${await res.text().catch(() => '')}`);
   const d = await res.json();
-  const records = (d.data ?? []).map(mapper);
-  return { records, cursor: records.length === limit ? offset + limit : null };
+
+  let records = (d.data ?? []).map(mapper);
+  // Client-side incremental filter on the mapped `updated_at`.
+  if (opts.since) {
+    const sinceMs = new Date(opts.since).getTime();
+    records = records.filter((r: any) =>
+      r.updated_at && new Date(r.updated_at).getTime() > sinceMs,
+    );
+  }
+  // Attio paginates by offset; if we got a full page there may be more.
+  const nextCursor = (d.data ?? []).length === limit ? offset + limit : null;
+  return { records, cursor: nextCursor };
 }
 
 const attioVal = (r: any, field: string) => r.values?.[field]?.[0]?.value ?? null;

@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/components/ui/sonner";
 import {
-  Check, Copy, Eye, EyeOff, Key, RefreshCw, ExternalLink, ArrowLeft, ArrowRight,
+  Check, Copy, Eye, EyeOff, Key, RefreshCw, ArrowLeft, ArrowRight,
 } from "lucide-react";
 import { PeopleImportPanel } from "@/components/contacts/PeopleImportModal";
 
@@ -56,8 +56,8 @@ function TextArea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
 function StepTitle({ title, desc }: { title: string; desc: string }) {
   return (
     <div className="space-y-1">
-      <h2 className="text-[20px] font-semibold tracking-tight text-gray-900">{title}</h2>
-      <p className="text-[13px] text-gray-500">{desc}</p>
+      <h1 className="text-[20px] font-semibold tracking-tight text-foreground">{title}</h1>
+      <p className="text-[13px] text-muted-foreground">{desc}</p>
     </div>
   );
 }
@@ -298,18 +298,13 @@ function FinishingScreen() {
 // ─── Step indicator ──────────────────────────────────────────────────────────
 function StepIndicator({ current, total }: { current: number; total: number }) {
   return (
-    <div className="space-y-2.5">
-      <div className="flex items-center justify-between">
-        <span className="text-[12px] font-medium text-gray-500">
-          Step {current} of {total}
-        </span>
-        <span className="text-[12px] font-medium text-gray-400">
-          {Math.round((current / total) * 100)}%
-        </span>
+    <div className="space-y-2.5 flex-1 min-w-0">
+      <div className="text-[12px] font-medium text-muted-foreground">
+        Step {current} of {total}
       </div>
-      <div className="h-1 w-full rounded-full bg-gray-100 overflow-hidden">
+      <div className="h-1 w-full rounded-full bg-muted overflow-hidden">
         <div
-          className="h-full rounded-full bg-gray-900 transition-all duration-300"
+          className="h-full rounded-full bg-foreground transition-all duration-300"
           style={{ width: `${(current / total) * 100}%` }}
         />
       </div>
@@ -443,75 +438,57 @@ export default function Onboarding({ testMode = false }: OnboardingProps) {
     navigate("/", { replace: true });
   };
 
-  // Card widens when the importer panel needs space for column mapping.
-  const maxWidth = phase === 2 ? 640 : 480;
   const currentStep = phase === "finishing" ? 3 : phase;
+  const contentMaxWidth = phase === 2 ? 640 : 480;
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-gray-50 overflow-y-auto py-10">
-      <div className="w-full mx-4 flex flex-col" style={{ maxWidth }}>
-        {/* brand */}
-        <div className="flex items-center justify-center gap-2 mb-6">
-          <span className="text-[15px] font-semibold tracking-tight text-gray-900">Nous</span>
+    <div
+      className="fixed inset-0 z-[80] flex items-center justify-center bg-background overflow-y-auto py-10"
+      style={{
+        backgroundImage:
+          "radial-gradient(circle, rgb(0 0 0 / 0.08) 1px, transparent 1px)",
+        backgroundSize: "24px 24px",
+      }}
+    >
+      <div className="w-full mx-6 flex flex-col" style={{ maxWidth: contentMaxWidth }}>
+        <div className="mb-6 flex items-center justify-between gap-4">
+          <StepIndicator current={currentStep} total={TOTAL_STEPS} />
           {testMode && (
-            <span className="text-[11px] font-semibold text-amber-600 border border-amber-200 bg-amber-50 rounded-md px-1.5 py-0.5">
+            <span className="text-[11px] font-semibold text-amber-600 border border-amber-200 bg-amber-50 rounded-md px-2 py-0.5 flex-shrink-0">
               Test mode
             </span>
           )}
         </div>
 
-        {/* card */}
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
-          {/* step indicator */}
-          <div className="px-6 sm:px-8 pt-6 pb-5 border-b border-gray-100">
-            <StepIndicator current={currentStep} total={TOTAL_STEPS} />
-          </div>
-
-          {/* body */}
-          <div className="px-6 sm:px-8 py-7">
-            {phase === 1 && (
-              <StepWelcome
-                name={name} setName={setName}
-                companyName={companyName} setCompanyName={setCompanyName}
-                website={website} setWebsite={setWebsite}
-                icpDescription={icpDescription} setIcpDescription={setIcpDescription}
-                onNext={submitStep1} isLoading={stepLoading}
-              />
-            )}
-            {phase === 2 && (
-              <StepImport
-                session={session}
-                workspaceId={userData?.workspace?.id}
-                testMode={testMode}
-                onAdvance={() => setPhase(3)}
-                onBack={() => setPhase(1)}
-                onSkip={() => setPhase(3)}
-              />
-            )}
-            {phase === 3 && (
-              <StepCreateKey
-                apiKey={apiKey}
-                generateKey={generateApiKey}
-                generating={generatingKey}
-                onFinish={finish}
-                onBack={() => setPhase(2)}
-              />
-            )}
-            {phase === "finishing" && <FinishingScreen />}
-          </div>
-        </div>
-
-        {/* footer */}
-        <div className="flex justify-center mt-5">
-          <a
-            href="https://docs.opennous.cloud"
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center gap-1 text-[12px] text-gray-400 hover:text-gray-600 transition-colors"
-          >
-            docs.opennous.cloud <ExternalLink className="h-3 w-3" />
-          </a>
-        </div>
+        {phase === 1 && (
+          <StepWelcome
+            name={name} setName={setName}
+            companyName={companyName} setCompanyName={setCompanyName}
+            website={website} setWebsite={setWebsite}
+            icpDescription={icpDescription} setIcpDescription={setIcpDescription}
+            onNext={submitStep1} isLoading={stepLoading}
+          />
+        )}
+        {phase === 2 && (
+          <StepImport
+            session={session}
+            workspaceId={userData?.workspace?.id}
+            testMode={testMode}
+            onAdvance={() => setPhase(3)}
+            onBack={() => setPhase(1)}
+            onSkip={() => setPhase(3)}
+          />
+        )}
+        {phase === 3 && (
+          <StepCreateKey
+            apiKey={apiKey}
+            generateKey={generateApiKey}
+            generating={generatingKey}
+            onFinish={finish}
+            onBack={() => setPhase(2)}
+          />
+        )}
+        {phase === "finishing" && <FinishingScreen />}
       </div>
     </div>
   );
