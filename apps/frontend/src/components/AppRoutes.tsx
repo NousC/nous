@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import React, { lazy, Suspense } from "react";
 import { AdminRoute } from "@/components/AdminRoute";
 import { AppSidebar } from "@/components/AppSidebar";
+import { ChecklistToast } from "@/components/OnboardingChecklist";
 import ComingSoon from "@/pages/ComingSoon";
 
 const lazyWithErrorBoundary = (importFn: () => Promise<any>) => {
@@ -93,6 +94,7 @@ function StandardLayout({ children }: { children: React.ReactNode }) {
           {children}
         </div>
       </main>
+      <ChecklistToast />
     </div>
   );
 }

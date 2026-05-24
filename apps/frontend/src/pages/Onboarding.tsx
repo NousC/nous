@@ -114,7 +114,7 @@ function StepWelcome({
         </div>
 
         <div>
-          <FieldLabel optional>Describe your ICP</FieldLabel>
+          <FieldLabel>Describe your ICP</FieldLabel>
           <TextArea
             value={icpDescription}
             onChange={e => setIcpDescription(e.target.value)}
@@ -127,7 +127,7 @@ function StepWelcome({
       <div className="flex justify-end pt-1">
         <button
           onClick={onNext}
-          disabled={!name.trim() || !companyName.trim() || isLoading}
+          disabled={!name.trim() || !companyName.trim() || !icpDescription.trim() || isLoading}
           className={BTN_PRIMARY}
         >
           {isLoading && <RefreshCw className="h-3.5 w-3.5 animate-spin" />}
@@ -282,15 +282,14 @@ function StepCreateKey({
   );
 }
 
-// ─── Finishing: loading screen with tip ──────────────────────────────────────
+// ─── Finishing: minimal centered loader ──────────────────────────────────────
 function FinishingScreen() {
   return (
-    <div className="flex flex-col items-center justify-center py-12 text-center">
-      <RefreshCw className="h-6 w-6 animate-spin text-gray-400 mb-4" />
-      <h2 className="text-[20px] font-semibold tracking-tight text-gray-900">
-        Setting up your workspace
-      </h2>
-      <p className="text-[13px] text-gray-500 mt-1">Just a moment…</p>
+    <div className="fixed inset-0 flex flex-col items-center justify-center gap-3 text-center">
+      <RefreshCw className="h-5 w-5 animate-spin text-muted-foreground" />
+      <p className="text-[13px] text-muted-foreground">
+        Setting up your workspace, just a moment…
+      </p>
     </div>
   );
 }
@@ -416,7 +415,7 @@ export default function Onboarding({ testMode = false }: OnboardingProps) {
   const finish = async () => {
     setPhase("finishing");
     if (testMode) {
-      await new Promise(r => setTimeout(r, 8000));
+      await new Promise(r => setTimeout(r, 2500));
       toast.success("test run complete — restarting");
       localStorage.removeItem(STORAGE_KEY);
       setApiKey(null);
@@ -434,7 +433,7 @@ export default function Onboarding({ testMode = false }: OnboardingProps) {
       localStorage.setItem("nous_onboarding_company_name", companyName.trim());
       refreshUserData().catch(console.error);
     } catch { /* non-blocking */ }
-    await new Promise(r => setTimeout(r, 8000));
+    await new Promise(r => setTimeout(r, 2500));
     navigate("/", { replace: true });
   };
 
@@ -451,14 +450,16 @@ export default function Onboarding({ testMode = false }: OnboardingProps) {
       }}
     >
       <div className="w-full mx-6 flex flex-col" style={{ maxWidth: contentMaxWidth }}>
-        <div className="mb-6 flex items-center justify-between gap-4">
-          <StepIndicator current={currentStep} total={TOTAL_STEPS} />
-          {testMode && (
-            <span className="text-[11px] font-semibold text-amber-600 border border-amber-200 bg-amber-50 rounded-md px-2 py-0.5 flex-shrink-0">
-              Test mode
-            </span>
-          )}
-        </div>
+        {phase !== "finishing" && (
+          <div className="mb-6 flex items-center justify-between gap-4">
+            <StepIndicator current={currentStep} total={TOTAL_STEPS} />
+            {testMode && (
+              <span className="text-[11px] font-semibold text-amber-600 border border-amber-200 bg-amber-50 rounded-md px-2 py-0.5 flex-shrink-0">
+                Test mode
+              </span>
+            )}
+          </div>
+        )}
 
         {phase === 1 && (
           <StepWelcome
