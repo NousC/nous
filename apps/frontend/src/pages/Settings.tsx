@@ -1,17 +1,65 @@
-import { useState, useEffect } from "react";
-import { Sun, Moon, LogOut, Plus, Trash2, X } from "lucide-react";
+import { useState, useEffect, type ComponentType } from "react";
+import {
+  Sun, Moon, Monitor, LogOut, Plus, Trash2, X,
+  Link2, Calendar, Upload, ArrowRight,
+} from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import { toast } from "@/components/ui/sonner";
+import { Switch } from "@/components/ui/switch";
 import { generateCodename, type SettingsTab } from "@/components/mind/shared";
 import { PageHeader } from "@/components/ui/page-header";
+import { ChecklistCard } from "@/components/OnboardingChecklist";
 
 const apiUrl = import.meta.env.VITE_API_URL ?? "";
+
+// ─── Real brand icons (rendered in currentColor / black) ─────────────────────
+const WhatsAppIcon = ({ className }: { className?: string }) => (
+  <svg viewBox="0 0 24 24" fill="currentColor" className={className} xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347M12.05 21.785h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/>
+  </svg>
+);
+
+const GmailIcon = ({ className }: { className?: string }) => (
+  <svg viewBox="0 0 24 24" fill="currentColor" className={className} xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <path d="M24 5.457v13.909c0 .904-.732 1.636-1.636 1.636h-3.819V11.73L12 16.64l-6.545-4.91v9.273H1.636A1.636 1.636 0 010 19.366V5.457c0-2.023 2.309-3.178 3.927-1.964L5.455 4.64 12 9.548l6.545-4.91 1.528-1.145C21.69 2.28 24 3.434 24 5.457z"/>
+  </svg>
+);
+
+// TODO: swap for the real Cal.com brand SVG once you grab it.
+// Using Calendar from lucide as a stand-in — it's recognisable and ships in 24x24.
+const CalIcon = ({ className }: { className?: string }) => <Calendar className={className} />;
+
+function ThemeIconBtn({
+  active, onClick, icon: Icon, label,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: ComponentType<{ className?: string }>;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      aria-pressed={active}
+      title={label}
+      className={`inline-flex items-center justify-center h-8 w-8 rounded-md transition-colors ${
+        active
+          ? "bg-muted text-foreground"
+          : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+      }`}
+    >
+      <Icon className="h-3.5 w-3.5" />
+    </button>
+  );
+}
 
 export default function Settings() {
   const { userData, session, refreshUserData, signOut } = useAuth();
   const handleSignOut = async () => { try { await signOut(); } catch { /* ignore */ } };
-  const { theme, toggleTheme } = useTheme();
+  const { mode, setMode } = useTheme();
   const token = session?.access_token;
   const teamId = userData?.team?.id;
   const workspaceId = userData?.workspace?.id ?? "";
@@ -32,6 +80,72 @@ export default function Settings() {
   const [inviting, setInviting] = useState(false);
   const [workspaceName, setWorkspaceName] = useState(userData?.team?.name ?? "");
   const [wsNameSaving, setWsNameSaving] = useState(false);
+
+  // Company (used to auto-pull a favicon for the Friends gallery later)
+  const [companyName, setCompanyName] = useState("");
+  const [companyUrl, setCompanyUrl] = useState("");
+  const [companySaving, setCompanySaving] = useState(false);
+  const saveCompany = async () => {
+    setCompanySaving(true);
+    // TODO: wire to backend. For now stub so the UI is testable.
+    setTimeout(() => {
+      toast.success("Saved — we'll persist this to the backend next.");
+      setCompanySaving(false);
+    }, 250);
+  };
+
+  // Agora
+  const [msgType, setMsgType] = useState<"idea" | "bug">("idea");
+  const [msgText, setMsgText] = useState("");
+  const [videoLink, setVideoLink] = useState("");
+  const [msgSending, setMsgSending] = useState(false);
+  const [friendsOptIn, setFriendsOptIn] = useState(false);
+
+  // Set VITE_FEEDBACK_WEBHOOK_URL to e.g. an Airtable Automation webhook,
+  // an n8n/Zapier/Make webhook, or your own /api/feedback relay.
+  const feedbackWebhook = import.meta.env.VITE_FEEDBACK_WEBHOOK_URL ?? "";
+
+  const submitMsg = async () => {
+    if (!msgText.trim() || msgSending) return;
+    if (!feedbackWebhook) {
+      toast.error("Feedback webhook not configured (VITE_FEEDBACK_WEBHOOK_URL).");
+      return;
+    }
+    setMsgSending(true);
+    try {
+      const payload = {
+        type: msgType,
+        message: msgText.trim(),
+        videoLink: videoLink.trim() || null,
+        user: {
+          email: userData?.user?.email ?? null,
+          name: userData?.user?.name ?? null,
+          workspaceId: userData?.workspace?.id ?? null,
+        },
+        context: {
+          userAgent: navigator.userAgent,
+          viewport: `${window.innerWidth}x${window.innerHeight}`,
+          url: window.location.href,
+        },
+        createdAt: new Date().toISOString(),
+      };
+      const res = await fetch(feedbackWebhook, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error(`Webhook returned ${res.status}`);
+      toast.success("Got it. Bennet will reply personally.");
+      setMsgText("");
+      setVideoLink("");
+    } catch (err) {
+      console.error("feedback webhook failed:", err);
+      toast.error("Couldn't send right now. Try again?");
+    } finally {
+      setMsgSending(false);
+    }
+  };
+  const onLogoUpload = () => toast.message("Logo upload — coming soon.");
 
   useEffect(() => {
     setName(userData?.user?.name ?? "");
@@ -114,6 +228,7 @@ export default function Settings() {
   const TABS: { id: SettingsTab; label: string }[] = [
     { id: "profile", label: "Profile" },
     { id: "team",    label: "Team"    },
+    { id: "agora",   label: "Agora"   },
   ];
 
   // ── shared light styles ───────────────────────────────────────────────────
@@ -124,6 +239,8 @@ export default function Settings() {
     "h-9 px-3.5 rounded-lg bg-primary text-primary-foreground text-[13px] font-medium " +
     "hover:bg-primary/90 transition-colors disabled:opacity-40 flex-shrink-0";
   const fieldLabel = "text-[12px] font-medium text-muted-foreground mb-1.5";
+  const contactRowCls =
+    "flex items-center gap-2.5 text-[13px] text-foreground/80 hover:text-foreground py-1.5 transition-colors";
 
   return (
     <div className="h-full overflow-y-auto bg-background">
@@ -132,17 +249,18 @@ export default function Settings() {
           title="Settings"
           actions={
             <>
-              <button
-                onClick={toggleTheme}
-                className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-background border border-border text-foreground/80 text-[13px] font-semibold hover:bg-muted/50 transition-colors"
-              >
-                {theme === "dark" ? <><Sun className="h-3.5 w-3.5" />Light mode</> : <><Moon className="h-3.5 w-3.5" />Dark mode</>}
-              </button>
+              <div className="inline-flex items-center h-9 rounded-lg border border-border bg-background p-0.5">
+                <ThemeIconBtn active={mode === "light"}  onClick={() => setMode("light")}  icon={Sun}     label="Light" />
+                <ThemeIconBtn active={mode === "system"} onClick={() => setMode("system")} icon={Monitor} label="Match system" />
+                <ThemeIconBtn active={mode === "dark"}   onClick={() => setMode("dark")}   icon={Moon}    label="Dark" />
+              </div>
               <button
                 onClick={handleSignOut}
-                className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-background border border-border text-foreground/80 text-[13px] font-semibold hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors"
+                aria-label="Log out"
+                title="Log out"
+                className="inline-flex items-center justify-center h-9 w-9 rounded-lg bg-background border border-border text-foreground/80 hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors"
               >
-                <LogOut className="h-3.5 w-3.5" />Log out
+                <LogOut className="h-3.5 w-3.5" />
               </button>
             </>
           }
@@ -194,6 +312,7 @@ export default function Settings() {
                   {workspaceId ? generateCodename(workspaceId) : "—"}
                 </div>
               </div>
+              <ChecklistCard />
             </div>
           </div>
         )}
@@ -203,6 +322,41 @@ export default function Settings() {
           <div className="max-w-lg space-y-7">
             <div>
               <h3 className="text-[15px] font-semibold text-foreground mb-3">Workspace</h3>
+
+              <div className="space-y-3 mb-4">
+                <div>
+                  <div className={fieldLabel}>Company name</div>
+                  <input
+                    value={companyName}
+                    onChange={(e) => setCompanyName(e.target.value)}
+                    placeholder="Acme, Inc."
+                    className={inputCls}
+                  />
+                </div>
+                <div>
+                  <div className={fieldLabel}>Company website</div>
+                  <input
+                    value={companyUrl}
+                    onChange={(e) => setCompanyUrl(e.target.value)}
+                    placeholder="https://acme.com"
+                    inputMode="url"
+                    className={inputCls}
+                  />
+                  <p className="text-[11px] text-muted-foreground/60 mt-1.5">
+                    Used to grab your favicon for the Friends gallery — no logo upload needed.
+                  </p>
+                </div>
+                <div className="flex justify-end">
+                  <button
+                    onClick={saveCompany}
+                    disabled={companySaving || (!companyName.trim() && !companyUrl.trim())}
+                    className={primaryBtn}
+                  >
+                    {companySaving ? "Saving…" : "Save company"}
+                  </button>
+                </div>
+              </div>
+
               <div className={fieldLabel}>Workspace name</div>
               <div className="flex items-center gap-2">
                 <input
@@ -304,6 +458,166 @@ export default function Settings() {
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* ── Agora ── */}
+        {tab === "agora" && (
+          <div className="space-y-14">
+            <div className="flex flex-col lg:flex-row gap-10 lg:items-start">
+              {/* LEFT — Minimal unified composer */}
+              <div className="flex-1 min-w-0 lg:max-w-xl">
+                <div className="inline-flex items-center rounded-full border border-border bg-background p-0.5 text-[11px] font-medium mb-4">
+                  <button
+                    onClick={() => setMsgType("idea")}
+                    className={`px-3 py-1 rounded-full transition-colors ${
+                      msgType === "idea" ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    Idea
+                  </button>
+                  <button
+                    onClick={() => setMsgType("bug")}
+                    className={`px-3 py-1 rounded-full transition-colors ${
+                      msgType === "bug" ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    Bug
+                  </button>
+                </div>
+
+                <textarea
+                  value={msgText}
+                  onChange={(e) => setMsgText(e.target.value)}
+                  rows={7}
+                  placeholder={
+                    msgType === "idea"
+                      ? "What would make Nous indispensable for you?"
+                      : "What broke? Steps to reproduce, what you expected, what happened…"
+                  }
+                  className="w-full bg-transparent border-0 border-b border-border focus:border-foreground/50 px-0 py-2 text-[14px] text-foreground placeholder:text-muted-foreground/60 outline-none resize-none transition-colors leading-relaxed"
+                />
+
+                <div className="mt-3 flex items-center gap-2 border-b border-border/60 focus-within:border-foreground/40 transition-colors">
+                  <Link2 className="h-3.5 w-3.5 text-muted-foreground/70 flex-shrink-0" />
+                  <input
+                    type="url"
+                    value={videoLink}
+                    onChange={(e) => setVideoLink(e.target.value)}
+                    placeholder={msgType === "idea" ? "Paste a Loom, Tella, or any video link" : "Paste a CleanShot, screenshot, or video link"}
+                    className="flex-1 bg-transparent border-0 py-2 text-[12px] text-foreground placeholder:text-muted-foreground/60 outline-none"
+                  />
+                </div>
+
+                <div className="flex items-center justify-between gap-4 mt-5">
+                  <p className="text-[11px] text-muted-foreground/70 italic">
+                    Goes straight to the founder — personal reply.
+                  </p>
+                  <button
+                    onClick={submitMsg}
+                    disabled={!msgText.trim() || msgSending}
+                    className="inline-flex items-center gap-1.5 text-[13px] font-medium text-foreground/80 hover:text-foreground disabled:opacity-40 disabled:hover:text-foreground/80 transition-colors group"
+                  >
+                    {msgSending ? "Sending…" : "Send"}
+                    <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5 group-disabled:transform-none" />
+                  </button>
+                </div>
+              </div>
+
+              {/* RIGHT — Founder card (pushed far right, calm color, real brand icons in black) */}
+              <div className="w-full lg:w-[460px] lg:ml-auto lg:flex-shrink-0">
+                <div className="rounded-3xl p-7 bg-indigo-50/70 dark:bg-indigo-950/30 border border-indigo-100/70 dark:border-indigo-900/40">
+                  <div className="flex items-start gap-5 mb-5">
+                    {/* TODO: replace with <img src="/founder.jpg" alt="Bennet" className="h-full w-full object-cover" /> */}
+                    <div className="h-28 w-28 rounded-2xl bg-white/90 dark:bg-white/10 ring-2 ring-white dark:ring-white/20 flex items-center justify-center text-[10px] text-muted-foreground overflow-hidden flex-shrink-0">
+                      photo
+                    </div>
+                    <div className="pt-1 min-w-0">
+                      {/* TODO: founder name */}
+                      <div className="text-[18px] font-semibold text-foreground leading-tight">Bennet Glinder</div>
+                      <div className="text-[12px] text-muted-foreground mt-0.5">Founder, Nous</div>
+                    </div>
+                  </div>
+                  <p className="text-[13px] text-foreground/85 leading-relaxed mb-6">
+                    {/* TODO: bio */}
+                    Reach me wherever feels right for you. Always up for a chat about GTM,
+                    AGI, or whatever's on your mind.
+                  </p>
+                  <div className="space-y-1">
+                    <a
+                      href="https://wa.me/0000000000" /* TODO: WhatsApp number */
+                      target="_blank" rel="noopener noreferrer"
+                      className={contactRowCls}
+                    >
+                      <WhatsAppIcon className="h-4 w-4 text-foreground" />
+                      <span>WhatsApp</span>
+                    </a>
+                    <a
+                      href="mailto:bennet@opennous.cloud" /* TODO: email */
+                      className={contactRowCls}
+                    >
+                      <GmailIcon className="h-4 w-4 text-foreground" />
+                      <span>Email</span>
+                    </a>
+                    <a
+                      href="https://cal.com/your-handle" /* TODO: booking link */
+                      target="_blank" rel="noopener noreferrer"
+                      className={contactRowCls}
+                    >
+                      <CalIcon className="h-4 w-4 text-foreground" />
+                      <span>Book 15 min — chat about GTM &amp; AGI</span>
+                    </a>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* BOTTOM — Friends, with overlapping logo-wall preview */}
+            <section className="pt-2 border-t border-border/60">
+              <div className="flex items-start justify-between gap-4 mt-6 mb-5">
+                <div>
+                  <h3 className="text-[14px] font-semibold text-foreground">Friends</h3>
+                  <p className="text-[12px] text-muted-foreground/80 mt-1 max-w-md">
+                    Your logo on the Friends page at opennous.cloud — alongside the others using Nous.
+                  </p>
+                </div>
+                <Switch checked={friendsOptIn} onCheckedChange={setFriendsOptIn} />
+              </div>
+
+              {/* Overlapping logo stack (placeholders — real favicons go here once Friends ships) */}
+              <div className="flex items-center">
+                {["◆", "○", "△", "▢", "✦"].map((glyph, i) => (
+                  <div
+                    key={i}
+                    className={`h-11 w-11 rounded-full bg-muted/60 ring-2 ring-background flex items-center justify-center text-muted-foreground/50 text-[14px] ${i > 0 ? "-ml-3" : ""}`}
+                    style={{ zIndex: 10 - i }}
+                  >
+                    {glyph}
+                  </div>
+                ))}
+                <div
+                  className={`-ml-3 h-11 w-11 rounded-full ring-2 ring-background flex items-center justify-center text-[10px] font-medium border-2 border-dashed transition-colors ${
+                    friendsOptIn
+                      ? "border-foreground/50 text-foreground/80 bg-background"
+                      : "border-border text-muted-foreground/60 bg-background"
+                  }`}
+                  style={{ zIndex: 1 }}
+                >
+                  {friendsOptIn ? "you" : "+"}
+                </div>
+              </div>
+              <p className="text-[10px] text-muted-foreground/50 mt-3 italic">
+                Placeholders — real logos appear here once Friends ships.
+              </p>
+
+              {friendsOptIn && (
+                <label className="inline-flex items-center gap-2 mt-5 text-[12px] text-muted-foreground hover:text-foreground cursor-pointer">
+                  <Upload className="h-3.5 w-3.5" />
+                  Upload your logo (SVG or PNG)
+                  <input type="file" accept="image/svg+xml,image/png" className="hidden" onChange={onLogoUpload} />
+                </label>
+              )}
+            </section>
           </div>
         )}
       </div>
