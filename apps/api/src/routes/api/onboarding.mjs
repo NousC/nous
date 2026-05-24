@@ -200,6 +200,20 @@ onboardingRouter.post('/complete', verifySupabaseAuth, async (req, res) => {
       await supabase.from('users').update({ onboarding_completed_at: new Date().toISOString() }).eq('id', user.id);
     }
 
+    // Guarantee the team has a Free subscription. ensureUserAndTeam creates one
+    // on first auth; this is the belt-and-suspenders if that ever missed.
+    // ignoreDuplicates leaves an existing (potentially paid) row untouched.
+    if (isFirstCompletion) {
+      await supabase.from('subscriptions').upsert({
+        team_id: team.id,
+        plan_id: 'free',
+        plan_name: 'free',
+        status: 'active',
+        current_period_start: new Date().toISOString(),
+      }, { onConflict: 'team_id', ignoreDuplicates: true })
+        .catch(e => console.warn('[onboarding/complete] free-plan upsert:', e?.message || e));
+    }
+
     // Outbound webhook — only on first completion, fire-and-forget.
     if (isFirstCompletion) {
       fireOnboardingWebhook({
