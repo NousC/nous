@@ -229,13 +229,16 @@ export default function Settings() {
     { id: "agora",   label: "Agora"   },
   ];
 
-  // ── shared light styles ───────────────────────────────────────────────────
+  // ── shared styles (work in both light + dark) ─────────────────────────────
   const inputCls =
-    "w-full border border-border rounded-lg px-3 py-2 text-[13px] text-foreground " +
+    "w-full bg-background border border-border rounded-lg px-3 py-2 text-[13px] text-foreground " +
     "outline-none focus:border-foreground/40 transition-colors placeholder:text-muted-foreground/70";
+  // Light: dark fill + light text (shadcn default). Dark: elevated-dark + white
+  // text (Mem0 style), so the button doesn't punch out as bright white.
   const primaryBtn =
-    "h-9 px-3.5 rounded-lg bg-primary text-primary-foreground text-[13px] font-medium " +
-    "hover:bg-primary/90 transition-colors disabled:opacity-40 flex-shrink-0";
+    "h-9 px-3.5 rounded-lg text-[13px] font-medium transition-colors disabled:opacity-40 flex-shrink-0 " +
+    "bg-foreground text-background hover:bg-foreground/90 " +
+    "dark:bg-muted dark:text-foreground dark:hover:bg-muted/70 dark:border dark:border-border";
   const fieldLabel = "text-[12px] font-medium text-muted-foreground mb-1.5";
   const contactRowCls =
     "flex items-center gap-2.5 text-[13px] text-foreground/80 hover:text-foreground py-1.5 transition-colors";

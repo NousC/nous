@@ -96,7 +96,7 @@ export function AppSidebar() {
           end={item.url === "/"}
           className={`group flex w-full items-center rounded-lg px-2.5 py-1.5 transition-all duration-150 ${
             collapsed ? "justify-center" : ""
-          } ${active ? "bg-gray-200/60 dark:bg-white/10" : "hover:bg-gray-100/70 dark:hover:bg-white/8"}`}
+          } ${active ? "bg-gray-200/60 dark:bg-white/[0.07]" : "hover:bg-gray-100/70 dark:hover:bg-white/[0.04]"}`}
           activeClassName=""
         >
           <div className="flex items-center gap-3">
@@ -131,7 +131,7 @@ export function AppSidebar() {
 
   return (
     <aside
-      className={`flex-shrink-0 h-screen flex flex-col bg-[#FCFCFC] dark:bg-[#0d0d0d] border-r border-gray-200/60 dark:border-white/8 overflow-hidden transition-all duration-200 ${
+      className={`flex-shrink-0 h-screen flex flex-col bg-[#FCFCFC] dark:bg-[#0d0d0d] border-r border-gray-200/60 dark:border-white/[0.08] overflow-hidden transition-all duration-200 ${
         collapsed ? "w-[60px]" : "w-[260px]"
       }`}
     >
@@ -140,7 +140,7 @@ export function AppSidebar() {
         {collapsed && (
           <button
             onClick={() => setCollapsed(false)}
-            className="p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-white/80 transition-colors"
+            className="p-1.5 rounded-md text-gray-400 dark:text-muted-foreground hover:text-gray-600 dark:hover:text-foreground hover:bg-gray-100/70 dark:hover:bg-white/[0.05] transition-colors"
             title="Expand sidebar"
           >
             <PanelLeft className="h-4 w-4" />
@@ -152,7 +152,7 @@ export function AppSidebar() {
         {!collapsed && (
           <button
             onClick={() => setCollapsed(true)}
-            className="p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-white/80 transition-colors flex-shrink-0"
+            className="p-1.5 rounded-md text-gray-400 dark:text-muted-foreground hover:text-gray-600 dark:hover:text-foreground hover:bg-gray-100/70 dark:hover:bg-white/[0.05] transition-colors flex-shrink-0"
             title="Collapse sidebar"
           >
             <PanelLeftClose className="h-4 w-4" />
@@ -252,7 +252,7 @@ export function AppSidebar() {
               href="https://docs.opennous.cloud"
               target="_blank"
               rel="noopener noreferrer"
-              className={`group flex w-full items-center rounded-lg px-2.5 py-1.5 transition-all duration-150 hover:bg-gray-100/70 dark:hover:bg-white/8 ${
+              className={`group flex w-full items-center rounded-lg px-2.5 py-1.5 transition-all duration-150 hover:bg-gray-100/70 dark:hover:bg-white/[0.04] ${
                 collapsed ? "justify-center" : ""
               }`}
             >
@@ -274,7 +274,7 @@ export function AppSidebar() {
 
       {/* Profile row */}
       <div className="px-2.5 pb-3 pt-1">
-        <div className="mx-1.5 mb-2 border-t border-gray-200/60 dark:border-white/10" />
+        <div className="mx-1.5 mb-2 border-t border-gray-200/60 dark:border-white/[0.08]" />
         <button
           onClick={() => navigate("/settings")}
           className={`group flex w-full items-center rounded-lg px-2.5 py-2 transition-all duration-150 hover:bg-gray-100/70 dark:hover:bg-white/8 ${
