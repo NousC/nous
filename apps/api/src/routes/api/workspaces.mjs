@@ -64,12 +64,20 @@ workspacesRouter.post('/', verifySupabaseAuth, async (req, res) => {
       }
     }
 
+    // Defensive insert — try with `country` first; if the migration hasn't
+    // been applied yet, retry without it so workspace creation still works.
     const country = getCountryFromRequest(req);
-    const { data: newWorkspace, error: wsError } = await supabase
+    const baseInsert = { team_id: team.id, name: name.trim(), icon: icon || null };
+    let { data: newWorkspace, error: wsError } = await supabase
       .from('workspaces')
-      .insert({ team_id: team.id, name: name.trim(), icon: icon || null, country })
+      .insert(country ? { ...baseInsert, country } : baseInsert)
       .select()
       .single();
+    if (wsError && country && /column.*country/i.test(wsError.message || '')) {
+      const retry = await supabase.from('workspaces').insert(baseInsert).select().single();
+      newWorkspace = retry.data;
+      wsError = retry.error;
+    }
     if (wsError) throw wsError;
 
     await supabase.from('workspace_members').insert({ workspace_id: newWorkspace.id, user_id: user.id, role: 'owner' });
