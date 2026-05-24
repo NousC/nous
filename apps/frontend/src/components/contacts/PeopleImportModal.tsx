@@ -83,11 +83,9 @@ interface PeopleImportProps {
   token: string;
   onClose: () => void;
   onDone: () => void;
-  /** When true, parses CSV client-side but skips the real /api/contacts/import call. */
-  testMode?: boolean;
 }
 
-function useImportState({ workspaceId, token, onClose, onDone, testMode }: PeopleImportProps) {
+function useImportState({ workspaceId, token, onClose, onDone }: PeopleImportProps) {
   const [step, setStep] = useState<"upload" | "mapping" | "scanning">("upload");
   const [dragOver, setDragOver] = useState(false);
   const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
@@ -101,7 +99,7 @@ function useImportState({ workspaceId, token, onClose, onDone, testMode }: Peopl
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (step !== "scanning" || !enrichJobId || !token || testMode) return;
+    if (step !== "scanning" || !enrichJobId || !token) return;
     const poll = async () => {
       try {
         const r = await fetch(`${apiUrl}/api/contacts/enrich-progress/${enrichJobId}`, {
@@ -115,7 +113,7 @@ function useImportState({ workspaceId, token, onClose, onDone, testMode }: Peopl
     poll();
     const id = setInterval(poll, 1500);
     return () => clearInterval(id);
-  }, [step, enrichJobId, token, testMode]);
+  }, [step, enrichJobId, token]);
 
   const parseCSVFile = async (file: File) => {
     try {
@@ -154,14 +152,6 @@ function useImportState({ workspaceId, token, onClose, onDone, testMode }: Peopl
 
       if (!rows.length) {
         toast.error("No rows with a mapped Email or LinkedIn URL — please map at least one column");
-        return;
-      }
-
-      if (testMode) {
-        await new Promise(r => setTimeout(r, 500));
-        setImportResult({ created: rows.length, updated: 0 });
-        setEnrichProgress({ contacts: [], done: true });
-        setStep("scanning");
         return;
       }
 
