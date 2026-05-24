@@ -101,14 +101,10 @@ export default function Settings() {
   const [msgSending, setMsgSending] = useState(false);
   const [friendsOptIn, setFriendsOptIn] = useState(false);
 
-  // Set VITE_FEEDBACK_WEBHOOK_URL to e.g. an Airtable Automation webhook,
-  // an n8n/Zapier/Make webhook, or your own /api/feedback relay.
-  const feedbackWebhook = import.meta.env.VITE_FEEDBACK_WEBHOOK_URL ?? "";
-
   const submitMsg = async () => {
     if (!msgText.trim() || msgSending) return;
-    if (!feedbackWebhook) {
-      toast.error("Feedback webhook not configured (VITE_FEEDBACK_WEBHOOK_URL).");
+    if (!token) {
+      toast.error("Please sign in to send feedback.");
       return;
     }
     setMsgSending(true);
@@ -117,29 +113,31 @@ export default function Settings() {
         type: msgType,
         message: msgText.trim(),
         videoLink: videoLink.trim() || null,
-        user: {
-          email: userData?.user?.email ?? null,
-          name: userData?.user?.name ?? null,
-          workspaceId: userData?.workspace?.id ?? null,
-        },
+        companyName: companyName.trim() || null,
+        companyUrl: companyUrl.trim() || null,
         context: {
           userAgent: navigator.userAgent,
           viewport: `${window.innerWidth}x${window.innerHeight}`,
           url: window.location.href,
         },
-        createdAt: new Date().toISOString(),
       };
-      const res = await fetch(feedbackWebhook, {
+      const res = await fetch(`${apiUrl}/api/feedback`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify(payload),
       });
-      if (!res.ok) throw new Error(`Webhook returned ${res.status}`);
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.error || `HTTP ${res.status}`);
+      }
       toast.success("Got it. Bennet will reply personally.");
       setMsgText("");
       setVideoLink("");
     } catch (err) {
-      console.error("feedback webhook failed:", err);
+      console.error("feedback submit failed:", err);
       toast.error("Couldn't send right now. Try again?");
     } finally {
       setMsgSending(false);
@@ -545,27 +543,27 @@ export default function Settings() {
                   </p>
                   <div className="space-y-1">
                     <a
-                      href="https://wa.me/0000000000" /* TODO: WhatsApp number */
+                      href="https://wa.me/491743946971"
                       target="_blank" rel="noopener noreferrer"
                       className={contactRowCls}
                     >
                       <WhatsAppIcon className="h-4 w-4 text-foreground" />
-                      <span>WhatsApp</span>
+                      <span>+49 174 3946971</span>
                     </a>
                     <a
-                      href="mailto:bennet@opennous.cloud" /* TODO: email */
+                      href="mailto:bennet@opennous.cloud"
                       className={contactRowCls}
                     >
                       <GmailIcon className="h-4 w-4 text-foreground" />
-                      <span>Email</span>
+                      <span>bennet@opennous.cloud</span>
                     </a>
                     <a
-                      href="https://cal.com/your-handle" /* TODO: booking link */
+                      href="https://cal.com/bennetglinder/chat-with-friends"
                       target="_blank" rel="noopener noreferrer"
                       className={contactRowCls}
                     >
                       <CalIcon className="h-4 w-4 text-foreground" />
-                      <span>Book 15 min — chat about GTM &amp; AGI</span>
+                      <span>Let's chat about GTM, AGI, or whatever's on your mind</span>
                     </a>
                   </div>
                 </div>
