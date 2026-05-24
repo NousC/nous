@@ -14,6 +14,7 @@ const POLL_MS = 5_000;
 const TICK_MS = 120;
 
 interface RecentEvent { type: string; ts: number; inc: number }
+interface RecentRegion { country: string; ops: number }
 interface LiveSnapshot {
   totalEver: number;
   opsLast60Min: number;
@@ -22,8 +23,68 @@ interface LiveSnapshot {
   countries: number;
   uptimePct: number;
   recentEventTypes: RecentEvent[];
+  recentRegions: RecentRegion[];
   generatedAt: number;
 }
+
+// ISO 3166-1 alpha-2 → approximate country centroid (lat, lng).
+// Curated to the countries most likely to show up in v1 — falls back to
+// (0, 0) for anything missing (renders near west-Africa, easy to spot
+// and add).
+const COUNTRY_CENTROIDS: Record<string, { lat: number; lng: number }> = {
+  US: { lat: 39.8, lng: -98.6 },
+  CA: { lat: 56.1, lng: -106.3 },
+  MX: { lat: 23.6, lng: -102.6 },
+  BR: { lat: -14.2, lng: -51.9 },
+  AR: { lat: -38.4, lng: -63.6 },
+  CL: { lat: -35.7, lng: -71.5 },
+  GB: { lat: 55.4, lng: -3.4 },
+  IE: { lat: 53.4, lng: -8.2 },
+  FR: { lat: 46.2, lng: 2.2 },
+  DE: { lat: 51.2, lng: 10.5 },
+  NL: { lat: 52.1, lng: 5.3 },
+  BE: { lat: 50.5, lng: 4.5 },
+  ES: { lat: 40.5, lng: -3.7 },
+  PT: { lat: 39.4, lng: -8.2 },
+  IT: { lat: 41.9, lng: 12.6 },
+  CH: { lat: 46.8, lng: 8.2 },
+  AT: { lat: 47.5, lng: 14.6 },
+  PL: { lat: 51.9, lng: 19.1 },
+  CZ: { lat: 49.8, lng: 15.5 },
+  SE: { lat: 60.1, lng: 18.6 },
+  NO: { lat: 60.5, lng: 8.5 },
+  FI: { lat: 61.9, lng: 26.0 },
+  DK: { lat: 56.3, lng: 9.5 },
+  EE: { lat: 58.6, lng: 25.0 },
+  LT: { lat: 55.2, lng: 23.9 },
+  RU: { lat: 61.5, lng: 105.3 },
+  UA: { lat: 48.4, lng: 31.2 },
+  TR: { lat: 38.9, lng: 35.2 },
+  IL: { lat: 31.0, lng: 34.9 },
+  AE: { lat: 23.4, lng: 53.8 },
+  SA: { lat: 23.9, lng: 45.1 },
+  IN: { lat: 20.6, lng: 78.9 },
+  PK: { lat: 30.4, lng: 69.3 },
+  BD: { lat: 23.7, lng: 90.4 },
+  CN: { lat: 35.9, lng: 104.2 },
+  JP: { lat: 36.2, lng: 138.3 },
+  KR: { lat: 35.9, lng: 127.8 },
+  TW: { lat: 23.7, lng: 121.0 },
+  HK: { lat: 22.4, lng: 114.1 },
+  SG: { lat: 1.4, lng: 103.8 },
+  ID: { lat: -0.8, lng: 113.9 },
+  TH: { lat: 15.9, lng: 100.9 },
+  VN: { lat: 14.1, lng: 108.3 },
+  PH: { lat: 12.9, lng: 121.8 },
+  MY: { lat: 4.2, lng: 101.9 },
+  AU: { lat: -25.3, lng: 133.8 },
+  NZ: { lat: -40.9, lng: 174.9 },
+  ZA: { lat: -30.6, lng: 22.9 },
+  NG: { lat: 9.1, lng: 8.7 },
+  KE: { lat: -0.0, lng: 37.9 },
+  EG: { lat: 26.8, lng: 30.8 },
+  MA: { lat: 31.8, lng: -7.1 },
+};
 
 function groupOf(eventType: string): string {
   const prefix = eventType.split(/[._]/)[0];
@@ -165,17 +226,42 @@ function StatRow({ icon: Icon, label, value }: { icon: any; label: string; value
   );
 }
 
-function WorldMap({ viewerLoc }: { viewerLoc: { lat: number; lng: number; city?: string; country?: string } | null }) {
-  // Pulse the viewer's location on a steady cadence so the map feels alive
-  // even with only one "live" data point.
+function WorldMap({
+  regions,
+  viewerLoc,
+}: {
+  regions: RecentRegion[];
+  viewerLoc: { lat: number; lng: number; city?: string; country?: string } | null;
+}) {
+  // Pulse cadence — shared by all dots, restarts every 2.5s so they breathe.
   const [pulseKey, setPulseKey] = useState(0);
   useEffect(() => {
-    if (!viewerLoc) return;
     const id = window.setInterval(() => setPulseKey((k) => k + 1), 2500);
     return () => window.clearInterval(id);
-  }, [viewerLoc]);
+  }, []);
 
-  const dot = viewerLoc ? project(viewerLoc.lat, viewerLoc.lng) : null;
+  // Source-of-truth for which dots to draw:
+  //  1) Real op origins from the snapshot (when migration is applied and
+  //     workspaces have country set).
+  //  2) Fallback to viewer's location if regions is empty, so the map
+  //     never looks dead.
+  type Dot = { x: number; y: number; weight: number; label?: string };
+  const dots: Dot[] = (() => {
+    if (regions.length > 0) {
+      return regions.map((r) => {
+        const c = COUNTRY_CENTROIDS[r.country] || { lat: 0, lng: 0 };
+        const { x, y } = project(c.lat, c.lng);
+        return { x, y, weight: r.ops, label: `${r.country} · ${r.ops}` };
+      });
+    }
+    if (viewerLoc) {
+      const { x, y } = project(viewerLoc.lat, viewerLoc.lng);
+      return [{ x, y, weight: 1, label: `you · ${viewerLoc.city ?? ""}` }];
+    }
+    return [];
+  })();
+
+  const maxWeight = Math.max(1, ...dots.map((d) => d.weight));
 
   return (
     <div className="relative w-full h-full rounded-lg overflow-hidden bg-white">
@@ -184,19 +270,34 @@ function WorldMap({ viewerLoc }: { viewerLoc: { lat: number; lng: number; city?:
         // eslint-disable-next-line react/no-danger
         dangerouslySetInnerHTML={{ __html: WORLD_DOT_SVG }}
       />
-      {dot && (
-        <div
-          className="absolute pointer-events-none"
-          style={{ left: `${dot.x}%`, top: `${dot.y}%`, transform: "translate(-50%, -50%)" }}
-        >
-          <span className="block h-1.5 w-1.5 rounded-full bg-emerald-500 shadow-[0_0_6px_2px_rgba(16,185,129,0.6)]" />
-          <span
-            key={pulseKey}
-            className="absolute inset-0 block h-1.5 w-1.5 rounded-full bg-emerald-500/40 animate-[live-ping_2.4s_ease-out_forwards]"
-          />
+      {dots.map((d, i) => {
+        // Scale the dot size + glow with op weight, capped so a hot region
+        // doesn't dominate.
+        const scale = 1 + Math.min(1.4, Math.log10(1 + (d.weight / maxWeight) * 9));
+        return (
+          <div
+            key={`${d.x}-${d.y}-${i}`}
+            className="absolute pointer-events-none"
+            style={{ left: `${d.x}%`, top: `${d.y}%`, transform: "translate(-50%, -50%)" }}
+          >
+            <span
+              className="block rounded-full bg-emerald-500 shadow-[0_0_6px_2px_rgba(16,185,129,0.6)]"
+              style={{ height: `${6 * scale}px`, width: `${6 * scale}px` }}
+            />
+            <span
+              key={pulseKey}
+              className="absolute inset-0 block rounded-full bg-emerald-500/40 animate-[live-ping_2.4s_ease-out_forwards]"
+              style={{ height: `${6 * scale}px`, width: `${6 * scale}px` }}
+            />
+          </div>
+        );
+      })}
+      {dots.length === 0 && (
+        <div className="absolute bottom-2 right-2 text-[10px] uppercase tracking-[0.15em] text-zinc-400">
+          locating…
         </div>
       )}
-      {viewerLoc?.city && (
+      {regions.length === 0 && viewerLoc?.city && (
         <div className="absolute bottom-2 right-2 text-[10px] uppercase tracking-[0.15em] text-zinc-400">
           you · {viewerLoc.city}
           {viewerLoc.country ? `, ${viewerLoc.country}` : ""}
@@ -319,7 +420,7 @@ export default function Live() {
               Activity by region
             </div>
             <div className="flex-1 min-h-0 p-3">
-              <WorldMap viewerLoc={viewerLoc} />
+              <WorldMap regions={snap?.recentRegions ?? []} viewerLoc={viewerLoc} />
             </div>
           </div>
         </div>

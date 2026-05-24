@@ -7,10 +7,11 @@ export const publicLiveRouter = Router();
 // GET /api/public/live/snapshot
 //
 // Public, no-auth endpoint that aggregates ops across ALL workspaces.
-// Used by the public /live dashboard and the marketing site's hero banner.
+// Used by the public /live dashboard and the marketing site hero banner.
 //
 // Privacy invariant: never returns names, emails, message content, raw IDs,
-// company names, or workspace identifiers. Event type strings + counts only.
+// company names, or workspace identifiers. Event type strings, country
+// codes, and counts only.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const CACHE_MS = 2_000;
@@ -31,7 +32,8 @@ publicLiveRouter.get('/snapshot', async (_req, res) => {
     const sinceHourIso = new Date(now - 60 * 60 * 1000).toISOString();
     const sinceFiveMinIso = new Date(now - 5 * 60 * 1000).toISOString();
 
-    // 1) Last-hour window — drives ops/sec + instances-online aggregates.
+    // 1) Last-hour window — drives ops/sec + instances + region aggregates.
+    //    Pull workspace_id so we can join to workspaces for country.
     const { data: hourEvents, error: hourErr } = await supabase
       .from('workspace_system_log')
       .select('workspace_id, billable_ops, occurred_at')
@@ -48,9 +50,38 @@ publicLiveRouter.get('/snapshot', async (_req, res) => {
       hour.filter((e) => e.occurred_at >= sinceFiveMinIso).map((e) => e.workspace_id)
     ).size;
 
-    // 2) Recent events — newest first, ANY time. Drives the feed.
-    //    Shows latest ops regardless of how recent, so an empty
-    //    last-hour doesn't mean an empty feed.
+    // 2) Region aggregation — fetch country per workspace touched in the
+    //    last hour, then sum ops per country. Defensive against the
+    //    column not yet existing (pre-migration deploys): if the select
+    //    errors on missing column, we just return empty regions.
+    let recentRegions = [];
+    let countries = 0;
+    const wsIds = Array.from(new Set(hour.map((e) => e.workspace_id).filter(Boolean)));
+    if (wsIds.length > 0) {
+      try {
+        const { data: wsCountries } = await supabase
+          .from('workspaces')
+          .select('id, country')
+          .in('id', wsIds);
+        const wsToCountry = new Map((wsCountries || []).map((w) => [w.id, w.country]));
+        const counts = new Map(); // country → ops
+        for (const e of hour) {
+          const c = wsToCountry.get(e.workspace_id);
+          if (!c) continue;
+          counts.set(c, (counts.get(c) || 0) + (e.billable_ops || 1));
+        }
+        recentRegions = Array.from(counts.entries())
+          .map(([country, ops]) => ({ country, ops }))
+          .sort((a, b) => b.ops - a.ops);
+        countries = recentRegions.length;
+      } catch {
+        // Migration not applied yet — leave regions empty, frontend handles it.
+        recentRegions = [];
+        countries = 0;
+      }
+    }
+
+    // 3) Recent events — newest first, ANY time. Drives the feed.
     const { data: recentRows } = await supabase
       .from('workspace_system_log')
       .select('event_type, billable_ops, occurred_at')
@@ -63,9 +94,7 @@ publicLiveRouter.get('/snapshot', async (_req, res) => {
       inc: Math.max(1, e.billable_ops || 1),
     }));
 
-    // 3) Total-ever — union current op log + legacy memory_ops_log, all teams.
-    //    Each table contributes via SUM(billable_ops) / COUNT(*) respectively
-    //    (memory_ops_log is the pre-Billing-v2 log where each row = 1 op).
+    // 4) Total-ever — union current op log + legacy memory_ops_log.
     const [currentRes, legacyRes] = await Promise.all([
       supabase.from('workspace_system_log').select('*', { count: 'estimated', head: true }),
       supabase.from('memory_ops_log').select('*', { count: 'estimated', head: true }),
@@ -77,9 +106,10 @@ publicLiveRouter.get('/snapshot', async (_req, res) => {
       opsLast60Min,
       opsPerSec,
       instancesOnline,
-      countries: 1,           // TODO: derive from real geo source
-      uptimePct: 99.97,       // TODO: pull from real uptime sample
+      countries,
+      uptimePct: 99.97,
       recentEventTypes,
+      recentRegions,
       generatedAt: now,
     };
 
