@@ -327,6 +327,38 @@ export interface ClassifyInput {
 const STAGE_ENGAGED = new Set(['aware', 'interested', 'evaluating', 'client']);
 const RECENT_WINDOW_DAYS = 30;
 
+// PostgREST sends `.in()` filters in the URL. URLs are bounded (~64KB on most
+// proxies), so a single `.in('value', 10_000_items)` blows past it. We chunk
+// every IN query into ~1000-item batches and run the chunks in parallel; the
+// caller sees a single flat result.
+const IN_CHUNK_SIZE = 1000;
+
+function chunked<T>(arr: T[], size = IN_CHUNK_SIZE): T[][] {
+  if (arr.length <= size) return [arr];
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
+/**
+ * Run `.in(column, values)` across chunked batches in parallel, concatenating
+ * the rows. Returns rows or null on error; never throws.
+ */
+async function chunkedIn<T = unknown>(
+  build: (chunk: string[]) => PromiseLike<{ data: T[] | null; error: unknown }>,
+  values: string[],
+): Promise<T[]> {
+  if (values.length === 0) return [];
+  const chunks = chunked(values);
+  const results = await Promise.all(chunks.map(c => build(c)));
+  const rows: T[] = [];
+  for (const r of results) {
+    if (r.error) throw r.error;
+    if (r.data) rows.push(...r.data);
+  }
+  return rows;
+}
+
 /**
  * Classify a batch of identifiers (emails and/or LinkedIn URLs) against the
  * workspace's existing engagement graph. Pure read; does not mutate.
@@ -352,35 +384,35 @@ export async function classifyIdentifiers(
   // equivalent opt-out registry).
   const supByEmail = new Map<string, string | null>();
   if (emails.length) {
-    const { data: suppressed } = await supabase
-      .from('lead_suppressions')
-      .select('email, reason')
-      .eq('workspace_id', workspaceId)
-      .in('email', emails);
-    for (const s of (suppressed ?? []) as { email: string; reason: string | null }[]) {
-      supByEmail.set(s.email, s.reason);
-    }
+    const supRows = await chunkedIn<{ email: string; reason: string | null }>(
+      chunk => supabase
+        .from('lead_suppressions')
+        .select('email, reason')
+        .eq('workspace_id', workspaceId)
+        .in('email', chunk),
+      emails,
+    );
+    for (const s of supRows) supByEmail.set(s.email, s.reason);
   }
 
-  // 2. Existing entity_identifiers — resolve both kinds in parallel.
-  const [emailIdentsRes, linkedinIdentsRes] = await Promise.all([
-    emails.length
-      ? supabase.from('entity_identifiers').select('value, entity_id')
-          .eq('workspace_id', workspaceId).eq('kind', 'email').eq('status', 'active')
-          .in('value', emails)
-      : Promise.resolve({ data: [] as any[] }),
-    linkedinUrls.length
-      ? supabase.from('entity_identifiers').select('value, entity_id')
-          .eq('workspace_id', workspaceId).eq('kind', 'linkedin_url').eq('status', 'active')
-          .in('value', linkedinUrls)
-      : Promise.resolve({ data: [] as any[] }),
+  // 2. Existing entity_identifiers — resolve both kinds in parallel, each
+  // chunked across many small IN queries.
+  const [emailRows, linkedinRows] = await Promise.all([
+    chunkedIn<{ value: string; entity_id: string }>(
+      chunk => supabase.from('entity_identifiers').select('value, entity_id')
+        .eq('workspace_id', workspaceId).eq('kind', 'email').eq('status', 'active')
+        .in('value', chunk),
+      emails,
+    ),
+    chunkedIn<{ value: string; entity_id: string }>(
+      chunk => supabase.from('entity_identifiers').select('value, entity_id')
+        .eq('workspace_id', workspaceId).eq('kind', 'linkedin_url').eq('status', 'active')
+        .in('value', chunk),
+      linkedinUrls,
+    ),
   ]);
-  const entityByEmail = new Map<string, string>(
-    (emailIdentsRes.data ?? []).map((i: any) => [i.value, i.entity_id]),
-  );
-  const entityByLinkedIn = new Map<string, string>(
-    (linkedinIdentsRes.data ?? []).map((i: any) => [i.value, i.entity_id]),
-  );
+  const entityByEmail = new Map<string, string>(emailRows.map(i => [i.value, i.entity_id]));
+  const entityByLinkedIn = new Map<string, string>(linkedinRows.map(i => [i.value, i.entity_id]));
 
   // 3. For matched entities — what we know about them.
   const entityIds = [...new Set([
@@ -391,29 +423,33 @@ export async function classifyIdentifiers(
   const recentByEntity = new Set<string>();
 
   if (entityIds.length > 0) {
-    const { data: claimRows } = await supabase
-      .from('claims')
-      .select('entity_id, property, value')
-      .in('entity_id', entityIds)
-      .is('invalid_at', null)
-      .in('property', ['reachability_status', 'sentiment', 'pipeline_stage']);
-    for (const c of (claimRows ?? []) as { entity_id: string; property: string; value: unknown }[]) {
+    const claimRows = await chunkedIn<{ entity_id: string; property: string; value: unknown }>(
+      chunk => supabase
+        .from('claims')
+        .select('entity_id, property, value')
+        .in('entity_id', chunk)
+        .is('invalid_at', null)
+        .in('property', ['reachability_status', 'sentiment', 'pipeline_stage']),
+      entityIds,
+    );
+    for (const c of claimRows) {
       const m = claimsByEntity.get(c.entity_id) ?? {};
       m[c.property] = c.value;
       claimsByEntity.set(c.entity_id, m);
     }
 
     const since = new Date(Date.now() - RECENT_WINDOW_DAYS * 86_400_000).toISOString();
-    const { data: recents } = await supabase
-      .from('observations')
-      .select('entity_id')
-      .in('entity_id', entityIds)
-      .gte('observed_at', since)
-      .like('property', 'interaction.%')
-      .limit(entityIds.length * 4);
-    for (const r of (recents ?? []) as { entity_id: string }[]) {
-      recentByEntity.add(r.entity_id);
-    }
+    const recentRows = await chunkedIn<{ entity_id: string }>(
+      chunk => supabase
+        .from('observations')
+        .select('entity_id')
+        .in('entity_id', chunk)
+        .gte('observed_at', since)
+        .like('property', 'interaction.%')
+        .limit(chunk.length * 4),
+      entityIds,
+    );
+    for (const r of recentRows) recentByEntity.add(r.entity_id);
   }
 
   // 4. Classify (suppression > bounced > unsubscribed > engaged > recent > net_new).

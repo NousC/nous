@@ -77,6 +77,7 @@ export default function CleanList() {
   const [results, setResults] = useState<Classification[] | null>(null);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -101,17 +102,21 @@ export default function CleanList() {
     if ((!emails.length && !linkedinUrls.length) || loading) return;
     setLoading(true);
     setError(null);
+    setProgress(null);
     try {
-      // Batch the longer of the two lists in 10k chunks. The endpoint caps
-      // each kind at 10k per call.
+      // Endpoint accepts up to 50k of each kind per call (internal chunking
+      // handles URL-length constraints). For lists beyond that we paginate.
+      const BATCH = 50_000;
       const maxLen = Math.max(emails.length, linkedinUrls.length);
+      const batchCount = Math.max(1, Math.ceil(maxLen / BATCH));
       const allResults: Classification[] = [];
       let agg: Summary = { net_new: 0, engaged: 0, recent: 0, bounced: 0, unsubscribed: 0, suppressed: 0, total: 0 };
-      for (let i = 0; i < maxLen; i += 10_000) {
+      for (let i = 0, b = 0; i < maxLen; i += BATCH, b++) {
+        if (batchCount > 1) setProgress({ done: b, total: batchCount });
         const body = {
           workspaceId,
-          emails:        emails.slice(i, i + 10_000),
-          linkedin_urls: linkedinUrls.slice(i, i + 10_000),
+          emails:        emails.slice(i, i + BATCH),
+          linkedin_urls: linkedinUrls.slice(i, i + BATCH),
         };
         const res = await fetch(`${apiUrl}/v2/dedup`, {
           method: "POST",
@@ -134,6 +139,7 @@ export default function CleanList() {
       setError(err?.message || "Something went wrong.");
     } finally {
       setLoading(false);
+      setProgress(null);
     }
   };
 
@@ -237,7 +243,12 @@ export default function CleanList() {
                   disabled={loading}
                   className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-primary text-primary-foreground text-[13px] font-semibold hover:bg-primary/90 transition-colors disabled:opacity-40"
                 >
-                  {loading ? <><RefreshCw className="h-3.5 w-3.5 animate-spin" /> Classifying…</> : "Classify"}
+                  {loading ? (
+                    <>
+                      <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                      {progress ? `Batch ${progress.done + 1}/${progress.total}…` : "Classifying…"}
+                    </>
+                  ) : "Classify"}
                 </button>
               </div>
             )}
