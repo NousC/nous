@@ -227,11 +227,12 @@ export default function CrmSync() {
                         ? <><RefreshCw className="h-3.5 w-3.5 animate-spin" /> Syncing…</>
                         : <><Download className="h-3.5 w-3.5" /> Sync now</>}
                     </button>
-                    <label className="flex items-center gap-2 text-[13px] text-foreground/80 cursor-pointer">
+                    <label className="flex items-center gap-2 text-[13px] text-foreground/80 cursor-pointer"
+                      title="Incremental pull every 15 minutes — contacts, companies, deals updated since the last run.">
                       <input type="checkbox" checked={!!cfg?.auto_sync} disabled={togglingAuto === provider || !conn.is_verified}
                         onChange={e => handleToggleAuto(conn, e.target.checked)}
                         className="h-3.5 w-3.5 accent-primary" />
-                      Auto-sync daily
+                      Auto-sync (every 15 min)
                     </label>
                     <label className="flex items-center gap-2 text-[13px] text-foreground/80 cursor-pointer"
                       title="Push Nous touchpoints (meetings, replies, signed proposals) to this CRM as native engagements.">
