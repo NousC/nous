@@ -129,15 +129,30 @@ class NousClient:
         scope: dict[str, Any] | None = None,
         *,
         question: str | None = None,
+        return_: str | None = None,
+        without: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Retrieve and summarise a corpus of activity across many people.
 
         ``scope`` filters: kind, property (prefix), source, entity_id,
         since_days, limit.
+
+        Three powers:
+
+        - ``return_="entities"`` groups results by entity (one row per person
+          or company), ranked by most-recent matching activity. Use for
+          "hottest leads", "who replied this week", "who's in evaluating".
+        - ``without`` subtracts entities matching that scope from the result.
+          "sent in 5d MINUS replied in 5d" → no-reply. "any activity in 30d
+          MINUS activity in 5d" → cooled.
+        - When ``scope.kind == "state"`` the response includes
+          ``rollups.by_value`` — counts entities by current value (funnel
+          reports: set ``scope.property = "stage"``).
         """
         body: dict[str, Any] = {"scope": scope or {}}
-        if question is not None:
-            body["question"] = question
+        if question is not None: body["question"] = question
+        if return_  is not None: body["return"]   = return_
+        if without  is not None: body["without"]  = without
         return self._post("/v2/query", body)
 
     def attention(self, *, limit: int | None = None) -> dict[str, Any]:

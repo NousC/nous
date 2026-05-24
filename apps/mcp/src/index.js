@@ -48,7 +48,7 @@ validateConfig();
 
 const server = new McpServer({
   name: "nous",
-  version: "0.9.0",
+  version: "0.10.0",
   description:
     "Nous — the context layer for GTM agents. Call get_context before drafting outreach or " +
     "preparing for a meeting. Call record after every interaction, or whenever you learn something.",
@@ -198,31 +198,59 @@ server.tool(
 // ===========================================================================
 server.tool(
   "query",
-  "Retrieve and summarise a corpus of activity across many people — e.g. the last 10 meetings, " +
-  "the last 25 LinkedIn chats, the last 100 emails. Pass a scope to filter and an optional " +
-  "question describing what you want to learn. Returns the matching items as compact summaries " +
-  "plus rollup counts — you do the pattern-finding.",
+  "Retrieve and summarise activity across many people. Three powers:\n" +
+  "  1. return:'entities' groups results by person/company (one row per entity, ranked by " +
+  "most-recent matching activity). Use for 'hottest leads', 'who replied this week', " +
+  "'who's in evaluating stage'.\n" +
+  "  2. `without` subtracts entities — 'sent in 5d MINUS replied in 5d' = 'no-reply leads'. " +
+  "'activity in 30d MINUS activity in 5d' = 'cooled leads'.\n" +
+  "  3. rollups.by_value appears when scope.kind='state' — counts entities by current value " +
+  "(use scope.property='stage' for funnel reports).",
   {
     scope: z.object({
       kind: z.enum(["event", "state"]).optional(),
-      property: z.string().optional().describe("property prefix — e.g. 'interaction.meeting' or 'interaction.linkedin'"),
+      property: z.string().optional().describe("property prefix — 'interaction.email' covers email_sent and email_replied"),
       source: z.string().optional().describe("e.g. 'gmail', 'linkedin', 'slack'"),
       entity_id: z.string().optional().describe("scope to one person/company"),
       since_days: z.number().optional().describe("only activity within the last N days"),
       limit: z.number().optional().describe("max items (default 50, cap 200)"),
     }).describe("Corpus filter"),
-    question: z.string().optional().describe("What you want to learn from the corpus"),
+    without: z.object({
+      kind: z.enum(["event", "state"]).optional(),
+      property: z.string().optional(),
+      source: z.string().optional(),
+      entity_id: z.string().optional(),
+      since_days: z.number().optional(),
+    }).optional().describe("Subtract entities matching this scope from the result — same shape as scope. Enables 'sent but no reply', 'cooled in last N days'."),
+    return: z.enum(["observations", "entities"]).optional()
+      .describe("observations (default) = one row per observation. entities = one row per entity, ranked by most-recent matching activity."),
+    question: z.string().optional().describe("What you want to learn — echoed back; enables semantic ranking"),
   },
-  async ({ scope, question }) => {
-    const r = await post("/v2/query", { scope, question });
+  async ({ scope, without, return: returnMode, question }) => {
+    const body = { scope, question };
+    if (without)    body.without = without;
+    if (returnMode) body.return  = returnMode;
+    const r = await post("/v2/query", body);
     const head = `${r.matched} match${r.matched !== 1 ? "es" : ""}` +
-                 (r.sampled ? ` (showing ${r.returned})` : "");
+                 (r.sampled ? ` (showing ${r.returned})` : "") +
+                 (r.return === "entities" ? " · grouped by entity" : "");
     const roll = Object.entries(r.rollups?.by_type ?? {})
       .map(([t, n]) => `${n}× ${fmtType(t)}`).join(" · ");
-    const lines = [head, roll, ""].filter((l, i) => l !== "" || i < 2);
+    const lines = [head, roll].filter(Boolean);
+    if (r.rollups?.by_value && Object.keys(r.rollups.by_value).length) {
+      lines.push("BY VALUE: " + Object.entries(r.rollups.by_value).map(([v, n]) => `${v}: ${n}`).join(", "));
+    }
+    lines.push("");
     for (const it of r.items ?? []) {
-      lines.push(`  ${relAge(it.when)}  ${it.entity_name ?? it.entity_id}  ` +
-                 `${fmtType(it.type)}${it.summary ? `: ${it.summary}` : ""}`);
+      if (r.return === "entities") {
+        lines.push(`  ${it.entity_name ?? it.entity_id}  ` +
+                   `(${it.matches} match${it.matches !== 1 ? "es" : ""}, last ${relAge(it.most_recent_at)})` +
+                   (it.most_recent_value != null ? `  → ${fmtVal(it.most_recent_value)}` : "") +
+                   (it.most_recent_summary ? `\n      ${it.most_recent_summary}` : ""));
+      } else {
+        lines.push(`  ${relAge(it.when)}  ${it.entity_name ?? it.entity_id}  ` +
+                   `${fmtType(it.type)}${it.summary ? `: ${it.summary}` : ""}`);
+      }
     }
     return { content: [{ type: "text", text: lines.join("\n").trim() }] };
   }

@@ -16,7 +16,7 @@ export type {
   ContextIntent, TimelineItem, Stakeholder, AssembledContext,
   Observation, AccountRecord,
   ObservationInput, RecordResult,
-  QueryScope, QueryItem, QueryResult,
+  QueryScope, QueryItem, QueryEntityItem, QueryResult,
   AttentionItem, AttentionResult,
   VerifyResult,
   DedupStatus, DedupKind, DedupItem, DedupSummary, DedupResult,
@@ -86,9 +86,27 @@ export class Nous {
     return this.http.post<RecordResult | AmbiguousFocus>('/v2/observations', { focus, observations });
   }
 
-  /** Retrieve and summarise a corpus of activity across many people. */
-  query(scope: QueryScope, opts: { question?: string } = {}): Promise<QueryResult> {
-    return this.http.post<QueryResult>('/v2/query', { scope, question: opts.question });
+  /**
+   * Retrieve and summarise a corpus of activity across many people.
+   *
+   * Three powers:
+   *   - `return: 'entities'` groups results by entity (one row per person/company).
+   *     Use for "hottest leads", "who replied this week", "who's in evaluating stage".
+   *   - `without` subtracts entities — "sent in 5d" minus "replied in 5d" = no-reply.
+   *     "any activity in 30d" minus "activity in 5d" = cooled.
+   *   - `rollups.by_value` appears when scope.kind = 'state' — counts entities by
+   *     current value (funnel reports — set scope.property = 'stage').
+   */
+  query(
+    scope: QueryScope,
+    opts: { question?: string; return?: 'observations' | 'entities'; without?: QueryScope } = {},
+  ): Promise<QueryResult> {
+    return this.http.post<QueryResult>('/v2/query', {
+      scope,
+      question: opts.question,
+      ...(opts.return  ? { return:  opts.return }  : {}),
+      ...(opts.without ? { without: opts.without } : {}),
+    });
   }
 
   /** What needs attention across the workspace — accounts gone quiet, facts decayed. */

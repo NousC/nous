@@ -91,15 +91,29 @@ const TOOLS = [
   },
   {
     name: 'query',
-    description: 'Retrieve + compact observations across many entities. Use when the user asks a corpus question — "across all accounts this week", "which segments replied", etc. The substrate retrieves; the user/agent finds the pattern.',
+    description:
+      'Retrieve + compact observations across many entities. The substrate retrieves; you find the pattern.\n\n' +
+      'Three powers:\n' +
+      '  1. `return:"entities"` groups results by entity (one row per person/company). Use for "hottest leads", "who replied this week", "who\'s in evaluating stage".\n' +
+      '  2. `without` subtracts entities — "sent in 5d MINUS replied in 5d" gives you "no-reply in 5d". "any activity in 30d MINUS activity in 5d" gives you "cooled in 5d".\n' +
+      '  3. `rollups.by_value` appears when scope.kind="state" — counts entities by current value. Use for funnel reports (scope.property="stage").',
     input_schema: {
       type: 'object',
       properties: {
         scope: {
           type: 'object',
-          description: 'filter: { kind?, property?, source?, entity_id?, since_days?, limit? }',
+          description: 'Primary filter: { kind?, property?, source?, entity_id?, since_days?, limit? }. kind=event for interactions, kind=state for facts.',
         },
-        question: { type: 'string', description: 'the analytical question — echoed in the response' },
+        without: {
+          type: 'object',
+          description: 'Optional set-subtract filter — same shape as scope. Entities matching scope MINUS entities matching without.',
+        },
+        return: {
+          type: 'string',
+          enum: ['observations', 'entities'],
+          description: 'observations (default) = one row per observation. entities = one row per entity (grouped, ranked by most-recent matching activity).',
+        },
+        question: { type: 'string', description: 'optional analytical question — echoed back; enables semantic ranking when set' },
       },
       required: ['scope'],
     },
@@ -179,7 +193,10 @@ async function executeTool(supabase, workspaceId, name, input) {
       return acc ?? { error: 'entity_not_found' };
     }
     case 'query': {
-      const out = await runQuery(supabase, workspaceId, input.scope ?? {}, input.question);
+      const out = await runQuery(supabase, workspaceId, input.scope ?? {}, input.question, {
+        return: input.return,
+        without: input.without,
+      });
       return { ...out, question: input.question ?? null };
     }
     case 'attention': {
