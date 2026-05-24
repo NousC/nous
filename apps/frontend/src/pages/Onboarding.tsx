@@ -7,19 +7,8 @@ import {
 } from "lucide-react";
 import { PeopleImportPanel } from "@/components/contacts/PeopleImportModal";
 
-// ─── Option sets ─────────────────────────────────────────────────────────────
-const USE_CASES = [
-  { id: "gtm_agent",            label: "GTM agent" },
-  { id: "ai_sdr",               label: "AI SDR" },
-  { id: "outbound",             label: "Outbound" },
-  { id: "sales_assistant",      label: "Sales assistant" },
-  { id: "customer_success",     label: "Customer success" },
-  { id: "meeting_intelligence", label: "Meeting intel" },
-  { id: "custom",               label: "Custom" },
-];
-
 const TOTAL_STEPS = 3;
-const STORAGE_KEY = "nous_onboarding_v6";
+const STORAGE_KEY = "nous_onboarding_v7";
 const API_URL    = import.meta.env.VITE_API_URL ?? "";
 
 // ─── Shared button styles ────────────────────────────────────────────────────
@@ -51,6 +40,19 @@ function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
   );
 }
 
+function TextArea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  return (
+    <textarea
+      {...props}
+      className={
+        "w-full min-h-[88px] rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-[13px] text-gray-900 " +
+        "placeholder:text-gray-400 focus:border-gray-400 outline-none transition-colors resize-y " +
+        (props.className ?? "")
+      }
+    />
+  );
+}
+
 function StepTitle({ title, desc }: { title: string; desc: string }) {
   return (
     <div className="space-y-1">
@@ -60,58 +62,25 @@ function StepTitle({ title, desc }: { title: string; desc: string }) {
   );
 }
 
-function ChipGroup({
-  options, value, onChange,
-}: {
-  options: { id: string; label: string }[];
-  value: string[];
-  onChange: (v: string[]) => void;
-}) {
-  const toggle = (id: string) =>
-    onChange(value.includes(id) ? value.filter(x => x !== id) : [...value, id]);
-  return (
-    <div className="flex flex-wrap gap-2">
-      {options.map(({ id, label }) => {
-        const selected = value.includes(id);
-        return (
-          <button
-            key={id}
-            type="button"
-            onClick={() => toggle(id)}
-            className={`inline-flex items-center gap-1.5 text-[13px] font-medium px-3.5 py-2 rounded-lg border transition-colors ${
-              selected
-                ? "border-gray-900 bg-gray-50 text-gray-900"
-                : "border-gray-200 bg-white text-gray-700 hover:border-gray-300"
-            }`}
-          >
-            {selected && <Check className="h-3.5 w-3.5" />}
-            {label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
 // ─── Step 1: Welcome ─────────────────────────────────────────────────────────
 function StepWelcome({
   name, setName,
   companyName, setCompanyName,
   website, setWebsite,
-  useCases, setUseCases,
+  icpDescription, setIcpDescription,
   onNext, isLoading,
 }: {
   name: string; setName: (v: string) => void;
   companyName: string; setCompanyName: (v: string) => void;
   website: string; setWebsite: (v: string) => void;
-  useCases: string[]; setUseCases: (v: string[]) => void;
+  icpDescription: string; setIcpDescription: (v: string) => void;
   onNext: () => void; isLoading: boolean;
 }) {
   return (
     <div className="space-y-6">
       <StepTitle
         title="Welcome to Nous"
-        desc="A few details so your memory layer knows what you're building."
+        desc="A few details so the context layer knows what you're building."
       />
 
       <div className="space-y-5">
@@ -145,8 +114,13 @@ function StepWelcome({
         </div>
 
         <div>
-          <FieldLabel>What are you building?</FieldLabel>
-          <ChipGroup options={USE_CASES} value={useCases} onChange={setUseCases} />
+          <FieldLabel optional>Describe your ICP</FieldLabel>
+          <TextArea
+            value={icpDescription}
+            onChange={e => setIcpDescription(e.target.value)}
+            placeholder="B2B SaaS, 50–500 employees, US/EU, sales teams using HubSpot or Salesforce…"
+            rows={3}
+          />
         </div>
       </div>
 
@@ -311,21 +285,12 @@ function StepCreateKey({
 // ─── Finishing: loading screen with tip ──────────────────────────────────────
 function FinishingScreen() {
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col items-center justify-center py-8 text-center">
-        <RefreshCw className="h-6 w-6 animate-spin text-gray-400 mb-4" />
-        <h2 className="text-[20px] font-semibold tracking-tight text-gray-900">
-          Setting up your workspace
-        </h2>
-        <p className="text-[13px] text-gray-500 mt-1">Just a moment…</p>
-      </div>
-
-      <div className="rounded-xl border border-gray-200 bg-gray-50 p-5">
-        <p className="text-[13px] text-gray-700 leading-relaxed">
-          <span className="font-semibold text-gray-900">Tip — </span>
-          click the <span className="font-medium text-gray-900">mind status</span> indicator (it'll be offline) to set up your MCP server or SDK integration.
-        </p>
-      </div>
+    <div className="flex flex-col items-center justify-center py-12 text-center">
+      <RefreshCw className="h-6 w-6 animate-spin text-gray-400 mb-4" />
+      <h2 className="text-[20px] font-semibold tracking-tight text-gray-900">
+        Setting up your workspace
+      </h2>
+      <p className="text-[13px] text-gray-500 mt-1">Just a moment…</p>
     </div>
   );
 }
@@ -369,7 +334,7 @@ export default function Onboarding({ testMode = false }: OnboardingProps) {
   const [name, setName] = useState("");
   const [companyName, setCompanyName] = useState("");
   const [website, setWebsite] = useState("");
-  const [useCases, setUseCases] = useState<string[]>([]);
+  const [icpDescription, setIcpDescription] = useState("");
 
   // Pre-fill name from the signed-in user if we have it.
   useEffect(() => {
@@ -391,17 +356,17 @@ export default function Onboarding({ testMode = false }: OnboardingProps) {
       if (!saved) return;
       const p = JSON.parse(saved);
       if (p.phase && p.phase !== "finishing") setPhase(p.phase);
-      if (p.name)         setName(p.name);
-      if (p.companyName)  setCompanyName(p.companyName);
-      if (p.website)      setWebsite(p.website);
-      if (p.useCases)     setUseCases(p.useCases);
+      if (p.name)            setName(p.name);
+      if (p.companyName)     setCompanyName(p.companyName);
+      if (p.website)         setWebsite(p.website);
+      if (p.icpDescription)  setIcpDescription(p.icpDescription);
     } catch { /* ignore */ }
   }, []);
 
   useEffect(() => {
     if (phase === "finishing") return;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ phase, name, companyName, website, useCases }));
-  }, [phase, name, companyName, website, useCases]);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ phase, name, companyName, website, icpDescription }));
+  }, [phase, name, companyName, website, icpDescription]);
 
   const auth = { Authorization: `Bearer ${session?.access_token}`, "Content-Type": "application/json" };
 
@@ -417,7 +382,7 @@ export default function Onboarding({ testMode = false }: OnboardingProps) {
             name: name.trim(),
             company_name: companyName.trim(),
             website: website.trim() || undefined,
-            use_case: useCases.map(id => USE_CASES.find(u => u.id === id)?.label || id).join(", "),
+            icp_description: icpDescription.trim() || undefined,
           }),
         });
       } catch { /* non-blocking */ }
@@ -509,7 +474,7 @@ export default function Onboarding({ testMode = false }: OnboardingProps) {
                 name={name} setName={setName}
                 companyName={companyName} setCompanyName={setCompanyName}
                 website={website} setWebsite={setWebsite}
-                useCases={useCases} setUseCases={setUseCases}
+                icpDescription={icpDescription} setIcpDescription={setIcpDescription}
                 onNext={submitStep1} isLoading={stepLoading}
               />
             )}

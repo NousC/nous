@@ -19,6 +19,7 @@ import { runScorecardLoop } from './workers/scorecardLoop.mjs';
 import { processClaimJobs } from './workers/claimEngine.mjs';
 import { scoreEntities } from './workers/scoreEntities.mjs';
 import { processEmbeddings } from './workers/embeddings.mjs';
+import { runCrmAutoSync } from './workers/crmSync.mjs';
 
 // Wire webhook-driven activity logging → CRM push at module load.
 // Worker is where most logActivity() calls originate (Instantly/Lemlist replies,
@@ -178,5 +179,12 @@ console.log('[WORKER] Scorecard prediction-write — every 10 minutes');
 // works. No-op without OPENAI_API_KEY.
 cron.schedule('*/2 * * * *', processEmbeddings);
 console.log('[WORKER] Embedding worker — every 2 minutes');
+
+// ── CRM auto-sync — every 15 minutes ─────────────────────────────────────────
+// For every workspace with auto_sync=true on a CRM config, pulls new/updated
+// contacts + companies + deals incrementally (since last_synced_at) and
+// upserts into the v2 substrate. See workers/crmSync.mjs.
+cron.schedule('*/15 * * * *', runCrmAutoSync);
+console.log('[WORKER] CRM auto-sync — every 15 minutes');
 
 console.log('[WORKER] Started');
