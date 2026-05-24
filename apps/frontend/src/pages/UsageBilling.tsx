@@ -77,17 +77,17 @@ function planBullets(p: PlanInfo): string[] {
 
 function UsageMeter({ label, used, included }: { label: string; used: number; included: number }) {
   const pct = included > 0 ? Math.min(100, Math.round((used / included) * 100)) : 0;
-  const barColor = pct >= 90 ? "bg-red-500" : pct >= 75 ? "bg-amber-500" : "bg-gray-900";
+  const barColor = pct >= 90 ? "bg-red-500" : pct >= 75 ? "bg-amber-500" : "bg-foreground/80";
   return (
     <div>
       <div className="flex items-baseline justify-between mb-2">
-        <span className="text-[14px] font-medium text-gray-900">{label}</span>
-        <span className="text-[12px] text-gray-500 tabular-nums">
-          {num(used)} <span className="text-gray-300">/</span> {num(included)}
-          <span className="text-gray-400"> · {pct}% used</span>
+        <span className="text-[14px] font-medium text-foreground">{label}</span>
+        <span className="text-[12px] text-muted-foreground tabular-nums">
+          {num(used)} <span className="text-muted-foreground/40">/</span> {num(included)}
+          <span className="text-muted-foreground/70"> · {pct}% used</span>
         </span>
       </div>
-      <div className="h-2.5 rounded-full bg-gray-100 overflow-hidden">
+      <div className="h-2.5 rounded-full bg-muted overflow-hidden">
         <div className={`h-full rounded-full transition-all duration-500 ${barColor}`} style={{ width: `${pct}%` }} />
       </div>
     </div>
@@ -155,9 +155,9 @@ export default function UsageBilling() {
   };
 
   const Shell = ({ children }: { children: React.ReactNode }) => (
-    <div className="h-full overflow-y-auto bg-white">
+    <div className="h-full overflow-y-auto bg-background">
       <div className="p-8 max-w-[1180px]">
-        <h1 className="text-[26px] font-bold text-gray-900 tracking-tight mb-6">Billing &amp; usage</h1>
+        <h1 className="text-[26px] font-bold text-foreground tracking-tight mb-6">Billing &amp; usage</h1>
         {children}
       </div>
     </div>
@@ -166,7 +166,7 @@ export default function UsageBilling() {
   if (loading) {
     return (
       <Shell>
-        <div className="flex items-center gap-2 text-[13px] text-gray-500 py-12">
+        <div className="flex items-center gap-2 text-[13px] text-muted-foreground py-12">
           <Loader2 className="h-4 w-4 animate-spin" /> Loading…
         </div>
       </Shell>
@@ -176,7 +176,7 @@ export default function UsageBilling() {
   if (error || !state) {
     return (
       <Shell>
-        <div className="rounded-xl border border-red-200 bg-red-50/60 p-5 text-[13px] text-red-800">
+        <div className="rounded-xl border border-red-200 dark:border-red-900/40 bg-red-50/60 dark:bg-red-950/30 p-5 text-[13px] text-red-800 dark:text-red-300">
           {error || "Failed to load billing."}
           <button onClick={load} className="ml-3 underline">Retry</button>
         </div>
@@ -187,7 +187,7 @@ export default function UsageBilling() {
   if (state.billing_disabled) {
     return (
       <Shell>
-        <div className="rounded-2xl border border-gray-200 bg-gray-50/60 p-8 text-[14px] text-gray-600 max-w-2xl">
+        <div className="rounded-2xl border border-border bg-muted/30 p-8 text-[14px] text-muted-foreground max-w-2xl">
           {state.self_hosted
             ? "You're running self-hosted Nous — every feature is unlocked, ops and enrichments are unmetered, and there's no billing. Billing only applies to Nous Cloud."
             : "Billing is disabled on this deployment."}
@@ -212,10 +212,10 @@ export default function UsageBilling() {
   const nextPlan = orderedPlans.find((p) => p.monthlyPriceUsd > (currentPlan?.monthlyPriceUsd ?? 0));
 
   const statusBadge = (() => {
-    if (sub?.is_comp) return ["Comp", "bg-purple-100 text-purple-700"];
-    if (sub?.status === "active") return ["Active", "bg-emerald-100 text-emerald-700"];
-    if (sub?.status === "trialing") return ["Trial", "bg-blue-100 text-blue-700"];
-    if (sub?.status === "past_due") return ["Past due", "bg-amber-100 text-amber-700"];
+    if (sub?.is_comp) return ["Comp", "bg-purple-100 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300"];
+    if (sub?.status === "active") return ["Active", "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"];
+    if (sub?.status === "trialing") return ["Trial", "bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300"];
+    if (sub?.status === "past_due") return ["Past due", "bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"];
     return null;
   })();
 
@@ -227,19 +227,19 @@ export default function UsageBilling() {
   return (
     <Shell>
       {/* ── Summary card: current plan (left) + usage (right) ── */}
-      <div className="rounded-2xl border border-gray-200 bg-white overflow-hidden mb-10">
+      <div className="rounded-2xl border border-border bg-card overflow-hidden mb-10">
         <div className="grid md:grid-cols-[1fr_1.15fr]">
           {/* Current plan */}
           <div className="p-6 md:p-7 flex flex-col">
             <div className="flex items-center gap-2.5 mb-2">
-              <h2 className="text-[18px] font-semibold text-gray-900">{state.planName} plan</h2>
+              <h2 className="text-[18px] font-semibold text-foreground">{state.planName} plan</h2>
               {statusBadge && (
                 <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${statusBadge[1]}`}>
                   {statusBadge[0]}
                 </span>
               )}
             </div>
-            <p className="text-[13px] leading-[1.6] text-gray-500 mb-6 max-w-sm">
+            <p className="text-[13px] leading-[1.6] text-muted-foreground mb-6 max-w-sm">
               {PLAN_BLURB[planId] ?? ""}
             </p>
             <div className="mt-auto flex items-center gap-2">
@@ -247,7 +247,7 @@ export default function UsageBilling() {
                 <button
                   onClick={() => subscribe(nextPlan.id)}
                   disabled={!!action}
-                  className="h-9 px-4 rounded-lg bg-gray-900 text-white text-[13px] font-medium hover:bg-gray-800 transition-colors disabled:opacity-40"
+                  className="h-9 px-4 rounded-lg text-[13px] font-medium transition-colors disabled:opacity-40 bg-foreground text-background hover:bg-foreground/90 dark:bg-muted dark:text-foreground dark:hover:bg-muted/70 dark:border dark:border-border"
                 >
                   {action === `subscribe:${nextPlan.id}` ? "Loading…" : `Upgrade to ${nextPlan.name}`}
                 </button>
@@ -256,7 +256,7 @@ export default function UsageBilling() {
                 <button
                   onClick={openPortal}
                   disabled={!!action}
-                  className="h-9 px-3.5 rounded-lg border border-gray-200 text-gray-600 text-[13px] font-medium hover:text-gray-900 transition-colors disabled:opacity-40 inline-flex items-center gap-1.5"
+                  className="h-9 px-3.5 rounded-lg border border-border text-muted-foreground text-[13px] font-medium hover:text-foreground transition-colors disabled:opacity-40 inline-flex items-center gap-1.5"
                 >
                   Manage <ExternalLink className="h-3 w-3" />
                 </button>
@@ -265,10 +265,10 @@ export default function UsageBilling() {
           </div>
 
           {/* Usage */}
-          <div className="p-6 md:p-7 bg-gray-50/70 border-t md:border-t-0 md:border-l border-gray-200 space-y-5">
+          <div className="p-6 md:p-7 bg-muted/30 border-t md:border-t-0 md:border-l border-border space-y-5">
             <UsageMeter label="Ops" used={ops.used} included={ops.included} />
             <UsageMeter label="Enrichments" used={enrich.used} included={enrich.included} />
-            <p className="text-[12px] text-gray-400 pt-1">
+            <p className="text-[12px] text-muted-foreground/70 pt-1">
               {periodLabel ? `Current billing period · ${periodLabel}` : "Resets at the start of each month."}
             </p>
           </div>
@@ -277,8 +277,8 @@ export default function UsageBilling() {
 
       {/* ── Plans ── */}
       <div className="mb-4">
-        <h2 className="text-[15px] font-semibold text-gray-900">Nous plans</h2>
-        <p className="text-[13px] text-gray-500 mt-0.5">
+        <h2 className="text-[15px] font-semibold text-foreground">Nous plans</h2>
+        <p className="text-[13px] text-muted-foreground mt-0.5">
           Pure-tier pricing — ops and enrichments included per plan, no top-up packs or overage charges.
         </p>
       </div>
@@ -290,21 +290,21 @@ export default function UsageBilling() {
             <div
               key={p.id}
               className={`rounded-2xl border p-5 flex flex-col ${
-                isCurrent ? "border-gray-900 bg-gray-50/40" : "border-gray-200 bg-white"
+                isCurrent ? "border-foreground bg-muted/30" : "border-border bg-card"
               }`}
             >
               <div className="flex items-center justify-between mb-0.5">
-                <span className="text-[13px] font-medium text-gray-500">{p.name}</span>
+                <span className="text-[13px] font-medium text-muted-foreground">{p.name}</span>
                 {isCurrent && (
-                  <span className="text-[9px] uppercase tracking-wide text-gray-400 font-semibold">Current</span>
+                  <span className="text-[9px] uppercase tracking-wide text-muted-foreground/70 font-semibold">Current</span>
                 )}
               </div>
-              <div className="text-[24px] font-bold text-gray-900 tabular-nums leading-tight mb-4">
-                {p.monthlyPriceUsd === 0 ? "Free" : <>${p.monthlyPriceUsd}<span className="text-[13px] font-normal text-gray-400">/mo</span></>}
+              <div className="text-[24px] font-bold text-foreground tabular-nums leading-tight mb-4">
+                {p.monthlyPriceUsd === 0 ? "Free" : <>${p.monthlyPriceUsd}<span className="text-[13px] font-normal text-muted-foreground/70">/mo</span></>}
               </div>
               <ul className="space-y-2 mb-5">
                 {planBullets(p).map((b) => (
-                  <li key={b} className="flex items-start gap-2 text-[12.5px] text-gray-600">
+                  <li key={b} className="flex items-start gap-2 text-[12.5px] text-muted-foreground">
                     <Check className="h-3.5 w-3.5 text-emerald-500 flex-shrink-0 mt-[2px]" strokeWidth={2.5} />
                     <span>{b}</span>
                   </li>
@@ -312,14 +312,14 @@ export default function UsageBilling() {
               </ul>
               <div className="mt-auto">
                 {isCurrent ? (
-                  <div className="h-9 flex items-center justify-center rounded-lg bg-gray-100 text-gray-400 text-[12.5px] font-medium">
+                  <div className="h-9 flex items-center justify-center rounded-lg bg-muted text-muted-foreground/70 text-[12.5px] font-medium">
                     Current plan
                   </div>
                 ) : p.id === "free" ? (
                   <button
                     onClick={openPortal}
                     disabled={!!action}
-                    className="w-full h-9 rounded-lg border border-gray-200 text-gray-600 text-[12.5px] font-medium hover:text-gray-900 transition-colors disabled:opacity-40"
+                    className="w-full h-9 rounded-lg border border-border text-muted-foreground text-[12.5px] font-medium hover:text-foreground transition-colors disabled:opacity-40"
                   >
                     Downgrade
                   </button>
@@ -327,7 +327,7 @@ export default function UsageBilling() {
                   <button
                     onClick={() => subscribe(p.id)}
                     disabled={!!action}
-                    className="w-full h-9 rounded-lg bg-gray-900 text-white text-[12.5px] font-medium hover:bg-gray-800 transition-colors disabled:opacity-40"
+                    className="w-full h-9 rounded-lg text-[12.5px] font-medium transition-colors disabled:opacity-40 bg-foreground text-background hover:bg-foreground/90 dark:bg-muted dark:text-foreground dark:hover:bg-muted/70 dark:border dark:border-border"
                   >
                     {action === `subscribe:${p.id}` ? "Loading…" : `Choose ${p.name}`}
                   </button>
@@ -338,12 +338,12 @@ export default function UsageBilling() {
         })}
 
         {/* Enterprise — marketing CTA, not a backend tier */}
-        <div className="rounded-2xl border border-gray-200 bg-white p-5 flex flex-col">
-          <span className="text-[13px] font-medium text-gray-500 mb-0.5">Enterprise</span>
-          <div className="text-[24px] font-bold text-gray-900 leading-tight mb-4">Custom</div>
+        <div className="rounded-2xl border border-border bg-card p-5 flex flex-col">
+          <span className="text-[13px] font-medium text-muted-foreground mb-0.5">Enterprise</span>
+          <div className="text-[24px] font-bold text-foreground leading-tight mb-4">Custom</div>
           <ul className="space-y-2 mb-5">
             {["Everything in Scale", "Unlimited ops & enrichments", "SaaS license to embed", "SLA + dedicated support", "Custom contracts"].map((b) => (
-              <li key={b} className="flex items-start gap-2 text-[12.5px] text-gray-600">
+              <li key={b} className="flex items-start gap-2 text-[12.5px] text-muted-foreground">
                 <Check className="h-3.5 w-3.5 text-emerald-500 flex-shrink-0 mt-[2px]" strokeWidth={2.5} />
                 <span>{b}</span>
               </li>
@@ -351,7 +351,7 @@ export default function UsageBilling() {
           </ul>
           <a
             href="mailto:bennet@opennous.cloud?subject=Nous%20Enterprise"
-            className="mt-auto w-full h-9 rounded-lg border border-gray-200 text-gray-600 text-[12.5px] font-medium hover:text-gray-900 transition-colors flex items-center justify-center"
+            className="mt-auto w-full h-9 rounded-lg border border-border text-muted-foreground text-[12.5px] font-medium hover:text-foreground transition-colors flex items-center justify-center"
           >
             Talk to us
           </a>
