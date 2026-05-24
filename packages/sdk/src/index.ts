@@ -19,7 +19,7 @@ export type {
   QueryScope, QueryItem, QueryResult,
   AttentionItem, AttentionResult,
   VerifyResult,
-  DedupStatus, DedupItem, DedupSummary, DedupResult,
+  DedupStatus, DedupKind, DedupItem, DedupSummary, DedupResult,
 } from './types';
 
 import type {
@@ -100,12 +100,15 @@ export class Nous {
   }
 
   /**
-   * Cross-list cold-outbound dedup. Given a list of emails, returns which
-   * are safe to cold-send (net_new) and which are not (engaged / recent /
-   * bounced / unsubscribed / suppressed) — checked against every list and
-   * every engagement signal this workspace has ever seen. Max 10,000 per call.
+   * Cross-list cold-outbound dedup. Pass any combination of emails and
+   * LinkedIn URLs — useful BEFORE you scrape (Apollo's preview shows
+   * LinkedIn URLs for free; classify them against your workspace to know
+   * your overlap before paying for the email reveal). Returns each
+   * identifier classified as net_new / engaged / recent / bounced /
+   * unsubscribed / suppressed. Max 10,000 of each kind per call.
    */
-  classify(emails: string[]): Promise<DedupResult> {
-    return this.http.post<DedupResult>('/v2/dedup', { emails });
+  classify(input: { emails?: string[]; linkedin_urls?: string[] } | string[]): Promise<DedupResult> {
+    const body = Array.isArray(input) ? { emails: input } : input;
+    return this.http.post<DedupResult>('/v2/dedup', body);
   }
 }

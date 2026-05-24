@@ -153,25 +153,39 @@ class NousClient:
         """
         return self._post("/v2/verify", {"focus": focus, "property": prop})
 
-    def classify(self, emails: list[str]) -> dict[str, Any]:
+    def classify(
+        self,
+        *,
+        emails: list[str] | None = None,
+        linkedin_urls: list[str] | None = None,
+    ) -> dict[str, Any]:
         """Cross-list cold-outbound dedup.
 
-        Given a list of emails, returns which are safe to cold-send
-        (``net_new``) and which are not (``engaged`` / ``recent`` /
-        ``bounced`` / ``unsubscribed`` / ``suppressed``) — checked against
-        every list and every engagement signal this workspace has ever
-        seen. Max 10,000 per call.
+        Pass any combination of emails and LinkedIn URLs — useful BEFORE
+        you scrape (Apollo's preview shows LinkedIn URLs for free; classify
+        them against your workspace to know your overlap before paying for
+        the email reveal). Each identifier is classified as ``net_new`` /
+        ``engaged`` / ``recent`` / ``bounced`` / ``unsubscribed`` /
+        ``suppressed``. Max 10,000 of each kind per call.
 
         Returns::
 
             {
-              "results": [{"email": ..., "status": ..., "entity_id"?: ..., "reason"?: ...}, ...],
+              "results": [
+                {"kind": "email"|"linkedin_url", "value": ..., "status": ...,
+                 "entity_id"?: ..., "reason"?: ...}, ...
+              ],
               "summary": {"net_new": int, "engaged": int, "recent": int,
                           "bounced": int, "unsubscribed": int, "suppressed": int,
                           "total": int}
             }
         """
-        return self._post("/v2/dedup", {"emails": emails})
+        body: dict[str, Any] = {}
+        if emails:        body["emails"] = emails
+        if linkedin_urls: body["linkedin_urls"] = linkedin_urls
+        if not body:
+            raise ValueError("Pass at least one of `emails` or `linkedin_urls`.")
+        return self._post("/v2/dedup", body)
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 

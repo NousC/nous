@@ -343,32 +343,46 @@ program
 // ---------------------------------------------------------------------------
 program
   .command("classify")
-  .description("Classify a list of emails against the workspace's engagement history")
-  .option("--emails <list>", "Comma-separated emails (or use --file)")
-  .option("--file <path>", "Path to a file with one email per line (or any text with emails)")
+  .description("Pre-flight dedup a list of emails and/or LinkedIn URLs against the workspace's engagement history")
+  .option("--emails <list>", "Comma-separated emails")
+  .option("--linkedin <list>", "Comma-separated LinkedIn URLs")
+  .option("--file <path>", "Path to any text/CSV — both emails and LinkedIn URLs are auto-extracted")
   .option("--json", "Print the raw JSON response")
-  .action(async ({ emails, file, json }) => {
+  .action(async ({ emails, linkedin, file, json }) => {
     const api = apiClient();
-    let list = [];
+    const EMAIL_RE    = /[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}/gi;
+    const LINKEDIN_RE = /https?:\/\/(?:www\.)?linkedin\.com\/in\/[a-zA-Z0-9_\-%]+/gi;
+
+    let emailList = [];
+    let linkedinList = [];
+
     if (file) {
       const { readFileSync } = await import("fs");
       const text = readFileSync(file, "utf8");
-      list = text.match(/[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}/gi) || [];
-    } else if (emails) {
-      list = emails.split(/[\s,]+/).filter(Boolean);
-    } else {
-      console.error("Pass --emails <comma-list> or --file <path>");
+      emailList = text.match(EMAIL_RE) || [];
+      linkedinList = text.match(LINKEDIN_RE) || [];
+    }
+    if (emails)   emailList    = emailList.concat(emails.split(/[\s,]+/).filter(Boolean));
+    if (linkedin) linkedinList = linkedinList.concat(linkedin.split(/[\s,]+/).filter(Boolean));
+
+    emailList    = [...new Set(emailList.map(e => e.toLowerCase().trim()))].filter(Boolean);
+    linkedinList = [...new Set(linkedinList.map(u => u.trim()))].filter(Boolean);
+
+    if (!emailList.length && !linkedinList.length) {
+      console.error("Pass at least one of --emails, --linkedin, or --file");
       process.exit(1);
     }
-    list = [...new Set(list.map(e => e.toLowerCase().trim()))].filter(Boolean);
-    if (!list.length) { console.error("No emails found."); process.exit(1); }
 
-    const data = await api.post("/v2/dedup", { emails: list });
+    const body = {};
+    if (emailList.length)    body.emails        = emailList;
+    if (linkedinList.length) body.linkedin_urls = linkedinList;
+
+    const data = await api.post("/v2/dedup", body);
     if (json) { console.log(JSON.stringify(data, null, 2)); return; }
     const s = data.summary || {};
     const pad = (n, w = 6) => String(n).padStart(w);
-    console.log(`\n  ${pad(s.total)}  total`);
-    console.log(`  ${pad(s.net_new)}  net_new       ← safe to send`);
+    console.log(`\n  ${pad(s.total)}  total  (${emailList.length} emails, ${linkedinList.length} linkedin)`);
+    console.log(`  ${pad(s.net_new)}  net_new       ← safe to send / safe to buy`);
     console.log(`  ${pad(s.engaged)}  engaged       skip (in an active convo)`);
     console.log(`  ${pad(s.recent)}  recent        defer (contacted in last 30d)`);
     console.log(`  ${pad(s.bounced)}  bounced       skip`);

@@ -17,9 +17,13 @@ import { PageHeader } from "@/components/ui/page-header";
 const apiUrl = import.meta.env.VITE_API_URL ?? "";
 
 type Status = "net_new" | "engaged" | "recent" | "bounced" | "unsubscribed" | "suppressed";
+type Kind = "email" | "linkedin_url";
 
 interface Classification {
-  email: string;
+  kind: Kind;
+  value: string;
+  /** @deprecated kept for back-compat with the v1 response shape */
+  email?: string;
   status: Status;
   entity_id?: string;
   reason?: string | null;
@@ -47,6 +51,20 @@ function extractEmails(text: string): string[] {
   return Array.from(new Set(matches.map(e => e.toLowerCase())));
 }
 
+// Pull LinkedIn /in/<slug> URLs out of a blob. Apollo's preview shows these
+// for free — pasting the preview straight in is the agency pre-flight unlock.
+function extractLinkedInUrls(text: string): string[] {
+  const re = /https?:\/\/(?:www\.)?linkedin\.com\/in\/[a-zA-Z0-9_\-%]+/gi;
+  const matches = text.match(re) ?? [];
+  return Array.from(new Set(matches.map(u =>
+    u.toLowerCase()
+      .replace(/^http:\/\//, "https://")
+      .replace(/^https?:\/\/www\./, "https://")
+      .replace(/[?#].*$/, "")
+      .replace(/\/+$/, ""),
+  )));
+}
+
 export default function CleanList() {
   const navigate = useNavigate();
   const { session, userData } = useAuth();
@@ -54,6 +72,7 @@ export default function CleanList() {
   const workspaceId = userData?.workspace?.id ?? "";
 
   const [emails, setEmails] = useState<string[]>([]);
+  const [linkedinUrls, setLinkedinUrls] = useState<string[]>([]);
   const [paste, setPaste] = useState("");
   const [results, setResults] = useState<Classification[] | null>(null);
   const [summary, setSummary] = useState<Summary | null>(null);
@@ -63,8 +82,8 @@ export default function CleanList() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   const ingestText = useCallback((text: string, source?: string) => {
-    const found = extractEmails(text);
-    setEmails(found);
+    setEmails(extractEmails(text));
+    setLinkedinUrls(extractLinkedInUrls(text));
     setResults(null);
     setSummary(null);
     setError(null);
@@ -79,26 +98,29 @@ export default function CleanList() {
   };
 
   const classify = async () => {
-    if (!emails.length || loading) return;
+    if ((!emails.length && !linkedinUrls.length) || loading) return;
     setLoading(true);
     setError(null);
     try {
-      // Batch in 10k chunks (the endpoint cap) so very large lists still work.
-      const batches: string[][] = [];
-      for (let i = 0; i < emails.length; i += 10_000) {
-        batches.push(emails.slice(i, i + 10_000));
-      }
+      // Batch the longer of the two lists in 10k chunks. The endpoint caps
+      // each kind at 10k per call.
+      const maxLen = Math.max(emails.length, linkedinUrls.length);
       const allResults: Classification[] = [];
       let agg: Summary = { net_new: 0, engaged: 0, recent: 0, bounced: 0, unsubscribed: 0, suppressed: 0, total: 0 };
-      for (const batch of batches) {
+      for (let i = 0; i < maxLen; i += 10_000) {
+        const body = {
+          workspaceId,
+          emails:        emails.slice(i, i + 10_000),
+          linkedin_urls: linkedinUrls.slice(i, i + 10_000),
+        };
         const res = await fetch(`${apiUrl}/v2/dedup`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ emails: batch, workspaceId }),
+          body: JSON.stringify(body),
         });
         if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          throw new Error(body.message || body.error || `request failed (${res.status})`);
+          const errBody = await res.json().catch(() => ({}));
+          throw new Error(errBody.message || errBody.error || `request failed (${res.status})`);
         }
         const { results: r, summary: s } = await res.json();
         allResults.push(...r);
@@ -117,7 +139,7 @@ export default function CleanList() {
 
   const downloadCleaned = () => {
     if (!results) return;
-    const safe = results.filter(r => STATUS_META[r.status].safe).map(r => r.email);
+    const safe = results.filter(r => STATUS_META[r.status].safe).map(r => r.value || r.email || "");
     const blob = new Blob([safe.join("\n") + "\n"], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -129,8 +151,8 @@ export default function CleanList() {
 
   const downloadFull = () => {
     if (!results) return;
-    const lines = ["email,status,reason", ...results.map(r =>
-      `${r.email},${r.status},"${(r.reason ?? "").replace(/"/g, '""')}"`,
+    const lines = ["kind,value,status,reason", ...results.map(r =>
+      `${r.kind},${r.value || r.email || ""},${r.status},"${(r.reason ?? "").replace(/"/g, '""')}"`,
     )];
     const blob = new Blob([lines.join("\n") + "\n"], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -142,7 +164,8 @@ export default function CleanList() {
   };
 
   const reset = () => {
-    setEmails([]); setResults(null); setSummary(null); setError(null);
+    setEmails([]); setLinkedinUrls([]);
+    setResults(null); setSummary(null); setError(null);
     setPaste(""); setFileName(null);
     if (fileRef.current) fileRef.current.value = "";
   };
@@ -194,15 +217,19 @@ export default function CleanList() {
               value={paste}
               onChange={e => setPaste(e.target.value)}
               onBlur={() => paste.trim() && ingestText(paste, "pasted-list")}
-              placeholder="alice@acme.com, bob@globex.io, carol@initech.com …"
+              placeholder="alice@acme.com, https://linkedin.com/in/foo, bob@globex.io …"
               className="w-full h-32 rounded-xl border border-border bg-background px-4 py-3 text-[13px] text-foreground placeholder:text-muted-foreground/60 outline-none focus:border-foreground/40 font-mono resize-none"
             />
 
-            {emails.length > 0 && (
+            {(emails.length > 0 || linkedinUrls.length > 0) && (
               <div className="rounded-xl border border-border bg-muted/30 px-4 py-3 flex items-center justify-between">
                 <div className="flex items-center gap-2 text-[13px]">
                   <FileText className="h-4 w-4 text-muted-foreground" />
-                  <span className="font-medium text-foreground">{emails.length.toLocaleString()} emails</span>
+                  <span className="font-medium text-foreground">
+                    {emails.length > 0 && `${emails.length.toLocaleString()} emails`}
+                    {emails.length > 0 && linkedinUrls.length > 0 && " · "}
+                    {linkedinUrls.length > 0 && `${linkedinUrls.length.toLocaleString()} LinkedIn URLs`}
+                  </span>
                   {fileName && <span className="text-muted-foreground">from {fileName}</span>}
                 </div>
                 <button
@@ -274,17 +301,22 @@ export default function CleanList() {
 
             {/* Per-row breakdown */}
             <div className="rounded-xl border border-border bg-background overflow-hidden">
-              <div className="px-4 py-2.5 bg-muted/50 border-b border-border grid grid-cols-[1fr_160px_1fr] gap-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">
-                <span>Email</span>
+              <div className="px-4 py-2.5 bg-muted/50 border-b border-border grid grid-cols-[80px_1fr_160px_1fr] gap-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">
+                <span>Kind</span>
+                <span>Identifier</span>
                 <span>Status</span>
                 <span>Reason / context</span>
               </div>
               <div className="divide-y divide-border/60 max-h-[600px] overflow-y-auto">
                 {results.slice(0, 500).map((r, i) => {
                   const meta = STATUS_META[r.status];
+                  const id = r.value || r.email || "";
                   return (
-                    <div key={`${r.email}-${i}`} className="grid grid-cols-[1fr_160px_1fr] gap-3 px-4 py-2 text-[12px]">
-                      <span className="text-foreground/80 truncate font-mono">{r.email}</span>
+                    <div key={`${id}-${i}`} className="grid grid-cols-[80px_1fr_160px_1fr] gap-3 px-4 py-2 text-[12px]">
+                      <span className="text-muted-foreground uppercase tracking-wide text-[11px]">
+                        {r.kind === "linkedin_url" ? "linkedin" : "email"}
+                      </span>
+                      <span className="text-foreground/80 truncate font-mono">{id}</span>
                       <span className="font-semibold tabular-nums" style={{ color: meta.color }}>{meta.label}</span>
                       <span className="text-muted-foreground truncate">{r.reason || meta.help}</span>
                     </div>
@@ -303,10 +335,17 @@ export default function CleanList() {
               <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 mb-1.5">
                 Use this from Apollo / Instantly / Lemlist / Zapier / curl
               </div>
-              <pre className="text-[12px] text-foreground/80 font-mono bg-background border border-border rounded-md p-3 overflow-x-auto">{`curl -X POST ${apiUrl || "https://api.opennous.cloud"}/v2/dedup \\
+              <pre className="text-[12px] text-foreground/80 font-mono bg-background border border-border rounded-md p-3 overflow-x-auto">{`# Apollo workflow: paste LinkedIn URLs from a free preview, BEFORE you pay
+curl -X POST ${apiUrl || "https://api.opennous.cloud"}/v2/dedup \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Content-Type: application/json" \\
-  -d '{ "emails": ["alice@acme.com", "bob@globex.io"] }'`}</pre>
+  -d '{
+    "linkedin_urls": [
+      "https://linkedin.com/in/alice",
+      "https://linkedin.com/in/bob"
+    ],
+    "emails": [ "carol@initech.com" ]
+  }'`}</pre>
               <p className="text-[12px] text-muted-foreground mt-2">
                 Same answer, every channel. <button onClick={() => navigate("/keys")} className="underline hover:text-foreground">Get an API key →</button>
               </p>
