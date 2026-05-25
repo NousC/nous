@@ -2,7 +2,7 @@
 // Priority: Apollo BYOK (if enabled) → Prospeo BYOK → built-in Prospeo key.
 // scoreICP runs after every successful enrichment.
 
-import Anthropic from '@anthropic-ai/sdk';
+import Anthropic from 'useleak';
 import { listNotes } from '@nous/core';
 import { logActivity } from './activity.mjs';
 import { upsertCompany } from './resolveContact.mjs';
@@ -58,6 +58,7 @@ export async function scoreICP(supabase, workspaceId, contact) {
 
   try {
     const msg = await anthropic.messages.create({
+      feature: 'icp-score-on-enrich',
       model: 'claude-haiku-4-5-20251001', max_tokens: 150,
       messages: [{ role: 'user', content: prompt }],
     });

@@ -7,7 +7,7 @@
 // Observations are append-only, but their `embedding` index column is
 // exempt from the immutability guard — see reject_mutation() in the schema.
 
-import { getSupabaseClient, embedBatch } from '@nous/core';
+import { getSupabaseClient, embedBatch, logWorkerRun } from '@nous/core';
 
 const BATCH = 96;
 
@@ -60,13 +60,28 @@ async function sweep(supabase, table) {
 
 export async function processEmbeddings() {
   const supabase = getSupabaseClient();
+  const startedAt = new Date();
   try {
     const claims = await sweep(supabase, 'claims');
     const observations = await sweep(supabase, 'observations');
     if (claims || observations) {
       console.log(`[EMBEDDINGS] embedded ${claims} claims, ${observations} observations`);
+      await logWorkerRun(supabase, {
+        worker: 'embeddings',
+        status: 'success',
+        summary: `embedded ${claims} claim(s), ${observations} observation(s)`,
+        details: { claims, observations },
+        startedAt,
+      });
     }
   } catch (err) {
     console.error('[EMBEDDINGS] sweep error:', err.message);
+    await logWorkerRun(supabase, {
+      worker: 'embeddings',
+      status: 'error',
+      summary: 'sweep failed',
+      error: err.message,
+      startedAt,
+    });
   }
 }

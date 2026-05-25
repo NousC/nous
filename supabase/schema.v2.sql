@@ -355,6 +355,34 @@ CREATE TRIGGER scorecard_signals_touch BEFORE UPDATE ON scorecard_signals
 
 
 -- ============================================================
+-- 7b. WORKER RUNS  — transparency on the compound-intelligence loop
+--
+-- Every nightly/periodic worker writes a row after each invocation
+-- so the Intelligence page can show, at a glance, whether the loop
+-- is alive. Per-workspace rows for workspace-scoped workers
+-- (mind_outcomes, scorecard_loop, score_entities, crm_sync);
+-- workspace_id IS NULL for system-wide workers (claim_engine,
+-- embeddings, pipeline_decay, lead_replies).
+-- ============================================================
+
+CREATE TABLE worker_runs (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  workspace_id  UUID REFERENCES workspaces(id) ON DELETE CASCADE,  -- NULL = system-wide
+  worker        TEXT NOT NULL,
+  status        TEXT NOT NULL,                                     -- 'success' | 'error' | 'no_op'
+  summary       TEXT,
+  details       JSONB NOT NULL DEFAULT '{}',
+  error         TEXT,
+  duration_ms   INT,
+  started_at    TIMESTAMPTZ NOT NULL,
+  finished_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX worker_runs_workspace ON worker_runs(workspace_id, finished_at DESC);
+CREATE INDEX worker_runs_worker    ON worker_runs(worker, finished_at DESC);
+CREATE INDEX worker_runs_finished  ON worker_runs(finished_at DESC);
+
+
+-- ============================================================
 -- 8. COLLECTIONS  — saved groupings of entities
 --
 -- Replaces v1's `lead_lists` / `leads`. A "lead list" is just a

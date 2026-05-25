@@ -15,7 +15,7 @@
 // Runs daily from the worker cron. Idempotent — it only ever touches
 // predictions whose state has actually changed.
 
-import { getSupabaseClient } from '@nous/core';
+import { getSupabaseClient, logWorkerRun } from '@nous/core';
 
 // Pipeline stage ordering — advancement is a rise in rank.
 const STAGE_RANK = { identified: 0, aware: 1, interested: 2, evaluating: 3, client: 4 };
@@ -127,14 +127,24 @@ async function deriveSignals(supabase, p) {
 
 export async function resolveOutcomes() {
   const supabase = getSupabaseClient();
+  const startedAt = new Date();
   const now = Date.now();
   let resolved = 0;
   let upgraded = 0;
+  // Per-workspace tallies so the Intelligence page shows each workspace's
+  // outcome resolution separately.
+  const perWorkspace = new Map(); // workspace_id → { resolved, upgraded }
+  const bump = (wsId, field) => {
+    if (!wsId) return;
+    const row = perWorkspace.get(wsId) || { resolved: 0, upgraded: 0 };
+    row[field]++;
+    perWorkspace.set(wsId, row);
+  };
 
   // ── Pass 1: resolve open predictions ──────────────────────────────────────
   const { data: open, error } = await supabase
     .from('predictions')
-    .select('id, entity_id, predicted_at, resolution_window_days, feature_snapshot')
+    .select('id, workspace_id, entity_id, predicted_at, resolution_window_days, feature_snapshot')
     .is('resolved_at', null)
     .eq('kind', 'icp_fit')
     .order('predicted_at', { ascending: true })
@@ -173,6 +183,7 @@ export async function resolveOutcomes() {
       })
       .eq('id', p.id);
     resolved++;
+    bump(p.workspace_id, 'resolved');
   }
 
   // ── Pass 2: late-revenue upgrade ──────────────────────────────────────────
@@ -181,7 +192,7 @@ export async function resolveOutcomes() {
   const horizonCutoff = new Date(now - REVENUE_HORIZON_DAYS * DAY_MS).toISOString();
   const { data: resolvedRecent } = await supabase
     .from('predictions')
-    .select('id, entity_id, predicted_at, outcome_value')
+    .select('id, workspace_id, entity_id, predicted_at, outcome_value')
     .not('resolved_at', 'is', null)
     .eq('kind', 'icp_fit')
     .gte('predicted_at', horizonCutoff)
@@ -208,9 +219,42 @@ export async function resolveOutcomes() {
       })
       .eq('id', p.id);
     upgraded++;
+    bump(p.workspace_id, 'upgraded');
   }
 
   if (resolved || upgraded) {
     console.log(`[MIND_OUTCOMES] resolved=${resolved} upgraded=${upgraded}`);
+  }
+
+  // Write one worker_runs row per workspace that had activity, plus a
+  // system-wide row so the nightly heartbeat is always visible — even when
+  // there was nothing to resolve. The summary distinguishes the two zero
+  // cases that look the same but mean different things:
+  //   "no predictions to watch"     — nobody has been scored yet
+  //   "N open, none ready yet"      — predictions exist but await their
+  //                                   30-day window or a revenue signal
+  if (perWorkspace.size === 0) {
+    const openCount = open?.length ?? 0;
+    const summary = openCount === 0
+      ? 'no predictions to watch — Scorecard hasn\'t staked any yet'
+      : `${openCount} open prediction${openCount === 1 ? '' : 's'}, none ready (waiting on revenue or 30-day window)`;
+    await logWorkerRun(supabase, {
+      worker: 'mind_outcomes',
+      status: 'no_op',
+      summary,
+      details: { resolved: 0, upgraded: 0, open_pending: openCount },
+      startedAt,
+    });
+  } else {
+    for (const [workspaceId, counts] of perWorkspace) {
+      await logWorkerRun(supabase, {
+        worker: 'mind_outcomes',
+        workspaceId,
+        status: 'success',
+        summary: `resolved ${counts.resolved}${counts.upgraded ? `, upgraded ${counts.upgraded}` : ''}`,
+        details: counts,
+        startedAt,
+      });
+    }
   }
 }

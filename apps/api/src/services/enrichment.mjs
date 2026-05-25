@@ -3,7 +3,7 @@
 // Called on every new contact, and after any identity resolution
 // ============================================================
 
-import Anthropic from '@anthropic-ai/sdk';
+import Anthropic from 'useleak';
 import {
   logActivity, listSignals, scoreLead,
   listNotes, listActivities,
@@ -649,6 +649,7 @@ export async function scoreICP(supabase, workspaceId, contact) {
         : `Contact profile:\n${contactSummary}\n\nScore this B2B contact's ICP fit 0-100 based on their role alone. Use seniority as the primary signal: C-suite/VP/Director = high (75-95), Manager/Senior = medium (45-70), IC/unknown = low (20-40). Give a one-sentence reason. Note: no specific ICP criteria configured. Respond as JSON: {"score": <int>, "fit": <bool>, "reasoning": "<one sentence>"}`;
 
       const msg = await anthropic.messages.create({
+        feature: 'icp-score-llm-fallback',
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 200,
         messages: [{ role: 'user', content: prompt }],

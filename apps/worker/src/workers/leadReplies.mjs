@@ -12,8 +12,8 @@
 //
 // See docs/adaptive-lead-scoring.md.
 
-import Anthropic from '@anthropic-ai/sdk';
-import { getSupabaseClient, findLeadByEmail, updateLead, addSuppression, listActivities } from '@nous/core';
+import Anthropic from 'useleak';
+import { getSupabaseClient, findLeadByEmail, updateLead, addSuppression, listActivities, logWorkerRun } from '@nous/core';
 import { logSysEvent } from '../utils/systemLog.mjs';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -44,6 +44,7 @@ async function classifyReply(text) {
     `Respond as JSON: {"outcome": "<one of the above>"}`;
 
   const msg = await anthropic.messages.create({
+    feature: 'reply-classify',
     model: 'claude-haiku-4-5-20251001',
     max_tokens: 60,
     messages: [{ role: 'user', content: prompt }],
@@ -55,6 +56,7 @@ async function classifyReply(text) {
 
 export async function processLeadReplies() {
   const supabase = getSupabaseClient();
+  const startedAt = new Date();
   const since = new Date(Date.now() - LOOKBACK_HOURS * 3_600_000).toISOString();
 
   // Recent inbound reply activities (v2: from observations). The email join
@@ -136,5 +138,14 @@ export async function processLeadReplies() {
     }
   }
 
-  if (graduated) console.log(`[LEAD_REPLIES] graduated ${graduated} lead(s)`);
+  if (graduated) {
+    console.log(`[LEAD_REPLIES] graduated ${graduated} lead(s)`);
+    await logWorkerRun(supabase, {
+      worker: 'lead_replies',
+      status: 'success',
+      summary: `graduated ${graduated} lead(s) from ${activities.length} reply activit${activities.length === 1 ? 'y' : 'ies'}`,
+      details: { graduated, activities_scanned: activities.length },
+      startedAt,
+    });
+  }
 }

@@ -14,7 +14,7 @@
 //
 // See docs/adaptive-lead-scoring.md.
 
-import Anthropic from '@anthropic-ai/sdk';
+import Anthropic from 'useleak';
 import {
   getSupabaseClient,
   listSignals,
@@ -23,6 +23,7 @@ import {
   setSignalActive,
   setSignalCoverage,
   logScorecardRun,
+  logWorkerRun,
 } from '@nous/core';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -91,6 +92,7 @@ async function carryOverCheck(proposal) {
     `Respond as JSON: {"generalizes": true|false}`;
   try {
     const msg = await anthropic.messages.create({
+      feature: 'scorecard-carryover-check',
       model: MODEL, max_tokens: 60, messages: [{ role: 'user', content: prompt }],
     });
     const j = JSON.parse(msg.content[0].text.match(/\{[\s\S]*\}/)?.[0] || '{}');
@@ -128,6 +130,7 @@ async function propose(signals, train) {
 
   try {
     const msg = await anthropic.messages.create({
+      feature: 'scorecard-loop-propose',
       model: MODEL, max_tokens: 300, messages: [{ role: 'user', content: prompt }],
     });
     const p = JSON.parse(msg.content[0].text.match(/\{[\s\S]*\}/)?.[0] || '{}');
@@ -139,14 +142,34 @@ async function propose(signals, train) {
 
 // ── One workspace's run ───────────────────────────────────────────────────────
 async function runForWorkspace(supabase, workspaceId, episodes) {
+  const startedAt = new Date();
   // episodes arrive sorted by predicted_at ascending — split by time.
   const cut = Math.floor(episodes.length * (1 - HOLDBACK_FRAC));
   const train = episodes.slice(0, cut);
   const held = episodes.slice(cut);
-  if (train.length < 5 || held.length < 5) return;
+  if (train.length < 5 || held.length < 5) {
+    await logWorkerRun(supabase, {
+      worker: 'scorecard_loop',
+      workspaceId,
+      status: 'no_op',
+      summary: `not enough episodes (train ${train.length}, held ${held.length})`,
+      details: { episodes: episodes.length, train: train.length, held: held.length },
+      startedAt,
+    });
+    return;
+  }
 
   let signals = await listSignals(supabase, workspaceId);
-  if (signals.length === 0) return; // no Scorecard seeded yet — nothing to refine
+  if (signals.length === 0) {
+    await logWorkerRun(supabase, {
+      worker: 'scorecard_loop',
+      workspaceId,
+      status: 'no_op',
+      summary: 'no Scorecard seeded yet',
+      startedAt,
+    });
+    return; // no Scorecard seeded yet — nothing to refine
+  }
 
   const baseline = calibrationGap(scoreAll(held, signals));
   let current = baseline;
@@ -211,10 +234,29 @@ async function runForWorkspace(supabase, workspaceId, episodes) {
   if (kept) {
     console.log(`[SCORECARD_LOOP] ${workspaceId}: ${kept} change(s), gap ${baseline?.toFixed(3) ?? '—'} → ${current?.toFixed(3) ?? '—'}`);
   }
+
+  await logWorkerRun(supabase, {
+    worker: 'scorecard_loop',
+    workspaceId,
+    status: 'success',
+    summary: kept
+      ? `kept ${kept} change(s) · gap ${baseline?.toFixed(3) ?? '—'} → ${current?.toFixed(3) ?? '—'}`
+      : `proposed ${steps} change(s), none cleared both gates`,
+    details: {
+      steps,
+      kept,
+      gap_before: baseline,
+      gap_after: current,
+      signal_count: signals.filter(s => s.active).length,
+      episodes: episodes.length,
+    },
+    startedAt,
+  });
 }
 
 export async function runScorecardLoop() {
   const supabase = getSupabaseClient();
+  const sweepStartedAt = new Date();
 
   // The evidence set: resolved `icp_fit` predictions — each a staked score
   // checked against a real outcome (reply, pipeline advance, closed-won).
@@ -230,6 +272,13 @@ export async function runScorecardLoop() {
   if (error?.code === '42P01' || error?.code === 'PGRST205') return;
   if (error) {
     console.error('[SCORECARD_LOOP] scan failed:', error.message);
+    await logWorkerRun(supabase, {
+      worker: 'scorecard_loop',
+      status: 'error',
+      summary: 'sweep scan failed',
+      error: error.message,
+      startedAt: sweepStartedAt,
+    });
     return;
   }
 
@@ -251,12 +300,45 @@ export async function runScorecardLoop() {
     byWorkspace.get(p.workspace_id).push({ features, outcome, predicted_at: p.predicted_at });
   }
 
+  // Heartbeat when there's nothing to learn from across the whole system —
+  // so the Intelligence page can show "the loop ran, but no resolved
+  // predictions yet" rather than silence.
+  if (byWorkspace.size === 0) {
+    await logWorkerRun(supabase, {
+      worker: 'scorecard_loop',
+      status: 'no_op',
+      summary: 'no resolved predictions in the system yet',
+      details: { resolved_predictions: 0 },
+      startedAt: sweepStartedAt,
+    });
+    return;
+  }
+
   for (const [workspaceId, episodes] of byWorkspace) {
-    if (episodes.length < MIN_EPISODES) continue;
+    if (episodes.length < MIN_EPISODES) {
+      await logWorkerRun(supabase, {
+        worker: 'scorecard_loop',
+        workspaceId,
+        status: 'no_op',
+        summary: `only ${episodes.length} resolved episode(s), need ${MIN_EPISODES}`,
+        details: { episodes: episodes.length, threshold: MIN_EPISODES },
+        startedAt: new Date(),
+      });
+      continue;
+    }
+    const wsStart = new Date();
     try {
       await runForWorkspace(supabase, workspaceId, episodes);
     } catch (e) {
       console.error('[SCORECARD_LOOP] workspace', workspaceId, 'failed:', e.message);
+      await logWorkerRun(supabase, {
+        worker: 'scorecard_loop',
+        workspaceId,
+        status: 'error',
+        summary: 'workspace run failed',
+        error: e.message,
+        startedAt: wsStart,
+      });
     }
   }
 }
