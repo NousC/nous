@@ -528,7 +528,7 @@ async function replyToChat(chatId, text) {
 
 // ── Route handlers ─────────────────────────────────────────────────────────────
 
-export function registerLinkedInRoutes(app, supabase, verifySupabaseAuth) {
+export function registerLinkedInRoutes(app, supabase, verifySupabaseAuth, verifyAuthEither) {
   const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
   // GET /api/linkedin/status?workspaceId=...
@@ -709,17 +709,16 @@ export function registerLinkedInRoutes(app, supabase, verifySupabaseAuth) {
   });
 
   // POST /api/linkedin/send-invite
-  // Public proxy endpoint — accepts a linkedin_url instead of a raw member ID.
+  // Internal proxy endpoint — accepts a linkedin_url instead of a raw member ID.
   // Resolves the member ID internally (contacts table → Unipile fallback).
-  // Caller never needs Unipile credentials or workspace ID — both are derived from the API key.
+  // Workspace derived from auth (API key or Supabase JWT with workspaceId in body/query).
   // Body: { linkedin_url, linkedin_member_id?, note? }
-  app.post('/api/linkedin/send-invite', verifySupabaseAuth, async (req, res) => {
+  app.post('/api/linkedin/send-invite', verifyAuthEither, async (req, res) => {
     try {
       const { linkedin_url, linkedin_member_id, note } = req.body;
-      // Workspace comes from the API key — no need to pass it in the body
-      const workspaceId = req.apiKeyWorkspaceId;
+      const workspaceId = req.workspaceId;
       if (!workspaceId)
-        return res.status(401).json({ error: 'api_key_required', detail: 'This endpoint requires API key authentication' });
+        return res.status(401).json({ error: 'auth_required' });
       if (!linkedin_url)
         return res.status(400).json({ error: 'missing_params', required: ['linkedin_url'] });
       if (note && note.length > 300)
@@ -777,18 +776,18 @@ export function registerLinkedInRoutes(app, supabase, verifySupabaseAuth) {
   });
 
   // POST /api/linkedin/send-message
-  // Public proxy endpoint — accepts linkedin_url and optional chat_id.
+  // Internal proxy endpoint — accepts linkedin_url and optional chat_id.
   // If chat_id is provided: replies to that existing conversation thread.
   // If not: resolves member ID and opens a new chat.
   // Returns { chat_id } — caller should persist this for future replies.
-  // Workspace derived from API key — no need to pass workspaceId in body.
+  // Workspace derived from auth (API key or Supabase JWT with workspaceId in body/query).
   // Body: { text, linkedin_url?, linkedin_member_id?, chat_id? }
-  app.post('/api/linkedin/send-message', verifySupabaseAuth, async (req, res) => {
+  app.post('/api/linkedin/send-message', verifyAuthEither, async (req, res) => {
     try {
       const { text, linkedin_url, linkedin_member_id, chat_id } = req.body;
-      const workspaceId = req.apiKeyWorkspaceId;
+      const workspaceId = req.workspaceId;
       if (!workspaceId)
-        return res.status(401).json({ error: 'api_key_required', detail: 'This endpoint requires API key authentication' });
+        return res.status(401).json({ error: 'auth_required' });
       if (!text)
         return res.status(400).json({ error: 'missing_params', required: ['text'] });
       if (!linkedin_url && !linkedin_member_id && !chat_id)
@@ -853,13 +852,13 @@ export function registerLinkedInRoutes(app, supabase, verifySupabaseAuth) {
   // Body: { post_url, text, linkedin_url? }
   // Resolves the post's social_id via Unipile, posts the comment, and optionally
   // logs a linkedin_post_comment activity against the contact identified by linkedin_url.
-  // Workspace derived from API key.
-  app.post('/api/linkedin/post-comment', verifySupabaseAuth, async (req, res) => {
+  // Workspace derived from auth (API key or Supabase JWT with workspaceId in body/query).
+  app.post('/api/linkedin/post-comment', verifyAuthEither, async (req, res) => {
     try {
       const { post_url, text, linkedin_url } = req.body;
-      const workspaceId = req.apiKeyWorkspaceId;
+      const workspaceId = req.workspaceId;
       if (!workspaceId)
-        return res.status(401).json({ error: 'api_key_required', detail: 'This endpoint requires API key authentication' });
+        return res.status(401).json({ error: 'auth_required' });
       if (!post_url || !text)
         return res.status(400).json({ error: 'missing_params', required: ['post_url', 'text'] });
       if (text.length > 1250)
