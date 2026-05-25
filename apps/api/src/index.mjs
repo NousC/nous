@@ -112,14 +112,17 @@ app.use('/api/mind',                  verifySupabaseAuth, mindRouter);
 app.use('/api/lead-lists',            verifySupabaseAuth, leadListsRouter);
 app.use('/api/webhooks',              verifySupabaseAuth, webhooksRouter);
 app.use('/api/workflow-providers',    verifySupabaseAuth, workflowProvidersRouter);
-app.use('/api/linkedin',              verifySupabaseAuth, linkedinRouter);
-// LinkedIn action endpoints — invite/message/sync (Supabase JWT, workspaceId in body)
-// plus send-invite/send-message/post-comment (API key or Supabase JWT) and the
-// Unipile OAuth callback. Routes registered directly on the app so each handler
-// picks its own auth middleware. Mounted after linkedinRouter so the router's
-// status/connect/disconnect handlers take precedence over the legacy duplicates
-// inside registerLinkedInRoutes (which are dead but harmless).
+// LinkedIn action endpoints — invite/message/sync (Supabase JWT, workspaceId in body),
+// send-invite/send-message/post-comment (API key or Supabase JWT), and the
+// Unipile OAuth callback (no auth, redirected from Unipile).
+//
+// MUST be registered BEFORE the /api/linkedin app.use mount below. Otherwise the
+// mount's verifySupabaseAuth runs first for every /api/linkedin/* request and
+// short-circuits non-JWT calls with auth_required, never reaching these handlers.
+// Express resolves routes in registration order — these app.post('/api/linkedin/...')
+// declarations match exact path+method before the prefix mount runs.
 registerLinkedInRoutes(app, getSupabaseClient(), verifySupabaseAuth, verifyAuthEither);
+app.use('/api/linkedin',              verifySupabaseAuth, linkedinRouter);
 
 // ── OAuth callbacks — no auth middleware (redirects from external providers) ──
 app.use('/api/oauth/google',                         oauthGoogleRouter);
