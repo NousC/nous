@@ -48,7 +48,7 @@ validateConfig();
 
 const server = new McpServer({
   name: "nous",
-  version: "0.10.0",
+  version: "0.10.1",
   description:
     "Nous — the context layer for GTM agents. Call get_context before drafting outreach or " +
     "preparing for a meeting. Call record after every interaction, or whenever you learn something.",
