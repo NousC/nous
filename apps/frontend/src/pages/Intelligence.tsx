@@ -1,8 +1,15 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, Activity, CheckCircle2, AlertTriangle, MinusCircle, XCircle } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 import { PageHeader } from "@/components/ui/page-header";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 
 // Intelligence — the dashboard for the compound-intelligence loop.
 //
@@ -47,6 +54,31 @@ interface Signal {
 interface IcpFact {
   id: string; category: string; content: string; created_at?: string | null;
 }
+interface WorkerRun {
+  id: string;
+  workspace_id: string | null;
+  worker: string;
+  status: 'success' | 'error' | 'no_op';
+  summary: string | null;
+  details: Record<string, unknown> | null;
+  error: string | null;
+  duration_ms: number | null;
+  started_at: string;
+  finished_at: string;
+}
+
+// Human-readable worker names for the run log.
+const WORKER_LABELS: Record<string, string> = {
+  mind_outcomes: "Outcome resolution",
+  scorecard_loop: "Scorecard learning",
+  claim_engine: "Claim self-healing",
+  score_entities: "Prediction staking",
+  crm_sync: "CRM sync",
+  lead_replies: "Reply classification",
+  embeddings: "Embeddings",
+  pipeline_decay: "Pipeline decay",
+};
+const labelForWorker = (key: string) => WORKER_LABELS[key] ?? key.replace(/_/g, " ");
 
 const ICP_CATEGORIES = ["ICP", "Market", "Product", "Pricing", "Competitors"];
 
@@ -127,6 +159,11 @@ export default function Intelligence() {
   const [newContent, setNewContent] = useState("");
   const [savingFact, setSavingFact] = useState(false);
 
+  // Worker runs — the transparency feed for the compound-intelligence loop.
+  // Powers the top-right pill + the run-history drawer.
+  const [workerRuns, setWorkerRuns] = useState<WorkerRun[]>([]);
+  const [runsOpen, setRunsOpen] = useState(false);
+
   const load = useCallback(() => {
     if (!workspaceId || !token) return;
     const h = { Authorization: `Bearer ${token}` };
@@ -135,8 +172,9 @@ export default function Intelligence() {
       fetch(`${apiUrl}/api/mind/substrate?workspaceId=${workspaceId}`, { headers: h }).then(r => (r.ok ? r.json() : null)),
       fetch(`${apiUrl}/api/mind/scorecard?workspaceId=${workspaceId}`, { headers: h }).then(r => (r.ok ? r.json() : null)),
       fetch(`${apiUrl}/api/workspace/memories?workspaceId=${workspaceId}&limit=80`, { headers: h }).then(r => (r.ok ? r.json() : null)),
+      fetch(`${apiUrl}/api/mind/worker-runs?workspaceId=${workspaceId}&limit=50`, { headers: h }).then(r => (r.ok ? r.json() : null)),
     ])
-      .then(([sub, sc, mem]) => {
+      .then(([sub, sc, mem, runs]) => {
         if (sub) setSubstrate(sub);
         if (sc) setSignals(sc.signals ?? []);
         if (mem) {
@@ -145,6 +183,7 @@ export default function Intelligence() {
             .map((m: any) => ({ id: m.id, category: m.category, content: m.content, created_at: m.created_at }));
           setIcpFacts(facts);
         }
+        if (runs) setWorkerRuns(runs.runs ?? []);
       })
       .finally(() => setLoading(false));
   }, [workspaceId, token]);
@@ -203,6 +242,25 @@ export default function Intelligence() {
 
   const trendValues = substrate?.calibration.trend.map(t => t.gap) ?? [];
 
+  // ── Worker-runs pill state ──────────────────────────────────────────────────
+  // Green dot when there's a successful run in the last 24h, orange if all
+  // runs are older than 24h, red if the most recent run errored. The user
+  // should be able to see, at a glance, that the loop is alive.
+  const lastRun = workerRuns[0] ?? null;
+  const sevenDayCutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const runsLast7d = workerRuns.filter(r => new Date(r.finished_at).getTime() >= sevenDayCutoff).length;
+  const lastRunAgeMs = lastRun ? Date.now() - new Date(lastRun.finished_at).getTime() : null;
+  const pillTone: "good" | "warn" | "bad" | "neutral" =
+    !lastRun ? "neutral"
+    : lastRun.status === "error" ? "bad"
+    : (lastRunAgeMs ?? Infinity) > 24 * 60 * 60 * 1000 ? "warn"
+    : "good";
+  const pillDotColor =
+    pillTone === "good" ? "#15803d"
+    : pillTone === "warn" ? "#b45309"
+    : pillTone === "bad" ? "#b91c1c"
+    : "#9ca3af";
+
   return (
     <div className="h-full overflow-y-auto bg-background">
       <div className="px-8 py-7">
@@ -210,12 +268,29 @@ export default function Intelligence() {
           title="Intelligence"
           subtitle="Is the model getting better over time, and what should you act on next?"
           actions={
-            <button
-              onClick={load}
-              className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-background border border-border text-foreground/80 text-[13px] font-semibold hover:bg-muted/50 transition-colors"
-            >
-              <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setRunsOpen(true)}
+                title={lastRun
+                  ? `Last run: ${labelForWorker(lastRun.worker)} · ${formatDistanceToNow(new Date(lastRun.finished_at), { addSuffix: true })}`
+                  : "No worker runs yet"}
+                className="inline-flex items-center gap-2 h-9 px-3 rounded-lg bg-background border border-border text-foreground/80 text-[13px] font-semibold hover:bg-muted/50 transition-colors"
+              >
+                <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ backgroundColor: pillDotColor }} />
+                <Activity className="h-3.5 w-3.5" />
+                {lastRun
+                  ? <span className="tabular-nums">{formatDistanceToNow(new Date(lastRun.finished_at))}</span>
+                  : <span>No runs yet</span>}
+                <span className="text-muted-foreground/60 text-[12px] tabular-nums">·</span>
+                <span className="text-muted-foreground/70 text-[12px] tabular-nums">{runsLast7d}/7d</span>
+              </button>
+              <button
+                onClick={load}
+                className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-background border border-border text-foreground/80 text-[13px] font-semibold hover:bg-muted/50 transition-colors"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
+              </button>
+            </div>
           }
         />
 
@@ -557,6 +632,63 @@ export default function Intelligence() {
 
         </div>
       </div>
+
+      {/* Worker runs drawer — full transparency on the compound loop. */}
+      <Sheet open={runsOpen} onOpenChange={setRunsOpen}>
+        <SheetContent side="right" className="w-full sm:max-w-[560px] p-0 flex flex-col">
+          <SheetHeader className="px-6 py-5 border-b border-border">
+            <SheetTitle className="text-[15px]">Loop activity</SheetTitle>
+            <SheetDescription className="text-[12px]">
+              Every nightly and periodic worker that powers the compound-intelligence loop.
+              Showing the {workerRuns.length} most recent runs.
+            </SheetDescription>
+          </SheetHeader>
+          <div className="flex-1 overflow-y-auto">
+            {workerRuns.length === 0 ? (
+              <div className="px-6 py-12 text-[13px] text-muted-foreground/70 text-center">
+                No runs recorded yet. Workers write a row here after each invocation.
+              </div>
+            ) : (
+              <div className="divide-y divide-border/60">
+                {workerRuns.map(r => {
+                  const tone = r.status === 'success' ? '#15803d'
+                    : r.status === 'error' ? '#b91c1c'
+                    : '#6b7280';
+                  const Icon = r.status === 'success' ? CheckCircle2
+                    : r.status === 'error' ? XCircle
+                    : r.status === 'no_op' ? MinusCircle
+                    : AlertTriangle;
+                  return (
+                    <div key={r.id} className="px-6 py-3">
+                      <div className="flex items-baseline gap-2">
+                        <Icon className="h-3.5 w-3.5 flex-shrink-0 self-center" style={{ color: tone }} />
+                        <span className="text-[13px] font-semibold text-foreground/90">{labelForWorker(r.worker)}</span>
+                        {r.workspace_id === null && (
+                          <span className="text-[10px] uppercase tracking-wide text-muted-foreground/60 font-semibold">system</span>
+                        )}
+                        <span className="ml-auto text-[11px] text-muted-foreground/70 tabular-nums" title={format(new Date(r.finished_at), "yyyy-MM-dd HH:mm:ss")}>
+                          {formatDistanceToNow(new Date(r.finished_at), { addSuffix: true })}
+                        </span>
+                      </div>
+                      {r.summary && (
+                        <div className="text-[12px] text-muted-foreground mt-1 pl-5">{r.summary}</div>
+                      )}
+                      {r.error && (
+                        <div className="text-[12px] mt-1 pl-5" style={{ color: '#b91c1c' }}>{r.error}</div>
+                      )}
+                      {r.duration_ms != null && (
+                        <div className="text-[11px] text-muted-foreground/50 mt-1 pl-5 tabular-nums">
+                          took {r.duration_ms < 1000 ? `${r.duration_ms}ms` : `${(r.duration_ms / 1000).toFixed(1)}s`}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

@@ -11,12 +11,14 @@ import {
   listSignals,
   scoreAndStake,
   entitiesNeedingScore,
+  logWorkerRun,
 } from '@nous/core';
 
 const PER_WORKSPACE_LIMIT = 200;
 
 export async function scoreEntities() {
   const supabase = getSupabaseClient();
+  const startedAt = new Date();
   try {
     // Workspaces with at least one active signal — no Scorecard, nothing to stake.
     const { data: sigRows, error } = await supabase
@@ -31,8 +33,15 @@ export async function scoreEntities() {
     const workspaceIds = [...new Set((sigRows ?? []).map(r => r.workspace_id))];
     if (workspaceIds.length === 0) return;
 
-    let staked = 0;
-    let failed = 0;
+    // Per-workspace tallies so each workspace sees its own prediction-stake activity.
+    const perWorkspace = new Map(); // workspace_id → { staked, failed }
+    const bump = (wsId, field) => {
+      const row = perWorkspace.get(wsId) || { staked: 0, failed: 0 };
+      row[field]++;
+      perWorkspace.set(wsId, row);
+    };
+    let totalStaked = 0, totalFailed = 0;
+
     for (const workspaceId of workspaceIds) {
       const signals = await listSignals(supabase, workspaceId, { activeOnly: true });
       if (signals.length === 0) continue;
@@ -41,18 +50,35 @@ export async function scoreEntities() {
       for (const entityId of entityIds) {
         try {
           const result = await scoreAndStake(supabase, workspaceId, entityId, signals);
-          if (result) staked++;
+          if (result) { totalStaked++; bump(workspaceId, 'staked'); }
         } catch (err) {
-          failed++;
+          totalFailed++; bump(workspaceId, 'failed');
           console.error(`[SCORE_ENTITIES] ${entityId}:`, err.message);
         }
       }
     }
 
-    if (staked || failed) {
-      console.log(`[SCORE_ENTITIES] staked=${staked} failed=${failed}`);
+    if (totalStaked || totalFailed) {
+      console.log(`[SCORE_ENTITIES] staked=${totalStaked} failed=${totalFailed}`);
+      for (const [workspaceId, counts] of perWorkspace) {
+        await logWorkerRun(supabase, {
+          worker: 'score_entities',
+          workspaceId,
+          status: counts.failed && !counts.staked ? 'error' : 'success',
+          summary: `staked ${counts.staked}${counts.failed ? `, failed ${counts.failed}` : ''}`,
+          details: counts,
+          startedAt,
+        });
+      }
     }
   } catch (err) {
     console.error('[SCORE_ENTITIES] sweep error:', err.message);
+    await logWorkerRun(supabase, {
+      worker: 'score_entities',
+      status: 'error',
+      summary: 'sweep failed',
+      error: err.message,
+      startedAt,
+    });
   }
 }

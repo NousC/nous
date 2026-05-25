@@ -6,7 +6,7 @@
 
 import express from 'express';
 import cron from 'node-cron';
-import { getSupabaseClient, registerCrmPushHandler, pushActivityToAllCrms } from '@nous/core';
+import { getSupabaseClient, registerCrmPushHandler, pushActivityToAllCrms, logWorkerRun } from '@nous/core';
 import { pollAllWorkspaces } from './pollers/calendar.mjs';
 import { pollAllSlackWorkspaces } from './pollers/slack.mjs';
 import { pollAllGmailWorkspaces } from './pollers/gmail.mjs';
@@ -96,13 +96,27 @@ console.log('[WORKER] SMTP/IMAP poller — every hour');
 
 // ── Pipeline stage decay — daily at 03:00 UTC ────────────────────────────────
 async function runPipelineDecay() {
+  const supabase = getSupabaseClient();
+  const startedAt = new Date();
   try {
-    const supabase = getSupabaseClient();
     const { error } = await supabase.rpc('decay_pipeline_stages');
     if (error) throw error;
     console.log('[WORKER] Pipeline stage decay complete');
+    await logWorkerRun(supabase, {
+      worker: 'pipeline_decay',
+      status: 'success',
+      summary: 'pipeline stage decay complete',
+      startedAt,
+    });
   } catch (err) {
     console.error('[WORKER] Pipeline decay error:', err.message);
+    await logWorkerRun(supabase, {
+      worker: 'pipeline_decay',
+      status: 'error',
+      summary: 'pipeline decay failed',
+      error: err.message,
+      startedAt,
+    });
   }
 }
 

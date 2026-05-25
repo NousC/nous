@@ -11,7 +11,7 @@
 // pollute the user's workspace from experiments. CRM mutations stay on
 // the explicit code paths (SDK, MCP, /v2/observations).
 
-import Anthropic from '@anthropic-ai/sdk';
+import Anthropic from 'useleak';
 import {
   assembleContext, CONTEXT_INTENTS,
   resolveFocus, getAccountRecord, verifyClaim,
@@ -256,6 +256,7 @@ export async function runPlaygroundTurn({ supabase, workspaceId, history, userMe
 
   for (let turn = 0; turn < MAX_TURNS; turn++) {
     const resp = await anthropic.messages.create({
+      feature:    'playground-agent-turn',
       model:      MODEL,
       max_tokens: MAX_TOKENS,
       system:     SYSTEM_PROMPT,

@@ -11,7 +11,7 @@
 // Mind page plot it. See docs/compound-intelligence-mind.md §7.
 
 import { Router } from 'express';
-import Anthropic from '@anthropic-ai/sdk';
+import Anthropic from 'useleak';
 import { getSupabaseClient, listSignals, seedSignals, listNotes, scoreLead, getAttention } from '@nous/core';
 
 export const mindRouter = Router();
@@ -325,6 +325,43 @@ mindRouter.get('/scorecard', async (req, res) => {
   }
 });
 
+// GET /api/mind/worker-runs?workspaceId=…&limit=50 — surface the
+// compound-intelligence loop's run history on the Intelligence page.
+//
+// Scoped tightly: only the two workers that *are* the loop —
+//   mind_outcomes  (outcome resolution, nightly)
+//   scorecard_loop (Scorecard learning, nightly)
+// Infrastructure workers (crm_sync, pipeline_decay, claim_engine,
+// embeddings, lead_replies, score_entities) write to worker_runs too,
+// but they belong in a separate "infra" view, not in this one — the
+// user wants the loop dashboard to be about the loop, not plumbing.
+const LOOP_WORKERS = ['mind_outcomes', 'scorecard_loop'];
+
+mindRouter.get('/worker-runs', async (req, res) => {
+  try {
+    const { workspaceId } = req.query;
+    if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
+    const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 50));
+
+    const { data, error } = await getSupabaseClient()
+      .from('worker_runs')
+      .select('id, workspace_id, worker, status, summary, details, error, duration_ms, started_at, finished_at')
+      .in('worker', LOOP_WORKERS)
+      .or(`workspace_id.eq.${workspaceId},workspace_id.is.null`)
+      .order('finished_at', { ascending: false })
+      .limit(limit);
+
+    if (error?.code === '42P01' || error?.code === 'PGRST205') {
+      return res.json({ runs: [], migration_pending: true });
+    }
+    if (error) throw error;
+    return res.json({ runs: data || [] });
+  } catch (err) {
+    console.error('[GET /api/mind/worker-runs]', err);
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
 // GET /api/mind/scorecard/runs?workspaceId=… — the learning loop's run history.
 mindRouter.get('/scorecard/runs', async (req, res) => {
   try {
@@ -383,6 +420,7 @@ mindRouter.post('/scorecard/seed', async (req, res) => {
       `Respond with ONLY a JSON array, no prose.`;
 
     const msg = await anthropic.messages.create({
+      feature: 'scorecard-seed-translate',
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 900,
       messages: [{ role: 'user', content: prompt }],

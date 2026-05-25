@@ -3,7 +3,7 @@
 // Claude Haiku extracts structured CRM facts → `note.*` claims on the contact entity.
 // Graph edges (REPORTS_TO, BUDGET_HOLDER_AT, etc.) extracted from each fact → workspace_graph_edges.
 
-import Anthropic from '@anthropic-ai/sdk';
+import Anthropic from 'useleak';
 import { listNotes, saveNote, updateNote, searchClaims, listActivities } from '@nous/core';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -45,6 +45,7 @@ async function decideMerge(supabase, workspaceId, newFact) {
 
   const existing = similar.map((f, i) => `${i + 1}. [ID:${f.id}] ${f.content}`).join('\n');
   const msg = await anthropic.messages.create({
+    feature: 'note-merge-decide',
     model: 'claude-haiku-4-5-20251001',
     max_tokens: 100,
     messages: [{ role: 'user', content: `You are managing an atomic fact memory store for a business workspace.\n\nNEW FACT: "${newFact}"\n\nSIMILAR EXISTING FACTS:\n${existing}\n\nDecide one of:\n- ADD — the new fact is distinct enough to add alongside existing ones\n- UPDATE:<ID> — the new fact supersedes one existing fact (provide the ID to replace)\n- SKIP — the new fact is already captured by an existing fact\n\nReply with ONLY one of: ADD | UPDATE:<uuid> | SKIP` }],
@@ -65,6 +66,7 @@ async function extractGraphEdges(supabase, workspaceId, factContent, sourceMemor
     ].filter(Boolean).join(', ');
 
     const msg = await anthropic.messages.create({
+      feature: 'graph-edges-extract',
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 250,
       messages: [{ role: 'user', content: `Extract relationship edges from this fact for a GTM knowledge graph. Only extract when two named entities have a clear directional relationship.
@@ -176,6 +178,7 @@ First sentence: who they are and where they stand in the pipeline.
 Second sentence: the single most important thing to know right now — the blocker, the opportunity, or the next move.${actLines ? `\n\nRecent activity (last 30 days):\n${actLines}` : ''}${factLines ? `\n\nStored facts:\n${factLines}` : ''}\n\nSummary:`;
 
     const msg = await anthropic.messages.create({
+      feature: 'contact-memory-summary',
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 120,
       messages: [{ role: 'user', content: prompt }],
@@ -217,6 +220,7 @@ async function extractActivitySignals({ supabase, activityId, contactId, workspa
     }[type] || type;
 
     const msg = await anthropic.messages.create({
+      feature: 'activity-signals-extract',
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 400,
       messages: [{ role: 'user', content: `Extract CRM intelligence from this private ${channelLabel}.

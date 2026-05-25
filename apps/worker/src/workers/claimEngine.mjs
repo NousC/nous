@@ -6,12 +6,13 @@
 // self-healing loop: a new observation always pulls the belief back toward
 // truth. The derivation logic itself lives in @nous/core (recomputeClaim).
 
-import { getSupabaseClient, recomputeClaim } from '@nous/core';
+import { getSupabaseClient, recomputeClaim, logWorkerRun } from '@nous/core';
 
 const BATCH_SIZE = 200;
 
 export async function processClaimJobs() {
   const supabase = getSupabaseClient();
+  const startedAt = new Date();
   try {
     const { data: jobs, error } = await supabase
       .from('claim_jobs')
@@ -55,8 +56,22 @@ export async function processClaimJobs() {
 
     if (recomputed || failed) {
       console.log(`[CLAIM_ENGINE] recomputed=${recomputed} failed=${failed} jobs=${jobs.length}`);
+      await logWorkerRun(supabase, {
+        worker: 'claim_engine',
+        status: failed && !recomputed ? 'error' : 'success',
+        summary: `recomputed ${recomputed}${failed ? `, failed ${failed}` : ''} from ${jobs.length} job(s)`,
+        details: { recomputed, failed, jobs: jobs.length, unique_targets: targets.size },
+        startedAt,
+      });
     }
   } catch (err) {
     console.error('[CLAIM_ENGINE] sweep error:', err.message);
+    await logWorkerRun(supabase, {
+      worker: 'claim_engine',
+      status: 'error',
+      summary: 'sweep failed',
+      error: err.message,
+      startedAt,
+    });
   }
 }

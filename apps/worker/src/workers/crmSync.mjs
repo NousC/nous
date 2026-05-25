@@ -8,7 +8,7 @@
 // clean run; errors are logged to workspace_system_log so the UI can show
 // them, never thrown.
 
-import { getSupabaseClient, syncCrmProvider } from '@nous/core';
+import { getSupabaseClient, syncCrmProvider, logWorkerRun } from '@nous/core';
 import { decrypt } from '../utils/encryption.mjs';
 
 const PROVIDERS = ['hubspot', 'pipedrive', 'attio'];
@@ -124,11 +124,29 @@ export async function runCrmAutoSync() {
 
     let ran = 0;
     for (const cfg of configs) {
+      const cfgStart = new Date();
       try {
         await syncOneConfig(supabase, cfg);
         ran++;
+        await logWorkerRun(supabase, {
+          worker: 'crm_sync',
+          workspaceId: cfg.workspace_id,
+          status: 'success',
+          summary: `${cfg.provider} auto-sync`,
+          details: { provider: cfg.provider, config_id: cfg.id },
+          startedAt: cfgStart,
+        });
       } catch (err) {
         console.error('[CRM_SYNC] config', cfg.id, 'failed:', err?.message || err);
+        await logWorkerRun(supabase, {
+          worker: 'crm_sync',
+          workspaceId: cfg.workspace_id,
+          status: 'error',
+          summary: `${cfg.provider} auto-sync failed`,
+          details: { provider: cfg.provider, config_id: cfg.id },
+          error: err?.message || String(err),
+          startedAt: cfgStart,
+        });
       }
     }
     if (ran) console.log(`[CRM_SYNC] ran ${ran} auto-sync(s)`);

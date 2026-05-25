@@ -13,6 +13,7 @@ export * from './embed.js';
 export * from './db/contacts.js';
 export * from './db/leads.js';
 export * from './db/scorecard.js';
+export * from './db/workerRuns.js';
 export * from './db/companies.js';
 export * from './db/activities.js';
 // Note: db/memories.ts removed in Phase 1 — superseded by db/notes.ts (claim-shaped).
