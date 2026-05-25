@@ -18,13 +18,6 @@
       "description": "Create one at https://opennous.cloud → Settings → API Keys. The key is workspace-scoped — no separate workspace ID required.",
       "sensitive": true,
       "required": true
-    },
-    "api_url": {
-      "type": "string",
-      "title": "API base URL (optional)",
-      "description": "Override only if you self-host. Defaults to https://api.opennous.cloud.",
-      "default": "https://api.opennous.cloud",
-      "required": false
     }
   },
   "mcpServers": {
@@ -32,8 +25,7 @@
       "command": "npx",
       "args": ["-y", "@opennous/mcp"],
       "env": {
-        "NOUS_API_KEY": "${user_config.api_key}",
-        "NOUS_API_URL": "${user_config.api_url}"
+        "NOUS_API_KEY": "${user_config.api_key}"
       }
     }
   }
