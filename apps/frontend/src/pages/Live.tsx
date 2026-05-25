@@ -308,10 +308,14 @@ function WorldMap({
 }
 
 function FeedRow({ event }: { event: RecentEvent }) {
+  // v2.* events come from the Context API surface (MCP, SDK, agent, raw HTTP).
+  // Prefix them with `agent.` at display time so they read as agent traffic
+  // — and so groupOf() picks them up as emerald instead of falling to slate.
+  const displayType = event.type.startsWith("v2.") ? `agent.${event.type}` : event.type;
   return (
     <div className="grid grid-cols-[130px_1fr_42px] gap-3 px-4 py-1 text-[12px] hover:bg-zinc-50 transition-colors">
       <span className="text-zinc-400 tabular-nums">{fmtDate(event.ts)}</span>
-      <span className={groupOf(event.type)}>{event.type}</span>
+      <span className={groupOf(displayType)}>{displayType}</span>
       <span className="text-zinc-700 text-right tabular-nums">+{event.inc}</span>
     </div>
   );
