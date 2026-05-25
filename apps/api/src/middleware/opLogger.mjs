@@ -47,12 +47,83 @@ function labelFor(req) {
   return `v2.${seg}`;
 }
 
+// Truncate user-supplied strings for the one-line summary view. We want the
+// gist — "sarah@acme.com" not the full URL-encoded LinkedIn slug — without
+// blowing up the Op Log row.
+function trunc(s, n = 40) {
+  if (s == null) return '?';
+  const str = String(s);
+  return str.length > n ? str.slice(0, n - 1) + '…' : str;
+}
+
+// Pull the verb-level description from the call shape — for /v2/query, peek
+// at the scope to tell the user WHAT was queried instead of just "query".
+// This is what makes the Op Log read like a trail of intentions, not just
+// a sequence of HTTP requests.
+function describeCall(req) {
+  const body = req.body || {};
+  const q    = req.query || {};
+  const route = (req.baseUrl || '') + (req.route?.path && req.route.path !== '/'
+    ? req.route.path.replace(/\/:[^/]+/g, '')
+    : '');
+
+  switch (`${req.method} ${route}`) {
+    case 'POST /v2/context': {
+      const bits = [`focus=${trunc(body.focus)}`];
+      if (body.intent) bits.push(`intent=${body.intent}`);
+      return `get_context · ${bits.join(' · ')}`;
+    }
+    case 'GET /v2/accounts': {
+      return `get_account · ${trunc(req.params?.id)}`;
+    }
+    case 'POST /v2/observations': {
+      const n = Array.isArray(body.observations) ? body.observations.length : 0;
+      const props = (body.observations || []).map(o => o.property).filter(Boolean).slice(0, 2).join(', ');
+      return `record · ${n} obs${props ? ` (${props}${n > 2 ? '…' : ''})` : ''} · focus=${trunc(body.focus)}`;
+    }
+    case 'POST /v2/query': {
+      const scope = body.scope || {};
+      const bits  = [];
+      if (scope.kind)       bits.push(scope.kind);
+      if (scope.property)   bits.push(scope.property);
+      if (scope.source)     bits.push(`src=${scope.source}`);
+      if (scope.entity_id)  bits.push(`entity=${trunc(scope.entity_id, 16)}`);
+      if (scope.since_days) bits.push(`${scope.since_days}d`);
+      if (body.return === 'entities') bits.push('→entities');
+      if (body.without)     bits.push('-without');
+      return `query · ${bits.length ? bits.join(' ') : 'all'}`;
+    }
+    case 'GET /v2/attention': {
+      return `attention${q.limit ? ` · limit=${q.limit}` : ''}`;
+    }
+    case 'POST /v2/verify': {
+      return `verify · ${trunc(body.focus)}.${body.property || '?'}`;
+    }
+    case 'POST /v2/dedup': {
+      const e  = Array.isArray(body.emails)        ? body.emails.length        : 0;
+      const li = Array.isArray(body.linkedin_urls) ? body.linkedin_urls.length : 0;
+      const parts = [];
+      if (e)  parts.push(`${e} emails`);
+      if (li) parts.push(`${li} linkedin`);
+      return `dedup · ${parts.join(' + ') || '0 identifiers'}`;
+    }
+    case 'GET /v2/workspace/facts': {
+      return `workspace_facts${q.categories ? ` · ${q.categories}` : ''}`;
+    }
+    default:
+      return `${req.method} ${req.originalUrl.split('?')[0]}`;
+  }
+}
+
 function summarize(req, status, ms) {
-  const path = req.originalUrl.split('?')[0];
-  const ok = status < 400;
+  const ok   = status < 400;
   const mark = ok ? '✓' : '✗';
-  // Keep one line, useful in the Op Log feed.
-  return `${mark} ${req.method} ${path} · ${status} · ${ms}ms`;
+  const detail = describeCall(req);
+  // Success: ✓ {detail} · 248ms     (status code redundant — the ✓ says it)
+  // Failure: ✗ {detail} · 404 · 248ms   (status code matters when it failed)
+  return ok
+    ? `${mark} ${detail} · ${ms}ms`
+    : `${mark} ${detail} · ${status} · ${ms}ms`;
 }
 
 /**
