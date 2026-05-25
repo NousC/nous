@@ -1,7 +1,8 @@
 import express from 'express';
 import cors from 'cors';
-import { registerCrmPushHandler, pushActivityToAllCrms } from '@nous/core';
+import { registerCrmPushHandler, pushActivityToAllCrms, getSupabaseClient } from '@nous/core';
 import { stripeWebhookHandler } from './routes/stripeWebhook.mjs';
+import { registerLinkedInRoutes } from './services/linkedin.mjs';
 
 // Wire activity logging → CRM push at module load time
 registerCrmPushHandler(pushActivityToAllCrms);
@@ -128,6 +129,13 @@ app.use('/api/lead-lists',            verifyAuthEither, requireFeature('leadList
 app.use('/api/webhooks',              verifySupabaseAuth, webhooksRouter);
 app.use('/api/workflow-providers',    verifySupabaseAuth, workflowProvidersRouter);
 app.use('/api/linkedin',              verifySupabaseAuth, linkedinRouter);
+// LinkedIn action endpoints — invite/message/sync (Supabase JWT, workspaceId in body)
+// plus send-invite/send-message/post-comment (API key or Supabase JWT) and the
+// Unipile OAuth callback. Routes registered directly on the app so each handler
+// picks its own auth middleware. Mounted after linkedinRouter so the router's
+// status/connect/disconnect handlers take precedence over the legacy duplicates
+// inside registerLinkedInRoutes (which are dead but harmless).
+registerLinkedInRoutes(app, getSupabaseClient(), verifySupabaseAuth, verifyAuthEither);
 
 // ── OAuth callbacks — no auth middleware (redirects from external providers) ──
 app.use('/api/oauth/google',                         oauthGoogleRouter);
