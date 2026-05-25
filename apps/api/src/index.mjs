@@ -10,6 +10,7 @@ import { verifyApiKey } from './middleware/apiKey.mjs';
 import { verifySupabaseAuth } from './middleware/supabaseAuth.mjs';
 import { verifyAuthEither } from './middleware/authEither.mjs';
 import { requireAdmin } from './middleware/requireAdmin.mjs';
+import { logV2Op } from './middleware/opLogger.mjs';
 import { requireFeature } from './lib/access.mjs';
 
 // v2 — Context API (evidence substrate)
@@ -87,14 +88,17 @@ app.use(express.json({ limit: '10mb' }));
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
 // ── v2 — Context API (evidence substrate) ────────────────────────────────────
-app.use('/v2/accounts',     verifyApiKey, accountsV2Router);
-app.use('/v2/observations', verifyApiKey, observationsV2Router);
-app.use('/v2/context',      verifyApiKey, contextV2Router);
-app.use('/v2/query',        verifyApiKey, queryV2Router);
-app.use('/v2/attention',    verifyApiKey, attentionV2Router);
-app.use('/v2/verify',       verifyApiKey, verifyV2Router);
-app.use('/v2/dedup',        verifyAuthEither, dedupV2Router);
-app.use('/v2/workspace/facts', verifyApiKey, workspaceFactsV2Router);
+// Order matters: verifyApiKey populates req.workspaceId; logV2Op reads it
+// after the response finishes and writes a row to workspace_system_log so
+// the Ops page Live Op Log surfaces every agent/MCP/SDK call.
+app.use('/v2/accounts',        verifyApiKey,     logV2Op, accountsV2Router);
+app.use('/v2/observations',    verifyApiKey,     logV2Op, observationsV2Router);
+app.use('/v2/context',         verifyApiKey,     logV2Op, contextV2Router);
+app.use('/v2/query',           verifyApiKey,     logV2Op, queryV2Router);
+app.use('/v2/attention',       verifyApiKey,     logV2Op, attentionV2Router);
+app.use('/v2/verify',          verifyApiKey,     logV2Op, verifyV2Router);
+app.use('/v2/dedup',           verifyAuthEither, logV2Op, dedupV2Router);
+app.use('/v2/workspace/facts', verifyApiKey,     logV2Op, workspaceFactsV2Router);
 
 // ── /api — Frontend API ───────────────────────────────────────────────────────
 app.use('/me',                        meRouter); // legacy path used by AuthContext

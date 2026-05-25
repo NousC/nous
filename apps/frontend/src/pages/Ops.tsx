@@ -76,7 +76,16 @@ export default function Ops() {
       const agentData = agentRes.ok ? await agentRes.json() : { requests: [] };
       const sysOps: LiveOp[] = (sysData.events ?? []).map((e: any) => {
         const op = systemLogOpName(e.source, e.event_type, e.metadata);
-        return { id: e.id, ts: e.occurred_at, name: op.name, color: OP_COLORS[op.color], detail: e.summary || e.source, source: e.source === "mcp" ? "agent" as const : "system" as const };
+        // Any caller-facing surface (MCP, SDK, named agent, raw API client)
+        // counts as an Agent op for the System/Agent tally. Everything else
+        // (Attio sync, LinkedIn webhook, Gmail poller…) stays as system.
+        const isAgentSource = ["mcp", "sdk", "agent", "api"].includes(e.source);
+        return {
+          id: e.id, ts: e.occurred_at,
+          name: op.name, color: OP_COLORS[op.color],
+          detail: e.summary || e.source,
+          source: isAgentSource ? (e.source as LiveOp["source"]) : "system" as const,
+        };
       });
       const agentOps: LiveOp[] = (agentData.requests ?? []).map((r: any) => {
         const op = agentOpName(r.op_type, r.entity_type);
