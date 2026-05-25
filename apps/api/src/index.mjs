@@ -9,6 +9,7 @@ registerCrmPushHandler(pushActivityToAllCrms);
 
 import { verifyApiKey } from './middleware/apiKey.mjs';
 import { verifySupabaseAuth } from './middleware/supabaseAuth.mjs';
+import { verifyAuthEither } from './middleware/authEither.mjs';
 import { requireAdmin } from './middleware/requireAdmin.mjs';
 
 // v1 — Public API (API key auth)
