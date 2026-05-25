@@ -39,7 +39,9 @@ const INSTALL_METHODS: { id: InstallMethod; label: string; desc: string; icon: R
     id: "client",
     label: "Other MCP Clients",
     desc: "Claude Desktop, Cursor, etc.",
-    icon: <img src={LOGO_CODEX_CLOUD} alt="" className="h-[18px] w-[18px] object-contain" />,
+    // Generic Lucide icon (matches the original feel) — the sub-tabs inside
+    // this panel carry the real per-client logos.
+    icon: <Plug className="h-4 w-4 text-muted-foreground" strokeWidth={1.75} />,
   },
 ];
 
