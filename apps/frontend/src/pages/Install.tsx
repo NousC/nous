@@ -1,8 +1,14 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Copy, CheckCircle2, Puzzle, Plug, ArrowUpRight } from "lucide-react";
+import { Copy, CheckCircle2, Plug, ArrowUpRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
+
+// ── Brand logos used in the method-selector cards. PNGs render crisp at
+// small sizes; the mascot uses image-rendering: pixelated to keep its 8-bit
+// edges sharp.
+const LOGO_NOUS_MASCOT  = "/provider-logos/nous-mascot.png";   // Claude Code → the Nous pixel mascot
+const LOGO_CODEX_CLOUD  = "/provider-logos/codex.png";         // Codex + "Other MCP Clients" — purple cloud-terminal
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -12,9 +18,29 @@ type McpClient = "claude-desktop" | "cursor" | "generic";
 
 // ─── Data ────────────────────────────────────────────────────────────────────
 
-const INSTALL_METHODS: { id: InstallMethod; label: string; desc: string; icon: React.ElementType }[] = [
-  { id: "plugin", label: "Plugin",            desc: "Claude Code & Codex",         icon: Puzzle },
-  { id: "client", label: "Other MCP Clients", desc: "Claude Desktop, Cursor, etc.", icon: Plug   },
+// `icon` is a ReactNode (not an ElementType) so each card can ship its own
+// rendering — the Nous mascot needs image-rendering:pixelated, the cloud
+// glyph doesn't. Both render at 18×18 inside the 36×36 tinted frame.
+const INSTALL_METHODS: { id: InstallMethod; label: string; desc: string; icon: React.ReactNode }[] = [
+  {
+    id: "plugin",
+    label: "Plugin",
+    desc: "Claude Code & Codex",
+    icon: (
+      <img
+        src={LOGO_NOUS_MASCOT}
+        alt=""
+        className="h-[18px] w-[18px] object-contain"
+        style={{ imageRendering: "pixelated" }}
+      />
+    ),
+  },
+  {
+    id: "client",
+    label: "Other MCP Clients",
+    desc: "Claude Desktop, Cursor, etc.",
+    icon: <img src={LOGO_CODEX_CLOUD} alt="" className="h-[18px] w-[18px] object-contain" />,
+  },
 ];
 
 // ─── Shared bits ────────────────────────────────────────────────────────────
@@ -94,8 +120,8 @@ env = { NOUS_API_KEY = "YOUR_API_KEY" }`;
     <div className="space-y-4">
       <TabBar
         tabs={[
-          { id: "claude-code" as PluginClient, label: "Claude Code", icon: <img src="/provider-logos/claude.svg" alt="" className="w-3.5 h-3.5 object-contain" /> },
-          { id: "codex"       as PluginClient, label: "Codex",       icon: <img src="/provider-logos/openai.svg" alt="" className="w-3.5 h-3.5 object-contain dark:invert" /> },
+          { id: "claude-code" as PluginClient, label: "Claude Code", icon: <img src={LOGO_NOUS_MASCOT} alt="" className="w-3.5 h-3.5 object-contain" style={{ imageRendering: "pixelated" }} /> },
+          { id: "codex"       as PluginClient, label: "Codex",       icon: <img src={LOGO_CODEX_CLOUD} alt="" className="w-3.5 h-3.5 object-contain" /> },
         ]}
         active={client}
         onChange={setClient}
@@ -190,7 +216,7 @@ NOUS_API_KEY=YOUR_API_KEY npx -y @opennous/mcp@0.10.1`;
     },
     "cursor": {
       label: "Cursor",
-      icon: <img src="/provider-logos/cursor.svg" alt="" className="w-3.5 h-3.5 object-contain dark:invert" />,
+      icon: <img src="/provider-logos/cursor.png" alt="" className="w-3.5 h-3.5 object-contain rounded-[3px]" />,
       copy: "Add to Cursor's MCP config and reload — Cursor picks it up automatically.",
       code: cursor,
     },
@@ -279,7 +305,7 @@ export default function Install() {
                 )}
               >
                 <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 bg-muted/50 border border-border/60">
-                  <m.icon className="h-4 w-4 text-muted-foreground" strokeWidth={1.75} />
+                  {m.icon}
                 </div>
                 <div>
                   <p className={cn("text-[13px] font-semibold", method === m.id ? "text-foreground" : "text-foreground/80")}>{m.label}</p>
