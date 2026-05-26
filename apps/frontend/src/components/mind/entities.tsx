@@ -122,7 +122,7 @@ const LOGO_FALLBACK: Record<string, string> = {
   apollo: "/provider-logos/apollo.svg",
   "apollo.io": "/provider-logos/apollo.svg",
   gmail: "/provider-logos/gmail.svg",
-  linkedin: "/provider-logos/linkedin.svg",
+  linkedin: "/provider-logos/linkedin.png",
   hubspot: "/provider-logos/hubspot.svg",
   slack: "/provider-logos/slack.svg",
   instantly: "/provider-logos/instantly.svg",
