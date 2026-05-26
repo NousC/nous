@@ -15,6 +15,9 @@ import { reprocessCalCom }    from '../webhooks/handlers/calcom.mjs';
 import { reprocessFireflies } from '../webhooks/handlers/fireflies.mjs';
 import { reprocessFathom }    from '../webhooks/handlers/fathom.mjs';
 import { reprocessInstantly } from '../webhooks/handlers/instantly.mjs';
+import { reprocessEmailBison } from '../webhooks/handlers/emailbison.mjs';
+import { reprocessHeyReach } from '../webhooks/handlers/heyreach.mjs';
+import { reprocessSmartlead } from '../webhooks/handlers/smartlead.mjs';
 import { reprocessLinkedIn }  from '../webhooks/handlers/linkedin.mjs';
 import { reprocessRB2B }      from '../webhooks/handlers/rb2b.mjs';
 import { reprocessStripe }    from '../webhooks/handlers/stripe.mjs';
@@ -25,6 +28,9 @@ const HANDLERS = {
   fireflies: reprocessFireflies,
   fathom:    reprocessFathom,
   instantly: reprocessInstantly,
+  emailbison: reprocessEmailBison,
+  heyreach: reprocessHeyReach,
+  smartlead: reprocessSmartlead,
   linkedin:  reprocessLinkedIn,
   rb2b:      reprocessRB2B,
   stripe:    reprocessStripe,

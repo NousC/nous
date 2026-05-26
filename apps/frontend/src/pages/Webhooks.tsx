@@ -12,14 +12,20 @@ interface WebhookUrl {
 }
 
 function ProviderLogo({ source }: { source: string }) {
+  // Try .svg first; if missing fall back to .png; if both 404 the lucide
+  // Webhook icon underneath stays visible.
+  const [src, setSrc] = useState(`/provider-logos/${source}.svg`);
   return (
     <div className="relative w-8 h-8 rounded-lg bg-muted/50 border border-border/60 flex items-center justify-center overflow-hidden flex-shrink-0">
       <Webhook className="h-4 w-4 text-muted-foreground/50" strokeWidth={1.75} />
       <img
-        src={`/provider-logos/${source}.svg`}
+        src={src}
         alt=""
         className="absolute inset-0 m-auto w-5 h-5 object-contain bg-muted/50"
-        onError={e => { (e.target as HTMLImageElement).style.display = "none"; }}
+        onError={e => {
+          if (src.endsWith(".svg")) setSrc(`/provider-logos/${source}.png`);
+          else (e.target as HTMLImageElement).style.display = "none";
+        }}
       />
     </div>
   );

@@ -32,5 +32,7 @@ psql "$DATABASE_URL" -f supabase/migrations/<file>.sql
 | 2026-05-21 | `2026_05_21_lead_list_columns.sql` | Lists — `lead_lists.columns` (user-defined column definitions) + `leads.fields` (per-lead values for them). Lets each list be a small table the user shapes. |
 | 2026-05-25 | `2026_05_25_worker_runs.sql` | Transparency — `worker_runs` table. Every nightly/periodic worker (mind_outcomes, scorecard_loop, claim_engine, score_entities, crm_sync, lead_replies, embeddings, pipeline_decay) writes a row after each invocation so the Intelligence page's "Loop activity" pill can show whether the compound loop is alive. |
 | 2026-05-25 | `2026_05_25_decay_pipeline_stages_v2.sql` | Bugfix — rewrites the `decay_pipeline_stages()` RPC for v2. The original v1 version read the dropped `contact_activity_log` and UPDATEd the now-view-backed `contacts`, so the nightly 03:00 UTC cron silently failed (`relation "contact_activity_log" does not exist`). Replacement reads `observations` (property LIKE 'interaction.*') and writes a state observation; the claim engine recomputes `pipeline_stage` within a minute. |
+| 2026-05-26 | `2026_05_26_add_emailbison_provider.sql` | Seeds the `emailbison` row in `workflow_providers` so the connect flow can resolve a provider_id |
+| 2026-05-26 | `2026_05_26_add_heyreach_smartlead_providers.sql` | Seeds `heyreach` + `smartlead` rows in `workflow_providers` |
 
 Each migration is also reflected in `../schema.sql` so a fresh install never needs to touch this folder.

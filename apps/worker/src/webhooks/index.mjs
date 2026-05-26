@@ -10,6 +10,9 @@ import { handleFireflies } from './handlers/fireflies.mjs';
 import { handleFathom } from './handlers/fathom.mjs';
 import { handleRB2B } from './handlers/rb2b.mjs';
 import { handleInstantly } from './handlers/instantly.mjs';
+import { handleEmailBison } from './handlers/emailbison.mjs';
+import { handleHeyReach } from './handlers/heyreach.mjs';
+import { handleSmartlead } from './handlers/smartlead.mjs';
 import { handleCalendly } from './handlers/calendly.mjs';
 import { handleCalCom } from './handlers/calcom.mjs';
 import { handleStripe } from './handlers/stripe.mjs';
@@ -101,6 +104,63 @@ webhookRouter.post(['/instantly/:workspaceId', '/instantly'], (req, res) => {
   handleInstantly(req, res, workspaceId).catch(err => {
     console.error('[WEBHOOK/instantly]', err);
     res.status(500).json({ error: 'internal_error' });
+  });
+});
+
+// Shared-secret query-param check used by providers that don't sign payloads.
+function checkQuerySecret(req, envSecret) {
+  if (!envSecret) return true;
+  const querySecret = (req.query.secret || '').toString();
+  try {
+    return querySecret.length === envSecret.length &&
+      crypto.timingSafeEqual(Buffer.from(querySecret), Buffer.from(envSecret));
+  } catch { return false; }
+}
+
+// EmailBison — webhooks registered manually in Settings → Webhooks (no API for
+// registration as of 2026-05). Auth is shared-secret via optional query param,
+// since EmailBison doesn't sign payloads. If EMAILBISON_WEBHOOK_SECRET is set,
+// users paste `/inbound/emailbison/<workspaceId>?secret=...` into EmailBison.
+webhookRouter.post(['/emailbison/:workspaceId', '/emailbison'], (req, res) => {
+  const workspaceId = req.params.workspaceId || req.query.workspace_id;
+  if (!workspaceId) return res.status(400).json({ error: 'workspace_id_required' });
+  if (!checkQuerySecret(req, process.env.EMAILBISON_WEBHOOK_SECRET)) {
+    return res.status(401).json({ error: 'invalid_secret' });
+  }
+  handleEmailBison(req, res, workspaceId).catch(async err => {
+    console.error('[WEBHOOK/emailbison] handler threw, queuing for retry:', err.message);
+    await enqueueForRetry(getSupabaseClient(), { workspaceId, source: 'emailbison', req, err });
+    if (!res.headersSent) res.status(200).json({ ok: true, queued: true });
+  });
+});
+
+// HeyReach — webhooks auto-registered on connect via their API. No signing,
+// so we rely on the workspace-scoped URL plus an optional shared secret.
+webhookRouter.post(['/heyreach/:workspaceId', '/heyreach'], (req, res) => {
+  const workspaceId = req.params.workspaceId || req.query.workspace_id;
+  if (!workspaceId) return res.status(400).json({ error: 'workspace_id_required' });
+  if (!checkQuerySecret(req, process.env.HEYREACH_WEBHOOK_SECRET)) {
+    return res.status(401).json({ error: 'invalid_secret' });
+  }
+  handleHeyReach(req, res, workspaceId).catch(async err => {
+    console.error('[WEBHOOK/heyreach] handler threw, queuing for retry:', err.message);
+    await enqueueForRetry(getSupabaseClient(), { workspaceId, source: 'heyreach', req, err });
+    if (!res.headersSent) res.status(200).json({ ok: true, queued: true });
+  });
+});
+
+// Smartlead — webhooks registered manually per-campaign in Smartlead's UI.
+// Optional shared secret via SMARTLEAD_WEBHOOK_SECRET.
+webhookRouter.post(['/smartlead/:workspaceId', '/smartlead'], (req, res) => {
+  const workspaceId = req.params.workspaceId || req.query.workspace_id;
+  if (!workspaceId) return res.status(400).json({ error: 'workspace_id_required' });
+  if (!checkQuerySecret(req, process.env.SMARTLEAD_WEBHOOK_SECRET)) {
+    return res.status(401).json({ error: 'invalid_secret' });
+  }
+  handleSmartlead(req, res, workspaceId).catch(async err => {
+    console.error('[WEBHOOK/smartlead] handler threw, queuing for retry:', err.message);
+    await enqueueForRetry(getSupabaseClient(), { workspaceId, source: 'smartlead', req, err });
+    if (!res.headersSent) res.status(200).json({ ok: true, queued: true });
   });
 });
 
