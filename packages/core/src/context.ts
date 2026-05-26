@@ -25,8 +25,13 @@ const RECIPES: Record<ContextIntent, Recipe> = {
     timelineWindowDays: 90, stakeholders: 'direct', includePredictions: true, budgetTokens: 1200,
   },
   follow_up: {
+    // Follow-up is most often used precisely BECAUSE a contact has gone
+    // quiet — a 30-day window was too narrow (a 37-day-silent prospect would
+    // return zero timeline events). 90d matches account_review; the
+    // minimum-N fallback below ensures we still surface the last few touches
+    // even when the contact has been silent longer than the window.
     themes: ['deal', 'note', 'objection', 'commitment', 'timing', 'budget', 'job_title'],
-    timelineWindowDays: 30, stakeholders: 'buying_group', includePredictions: true, budgetTokens: 1500,
+    timelineWindowDays: 90, stakeholders: 'buying_group', includePredictions: true, budgetTokens: 1500,
   },
   meeting_prep: {
     themes: ['deal', 'note', 'job_title', 'seniority', 'timing'],
@@ -44,6 +49,27 @@ const RECIPES: Record<ContextIntent, Recipe> = {
 export const CONTEXT_INTENTS = Object.keys(RECIPES) as ContextIntent[];
 
 const DAY = 86_400_000;
+
+// Legacy v1 columns that were claim-ified during the Phase-4 cutover and now
+// leak into the agent-facing context as stale zeros and "manual"/"none"
+// constants. They're not facts an agent should reason on — surfacing
+// `interaction_count: 0` next to 19 real LinkedIn messages was actively
+// misleading the model. They stay in the substrate (claims_total still
+// counts them); we just don't expose them to /v2/context consumers.
+const LEGACY_CONTEXT_NOISE = new Set([
+  'interaction_count',
+  'incoming_contacts_count',
+  'total_documents_count',
+  'total_income_source',
+  'enrichment_status',
+  'channels',
+  'tags',
+  'pipeline_stage_source',
+  'pipeline_stage_updated_at',
+  'first_seen_at',
+  'source',
+  'deal_health_score',          // stale 0 by default until the score worker fills it
+]);
 
 export interface ContextClaim {
   property: string; value: unknown; confidence: number;
@@ -102,8 +128,11 @@ export async function assembleContext(
     last_observed_at: c.last_observed_at,
   }));
 
+  // Drop legacy v1 bookkeeping claims before ranking — see LEGACY_CONTEXT_NOISE.
+  const usefulClaims = claims.filter(c => !LEGACY_CONTEXT_NOISE.has(c.property));
+
   // rank claims: on-theme first, then confidence, then recency — then budget-cap
-  const ranked = [...claims].sort((a, b) => {
+  const ranked = [...usefulClaims].sort((a, b) => {
     const t = themeRank(a.property, recipe.themes) - themeRank(b.property, recipe.themes);
     if (t !== 0) return t;
     if (b.confidence !== a.confidence) return b.confidence - a.confidence;
@@ -116,9 +145,24 @@ export async function assembleContext(
     last_observed_at: c.last_observed_at,
   }));
 
-  // timeline: window + temporal tiering
-  const cutoff = Date.now() - recipe.timelineWindowDays * DAY;
-  const events = observations.filter(o => +new Date(o.observed_at) >= cutoff);
+  // timeline: window + temporal tiering, with a minimum-N safety net.
+  //
+  // If a contact has been silent longer than the recipe's window, a naive
+  // filter would return zero events and the agent would infer "never been
+  // touched" — even when the substrate holds 19 real interactions. The
+  // freshness epistemic on each timeline item already tells the agent how
+  // stale a touch is; the agent doesn't need us to censor by age too.
+  //
+  // Rule: keep everything in the window, AND backfill from the most-recent
+  // observations until we have at least MIN_TIMELINE_EVENTS (or run out).
+  // Observations are returned newest-first by getObservations, so slice()
+  // gives us the most recent.
+  const MIN_TIMELINE_EVENTS = 8;
+  const cutoff   = Date.now() - recipe.timelineWindowDays * DAY;
+  const inWindow = observations.filter(o => +new Date(o.observed_at) >= cutoff);
+  const events   = inWindow.length >= MIN_TIMELINE_EVENTS
+    ? inWindow
+    : observations.slice(0, Math.max(inWindow.length, MIN_TIMELINE_EVENTS));
   const timeline = compressTimeline(events);
 
   // connect: stakeholders via the relationship graph
