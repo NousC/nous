@@ -3,7 +3,7 @@
 // Claude Haiku extracts structured CRM facts → `note.*` claims on the contact entity.
 // Graph edges (REPORTS_TO, BUDGET_HOLDER_AT, etc.) extracted from each fact → workspace_graph_edges.
 
-import Anthropic from 'useleak';
+import Anthropic, { setUser } from 'useleak';
 import { listNotes, saveNote, updateNote, searchClaims, listActivities } from '@nous/core';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -202,6 +202,7 @@ Second sentence: the single most important thing to know right now — the block
 
 async function extractActivitySignals({ supabase, activityId, contactId, workspaceId, type, source, summary }) {
   try {
+    setUser({ id: String(workspaceId) });
     const { data: contact } = await supabase.from('contacts')
       .select('first_name, last_name, company').eq('id', contactId).single();
 

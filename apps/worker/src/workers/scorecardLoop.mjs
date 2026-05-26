@@ -14,7 +14,7 @@
 //
 // See docs/adaptive-lead-scoring.md.
 
-import Anthropic from 'useleak';
+import Anthropic, { setUser } from 'useleak';
 import {
   getSupabaseClient,
   listSignals,
@@ -142,6 +142,7 @@ async function propose(signals, train) {
 
 // ── One workspace's run ───────────────────────────────────────────────────────
 async function runForWorkspace(supabase, workspaceId, episodes) {
+  setUser({ id: String(workspaceId) });
   const startedAt = new Date();
   // episodes arrive sorted by predicted_at ascending — split by time.
   const cut = Math.floor(episodes.length * (1 - HOLDBACK_FRAC));

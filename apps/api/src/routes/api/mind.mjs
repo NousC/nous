@@ -421,7 +421,6 @@ mindRouter.post('/scorecard/seed', async (req, res) => {
 
     const msg = await anthropic.messages.create({
       feature: 'scorecard-seed-translate',
-      user: req.user?.id,
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 900,
       messages: [{ role: 'user', content: prompt }],
