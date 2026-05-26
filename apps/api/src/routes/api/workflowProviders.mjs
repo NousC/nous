@@ -607,43 +607,67 @@ async function unsubscribeCalComWebhook(pat, webhookId) {
   }
 }
 
-// HeyReach — one webhook per event type, so we register a handful on connect
-// and store the resulting webhook ids for cleanup on disconnect.
-// Events we care about: replies and acceptances are strong intent signals;
-// LEAD_TAG_UPDATED lets users tag from HeyReach and have it flow into Nous.
+// HeyReach — one webhook per event type. We register N webhooks on connect and
+// store their ids on the connection for cleanup on disconnect.
+//
+// EVENT SELECTION
+// ---------------
+// HeyReach has 12 event types. Four of them — MESSAGE_REPLY_RECEIVED,
+// INMAIL_REPLY_RECEIVED, CONNECTION_REQUEST_ACCEPTED, EVERY_MESSAGE_REPLY_RECEIVED
+// — describe things that happen *to* the user (someone replied, someone
+// accepted). Those land in the LinkedIn inbox itself, so Unipile (our native
+// LinkedIn integration) is already the system of record for them. Subscribing
+// to them via HeyReach too would just produce duplicate timeline entries.
+//
+// The remaining 8 events describe things HeyReach *did on the user's behalf*
+// (sent a request, sent a message, followed someone, liked a post, ...) plus
+// HeyReach-internal events (CAMPAIGN_COMPLETED, LEAD_TAG_UPDATED). Unipile
+// can't see these as discrete real-time signals, so HeyReach is the only
+// system of record for them — subscribe to all 8.
+//
+// REQUEST BODY NOTES
+// ------------------
+// - `campaignIds` is required by HeyReach even when targeting all campaigns;
+//   pass an empty array to mean "all campaigns".
+// - `webhookName` has a 25-char limit. Short labels are mapped per-event below.
 const HEYREACH_EVENTS = [
-  'MESSAGE_REPLY_RECEIVED',
-  'INMAIL_REPLY_RECEIVED',
-  'CONNECTION_REQUEST_ACCEPTED',
-  'LEAD_TAG_UPDATED',
+  { type: 'CONNECTION_REQUEST_SENT', name: 'Nous · CR Sent' },
+  { type: 'MESSAGE_SENT',            name: 'Nous · Msg Sent' },
+  { type: 'INMAIL_SENT',             name: 'Nous · InMail Sent' },
+  { type: 'FOLLOW_SENT',             name: 'Nous · Follow' },
+  { type: 'LIKED_POST',              name: 'Nous · Liked Post' },
+  { type: 'VIEWED_PROFILE',          name: 'Nous · Viewed Profile' },
+  { type: 'CAMPAIGN_COMPLETED',      name: 'Nous · Campaign Done' },
+  { type: 'LEAD_TAG_UPDATED',        name: 'Nous · Tag Updated' },
 ];
 
 async function subscribeHeyReachWebhooks(apiKey, workspaceId) {
   const callbackUrl = `${workerBaseUrl()}/inbound/heyreach/${workspaceId}`;
   const created = [];
-  for (const eventType of HEYREACH_EVENTS) {
+  for (const { type, name } of HEYREACH_EVENTS) {
     try {
       const res = await fetch('https://api.heyreach.io/api/public/webhooks/CreateWebhook', {
         method:  'POST',
         headers: { 'X-API-KEY': apiKey, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          webhookName: `Nous ${eventType}`,
+          webhookName: name,
           webhookUrl:  callbackUrl,
-          eventType,
+          eventType:   type,
+          campaignIds: [],          // required by HeyReach; [] means "all campaigns"
         }),
       });
       if (!res.ok) {
         const detail = await res.text().catch(() => '');
         // Roll back what we already created so the user doesn't get half-subscribed
         for (const id of created) await unsubscribeHeyReachWebhook(apiKey, id);
-        return { error: `heyreach_subscribe_failed_${res.status}`, detail, eventType };
+        return { error: `heyreach_subscribe_failed_${res.status}`, detail, eventType: type };
       }
       const body = await res.json().catch(() => ({}));
       const id = body?.id ?? body?.webhookId ?? body?.data?.id;
       if (id != null) created.push(String(id));
     } catch (err) {
       for (const id of created) await unsubscribeHeyReachWebhook(apiKey, id);
-      return { error: 'heyreach_subscribe_exception', message: err.message, eventType };
+      return { error: 'heyreach_subscribe_exception', message: err.message, eventType: type };
     }
   }
   return { webhook_ids: created };

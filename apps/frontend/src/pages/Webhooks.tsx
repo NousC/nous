@@ -15,10 +15,21 @@ interface WebhookUrl {
   status?: WebhookStatus;
 }
 
+// Sources whose logo files are PNG rather than SVG. Listing them explicitly
+// avoids a wasted .svg request that 404s on every page load.
+const PNG_SOURCES = new Set([
+  "emailbison",
+  "heyreach",
+  "smartlead",
+  "rb2b",
+  "linkedin",
+]);
+
 function ProviderLogo({ source }: { source: string }) {
-  // Try .svg first; if missing fall back to .png; if both 404 the lucide
-  // Webhook icon underneath stays visible.
-  const [src, setSrc] = useState(`/provider-logos/${source}.svg`);
+  // Pick the right extension on the first try; fall through to the lucide
+  // Webhook icon underneath if even that 404s.
+  const initialExt = PNG_SOURCES.has(source) ? "png" : "svg";
+  const [src, setSrc] = useState(`/provider-logos/${source}.${initialExt}`);
   return (
     <div className="relative w-8 h-8 rounded-lg bg-muted/50 border border-border/60 flex items-center justify-center overflow-hidden flex-shrink-0">
       <Webhook className="h-4 w-4 text-muted-foreground/50" strokeWidth={1.75} />
@@ -27,7 +38,9 @@ function ProviderLogo({ source }: { source: string }) {
         alt=""
         className="absolute inset-0 m-auto w-5 h-5 object-contain bg-muted/50"
         onError={e => {
-          if (src.endsWith(".svg")) setSrc(`/provider-logos/${source}.png`);
+          // Try the other extension once before giving up.
+          if (src.endsWith(".svg"))      setSrc(`/provider-logos/${source}.png`);
+          else if (src.endsWith(".png")) setSrc(`/provider-logos/${source}.svg`);
           else (e.target as HTMLImageElement).style.display = "none";
         }}
       />
