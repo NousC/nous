@@ -13,6 +13,8 @@ type PlanInfo = {
   enrichmentsPerMonth: number;
   workspaceLimit: number | null;
   crmSync?: boolean;
+  leadLists?: boolean;
+  publicSignalExtraction?: boolean;
   supportTier?: string;
 };
 
@@ -38,10 +40,10 @@ type BillingState = {
 const PLAN_ORDER = ["free", "starter", "pro", "scale"];
 
 const PLAN_BLURB: Record<string, string> = {
-  free: "Test the core workflow — unify your stack and query it from an agent.",
-  starter: "For individuals running their own outbound with an agent.",
-  pro: "For operators turning signal into pipeline at volume.",
-  scale: "For teams running multi-channel outbound with agents.",
+  free: "For builders kicking the tires before committing volume.",
+  starter: "For solo operators shipping campaigns from Claude Code.",
+  pro: "For internal GTM teams scaling their operations.",
+  scale: "For agencies running multiple clients in parallel.",
   enterprise: "Embed Nous into your own product or agent stack.",
 };
 
@@ -49,6 +51,13 @@ const SUPPORT_LABEL: Record<string, string> = {
   community: "Community support",
   email: "Email support",
   priority: "Priority support",
+};
+
+// Display-only bullets that the backend does NOT gate on. Driven purely by
+// plan id so we can market a feature before the implementation lands.
+const FRONTEND_ONLY_BULLETS: Record<string, string[]> = {
+  pro: ["Dedicated Slack channel"],
+  scale: ["Dedicated Slack channel", "Multi-client dashboard"],
 };
 
 function num(n: number | undefined) {
@@ -64,13 +73,16 @@ function fmtDate(s?: string | null) {
 function planBullets(p: PlanInfo): string[] {
   const b = [
     "Unlimited contacts",
-    `${num(p.includedOpsPerMonth)} ops / month`,
+    `${num(p.includedOpsPerMonth)} GTM operations / month`,
     `${num(p.enrichmentsPerMonth)} enrichments / month`,
     p.workspaceLimit === null
       ? "Unlimited workspaces"
       : `${p.workspaceLimit} workspace${p.workspaceLimit === 1 ? "" : "s"}`,
   ];
-  if (p.crmSync) b.push("CRM sync");
+  if (p.crmSync) b.push("CRM sync to HubSpot, Salesforce, Pipedrive, Close, Attio");
+  if (p.publicSignalExtraction) b.push("Public signal extraction");
+  if (p.leadLists) b.push("Lead lists");
+  for (const extra of FRONTEND_ONLY_BULLETS[p.id] ?? []) b.push(extra);
   b.push(SUPPORT_LABEL[p.supportTier ?? "community"] ?? "Community support");
   return b;
 }
@@ -266,7 +278,7 @@ export default function UsageBilling() {
 
           {/* Usage */}
           <div className="p-6 md:p-7 bg-muted/30 border-t md:border-t-0 md:border-l border-border space-y-5">
-            <UsageMeter label="Ops" used={ops.used} included={ops.included} />
+            <UsageMeter label="GTM operations" used={ops.used} included={ops.included} />
             <UsageMeter label="Enrichments" used={enrich.used} included={enrich.included} />
             <p className="text-[12px] text-muted-foreground/70 pt-1">
               {periodLabel ? `Current billing period · ${periodLabel}` : "Resets at the start of each month."}
@@ -279,7 +291,7 @@ export default function UsageBilling() {
       <div className="mb-4">
         <h2 className="text-[15px] font-semibold text-foreground">Nous plans</h2>
         <p className="text-[13px] text-muted-foreground mt-0.5">
-          Pure-tier pricing — ops and enrichments included per plan, no top-up packs or overage charges.
+          Pure-tier pricing. GTM operations and enrichments included per plan. No top-up packs or overage charges.
         </p>
       </div>
 
@@ -342,7 +354,7 @@ export default function UsageBilling() {
           <span className="text-[13px] font-medium text-muted-foreground mb-0.5">Enterprise</span>
           <div className="text-[24px] font-bold text-foreground leading-tight mb-4">Custom</div>
           <ul className="space-y-2 mb-5">
-            {["Everything in Scale", "Unlimited ops & enrichments", "SaaS license to embed", "SLA + dedicated support", "Custom contracts"].map((b) => (
+            {["Everything in Scale", "Unlimited GTM operations & enrichments", "SaaS license to embed", "SLA + dedicated support", "Custom contracts"].map((b) => (
               <li key={b} className="flex items-start gap-2 text-[12.5px] text-muted-foreground">
                 <Check className="h-3.5 w-3.5 text-emerald-500 flex-shrink-0 mt-[2px]" strokeWidth={2.5} />
                 <span>{b}</span>

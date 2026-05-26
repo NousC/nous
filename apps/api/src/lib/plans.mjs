@@ -8,6 +8,11 @@
  *   - ops          — webhooks, MCP/SDK/API calls, scans (the live op log)
  *   - enrichments  — capped monthly allowance (external provider cost)
  *
+ * Grandfathering: subscription.plan_id is set from checkout metadata, not from
+ * Stripe Price ID. Existing subscribers on legacy $19/$79/$249 Prices keep
+ * those Prices and continue paying the old amount; new subscribers pay the
+ * new $79/$249/$479 via updated STRIPE_*_PRICE_ID env vars.
+ *
  * Self-hosted (SELF_HOSTED=true) bypasses all gating and metering — see access.mjs.
  */
 
@@ -22,37 +27,61 @@ export const PLANS = {
     enrichmentsPerMonth: 25,
     workspaceLimit: 1,
     stripePriceEnv: null,
-    features: { contextualization: true, crmSync: false, leadLists: false, supportTier: 'community' },
+    features: {
+      contextualization: true,
+      crmSync: false,
+      leadLists: false,
+      publicSignalExtraction: false,
+      supportTier: 'community',
+    },
   },
   starter: {
     id: 'starter',
     name: 'Starter',
-    monthlyPriceUsd: 19,
-    includedOpsPerMonth: 5_000,
+    monthlyPriceUsd: 79,
+    includedOpsPerMonth: 10_000,
     enrichmentsPerMonth: 100,
     workspaceLimit: 1,
     stripePriceEnv: 'STRIPE_STARTER_PRICE_ID',
-    features: { contextualization: true, crmSync: false, leadLists: false, supportTier: 'community' },
+    features: {
+      contextualization: true,
+      crmSync: false,
+      leadLists: false,
+      publicSignalExtraction: false,
+      supportTier: 'email',
+    },
   },
   pro: {
     id: 'pro',
     name: 'Pro',
-    monthlyPriceUsd: 79,
-    includedOpsPerMonth: 25_000,
+    monthlyPriceUsd: 249,
+    includedOpsPerMonth: 50_000,
     enrichmentsPerMonth: 500,
     workspaceLimit: 3,
     stripePriceEnv: 'STRIPE_PRO_PRICE_ID',
-    features: { contextualization: true, crmSync: false, leadLists: false, supportTier: 'email' },
+    features: {
+      contextualization: true,
+      crmSync: true,
+      leadLists: true,
+      publicSignalExtraction: true,
+      supportTier: 'priority',
+    },
   },
   scale: {
     id: 'scale',
     name: 'Scale',
-    monthlyPriceUsd: 249,
-    includedOpsPerMonth: 100_000,
+    monthlyPriceUsd: 479,
+    includedOpsPerMonth: 250_000,
     enrichmentsPerMonth: 2_000,
     workspaceLimit: null,
     stripePriceEnv: 'STRIPE_SCALE_PRICE_ID',
-    features: { contextualization: true, crmSync: true, leadLists: true, supportTier: 'priority' },
+    features: {
+      contextualization: true,
+      crmSync: true,
+      leadLists: true,
+      publicSignalExtraction: true,
+      supportTier: 'priority',
+    },
   },
 };
 
