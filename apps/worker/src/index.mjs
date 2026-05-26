@@ -20,6 +20,7 @@ import { processClaimJobs } from './workers/claimEngine.mjs';
 import { scoreEntities } from './workers/scoreEntities.mjs';
 import { processEmbeddings } from './workers/embeddings.mjs';
 import { runCrmAutoSync } from './workers/crmSync.mjs';
+import { runStageDerivation } from './workers/stageDerivation.mjs';
 
 // Wire webhook-driven activity logging → CRM push at module load.
 // Worker is where most logActivity() calls originate (Instantly/Lemlist replies,
@@ -203,5 +204,19 @@ console.log('[WORKER] Embedding worker — every 2 minutes');
 // See workers/crmSync.mjs.
 cron.schedule('0 2 * * *', runCrmAutoSync, { timezone: 'UTC' });
 console.log('[WORKER] CRM auto-sync — daily at 02:00 UTC');
+
+// ── Pipeline-stage derivation — hourly at :15 ────────────────────────────────
+// Walks active person entities and advances pipeline_stage based on observed
+// activity (meeting/proposal → evaluating; replies → interested; connect →
+// aware). Only promotes — never downgrades; the daily decay worker owns
+// regression. Writes a state observation per advancement, so the claim engine
+// re-derives the pipeline_stage claim downstream. See workers/stageDerivation.mjs.
+async function runStageDerivationSafe() {
+  try { await runStageDerivation(); }
+  catch (err) { console.error('[WORKER] stage derivation error:', err.message); }
+}
+runStageDerivationSafe();
+cron.schedule('15 * * * *', runStageDerivationSafe);
+console.log('[WORKER] Pipeline-stage derivation — hourly at :15');
 
 console.log('[WORKER] Started');
