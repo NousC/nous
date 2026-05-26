@@ -115,7 +115,9 @@ app.use('/api/integrations',          integrationsRouter);
 app.use('/api/crm',                   crmRouter);
 app.use('/api/contacts',              contactsApiRouter);
 app.use('/api/companies',             companiesApiRouter);
-app.use('/api/signals',               signalsRouter);
+// publicSignalExtraction gates the authenticated setup/configuration routes.
+// The public ingest endpoint stays open (its own HMAC token guards it).
+app.use('/api/signals',               verifySupabaseAuth, requireFeature('publicSignalExtraction'), signalsRouter);
 app.use('/api/public/signals',        publicSignalsRouter);
 app.use('/api/requests',              requestsRouter);
 app.use('/api/feedback',              feedbackRouter);

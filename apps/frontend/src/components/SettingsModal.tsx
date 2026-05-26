@@ -4517,7 +4517,7 @@ function SubscriptionSection({ session }: { session: any }) {
                   <span className="text-sm font-normal text-muted-foreground">/mo</span>
                 </div>
                 <ul className="text-xs text-muted-foreground space-y-1">
-                  <li>{formatNumber(p.includedOpsPerMonth)} ops / month</li>
+                  <li>{formatNumber(p.includedOpsPerMonth)} GTM operations / month</li>
                   <li>{formatNumber(p.enrichmentsPerMonth)} enrichments / month</li>
                   <li>
                     {p.workspaceLimit === null ? "Unlimited workspaces" : `${p.workspaceLimit} workspace${p.workspaceLimit === 1 ? "" : "s"}`}
