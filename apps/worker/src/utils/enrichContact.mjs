@@ -2,7 +2,7 @@
 // Priority: Apollo BYOK (if enabled) → Prospeo BYOK → built-in Prospeo key.
 // scoreICP runs after every successful enrichment.
 
-import Anthropic from 'useleak';
+import Anthropic, { setUser } from 'useleak';
 import { listNotes } from '@nous/core';
 import { logActivity } from './activity.mjs';
 import { upsertCompany } from './resolveContact.mjs';
@@ -38,6 +38,7 @@ async function getProviderKey(supabase, workspaceId, providerName, requireEnrich
 // ── ICP scoring ───────────────────────────────────────────────────────────────
 
 export async function scoreICP(supabase, workspaceId, contact) {
+  setUser({ id: String(workspaceId) });
   const profileLines = [
     contact.job_title  && `Title: ${contact.job_title}`,
     contact.seniority  && `Seniority: ${contact.seniority}`,

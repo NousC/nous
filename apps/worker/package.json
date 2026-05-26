@@ -19,6 +19,6 @@
     "mailparser": "^3.9.8",
     "node-cron": "^3.0.3",
     "openai": "^4.0.0",
-    "useleak": "^0.1.0"
+    "useleak": "^0.3.1"
   }
 }

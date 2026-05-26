@@ -12,7 +12,7 @@
 //
 // See docs/adaptive-lead-scoring.md.
 
-import Anthropic from 'useleak';
+import Anthropic, { setUser } from 'useleak';
 import { getSupabaseClient, findLeadByEmail, updateLead, addSuppression, listActivities, logWorkerRun } from '@nous/core';
 import { logSysEvent } from '../utils/systemLog.mjs';
 
@@ -102,6 +102,7 @@ export async function processLeadReplies() {
 
     let outcome;
     try {
+      setUser({ id: String(act.workspace_id) });
       outcome = await classifyReply(text);
     } catch (e) {
       console.warn('[LEAD_REPLIES] classify failed for lead', lead.id, ':', e.message);
