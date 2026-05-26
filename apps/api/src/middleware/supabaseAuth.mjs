@@ -37,7 +37,11 @@ export async function verifySupabaseAuth(req, res, next) {
     req.supabaseUser = cached.user;
     req.internalUserId = cached.internalUserId;
     if (workspaceId) req.workspaceId = workspaceId;
-    setUser({ id: String(cached.user.id), email: cached.user.email });
+    setUser({
+      id: String(cached.user.id),
+      email: cached.user.email,
+      name: cached.user.user_metadata?.full_name || cached.user.user_metadata?.name,
+    });
     return next();
   }
 
@@ -53,7 +57,11 @@ export async function verifySupabaseAuth(req, res, next) {
 
   req.user = user;
   req.supabaseUser = user;
-  setUser({ id: String(user.id), email: user.email });
+  setUser({
+    id: String(user.id),
+    email: user.email,
+    name: user.user_metadata?.full_name || user.user_metadata?.name,
+  });
 
   // workspace_members stores the internal users.id, not the auth UUID.
   // Resolve the internal user record so membership checks use the right ID.
