@@ -81,9 +81,12 @@ webhooksRouter.get('/urls', async (req, res) => {
   // webhook UI) or auto_registered (Nous registers the subscription via the
   // provider's API on connect — URL is shown for transparency/debugging only).
   const urls = [
-    { source: 'linkedin',  url: `${b}/inbound/linkedin?workspace_id=${workspaceId}&secret=YOUR_LINKEDIN_WEBHOOK_SECRET` },
+    { source: 'linkedin',  url: `${b}/api/linkedin/webhook`, auto_registered: true },
     { source: 'rb2b',      url: `${b}/inbound/rb2b/${workspaceId}` },
     { source: 'instantly', url: `${b}/inbound/instantly/${workspaceId}` },
+    { source: 'emailbison', url: `${b}/inbound/emailbison/${workspaceId}` },
+    { source: 'heyreach', url: `${b}/inbound/heyreach/${workspaceId}`, auto_registered: true },
+    { source: 'smartlead', url: `${b}/inbound/smartlead/${workspaceId}` },
     { source: 'fireflies', url: `${b}/inbound/fireflies/${workspaceId}` },
     { source: 'fathom',    url: `${b}/inbound/fathom/${workspaceId}` },
     { source: 'calendly',  url: `${b}/inbound/calendly/${workspaceId}`, auto_registered: true },

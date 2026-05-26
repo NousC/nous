@@ -166,6 +166,31 @@ async function testProviderCredentials(provider, credentials) {
       if (r.ok) return { verified: true, message: 'Connected to Instantly' };
       return { verified: false, message: `Instantly returned ${r.status} — check your API key` };
     }
+    if (p === 'emailbison') {
+      if (!token) return { verified: false, message: 'No credentials provided' };
+      const r = await fetch('https://dedi.emailbison.com/api/campaigns?per_page=1', {
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      });
+      if (r.ok) return { verified: true, message: 'Connected to EmailBison' };
+      if (r.status === 401) return { verified: false, message: 'Invalid EmailBison API key' };
+      return { verified: false, message: `EmailBison returned ${r.status} — check your API key` };
+    }
+    if (p === 'heyreach') {
+      if (!token) return { verified: false, message: 'No credentials provided' };
+      const r = await fetch('https://api.heyreach.io/api/public/auth/CheckApiKey', {
+        headers: { 'X-API-KEY': token, Accept: 'text/plain' },
+      });
+      if (r.ok) return { verified: true, message: 'Connected to HeyReach' };
+      if (r.status === 401) return { verified: false, message: 'Invalid HeyReach API key' };
+      return { verified: false, message: `HeyReach returned ${r.status} — check your API key` };
+    }
+    if (p === 'smartlead') {
+      if (!token) return { verified: false, message: 'No credentials provided' };
+      const r = await fetch(`https://server.smartlead.ai/api/v1/campaigns/?api_key=${encodeURIComponent(token)}&limit=1`);
+      if (r.ok) return { verified: true, message: 'Connected to Smartlead' };
+      if (r.status === 401 || r.status === 403) return { verified: false, message: 'Invalid Smartlead API key' };
+      return { verified: false, message: `Smartlead returned ${r.status} — check your API key` };
+    }
     if (p === 'fireflies') {
       if (!token) return { verified: false, message: 'No credentials provided' };
       const r = await fetch('https://api.fireflies.ai/graphql', {
@@ -416,6 +441,14 @@ workflowProvidersRouter.delete('/connections/:id', verifySupabaseAuth, async (re
       if (pat && wid) await unsubscribeCalComWebhook(pat, wid);
     }
 
+    if (conn?.workflow_providers?.name === 'heyreach') {
+      const pat = decrypt(conn.encrypted_credentials?.api_key || '');
+      const ids = conn.encrypted_credentials?.webhook_ids;
+      if (pat && Array.isArray(ids)) {
+        for (const wid of ids) await unsubscribeHeyReachWebhook(pat, wid);
+      }
+    }
+
     await supabase.from('workflow_provider_connections').delete().eq('id', id);
     return res.json({ ok: true });
   } catch (err) {
@@ -456,7 +489,7 @@ workflowProvidersRouter.get('/slack/channels', verifySupabaseAuth, async (req, r
 // Providers connectable via the simplified /:name/test + /:name/connect endpoints
 // (used by the Mind popup quick-connect flow). Anything not in this list still works
 // via the generic /connections endpoint used by Settings → Integrations.
-const NAMED_PROVIDERS = ['apollo', 'instantly', 'lemlist', 'prospeo', 'hubspot', 'pipedrive', 'attio', 'calendly', 'fireflies', 'fathom', 'cal_com'];
+const NAMED_PROVIDERS = ['apollo', 'instantly', 'lemlist', 'emailbison', 'heyreach', 'smartlead', 'prospeo', 'hubspot', 'pipedrive', 'attio', 'calendly', 'fireflies', 'fathom', 'cal_com'];
 
 const CAL_COM_API_VERSION = '2026-05-01';
 
@@ -574,6 +607,60 @@ async function unsubscribeCalComWebhook(pat, webhookId) {
   }
 }
 
+// HeyReach — one webhook per event type, so we register a handful on connect
+// and store the resulting webhook ids for cleanup on disconnect.
+// Events we care about: replies and acceptances are strong intent signals;
+// LEAD_TAG_UPDATED lets users tag from HeyReach and have it flow into Nous.
+const HEYREACH_EVENTS = [
+  'MESSAGE_REPLY_RECEIVED',
+  'INMAIL_REPLY_RECEIVED',
+  'CONNECTION_REQUEST_ACCEPTED',
+  'LEAD_TAG_UPDATED',
+];
+
+async function subscribeHeyReachWebhooks(apiKey, workspaceId) {
+  const callbackUrl = `${workerBaseUrl()}/inbound/heyreach/${workspaceId}`;
+  const created = [];
+  for (const eventType of HEYREACH_EVENTS) {
+    try {
+      const res = await fetch('https://api.heyreach.io/api/public/webhooks/CreateWebhook', {
+        method:  'POST',
+        headers: { 'X-API-KEY': apiKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          webhookName: `Nous ${eventType}`,
+          webhookUrl:  callbackUrl,
+          eventType,
+        }),
+      });
+      if (!res.ok) {
+        const detail = await res.text().catch(() => '');
+        // Roll back what we already created so the user doesn't get half-subscribed
+        for (const id of created) await unsubscribeHeyReachWebhook(apiKey, id);
+        return { error: `heyreach_subscribe_failed_${res.status}`, detail, eventType };
+      }
+      const body = await res.json().catch(() => ({}));
+      const id = body?.id ?? body?.webhookId ?? body?.data?.id;
+      if (id != null) created.push(String(id));
+    } catch (err) {
+      for (const id of created) await unsubscribeHeyReachWebhook(apiKey, id);
+      return { error: 'heyreach_subscribe_exception', message: err.message, eventType };
+    }
+  }
+  return { webhook_ids: created };
+}
+
+async function unsubscribeHeyReachWebhook(apiKey, webhookId) {
+  if (!webhookId) return;
+  try {
+    await fetch(`https://api.heyreach.io/api/public/webhooks/DeleteWebhook?webhookId=${encodeURIComponent(webhookId)}`, {
+      method:  'DELETE',
+      headers: { 'X-API-KEY': apiKey },
+    });
+  } catch (err) {
+    console.warn('[HEYREACH_UNSUBSCRIBE]', err.message);
+  }
+}
+
 async function testNamedProvider(name, apiKey) {
   if (!apiKey) return { verified: false, message: 'API key is required' };
 
@@ -593,6 +680,31 @@ async function testNamedProvider(name, apiKey) {
     });
     if (r.ok) return { verified: true, message: 'Connected to Instantly' };
     return { verified: false, message: `Instantly returned ${r.status} — check your API key` };
+  }
+
+  if (name === 'emailbison') {
+    const r = await fetch('https://dedi.emailbison.com/api/campaigns?per_page=1', {
+      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    });
+    if (r.ok) return { verified: true, message: 'Connected to EmailBison' };
+    if (r.status === 401) return { verified: false, message: 'Invalid EmailBison API key' };
+    return { verified: false, message: `EmailBison returned ${r.status} — check your API key` };
+  }
+
+  if (name === 'heyreach') {
+    const r = await fetch('https://api.heyreach.io/api/public/auth/CheckApiKey', {
+      headers: { 'X-API-KEY': apiKey, Accept: 'text/plain' },
+    });
+    if (r.ok) return { verified: true, message: 'Connected to HeyReach' };
+    if (r.status === 401) return { verified: false, message: 'Invalid HeyReach API key' };
+    return { verified: false, message: `HeyReach returned ${r.status} — check your API key` };
+  }
+
+  if (name === 'smartlead') {
+    const r = await fetch(`https://server.smartlead.ai/api/v1/campaigns/?api_key=${encodeURIComponent(apiKey)}&limit=1`);
+    if (r.ok) return { verified: true, message: 'Connected to Smartlead' };
+    if (r.status === 401 || r.status === 403) return { verified: false, message: 'Invalid Smartlead API key' };
+    return { verified: false, message: `Smartlead returned ${r.status} — check your API key` };
   }
 
   if (name === 'lemlist') {
@@ -763,6 +875,20 @@ workflowProvidersRouter.post('/:name/connect', verifySupabaseAuth, async (req, r
       } else {
         credentials.webhook_id          = sub.webhook_id;
         credentials.webhook_signing_key = encryptValue(sub.signing_key);
+      }
+    }
+
+    // HeyReach — register N webhooks (one per event type) and store their ids.
+    // No signing secret in the HeyReach API, so we use the workspace-scoped URL
+    // and rely on the optional HEYREACH_WEBHOOK_SECRET shared-secret check in
+    // the worker for extra protection.
+    if (name === 'heyreach') {
+      const sub = await subscribeHeyReachWebhooks(api_key, workspace_id);
+      if (sub.error) {
+        console.error('[HEYREACH_CONNECT] subscribe failed:', sub.error, sub.detail || sub.message);
+        webhookNote = `Connected, but webhook subscription failed: ${sub.detail || sub.message || sub.error}`;
+      } else {
+        credentials.webhook_ids = sub.webhook_ids;   // JSON-serialized array on save below
       }
     }
 
