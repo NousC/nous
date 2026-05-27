@@ -12,18 +12,19 @@ export const blogRouter = Router();
 blogRouter.get('/articles', async (req, res) => {
   try {
     const supabase = getSupabaseClient();
-    const { limit = 100, article_type } = req.query;
+    const { limit = 100, article_type, category } = req.query;
 
     let query = supabase
       .from('blog_articles')
       .select(
-        'id, title, slug, excerpt:meta_description, cover_image_url, article_type, status, created_at, published_at'
+        'id, title, slug, excerpt:meta_description, meta_description, cover_image_url, article_type, category, featured, status, created_at, published_at'
       )
       .eq('status', 'published')
       .order('published_at', { ascending: false, nullsFirst: false })
       .limit(Number(limit));
 
     if (article_type) query = query.eq('article_type', article_type);
+    if (category) query = query.eq('category', category);
 
     const { data: articles, error } = await query;
     if (error) {

@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import React, { lazy, Suspense } from "react";
 import { AdminRoute } from "@/components/AdminRoute";
 import { AppSidebar } from "@/components/AppSidebar";
+import { ChecklistToast } from "@/components/OnboardingChecklist";
 import ComingSoon from "@/pages/ComingSoon";
 
 const lazyWithErrorBoundary = (importFn: () => Promise<any>) => {
@@ -26,8 +27,9 @@ const lazyWithErrorBoundary = (importFn: () => Promise<any>) => {
   );
 };
 
-const Mind            = lazyWithErrorBoundary(() => import("@/pages/Mind"));
+const Settings        = lazyWithErrorBoundary(() => import("@/pages/Settings"));
 const Install         = lazyWithErrorBoundary(() => import("@/pages/Install"));
+const Playground      = lazyWithErrorBoundary(() => import("@/pages/Playground"));
 const ApiKeys         = lazyWithErrorBoundary(() => import("@/pages/ApiKeys"));
 const Webhooks        = lazyWithErrorBoundary(() => import("@/pages/Webhooks"));
 const Ops             = lazyWithErrorBoundary(() => import("@/pages/Ops"));
@@ -36,16 +38,15 @@ const Companies       = lazyWithErrorBoundary(() => import("@/pages/Companies"))
 const Integrations    = lazyWithErrorBoundary(() => import("@/pages/Integrations"));
 const CrmSync         = lazyWithErrorBoundary(() => import("@/pages/CrmSync"));
 const Exports         = lazyWithErrorBoundary(() => import("@/pages/Exports"));
-const DeveloperPortal = lazyWithErrorBoundary(() => import("@/pages/DeveloperPortal"));
 const UsageBilling    = lazyWithErrorBoundary(() => import("@/pages/UsageBilling"));
 const Inbox           = lazyWithErrorBoundary(() => import("@/pages/Inbox"));
-const Reporting       = lazyWithErrorBoundary(() => import("@/pages/AdvancedAnalytics"));
-const API             = lazyWithErrorBoundary(() => import("@/pages/API"));
-const SystemLog       = lazyWithErrorBoundary(() => import("@/pages/SystemLog"));
 const Intelligence    = lazyWithErrorBoundary(() => import("@/pages/Intelligence"));
+const Lists           = lazyWithErrorBoundary(() => import("@/pages/Lists"));
+const CleanList       = lazyWithErrorBoundary(() => import("@/pages/CleanList"));
 const NotFound        = lazyWithErrorBoundary(() => import("@/pages/NotFound"));
 
 const AdminCMS              = lazyWithErrorBoundary(() => import("@/pages/AdminCMS"));
+const AdminResources        = lazyWithErrorBoundary(() => import("@/pages/AdminResources"));
 const AdminChangelog        = lazyWithErrorBoundary(() => import("@/pages/AdminChangelog"));
 const AdminRoadmap          = lazyWithErrorBoundary(() => import("@/pages/AdminRoadmap"));
 const AdminUpdates          = lazyWithErrorBoundary(() => import("@/pages/AdminUpdates"));
@@ -94,6 +95,7 @@ function StandardLayout({ children }: { children: React.ReactNode }) {
           {children}
         </div>
       </main>
+      <ChecklistToast />
     </div>
   );
 }
@@ -103,7 +105,17 @@ export function AppRoutes() {
     <Routes>
       {/* Full-screen admin pages — no sidebar/header */}
       <Route path="/admin/cms" element={<AdminFullScreen><Suspense fallback={<MinimalLoader />}><AdminCMS /></Suspense></AdminFullScreen>} />
+      <Route path="/admin/resources" element={<AdminFullScreen><Suspense fallback={<MinimalLoader />}><AdminResources /></Suspense></AdminFullScreen>} />
       <Route path="/admin/support" element={<AdminFullScreen><Suspense fallback={<MinimalLoader />}><AdminSupportDashboard /></Suspense></AdminFullScreen>} />
+
+      {/* Playground is its own immersive canvas — no app sidebar.
+          Lives outside StandardLayout so the chat + tool-trace UI gets the
+          full viewport, matching the Mem0 playground pattern. */}
+      <Route path="/playground" element={
+        <div className="h-screen w-full bg-background overflow-hidden">
+          <Suspense fallback={<MinimalLoader />}><Playground /></Suspense>
+        </div>
+      } />
 
       {/* Standard layout — sidebar + conditional header */}
       <Route path="*" element={
@@ -115,30 +127,17 @@ export function AppRoutes() {
             <Route path="/requests"   element={<Navigate to="/ops" replace />} />
             {/* Setup */}
             <Route path="/install"    element={<Suspense fallback={<MinimalLoader />}><Install /></Suspense>} />
-            <Route path="/playground" element={<ComingSoon />} />
+            {/* /playground is mounted above as a full-screen route — no sidebar */}
             <Route path="/keys"       element={<Suspense fallback={<MinimalLoader />}><ApiKeys /></Suspense>} />
             {/* Main nav */}
             <Route path="/webhooks"   element={<Suspense fallback={<MinimalLoader />}><Webhooks /></Suspense>} />
             <Route path="/exports"    element={<Suspense fallback={<MinimalLoader />}><Exports /></Suspense>} />
 
-            <Route path="/developer" element={<Suspense fallback={<MinimalLoader />}><DeveloperPortal /></Suspense>} />
             <Route path="/billing" element={<Suspense fallback={<MinimalLoader />}><UsageBilling /></Suspense>} />
             <Route path="/usage" element={<Suspense fallback={<MinimalLoader />}><UsageBilling /></Suspense>} />
 
-            {/* All Mind-related URLs share one parent route element. React
-                Router keeps the parent element mounted while only its
-                location changes, so Mind never unmounts when the user
-                navigates between /, /people, /people/:id, /companies, etc.
-                Local state (sort, scroll position, loaded data) survives
-                the URL change. Mind reads location.pathname to pick the
-                popup. The child routes have no element of their own —
-                they only declare the URL patterns this layout handles. */}
             <Route path="/" element={<Navigate to="/ops" replace />} />
-            <Route element={<Suspense fallback={<MinimalLoader />}><Mind /></Suspense>}>
-              <Route path="/memories" />
-              <Route path="/lead-lists" />
-              <Route path="/settings" />
-            </Route>
+            <Route path="/settings" element={<Suspense fallback={<MinimalLoader />}><Settings /></Suspense>} />
 
             {/* Standalone pages — extracted from Mind */}
             <Route path="/people"        element={<Suspense fallback={<MinimalLoader />}><People /></Suspense>} />
@@ -148,16 +147,12 @@ export function AppRoutes() {
             <Route path="/integrations"  element={<Suspense fallback={<MinimalLoader />}><Integrations /></Suspense>} />
             <Route path="/crm-sync"      element={<Suspense fallback={<MinimalLoader />}><CrmSync /></Suspense>} />
             <Route path="/crm"           element={<Navigate to="/crm-sync" replace />} />
+            <Route path="/lists"         element={<Suspense fallback={<MinimalLoader />}><Lists /></Suspense>} />
+            <Route path="/lists/clean"   element={<Suspense fallback={<MinimalLoader />}><CleanList /></Suspense>} />
             <Route path="/intelligence"  element={<Suspense fallback={<MinimalLoader />}><Intelligence /></Suspense>} />
             <Route path="/settings/*" element={<Navigate to="/settings" replace />} />
 
             <Route path="/inbox" element={<Suspense fallback={<TableLoader />}><Inbox /></Suspense>} />
-
-            <Route path="/reporting" element={<Suspense fallback={<TableLoader />}><Reporting /></Suspense>} />
-            <Route path="/analytics" element={<Navigate to="/reporting" replace />} />
-
-            <Route path="/api" element={<Suspense fallback={<MinimalLoader />}><API /></Suspense>} />
-            <Route path="/system-log" element={<Suspense fallback={<TableLoader />}><SystemLog /></Suspense>} />
 
             <Route path="/admin/changelog" element={<AdminRoute><Suspense fallback={<MinimalLoader />}><AdminChangelog /></Suspense></AdminRoute>} />
             <Route path="/admin/roadmap" element={<AdminRoute><Suspense fallback={<MinimalLoader />}><AdminRoadmap /></Suspense></AdminRoute>} />

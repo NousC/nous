@@ -2,7 +2,6 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Checkbox } from "@/components/ui/checkbox";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/components/ui/sonner";
 import { Eye, EyeOff } from "lucide-react";
@@ -14,7 +13,6 @@ const Login = () => {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [rememberMe, setRememberMeState] = useState(true);
   const { signIn, signInWithGoogle } = useAuth();
   const navigate = useNavigate();
 
@@ -22,7 +20,7 @@ const Login = () => {
     e.preventDefault();
     setLoading(true);
 
-    setRememberMe(rememberMe);
+    setRememberMe(true);
 
     const { error } = await signIn(email, password);
 
@@ -38,7 +36,7 @@ const Login = () => {
 
   const handleGoogleSignIn = async () => {
     setLoading(true);
-    setRememberMe(rememberMe);
+    setRememberMe(true);
     const { error } = await signInWithGoogle();
 
     if (error) {
@@ -49,7 +47,6 @@ const Login = () => {
 
   return (
     <div className="min-h-screen font-inter flex bg-[#FAF9F7]">
-      {/* Left Column - Login Form */}
       <div
         className="flex-1 flex items-center justify-center p-8 lg:p-16 relative"
         style={{
@@ -58,27 +55,17 @@ const Login = () => {
           backgroundSize: "18px 18px",
         }}
       >
-        <div className="w-full max-w-[420px] relative">
-          {/* Mobile Logo */}
-          <div className="flex items-center gap-2 mb-12 lg:hidden">
+        <div className="w-full max-w-[380px] relative">
+          <div className="flex items-center gap-2 mb-10 lg:hidden">
             <img src="/nous-logo.svg" alt="" className="w-7 h-7 object-contain" />
             <span className="font-bold text-[18px] tracking-[-0.02em] text-[#1f1410]">nous</span>
           </div>
 
-          <div className="mb-9">
-            <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#8a7568] mb-3">
-              <span className="text-[#c97e5c]">#</span> sign in
-            </div>
-            <h1 className="text-[34px] font-bold tracking-[-0.03em] leading-[1.05] text-[#1f1410] mb-3">
-              Welcome back.
-            </h1>
-            <p className="text-[15px] text-[#6b5a50]">
-              Sign in to continue to your workspace.
-            </p>
-          </div>
+          <h1 className="text-[28px] font-bold tracking-[-0.03em] leading-[1.1] text-[#1f1410] mb-8">
+            Sign in
+          </h1>
 
-          <div className="space-y-5">
-            {/* Google Sign In */}
+          <div className="space-y-4">
             <Button
               type="button"
               onClick={handleGoogleSignIn}
@@ -95,7 +82,6 @@ const Login = () => {
               Continue with Google
             </Button>
 
-            {/* Divider */}
             <div className="relative py-1">
               <div className="absolute inset-0 flex items-center">
                 <div className="w-full border-t border-[#e6dccf]" />
@@ -105,68 +91,42 @@ const Login = () => {
               </div>
             </div>
 
-            {/* Email Form */}
-            <form onSubmit={handleLogin} className="space-y-4">
-              <div>
-                <label className="text-[13px] font-medium text-[#3d2517] mb-1.5 block tracking-tight">
-                  Email
-                </label>
+            <form onSubmit={handleLogin} className="space-y-3">
+              <Input
+                type="email"
+                placeholder="you@company.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                className="h-11 rounded-lg text-sm border-[#e6dccf] bg-white text-[#1f1410] placeholder:text-[#a08c7e] focus-visible:ring-[#c97e5c] focus-visible:border-[#c97e5c]"
+                disabled={loading}
+                autoFocus
+              />
+
+              <div className="relative">
                 <Input
-                  type="email"
-                  placeholder="you@company.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  type={showPassword ? "text" : "password"}
+                  placeholder="Password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
                   required
-                  className="h-11 rounded-lg text-sm border-[#e6dccf] bg-white text-[#1f1410] placeholder:text-[#a08c7e] focus-visible:ring-[#c97e5c] focus-visible:border-[#c97e5c]"
+                  className="h-11 rounded-lg text-sm border-[#e6dccf] bg-white text-[#1f1410] placeholder:text-[#a08c7e] pr-10 focus-visible:ring-[#c97e5c] focus-visible:border-[#c97e5c]"
                   disabled={loading}
-                  autoFocus
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#a08c7e] hover:text-[#3d2517]"
+                  tabIndex={-1}
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
               </div>
 
-              <div>
-                <label className="text-[13px] font-medium text-[#3d2517] mb-1.5 block tracking-tight">
-                  Password
-                </label>
-                <div className="relative">
-                  <Input
-                    type={showPassword ? "text" : "password"}
-                    placeholder="Enter your password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                    className="h-11 rounded-lg text-sm border-[#e6dccf] bg-white text-[#1f1410] placeholder:text-[#a08c7e] pr-10 focus-visible:ring-[#c97e5c] focus-visible:border-[#c97e5c]"
-                    disabled={loading}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[#a08c7e] hover:text-[#3d2517]"
-                    tabIndex={-1}
-                  >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between pt-1">
-                <div className="flex items-center space-x-2.5">
-                  <Checkbox
-                    id="remember-me"
-                    checked={rememberMe}
-                    onCheckedChange={(checked) => setRememberMeState(checked === true)}
-                    disabled={loading}
-                    className="border-[#cbb9a8] data-[state=checked]:bg-[#3d2517] data-[state=checked]:border-[#3d2517]"
-                  />
-                  <label
-                    htmlFor="remember-me"
-                    className="text-[13px] cursor-pointer select-none text-[#6b5a50]"
-                  >
-                    Remember me
-                  </label>
-                </div>
+              <div className="flex justify-end pt-0.5">
                 <Link
                   to="/forgot-password"
-                  className="text-[13px] font-medium text-[#6b5a50] hover:text-[#3d2517] hover:underline underline-offset-2 decoration-dotted"
+                  className="text-[12px] text-[#6b5a50] hover:text-[#3d2517]"
                 >
                   Forgot password?
                 </Link>
@@ -188,17 +148,15 @@ const Login = () => {
             </form>
           </div>
 
-          {/* Sign Up Link */}
-          <div className="text-center text-sm mt-8 pt-6 border-t border-[#e6dccf]">
-            <span className="text-[#6b5a50]">Don&apos;t have an account? </span>
+          <div className="text-center text-sm mt-8">
+            <span className="text-[#6b5a50]">New here? </span>
             <Link to="/signup" className="font-semibold text-[#1f1410] hover:text-[#c97e5c] transition-colors">
-              Sign up →
+              Create account →
             </Link>
           </div>
         </div>
       </div>
 
-      {/* Right Column - Branding */}
       <NousBrandingPanel />
     </div>
   );

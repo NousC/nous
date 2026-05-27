@@ -13,6 +13,9 @@ const apiUrl = import.meta.env.VITE_API_URL ?? "";
 const HARDCODED_PROVIDERS: AvailableProvider[] = [
   { id:"instantly",  name:"instantly",  display_name:"Instantly",  logo_url:"/provider-logos/instantly.svg",  category:"outbound"     },
   { id:"lemlist",    name:"lemlist",    display_name:"Lemlist",    logo_url:"/provider-logos/lemlist.svg",    category:"outbound"     },
+  { id:"emailbison", name:"emailbison", display_name:"EmailBison", logo_url:"/provider-logos/emailbison.png", category:"outbound"     },
+  { id:"heyreach",   name:"heyreach",   display_name:"HeyReach",   logo_url:"/provider-logos/heyreach.png",   category:"outbound"     },
+  { id:"smartlead",  name:"smartlead",  display_name:"Smartlead",  logo_url:"/provider-logos/smartlead.png",  category:"outbound"     },
   { id:"apollo",     name:"apollo",     display_name:"Apollo",     logo_url:"/provider-logos/apollo.svg",     category:"enrichment"   },
   { id:"prospeo",    name:"prospeo",    display_name:"Prospeo",    logo_url:"/provider-logos/prospeo.svg",    category:"enrichment"   },
   { id:"fireflies", name:"fireflies", display_name:"Fireflies.ai", logo_url:"/provider-logos/fireflies.svg", category:"meetings"     },
@@ -240,7 +243,7 @@ export default function Integrations() {
       });
 
   return (
-    <div className="h-full overflow-y-auto bg-white">
+    <div className="h-full overflow-y-auto bg-background">
       <div className="px-8 py-7">
         <PageHeader
           title="Integrations"
@@ -248,17 +251,17 @@ export default function Integrations() {
           actions={
             <button onClick={() => { setConnecting(null); setAddOpen(true); }}
               aria-label="Add an integration"
-              className="h-9 w-9 rounded-lg bg-gray-900 text-white hover:bg-gray-800 flex items-center justify-center transition-colors">
+              className="h-9 w-9 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 flex items-center justify-center transition-colors">
               <Plus className="h-4 w-4" />
             </button>
           }
         />
 
         {/* Category tab row */}
-        <div className="flex gap-6 border-b border-gray-200 mb-5 overflow-x-auto">
+        <div className="flex gap-6 border-b border-border mb-5 overflow-x-auto">
           {([["all", `All (${allConns.length})`], ...connectedCats.map(c => [c, CATEGORY_LABEL[c]] as [string,string])]).map(([t,label]) => (
             <button key={t} onClick={()=>setCatTab(t)}
-              className={`pb-2.5 text-[13px] font-medium transition-colors flex-shrink-0 ${catTab===t?"text-gray-900 border-b-2 border-gray-900 -mb-px":"text-gray-400 hover:text-gray-700"}`}>
+              className={`pb-2.5 text-[13px] font-medium transition-colors flex-shrink-0 ${catTab===t?"text-foreground border-b-2 border-foreground -mb-px":"text-muted-foreground/70 hover:text-foreground/80"}`}>
               {label}
             </button>
           ))}
@@ -266,14 +269,14 @@ export default function Integrations() {
 
         {/* Connected integrations list */}
         {allConns.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-gray-200 py-12 text-center">
-            <p className="text-[13px] font-medium text-gray-700 mb-1">No integrations connected yet</p>
-            <p className="text-[12px] text-gray-400">Click the + button to connect your first tool.</p>
+          <div className="rounded-xl border border-dashed border-border py-12 text-center">
+            <p className="text-[13px] font-medium text-foreground/80 mb-1">No integrations connected yet</p>
+            <p className="text-[12px] text-muted-foreground/70">Click the + button to connect your first tool.</p>
           </div>
         ) : filteredConns.length === 0 ? (
-          <div className="text-[13px] text-gray-400 text-center py-12">No integrations in this category</div>
+          <div className="text-[13px] text-muted-foreground/70 text-center py-12">No integrations in this category</div>
         ) : (
-          <div className="rounded-xl border border-gray-200 overflow-hidden">
+          <div className="rounded-xl border border-border overflow-hidden">
             {filteredConns.map((conn: any) => {
               const providerForConnect: AvailableProvider = {
                 id: conn.provider?.name ?? conn.name,
@@ -284,12 +287,12 @@ export default function Integrations() {
                 auth_type: conn.provider?.auth_type,
               };
               return (
-                <div key={conn.id} className="flex items-center gap-4 px-4 py-3.5 border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors group">
+                <div key={conn.id} className="flex items-center gap-4 px-4 py-3.5 border-b border-border/60 last:border-0 hover:bg-muted/50 transition-colors group">
                   <IntegrationLogo url={conn.provider?.logo_url} name={conn.provider?.display_name??conn.name} />
                   <div className="flex-1 min-w-0">
-                    <div className="text-[13px] font-semibold text-gray-900">{conn.provider?.display_name??conn.name}</div>
+                    <div className="text-[13px] font-semibold text-foreground">{conn.provider?.display_name??conn.name}</div>
                     {conn.name && conn.name !== (conn.provider?.display_name??"") && (
-                      <div className="text-[12px] text-gray-400 truncate">{conn.name}</div>
+                      <div className="text-[12px] text-muted-foreground/70 truncate">{conn.name}</div>
                     )}
                   </div>
                   <span className={`text-[11px] px-2 py-0.5 rounded-md border flex-shrink-0 ${conn.is_verified?"text-emerald-700 border-emerald-200 bg-emerald-50":"text-amber-700 border-amber-200 bg-amber-50"}`}>
@@ -301,12 +304,12 @@ export default function Integrations() {
                     </span>
                   )}
                   <button onClick={()=>{ startConnect(providerForConnect); setAddOpen(true); }}
-                    className="text-[12px] font-medium text-gray-500 hover:text-gray-900 transition-colors opacity-0 group-hover:opacity-100 flex-shrink-0 ml-2 rounded-md border border-gray-200 px-2.5 py-1 hover:bg-gray-50">
+                    className="text-[12px] font-medium text-muted-foreground hover:text-foreground transition-colors opacity-0 group-hover:opacity-100 flex-shrink-0 ml-2 rounded-md border border-border px-2.5 py-1 hover:bg-muted/50">
                     Update
                   </button>
                   <button onClick={()=>disconnect(conn)} disabled={disconnecting===conn.id}
                     title="Disconnect this integration"
-                    className="text-[12px] font-medium text-gray-500 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100 flex-shrink-0 rounded-md border border-gray-200 px-2.5 py-1 hover:border-red-200 disabled:opacity-40">
+                    className="text-[12px] font-medium text-muted-foreground hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100 flex-shrink-0 rounded-md border border-border px-2.5 py-1 hover:border-red-200 disabled:opacity-40">
                     {disconnecting===conn.id ? "Removing…" : "Disconnect"}
                   </button>
                 </div>
@@ -320,11 +323,11 @@ export default function Integrations() {
       <Dialog open={addOpen} onOpenChange={(o)=>{ setAddOpen(o); if (!o) setConnecting(null); }}>
         <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="text-[18px] font-bold tracking-tight text-gray-900">
+            <DialogTitle className="text-[18px] font-bold tracking-tight text-foreground">
               {connecting ? (
                 <span className="flex items-center gap-2.5">
                   <button onClick={()=>setConnecting(null)}
-                    className="inline-flex items-center justify-center h-7 w-7 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 hover:text-gray-900 transition-colors">
+                    className="inline-flex items-center justify-center h-7 w-7 rounded-lg border border-border text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors">
                     <ArrowLeft className="h-3.5 w-3.5"/>
                   </button>
                   <IntegrationLogo url={connecting.logo_url} name={connecting.display_name} size={24}/>
@@ -341,11 +344,11 @@ export default function Integrations() {
                 <div className="text-[14px] font-semibold text-emerald-700">{connSuccess} connected</div>
               </div>
             ) : isOAuth(connecting) ? (
-              <div className="rounded-xl border border-gray-200 p-5 space-y-4">
+              <div className="rounded-xl border border-border p-5 space-y-4">
                 <div>
-                  <div className="text-[11px] font-medium text-gray-400 mb-1.5">Connection name</div>
+                  <div className="text-[11px] font-medium text-muted-foreground/70 mb-1.5">Connection name</div>
                   <input value={connName} onChange={e=>setConnName(e.target.value)}
-                    className="w-full h-9 rounded-lg border border-gray-200 bg-white px-3 text-[13px] text-gray-900 focus:border-gray-400 outline-none"/>
+                    className="w-full h-9 rounded-lg border border-border bg-background px-3 text-[13px] text-foreground focus:border-foreground/40 outline-none"/>
                 </div>
                 {connTestResult && (
                   <div className="text-[12px] px-3 py-2 rounded-lg border text-red-600 border-red-200 bg-red-50">
@@ -353,41 +356,41 @@ export default function Integrations() {
                   </div>
                 )}
                 <button onClick={handleOAuthConnect} disabled={connOAuthLoading}
-                  className="w-full inline-flex items-center justify-center gap-1.5 h-9 px-3.5 rounded-lg bg-gray-900 text-white text-[13px] font-semibold hover:bg-gray-800 transition-colors disabled:opacity-40">
+                  className="w-full inline-flex items-center justify-center gap-1.5 h-9 px-3.5 rounded-lg bg-primary text-primary-foreground text-[13px] font-semibold hover:bg-primary/90 transition-colors disabled:opacity-40">
                   {connOAuthLoading ? <><RefreshCw className="h-3.5 w-3.5 animate-spin"/>Connecting…</> : `Connect ${connecting?.display_name} via OAuth`}
                 </button>
-                <p className="text-[12px] text-gray-400 text-center">You'll be redirected to authorize securely</p>
+                <p className="text-[12px] text-muted-foreground/70 text-center">You'll be redirected to authorize securely</p>
               </div>
             ) : (
-              <div className="rounded-xl border border-gray-200 p-5 space-y-4">
+              <div className="rounded-xl border border-border p-5 space-y-4">
                 <div>
-                  <div className="text-[11px] font-medium text-gray-400 mb-1.5">Connection name</div>
+                  <div className="text-[11px] font-medium text-muted-foreground/70 mb-1.5">Connection name</div>
                   <input value={connName} onChange={e=>setConnName(e.target.value)}
-                    className="w-full h-9 rounded-lg border border-gray-200 bg-white px-3 text-[13px] text-gray-900 focus:border-gray-400 outline-none"/>
+                    className="w-full h-9 rounded-lg border border-border bg-background px-3 text-[13px] text-foreground focus:border-foreground/40 outline-none"/>
                 </div>
 
                 {isMultiField ? (
                   (connecting?.auth_fields || []).map(f => (
                     <div key={f.name}>
-                      <div className="text-[11px] font-medium text-gray-400 mb-1.5">{f.label}{f.optional ? <span className="text-gray-300 ml-1.5">(optional)</span> : null}</div>
+                      <div className="text-[11px] font-medium text-muted-foreground/70 mb-1.5">{f.label}{f.optional ? <span className="text-muted-foreground/50 ml-1.5">(optional)</span> : null}</div>
                       <input
                         type={f.type === "password" ? "password" : "text"}
                         value={connCreds[f.name] || ""}
                         onChange={e => setConnCreds(prev => ({ ...prev, [f.name]: e.target.value }))}
                         placeholder={f.placeholder || ""}
                         onKeyDown={e => { if (e.key === "Enter" && credsComplete()) testConnection(); }}
-                        className="w-full h-9 rounded-lg border border-gray-200 bg-white px-3 text-[13px] text-gray-900 focus:border-gray-400 outline-none placeholder:text-gray-400"
+                        className="w-full h-9 rounded-lg border border-border bg-background px-3 text-[13px] text-foreground focus:border-foreground/40 outline-none placeholder:text-muted-foreground/70"
                       />
-                      {f.description && <p className="text-[12px] text-gray-400 mt-1">{f.description}</p>}
+                      {f.description && <p className="text-[12px] text-muted-foreground/70 mt-1">{f.description}</p>}
                     </div>
                   ))
                 ) : (
                   <div>
-                    <div className="text-[11px] font-medium text-gray-400 mb-1.5">API key</div>
+                    <div className="text-[11px] font-medium text-muted-foreground/70 mb-1.5">API key</div>
                     <input type="password" value={connApiKey} onChange={e=>setConnApiKey(e.target.value)}
                       placeholder="Enter API key…"
                       onKeyDown={e=>{if(e.key==="Enter")testConnection();}}
-                      className="w-full h-9 rounded-lg border border-gray-200 bg-white px-3 text-[13px] text-gray-900 focus:border-gray-400 outline-none placeholder:text-gray-400"/>
+                      className="w-full h-9 rounded-lg border border-border bg-background px-3 text-[13px] text-foreground focus:border-foreground/40 outline-none placeholder:text-muted-foreground/70"/>
                   </div>
                 )}
 
@@ -398,11 +401,11 @@ export default function Integrations() {
                 )}
                 <div className="flex items-center gap-2 pt-1">
                   <button onClick={testConnection} disabled={connTesting||!credsComplete()}
-                    className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-white border border-gray-200 text-gray-700 text-[13px] font-semibold hover:bg-gray-50 transition-colors disabled:opacity-40">
+                    className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-background border border-border text-foreground/80 text-[13px] font-semibold hover:bg-muted/50 transition-colors disabled:opacity-40">
                     {connTesting?<><RefreshCw className="h-3.5 w-3.5 animate-spin"/>Testing…</>:"Test connection"}
                   </button>
                   <button onClick={saveConnection} disabled={connSaving||!connTestResult?.verified}
-                    className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-gray-900 text-white text-[13px] font-semibold hover:bg-gray-800 transition-colors disabled:opacity-40">
+                    className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-primary text-primary-foreground text-[13px] font-semibold hover:bg-primary/90 transition-colors disabled:opacity-40">
                     {connSaving?<><RefreshCw className="h-3.5 w-3.5 animate-spin"/>Saving…</>:"Save"}
                   </button>
                 </div>
@@ -410,30 +413,30 @@ export default function Integrations() {
             )
           ) : (
             notConnected.length === 0 ? (
-              <div className="text-[13px] text-gray-400 text-center py-12">All providers connected</div>
+              <div className="text-[13px] text-muted-foreground/70 text-center py-12">All providers connected</div>
             ) : (
               <div className="space-y-5">
                 {groupByCategory(notConnected).map(([cat, items]) => (
                   <div key={cat}>
-                    <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 mb-2">
-                      {CATEGORY_LABEL[cat]} <span className="text-gray-300 font-normal ml-1">{items.length}</span>
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 mb-2">
+                      {CATEGORY_LABEL[cat]} <span className="text-muted-foreground/50 font-normal ml-1">{items.length}</span>
                     </div>
-                    <div className="rounded-xl border border-gray-200 overflow-hidden">
+                    <div className="rounded-xl border border-border overflow-hidden">
                       {items.map(p => {
                         const isSoon = (p as any).coming_soon;
                         return (
-                          <div key={p.id} className={`flex items-center gap-4 px-4 py-3.5 border-b border-gray-100 last:border-0 transition-colors group ${isSoon ? "opacity-60" : "hover:bg-gray-50"}`}>
+                          <div key={p.id} className={`flex items-center gap-4 px-4 py-3.5 border-b border-border/60 last:border-0 transition-colors group ${isSoon ? "opacity-60" : "hover:bg-muted/50"}`}>
                             <IntegrationLogo url={p.logo_url} name={p.display_name} />
                             <div className="flex-1 min-w-0">
-                              <div className="text-[13px] font-semibold text-gray-900">{p.display_name}</div>
+                              <div className="text-[13px] font-semibold text-foreground">{p.display_name}</div>
                             </div>
                             {isSoon ? (
-                              <span className="text-[11px] text-gray-400 rounded-md border border-gray-200 px-2 py-0.5 flex-shrink-0 uppercase tracking-wide">
+                              <span className="text-[11px] text-muted-foreground/70 rounded-md border border-border px-2 py-0.5 flex-shrink-0 uppercase tracking-wide">
                                 Coming soon
                               </span>
                             ) : (
                               <button onClick={()=>startConnect(p)}
-                                className="text-[12px] font-medium text-gray-500 hover:text-gray-900 transition-colors flex-shrink-0 rounded-md border border-gray-200 px-2.5 py-1 hover:bg-gray-50">
+                                className="text-[12px] font-medium text-muted-foreground hover:text-foreground transition-colors flex-shrink-0 rounded-md border border-border px-2.5 py-1 hover:bg-muted/50">
                                 Connect
                               </button>
                             )}

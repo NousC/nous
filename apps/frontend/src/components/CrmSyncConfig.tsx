@@ -125,8 +125,8 @@ export default function CrmSyncConfig({ open, onClose, workspaceId, connectionId
 
           <div className="flex items-center justify-between rounded-lg border border-gray-100 bg-gray-50/60 px-3 py-2">
             <div>
-              <p className="text-[12px] font-medium text-gray-700">Auto-sync daily</p>
-              <p className="text-[11px] text-gray-400">Runs every 24 h automatically</p>
+              <p className="text-[12px] font-medium text-gray-700">Auto-sync (daily)</p>
+              <p className="text-[11px] text-gray-400">Pulls new + updated records once per day · use Sync now for on-demand</p>
             </div>
             <Switch checked={autoSync} disabled={saving} onCheckedChange={handleToggle} />
           </div>

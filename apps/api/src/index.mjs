@@ -11,14 +11,20 @@ import { verifyApiKey } from './middleware/apiKey.mjs';
 import { verifySupabaseAuth } from './middleware/supabaseAuth.mjs';
 import { verifyAuthEither } from './middleware/authEither.mjs';
 import { requireAdmin } from './middleware/requireAdmin.mjs';
+import { logV2Op } from './middleware/opLogger.mjs';
+import { requireFeature } from './lib/access.mjs';
 
-// v1 — Public API (API key auth)
-import { contactsRouter } from './routes/v1/contacts.mjs';
-import { memoriesRouter } from './routes/v1/memories.mjs';
-import { captureRouter } from './routes/v1/capture.mjs';
-import { companiesRouter } from './routes/v1/companies.mjs';
-import { rememberRouter } from './routes/v1/remember.mjs';
-import { searchRouter } from './routes/v1/search.mjs';
+// v2 — Context API (evidence substrate)
+import { accountsV2Router } from './routes/v2/accounts.mjs';
+import { observationsV2Router } from './routes/v2/observations.mjs';
+import { contextV2Router } from './routes/v2/context.mjs';
+import { queryV2Router } from './routes/v2/query.mjs';
+import { attentionV2Router } from './routes/v2/attention.mjs';
+import { verifyV2Router } from './routes/v2/verify.mjs';
+import { dedupV2Router } from './routes/v2/dedup.mjs';
+import { workspaceFactsV2Router } from './routes/v2/workspaceFacts.mjs';
+import { peopleV2Router } from './routes/v2/people.mjs';
+import { leadsV2Router } from './routes/v2/leads.mjs';
 
 // /api — Frontend API (Supabase JWT auth)
 import { apiKeysRouter } from './routes/api/apiKeys.mjs';
@@ -37,7 +43,10 @@ import { contactsApiRouter } from './routes/api/contacts.mjs';
 import { companiesApiRouter } from './routes/api/companies.mjs';
 import { signalsRouter, publicSignalsRouter } from './routes/api/signals.mjs';
 import { requestsRouter } from './routes/api/requests.mjs';
+import { feedbackRouter } from './routes/api/feedback.mjs';
+import { publicLiveRouter } from './routes/api/public/live.mjs';
 import { workspaceMemoriesRouter } from './routes/api/workspaceMemories.mjs';
+import { playgroundRouter } from './routes/api/playground.mjs';
 import { mindRouter } from './routes/api/mind.mjs';
 import { leadListsRouter } from './routes/api/leadLists.mjs';
 import { workflowProvidersRouter } from './routes/api/workflowProviders.mjs';
@@ -51,12 +60,17 @@ import { oauthSalesforceRouter } from './routes/api/oauthSalesforce.mjs';
 // /api/admin — Admin routes
 import { blogRouter } from './routes/api/blog.mjs';
 import { adminBlogRouter } from './routes/api/admin/blog.mjs';
+import { resourcesRouter, adminResourcesRouter } from './routes/api/resources.mjs';
 import { adminChangelogRouter, publicChangelogRouter } from './routes/api/admin/changelog.mjs';
 import { roadmapRouter, adminRoadmapRouter } from './routes/api/admin/roadmap.mjs';
 import { updatesRouter, adminUpdatesRouter } from './routes/api/admin/updates.mjs';
 import { adminUsersRouter } from './routes/api/admin/users.mjs';
 
 const app = express();
+
+// Behind Caddy → req.ip resolves to the real client IP, not the proxy hop.
+// Needed for IP-based country geolocation (see lib/geo.mjs).
+app.set('trust proxy', 1);
 
 const allowedOrigins = process.env.CORS_ORIGINS
   ? process.env.CORS_ORIGINS.split(',').map(o => o.trim())
@@ -76,17 +90,20 @@ app.use(express.json({ limit: '10mb' }));
 // ── Health ────────────────────────────────────────────────────────────────────
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
-// ── v1 — Public API (API key auth) ───────────────────────────────────────────
-app.use('/v1/contacts',  verifyApiKey, contactsRouter);
-app.use('/v1/contact',   verifyApiKey, contactsRouter);   // singular alias (MCP/CLI)
-app.use('/v1/companies', verifyApiKey, companiesRouter);
-app.use('/v1/company',   verifyApiKey, companiesRouter);   // singular alias (MCP)
-app.use('/v1/memories',  verifyApiKey, memoriesRouter);
-app.use('/v1/memory',    verifyApiKey, memoriesRouter);
-app.use('/v1/capture',   verifyApiKey, captureRouter);
-app.use('/v1/track',     verifyApiKey, captureRouter);     // alias used by MCP track tool
-app.use('/v1/remember',  verifyApiKey, rememberRouter);    // MCP remember tool
-app.use('/v1/search',    verifyApiKey, searchRouter);      // MCP search tool
+// ── v2 — Context API (evidence substrate) ────────────────────────────────────
+// Order matters: verifyApiKey populates req.workspaceId; logV2Op reads it
+// after the response finishes and writes a row to workspace_system_log so
+// the Ops page Live Op Log surfaces every agent/MCP/SDK call.
+app.use('/v2/accounts',        verifyApiKey,     logV2Op, accountsV2Router);
+app.use('/v2/observations',    verifyApiKey,     logV2Op, observationsV2Router);
+app.use('/v2/context',         verifyApiKey,     logV2Op, contextV2Router);
+app.use('/v2/query',           verifyApiKey,     logV2Op, queryV2Router);
+app.use('/v2/attention',       verifyApiKey,     logV2Op, attentionV2Router);
+app.use('/v2/verify',          verifyApiKey,     logV2Op, verifyV2Router);
+app.use('/v2/dedup',           verifyAuthEither, logV2Op, dedupV2Router);
+app.use('/v2/workspace/facts', verifyApiKey,     logV2Op, workspaceFactsV2Router);
+app.use('/v2/people',          verifyApiKey,     logV2Op, peopleV2Router);
+app.use('/v2/leads',           verifyApiKey,     logV2Op, requireFeature('leadLists'), leadsV2Router);
 
 // ── /api — Frontend API ───────────────────────────────────────────────────────
 app.use('/me',                        meRouter); // legacy path used by AuthContext
@@ -102,14 +119,19 @@ app.use('/api/integrations',          integrationsRouter);
 app.use('/api/crm',                   crmRouter);
 app.use('/api/contacts',              contactsApiRouter);
 app.use('/api/companies',             companiesApiRouter);
-app.use('/api/signals',               signalsRouter);
+// publicSignalExtraction gates the authenticated setup/configuration routes.
+// The public ingest endpoint stays open (its own HMAC token guards it).
+app.use('/api/signals',               verifySupabaseAuth, requireFeature('publicSignalExtraction'), signalsRouter);
 app.use('/api/public/signals',        publicSignalsRouter);
 app.use('/api/requests',              requestsRouter);
+app.use('/api/feedback',              feedbackRouter);
+app.use('/api/public/live',           publicLiveRouter);
 app.use('/api/workspace/system-log',  systemLogRouter);
 app.use('/api/workspace/api-keys',    verifySupabaseAuth, apiKeysRouter);
 app.use('/api/workspace/memories',    verifySupabaseAuth, workspaceMemoriesRouter);
+app.use('/api/playground',            playgroundRouter);
 app.use('/api/mind',                  verifySupabaseAuth, mindRouter);
-app.use('/api/lead-lists',            verifySupabaseAuth, leadListsRouter);
+app.use('/api/lead-lists',            verifyAuthEither, requireFeature('leadLists'), leadListsRouter);
 app.use('/api/webhooks',              verifySupabaseAuth, webhooksRouter);
 app.use('/api/workflow-providers',    verifySupabaseAuth, workflowProvidersRouter);
 // LinkedIn action endpoints — invite/message/sync (Supabase JWT, workspaceId in body),
@@ -134,10 +156,12 @@ app.use('/api/workflow-providers/salesforce/oauth',  oauthSalesforceRouter);
 app.use('/api/roadmap',           roadmapRouter);
 app.use('/api/updates',           updatesRouter);
 app.use('/api/blog',              blogRouter);
+app.use('/api/resources',         resourcesRouter);
 app.use('/api/changelog/entries', publicChangelogRouter);
 
 // ── /api/admin — Admin (auth + admin check applied at mount) ──────────────────
 app.use('/api/admin/blog',      verifySupabaseAuth, requireAdmin, adminBlogRouter);
+app.use('/api/admin/resources', verifySupabaseAuth, requireAdmin, adminResourcesRouter);
 app.use('/api/changelog/entries', verifySupabaseAuth, requireAdmin, adminChangelogRouter);
 app.use('/api/admin/roadmap',   verifySupabaseAuth, requireAdmin, adminRoadmapRouter);
 app.use('/api/admin/updates',   verifySupabaseAuth, requireAdmin, adminUpdatesRouter);

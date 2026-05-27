@@ -1,16 +1,24 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { isUUID } from '../utils/identity.js';
-import type { Lead, LeadList, LeadStatus, ReplyOutcome } from '../types.js';
+import type { Lead, LeadList, LeadColumn, LeadStatus, ReplyOutcome } from '../types.js';
 
 // DB layer for Lead Lists — the cold outreach universe, kept separate from
 // `contacts` (People). See docs/adaptive-lead-scoring.md.
 
-const LEAD_LIST_COLUMNS = 'id, workspace_id, name, source, created_at, updated_at';
+const LEAD_LIST_COLUMNS = 'id, workspace_id, name, source, columns, created_at, updated_at';
 
 const LEAD_COLUMNS =
   'id, lead_list_id, workspace_id, email, name, company, linkedin_url, ' +
-  'sent_at, send_variant, is_repeat_contact, features, scorecard_score, ' +
+  'sent_at, send_variant, is_repeat_contact, features, fields, scorecard_score, ' +
   'reply_outcome, replied_at, status, contact_id, created_at, updated_at';
+
+// Columns a new list starts with, beyond the fixed name / email / company /
+// linkedin / status. Stored on lead_lists.columns; values live in leads.fields.
+const DEFAULT_LEAD_COLUMNS: LeadColumn[] = [
+  { key: 'title',        label: 'Title' },
+  { key: 'industry',     label: 'Industry' },
+  { key: 'company_size', label: 'Company size' },
+];
 
 const cleanEmail = (email: string | null | undefined): string | null =>
   email ? email.toLowerCase().trim() || null : null;
@@ -33,11 +41,34 @@ export async function createLeadList(
       workspace_id: workspaceId,
       name: params.name.trim(),
       source: params.source ?? 'csv',
+      columns: DEFAULT_LEAD_COLUMNS,
     })
     .select(LEAD_LIST_COLUMNS)
     .single();
   if (error) throw error;
-  return data as LeadList;
+  return data as unknown as LeadList;
+}
+
+// Replace a list's user-defined column set.
+export async function updateLeadListColumns(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  id: string,
+  columns: LeadColumn[],
+): Promise<LeadList | null> {
+  if (!isUUID(id)) return null;
+  const clean = columns
+    .filter(c => c && typeof c.key === 'string' && c.key.trim())
+    .map(c => ({ key: c.key.trim(), label: String(c.label || c.key).trim() }));
+  const { data, error } = await supabase
+    .from('lead_lists')
+    .update({ columns: clean })
+    .eq('id', id)
+    .eq('workspace_id', workspaceId)
+    .select(LEAD_LIST_COLUMNS)
+    .maybeSingle();
+  if (error) throw error;
+  return (data as unknown as LeadList) ?? null;
 }
 
 export async function listLeadLists(
@@ -71,7 +102,7 @@ export async function getLeadList(
     .eq('workspace_id', workspaceId)
     .maybeSingle();
   if (error) throw error;
-  return (data as LeadList) ?? null;
+  return (data as unknown as LeadList) ?? null;
 }
 
 // ── Leads ─────────────────────────────────────────────────────────────────────
@@ -84,17 +115,45 @@ export interface LeadInput {
   send_variant?: string | null;
   is_repeat_contact?: boolean;
   features?: Record<string, unknown>;
+  fields?: Record<string, unknown>;
+}
+
+// Normalize a LinkedIn URL for cross-list dedup. Same transforms Proply
+// Connect's engagement engine uses, so the two stay in sync: lowercase, force
+// https, drop www., drop query/fragment, drop trailing slashes.
+function normalizeLinkedInUrl(u: string | null | undefined): string | null {
+  if (!u) return null;
+  const trimmed = u.trim();
+  if (!trimmed) return null;
+  return trimmed
+    .toLowerCase()
+    .replace(/^http:\/\//, 'https://')
+    .replace(/^https?:\/\/www\./, 'https://')
+    .replace(/[?#].*$/, '')
+    .replace(/\/+$/, '');
 }
 
 // Bulk-insert leads into a list. Rows with neither an email nor a LinkedIn URL
 // are dropped — there would be no way to resolve a reply back to them.
+//
+// By default rows whose email or normalized LinkedIn URL already exists in the
+// workspace are skipped (workspace-wide dedup, matching how operators expect
+// re-imports to behave). Pass `{ importDuplicates: true }` to force-insert.
+//
+// Response counts:
+//   - inserted          rows actually written
+//   - skipped           total rows not written (no-identifier + duplicates)
+//   - duplicate_skipped of `skipped`, how many were dedup matches
 export async function insertLeads(
   supabase: SupabaseClient,
   workspaceId: string,
   leadListId: string,
   rows: LeadInput[],
-): Promise<{ inserted: number; skipped: number }> {
-  if (!isUUID(leadListId) || rows.length === 0) return { inserted: 0, skipped: 0 };
+  opts: { importDuplicates?: boolean } = {},
+): Promise<{ inserted: number; skipped: number; duplicate_skipped: number }> {
+  if (!isUUID(leadListId) || rows.length === 0) {
+    return { inserted: 0, skipped: 0, duplicate_skipped: 0 };
+  }
 
   const payload = rows
     .map(r => ({
@@ -107,15 +166,62 @@ export async function insertLeads(
       send_variant: r.send_variant ?? null,
       is_repeat_contact: r.is_repeat_contact ?? false,
       features: r.features ?? {},
+      fields: r.fields ?? {},
     }))
     .filter(r => r.email || r.linkedin_url);
 
-  const skipped = rows.length - payload.length;
-  if (payload.length === 0) return { inserted: 0, skipped };
+  const droppedNoIdentifier = rows.length - payload.length;
 
-  const { data, error } = await supabase.from('leads').insert(payload).select('id');
+  let toInsert = payload;
+  let duplicateSkipped = 0;
+
+  if (!opts.importDuplicates && payload.length > 0) {
+    // Pull every existing email + linkedin_url in the workspace, paginated,
+    // and filter the incoming payload through them. Workspace-wide so the
+    // same person doesn't end up in two lists as two rows.
+    const existingEmails = new Set<string>();
+    const existingUrls = new Set<string>();
+    const PAGE = 1000;
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await supabase
+        .from('leads')
+        .select('email, linkedin_url')
+        .eq('workspace_id', workspaceId)
+        .range(from, from + PAGE - 1);
+      if (error) throw error;
+      if (!data || data.length === 0) break;
+      for (const row of data) {
+        if (row.email) existingEmails.add(row.email.toLowerCase().trim());
+        const u = normalizeLinkedInUrl(row.linkedin_url);
+        if (u) existingUrls.add(u);
+      }
+      if (data.length < PAGE) break;
+    }
+
+    toInsert = payload.filter(r => {
+      if (r.email && existingEmails.has(r.email)) return false;
+      const u = normalizeLinkedInUrl(r.linkedin_url);
+      if (u && existingUrls.has(u)) return false;
+      return true;
+    });
+    duplicateSkipped = payload.length - toInsert.length;
+  }
+
+  if (toInsert.length === 0) {
+    return {
+      inserted: 0,
+      skipped: droppedNoIdentifier + duplicateSkipped,
+      duplicate_skipped: duplicateSkipped,
+    };
+  }
+
+  const { data, error } = await supabase.from('leads').insert(toInsert).select('id');
   if (error) throw error;
-  return { inserted: data?.length ?? 0, skipped };
+  return {
+    inserted: data?.length ?? 0,
+    skipped: droppedNoIdentifier + duplicateSkipped,
+    duplicate_skipped: duplicateSkipped,
+  };
 }
 
 export async function listLeads(
@@ -167,6 +273,7 @@ export interface LeadPatch {
   scorecard_score?: number | null;
   contact_id?: string | null;
   features?: Record<string, unknown>;
+  fields?: Record<string, unknown>;
 }
 
 export async function updateLead(
@@ -186,6 +293,210 @@ export async function updateLead(
   if (error) throw error;
   return (data as unknown as Lead) ?? null;
 }
+
+// ── Cold-outbound dedup: classifyEmails ──────────────────────────────────────
+//
+// The pre-flight check for a new CSV upload. Given a list of emails, returns
+// which are safe to cold-email and which are not (already engaged, bounced,
+// unsubscribed, workspace-suppressed, or recently contacted). Cross-list,
+// across all-time engagement — the agency unlock v2 enables.
+
+export type EmailClassificationStatus =
+  | 'net_new'        // no prior record — safe to send
+  | 'engaged'        // in an active conversation; don't cold-send
+  | 'recent'         // contacted within the cooldown window — defer
+  | 'bounced'        // last delivery bounced — skip
+  | 'unsubscribed'   // opted out or do-not-contact — skip
+  | 'suppressed';    // workspace-level suppression (policy layer)
+
+export interface EmailClassification {
+  /** @deprecated use `value` (kept for backward compat). */
+  email: string;
+  kind: 'email' | 'linkedin_url';
+  value: string;
+  status: EmailClassificationStatus;
+  entity_id?: string;
+  reason?: string | null;
+}
+
+export interface ClassifyInput {
+  emails?: string[];
+  linkedin_urls?: string[];
+}
+
+const STAGE_ENGAGED = new Set(['aware', 'interested', 'evaluating', 'client']);
+const RECENT_WINDOW_DAYS = 30;
+
+// PostgREST sends `.in()` filters in the URL. URLs are bounded (~64KB on most
+// proxies), so a single `.in('value', 10_000_items)` blows past it. We chunk
+// every IN query into ~1000-item batches and run the chunks in parallel; the
+// caller sees a single flat result.
+const IN_CHUNK_SIZE = 1000;
+
+function chunked<T>(arr: T[], size = IN_CHUNK_SIZE): T[][] {
+  if (arr.length <= size) return [arr];
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
+/**
+ * Run `.in(column, values)` across chunked batches in parallel, concatenating
+ * the rows. Returns rows or null on error; never throws.
+ */
+async function chunkedIn<T = unknown>(
+  build: (chunk: string[]) => PromiseLike<{ data: T[] | null; error: unknown }>,
+  values: string[],
+): Promise<T[]> {
+  if (values.length === 0) return [];
+  const chunks = chunked(values);
+  const results = await Promise.all(chunks.map(c => build(c)));
+  const rows: T[] = [];
+  for (const r of results) {
+    if (r.error) throw r.error;
+    if (r.data) rows.push(...r.data);
+  }
+  return rows;
+}
+
+/**
+ * Classify a batch of identifiers (emails and/or LinkedIn URLs) against the
+ * workspace's existing engagement graph. Pure read; does not mutate.
+ *
+ * The Apollo-pre-flight unlock: pass LinkedIn URLs from the preview (visible
+ * for free, before you pay to reveal emails) and you know your overlap with
+ * the workspace before spending any money on the export.
+ */
+export async function classifyIdentifiers(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  input: ClassifyInput,
+): Promise<EmailClassification[]> {
+  const emails = Array.from(new Set(
+    (input.emails ?? []).map(e => (e ?? '').toLowerCase().trim()).filter(Boolean),
+  ));
+  const linkedinUrls = Array.from(new Set(
+    (input.linkedin_urls ?? []).map(u => normalizeLinkedInUrl(u)).filter((u): u is string => !!u),
+  ));
+  if (emails.length === 0 && linkedinUrls.length === 0) return [];
+
+  // 1. Workspace policy: suppressions (email-only — LinkedIn doesn't have an
+  // equivalent opt-out registry).
+  const supByEmail = new Map<string, string | null>();
+  if (emails.length) {
+    const supRows = await chunkedIn<{ email: string; reason: string | null }>(
+      chunk => supabase
+        .from('lead_suppressions')
+        .select('email, reason')
+        .eq('workspace_id', workspaceId)
+        .in('email', chunk),
+      emails,
+    );
+    for (const s of supRows) supByEmail.set(s.email, s.reason);
+  }
+
+  // 2. Existing entity_identifiers — resolve both kinds in parallel, each
+  // chunked across many small IN queries.
+  const [emailRows, linkedinRows] = await Promise.all([
+    chunkedIn<{ value: string; entity_id: string }>(
+      chunk => supabase.from('entity_identifiers').select('value, entity_id')
+        .eq('workspace_id', workspaceId).eq('kind', 'email').eq('status', 'active')
+        .in('value', chunk),
+      emails,
+    ),
+    chunkedIn<{ value: string; entity_id: string }>(
+      chunk => supabase.from('entity_identifiers').select('value, entity_id')
+        .eq('workspace_id', workspaceId).eq('kind', 'linkedin_url').eq('status', 'active')
+        .in('value', chunk),
+      linkedinUrls,
+    ),
+  ]);
+  const entityByEmail = new Map<string, string>(emailRows.map(i => [i.value, i.entity_id]));
+  const entityByLinkedIn = new Map<string, string>(linkedinRows.map(i => [i.value, i.entity_id]));
+
+  // 3. For matched entities — what we know about them.
+  const entityIds = [...new Set([
+    ...entityByEmail.values(),
+    ...entityByLinkedIn.values(),
+  ])];
+  const claimsByEntity = new Map<string, Record<string, unknown>>();
+  const recentByEntity = new Set<string>();
+
+  if (entityIds.length > 0) {
+    const claimRows = await chunkedIn<{ entity_id: string; property: string; value: unknown }>(
+      chunk => supabase
+        .from('claims')
+        .select('entity_id, property, value')
+        .in('entity_id', chunk)
+        .is('invalid_at', null)
+        .in('property', ['reachability_status', 'sentiment', 'pipeline_stage']),
+      entityIds,
+    );
+    for (const c of claimRows) {
+      const m = claimsByEntity.get(c.entity_id) ?? {};
+      m[c.property] = c.value;
+      claimsByEntity.set(c.entity_id, m);
+    }
+
+    const since = new Date(Date.now() - RECENT_WINDOW_DAYS * 86_400_000).toISOString();
+    const recentRows = await chunkedIn<{ entity_id: string }>(
+      chunk => supabase
+        .from('observations')
+        .select('entity_id')
+        .in('entity_id', chunk)
+        .gte('observed_at', since)
+        .like('property', 'interaction.%')
+        .limit(chunk.length * 4),
+      entityIds,
+    );
+    for (const r of recentRows) recentByEntity.add(r.entity_id);
+  }
+
+  // 4. Classify (suppression > bounced > unsubscribed > engaged > recent > net_new).
+  const classifyOne = (kind: 'email' | 'linkedin_url', value: string, entityId?: string): EmailClassification => {
+    if (kind === 'email' && supByEmail.has(value)) {
+      return { email: value, kind, value, status: 'suppressed',
+               reason: supByEmail.get(value) ?? 'workspace suppression' };
+    }
+    if (!entityId) return { email: value, kind, value, status: 'net_new' };
+
+    const claims = claimsByEntity.get(entityId) ?? {};
+    const reach = claims.reachability_status as string | undefined;
+    if (reach === 'bounced')      return { email: value, kind, value, status: 'bounced', entity_id: entityId };
+    if (reach === 'unsubscribed') return { email: value, kind, value, status: 'unsubscribed', entity_id: entityId };
+
+    const sentiment = claims.sentiment as string | undefined;
+    if (sentiment === 'do_not_contact') {
+      return { email: value, kind, value, status: 'unsubscribed', entity_id: entityId, reason: 'do_not_contact' };
+    }
+
+    const stage = claims.pipeline_stage as string | undefined;
+    if (stage && STAGE_ENGAGED.has(stage)) {
+      return { email: value, kind, value, status: 'engaged', entity_id: entityId, reason: stage };
+    }
+    if (recentByEntity.has(entityId)) {
+      return { email: value, kind, value, status: 'recent', entity_id: entityId };
+    }
+    return { email: value, kind, value, status: 'net_new', entity_id: entityId, reason: 'cold' };
+  };
+
+  return [
+    ...emails.map(e => classifyOne('email', e, entityByEmail.get(e))),
+    ...linkedinUrls.map(u => classifyOne('linkedin_url', u, entityByLinkedIn.get(u))),
+  ];
+}
+
+/**
+ * Backward-compat: emails-only classify. Prefer classifyIdentifiers().
+ */
+export async function classifyEmails(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  emails: string[],
+): Promise<EmailClassification[]> {
+  return classifyIdentifiers(supabase, workspaceId, { emails });
+}
+
 
 // ── Suppression list ──────────────────────────────────────────────────────────
 

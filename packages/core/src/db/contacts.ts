@@ -1,9 +1,13 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { isUUID, isEmail, normaliseLinkedInUrl, VALID_PIPELINE_STAGES } from '../utils/identity.js';
 import { computeLinkedInChannel } from '../utils/linkedin.js';
+import { listNotes } from './notes.js';
+import { listActivities } from './activities.js';
+import { fetchEntityOverlays, applyContactOverlay } from './entities.js';
 import type {
   Contact, ContactProfile, ContactListItem,
   ListContactsParams, CreateContactParams, UpdateContactParams,
+  MemoryCategory,
 } from '../types.js';
 
 const CONTACT_SELECT = 'id, email, first_name, last_name, company, job_title, linkedin_url, photo_url, channels, pipeline_stage, deal_health_score, icp_score, icp_fit, last_activity_at, company_id, memory_summary';
@@ -101,8 +105,13 @@ export async function listContacts(
   const { data, error, count } = await query;
   if (error) throw error;
 
+  // Overlay v2 substrate values on top of the v1 rows where claims/identifiers/
+  // predictions carry fresher data. Phase 4a — v1 columns remain the fallback.
+  const rows = (data || []) as Record<string, unknown>[];
+  const overlays = await fetchEntityOverlays(supabase, rows.map(r => r.id as string));
+
   return {
-    contacts: (data || []).map(formatContact),
+    contacts: rows.map(r => formatContact(applyContactOverlay(r, overlays.get(r.id as string)))),
     total: count || 0,
     limit: limitNum,
     offset: offsetNum,
@@ -128,6 +137,10 @@ export async function getContactByIdentifier(
 
   if (!row) return null;
 
+  // Overlay the v2 substrate onto the v1 contact row.
+  const overlays = await fetchEntityOverlays(supabase, [row.id as string]);
+  row = applyContactOverlay(row, overlays.get(row.id as string));
+
   const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
   const [
@@ -137,34 +150,34 @@ export async function getContactByIdentifier(
     { data: contactMems },
     companyMemResult,
   ] = await Promise.all([
-    supabase.from('contact_activity_log')
-      .select('id, activity_type, description, summary, source, occurred_at, raw_data')
-      .eq('contact_id', row.id).order('occurred_at', { ascending: false }).limit(25),
+    listActivities(supabase, { contactId: row.id as string, limit: 25 }).then(data => ({ data })),
     row.company_id
       ? supabase.from('companies').select('name, domain, industry, employee_count, location').eq('id', row.company_id).single()
       : Promise.resolve({ data: null }),
-    supabase.from('contact_activity_log')
-      .select('activity_type').eq('contact_id', row.id).gte('occurred_at', thirtyDaysAgo),
-    supabase.from('workspace_memories')
-      .select('category, content, metadata, created_at').eq('workspace_id', workspaceId).eq('is_active', true)
-      .filter('metadata->>contact_id', 'eq', row.id)
-      .order('created_at', { ascending: false }).limit(20),
+    listActivities(supabase, { contactId: row.id as string, since: thirtyDaysAgo, limit: 500 }).then(data => ({ data })),
+    listNotes(supabase, workspaceId, { entityId: row.id as string, limit: 20 }).then(data => ({ data })),
     row.company_id
-      ? supabase.from('workspace_memories')
-          .select('category, content, metadata, created_at').eq('workspace_id', workspaceId).eq('is_active', true)
-          .filter('metadata->>company_id', 'eq', row.company_id)
-          .order('created_at', { ascending: false }).limit(20)
+      ? listNotes(supabase, workspaceId, { entityId: row.company_id as string, limit: 20 }).then(data => ({ data }))
       : Promise.resolve({ data: [] }),
   ]);
 
-  const signals30d = (recentSignals || []).reduce<Record<string, number>>((acc, a) => {
-    acc[(a as Record<string, string>).activity_type] = (acc[(a as Record<string, string>).activity_type] || 0) + 1;
+  const signals30d = ((recentSignals as { activity_type: string }[] | null) || []).reduce<Record<string, number>>((acc, a) => {
+    acc[a.activity_type] = (acc[a.activity_type] || 0) + 1;
     return acc;
   }, {});
 
+  // MemoryFact.category is the v1 fixed enum; notes carry an open string.
+  // Cast at the boundary — runtime values are user-supplied either way.
+  const toFact = (scope: 'contact' | 'company') => (m: import('./notes.js').Note) => ({
+    scope,
+    category: m.category as MemoryCategory,
+    content: m.content,
+    written_at: m.created_at ? m.created_at.split('T')[0] : null,
+    graph_layer: ((m.metadata?.graph_layer as string) ?? 'private') as 'private' | 'public',
+  });
   const facts = [
-    ...(contactMems || []).map(m => ({ scope: 'contact' as const, category: m.category, content: m.content, written_at: m.created_at ? (m.created_at as string).split('T')[0] : null, graph_layer: (m.metadata?.graph_layer ?? 'private') as 'private' | 'public' })),
-    ...(companyMemResult.data || []).map(m => ({ scope: 'company' as const, category: m.category, content: m.content, written_at: m.created_at ? (m.created_at as string).split('T')[0] : null, graph_layer: (m.metadata?.graph_layer ?? 'private') as 'private' | 'public' })),
+    ...((contactMems || []) as import('./notes.js').Note[]).map(toFact('contact')),
+    ...((companyMemResult.data || []) as import('./notes.js').Note[]).map(toFact('company')),
   ];
 
   const channels = (() => {
@@ -190,11 +203,11 @@ export async function getContactByIdentifier(
     last_activity_at: (row.last_activity_at as string) || null,
     memory_summary: (row.memory_summary as string) || null,
     company_details: companyResult.data as ContactProfile['company_details'],
-    activities: (activityRows || []).map(a => ({
+    activities: ((activityRows as Array<{ id: string; activity_type: string; description: string | null; summary: string | null; raw_data: Record<string, unknown> | null; source: string | null; occurred_at: string }> | null) || []).map(a => ({
       id: a.id,
       type: a.activity_type,
       description: a.description || a.summary || null,
-      body: a.raw_data?.body || a.raw_data?.message || null,
+      body: ((a.raw_data as Record<string, unknown> | null)?.body as string | null) || ((a.raw_data as Record<string, unknown> | null)?.message as string | null) || null,
       source: a.source || null,
       occurred_at: a.occurred_at,
     })),
@@ -272,14 +285,15 @@ export async function deleteContact(
   const existing = await getContactByIdentifier(supabase, workspaceId, identifier);
   if (!existing) return null;
 
-  // Delete related data first
-  await Promise.all([
-    supabase.from('contact_activity_log').delete().eq('contact_id', existing.id),
-    supabase.from('workspace_memories')
-      .update({ is_active: false })
-      .filter('metadata->>contact_id', 'eq', existing.id)
-      .eq('workspace_id', workspaceId),
-  ]);
+  // Invalidate every note on this contact-entity. Event observations stay —
+  // they're the append-only audit trail (deleting a contact doesn't unhappen
+  // the emails/meetings). They go away when the entity row is deleted.
+  await supabase
+    .from('claims')
+    .update({ invalid_at: new Date().toISOString() })
+    .eq('workspace_id', workspaceId)
+    .eq('entity_id', existing.id)
+    .like('property', 'note.%');
 
   await supabase.from('contacts').delete().eq('id', existing.id).eq('workspace_id', workspaceId);
 

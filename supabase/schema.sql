@@ -463,36 +463,87 @@ CREATE TRIGGER trg_pipeline_stage_on_activity
   AFTER INSERT ON contact_activity_log
   FOR EACH ROW EXECUTE FUNCTION trigger_recompute_pipeline_stage();
 
--- Decay function: call daily (e.g. pg_cron or a cron job in apps/worker)
+-- Decay function: call daily (e.g. pg_cron or a cron job in apps/worker).
+--
+-- v2-substrate version. `contact_activity_log` was dropped in the v2 cutover —
+-- activities live in `observations` (property LIKE 'interaction.*'), and
+-- `contacts` is now a view backed by claims, not a writable table. So decay
+-- reads from `observations` and writes by INSERTing a state observation; the
+-- claim engine (apps/worker/src/workers/claimEngine.mjs) recomputes the
+-- `pipeline_stage` claim from observations within a minute.
+--
+-- Manual overrides are protected: entities whose `pipeline_stage_source` claim
+-- is 'manual' are excluded.
 CREATE OR REPLACE FUNCTION decay_pipeline_stages()
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
 BEGIN
-  UPDATE contacts SET
-    pipeline_stage = 'interested', pipeline_stage_updated_at = now(), pipeline_stage_source = 'auto'
-  WHERE pipeline_stage = 'evaluating' AND NOT EXISTS (
-    SELECT 1 FROM contact_activity_log WHERE contact_id = contacts.id
-      AND activity_type IN ('meeting_held','pricing_page_visit','proposal_sent','proposal_viewed',
-        'outbound_positive_reply','deal_created','trial_started')
-      AND occurred_at >= now() - interval '60 days'
-  );
+  -- evaluating → interested
+  INSERT INTO observations (workspace_id, entity_id, kind, property, value, source, method, observed_at)
+  SELECT c.workspace_id, c.entity_id, 'state', 'pipeline_stage', '"interested"'::jsonb,
+         'system', 'inference', now()
+  FROM claims c
+  LEFT JOIN claims src
+    ON src.workspace_id = c.workspace_id AND src.entity_id = c.entity_id
+   AND src.property = 'pipeline_stage_source' AND src.invalid_at IS NULL
+  WHERE c.property = 'pipeline_stage' AND c.invalid_at IS NULL
+    AND (c.value #>> '{}') = 'evaluating'
+    AND (src.value #>> '{}') IS DISTINCT FROM 'manual'
+    AND NOT EXISTS (
+      SELECT 1 FROM observations o
+      WHERE o.entity_id = c.entity_id
+        AND o.property IN (
+          'interaction.meeting_held','interaction.pricing_page_visit',
+          'interaction.proposal_sent','interaction.proposal_viewed',
+          'interaction.outbound_positive_reply','interaction.deal_created',
+          'interaction.trial_started'
+        )
+        AND o.observed_at >= now() - interval '60 days'
+    );
 
-  UPDATE contacts SET
-    pipeline_stage = 'aware', pipeline_stage_updated_at = now(), pipeline_stage_source = 'auto'
-  WHERE pipeline_stage = 'interested' AND NOT EXISTS (
-    SELECT 1 FROM contact_activity_log WHERE contact_id = contacts.id
-      AND activity_type IN ('email_reply','linkedin_message','linkedin_connected','content_download',
-        'community_joined','event_attended','website_revisit')
-      AND occurred_at >= now() - interval '30 days'
-  );
+  -- interested → aware
+  INSERT INTO observations (workspace_id, entity_id, kind, property, value, source, method, observed_at)
+  SELECT c.workspace_id, c.entity_id, 'state', 'pipeline_stage', '"aware"'::jsonb,
+         'system', 'inference', now()
+  FROM claims c
+  LEFT JOIN claims src
+    ON src.workspace_id = c.workspace_id AND src.entity_id = c.entity_id
+   AND src.property = 'pipeline_stage_source' AND src.invalid_at IS NULL
+  WHERE c.property = 'pipeline_stage' AND c.invalid_at IS NULL
+    AND (c.value #>> '{}') = 'interested'
+    AND (src.value #>> '{}') IS DISTINCT FROM 'manual'
+    AND NOT EXISTS (
+      SELECT 1 FROM observations o
+      WHERE o.entity_id = c.entity_id
+        AND o.property IN (
+          'interaction.email_reply','interaction.linkedin_message',
+          'interaction.linkedin_connected','interaction.content_download',
+          'interaction.community_joined','interaction.event_attended',
+          'interaction.website_revisit'
+        )
+        AND o.observed_at >= now() - interval '30 days'
+    );
 
-  UPDATE contacts SET
-    pipeline_stage = 'identified', pipeline_stage_updated_at = now(), pipeline_stage_source = 'auto'
-  WHERE pipeline_stage = 'aware' AND NOT EXISTS (
-    SELECT 1 FROM contact_activity_log WHERE contact_id = contacts.id
-      AND activity_type IN ('website_visit','email_opened','linkedin_view','social_engagement',
-        'ad_impression','newsletter_signup')
-      AND occurred_at >= now() - interval '30 days'
-  );
+  -- aware → identified
+  INSERT INTO observations (workspace_id, entity_id, kind, property, value, source, method, observed_at)
+  SELECT c.workspace_id, c.entity_id, 'state', 'pipeline_stage', '"identified"'::jsonb,
+         'system', 'inference', now()
+  FROM claims c
+  LEFT JOIN claims src
+    ON src.workspace_id = c.workspace_id AND src.entity_id = c.entity_id
+   AND src.property = 'pipeline_stage_source' AND src.invalid_at IS NULL
+  WHERE c.property = 'pipeline_stage' AND c.invalid_at IS NULL
+    AND (c.value #>> '{}') = 'aware'
+    AND (src.value #>> '{}') IS DISTINCT FROM 'manual'
+    AND NOT EXISTS (
+      SELECT 1 FROM observations o
+      WHERE o.entity_id = c.entity_id
+        AND o.property IN (
+          'interaction.website_visit','interaction.email_opened',
+          'interaction.linkedin_view','interaction.social_engagement',
+          'interaction.ad_impression','interaction.newsletter_signup'
+        )
+        AND o.observed_at >= now() - interval '30 days'
+    );
 END;
 $$;
 
@@ -744,6 +795,9 @@ VALUES
   ('smtp',             'Custom SMTP / IMAP',      'communication'),
   ('slack',            'Slack',                   'communication'),
   ('instantly',        'Instantly',               'outbound'),
+  ('emailbison',       'EmailBison',              'outbound'),
+  ('heyreach',         'HeyReach',                'outbound'),
+  ('smartlead',        'Smartlead',               'outbound'),
   ('fireflies',        'Fireflies.ai',            'meetings'),
   ('fathom',           'Fathom',                  'meetings'),
   ('calendly',         'Calendly',                'meetings'),
@@ -940,6 +994,7 @@ CREATE TABLE IF NOT EXISTS lead_lists (
   workspace_id UUID        NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
   name         TEXT        NOT NULL,
   source       TEXT        NOT NULL DEFAULT 'csv',   -- 'linkedin'|'instantly'|'csv'|'apollo'|…
+  columns      JSONB       NOT NULL DEFAULT '[]',    -- user-defined columns: [{ key, label }]
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -965,6 +1020,7 @@ CREATE TABLE IF NOT EXISTS leads (
 
   -- The prediction
   features         JSONB       NOT NULL DEFAULT '{}',   -- point-in-time feature snapshot
+  fields           JSONB       NOT NULL DEFAULT '{}',   -- values for the list's user-defined columns
   scorecard_score  INT,
 
   -- The label (filled in when a reply lands)
@@ -1054,6 +1110,37 @@ DROP TRIGGER IF EXISTS scorecard_signals_updated_at ON scorecard_signals;
 CREATE TRIGGER scorecard_signals_updated_at
   BEFORE UPDATE ON scorecard_signals
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================================
+-- 18. WORKER RUNS  — transparency on the compound-intelligence loop
+--
+-- Every nightly/periodic worker writes a row here after each invocation so the
+-- Intelligence page can show, at a glance, whether the loop is alive.
+-- Per-workspace rows for workspace-scoped workers (mind_outcomes,
+-- scorecard_loop, score_entities, crm_sync); workspace_id IS NULL for
+-- system-wide workers (claim_engine, embeddings, pipeline_decay, lead_replies).
+-- No RLS — service-role table; the API enforces workspace scope on reads.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS worker_runs (
+  id            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  workspace_id  UUID        REFERENCES workspaces(id) ON DELETE CASCADE,  -- NULL = system-wide
+  worker        TEXT        NOT NULL,
+  status        TEXT        NOT NULL,                                     -- 'success' | 'error' | 'no_op'
+  summary       TEXT,
+  details       JSONB       NOT NULL DEFAULT '{}',
+  error         TEXT,
+  duration_ms   INT,
+  started_at    TIMESTAMPTZ NOT NULL,
+  finished_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS worker_runs_workspace
+  ON worker_runs(workspace_id, finished_at DESC);
+CREATE INDEX IF NOT EXISTS worker_runs_worker
+  ON worker_runs(worker, finished_at DESC);
+CREATE INDEX IF NOT EXISTS worker_runs_finished
+  ON worker_runs(finished_at DESC);
 
 -- ============================================================
 -- Done.

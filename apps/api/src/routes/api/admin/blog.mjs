@@ -45,7 +45,7 @@ adminBlogRouter.get('/articles/:id', async (req, res) => {
 adminBlogRouter.post('/articles', async (req, res) => {
   try {
     const supabase = getSupabaseClient();
-    const { title, slug, meta_description, cover_image_url, content, featured, status, is_guide, article_type, video_url, intro_text, related_workflow_slugs } = req.body;
+    const { title, slug, meta_description, cover_image_url, content, featured, status, is_guide, article_type, category, video_url, intro_text, related_workflow_slugs } = req.body;
     const { user } = await ensureUserAndTeam(req.user);
 
     if (!title || !slug) return res.status(400).json({ error: 'title and slug are required' });
@@ -65,6 +65,7 @@ adminBlogRouter.post('/articles', async (req, res) => {
       featured: featured || false,
       is_guide: is_guide || false,
       article_type: article_type || 'article',
+      category: category || 'blog',
       video_url: video_url || null,
       intro_text: intro_text || null,
       related_workflow_slugs: related_workflow_slugs || [],
@@ -83,7 +84,7 @@ adminBlogRouter.patch('/articles/:id', async (req, res) => {
   try {
     const supabase = getSupabaseClient();
     const { id } = req.params;
-    const { title, slug, meta_description, cover_image_url, content, featured, status, is_guide, article_type, video_url, intro_text, related_workflow_slugs } = req.body;
+    const { title, slug, meta_description, cover_image_url, content, featured, status, is_guide, article_type, category, video_url, intro_text, related_workflow_slugs } = req.body;
 
     if (slug) {
       const { data: existing, error: checkError } = await supabase.from('blog_articles').select('id').eq('slug', slug).neq('id', id).single();
@@ -100,6 +101,7 @@ adminBlogRouter.patch('/articles/:id', async (req, res) => {
     if (featured !== undefined) updateData.featured = featured;
     if (is_guide !== undefined) updateData.is_guide = is_guide;
     if (article_type !== undefined) updateData.article_type = article_type;
+    if (category !== undefined) updateData.category = category;
     if (video_url !== undefined) updateData.video_url = video_url;
     if (intro_text !== undefined) updateData.intro_text = intro_text;
     if (related_workflow_slugs !== undefined) updateData.related_workflow_slugs = related_workflow_slugs;

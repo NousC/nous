@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getSupabaseClient } from '@nous/core';
+import { getSupabaseClient, saveNote, listNotes } from '@nous/core';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
 import { ensureUserAndTeam } from '../../lib/auth.mjs';
 
@@ -10,7 +10,7 @@ onboardingRouter.post('/step-1', verifySupabaseAuth, async (req, res) => {
   try {
     const supabase = getSupabaseClient();
     const { user, team } = await ensureUserAndTeam(req.user);
-    const { name, company_name, website, use_case } = req.body;
+    const { name, company_name, website, icp_description } = req.body;
 
     // Find the user's workspace for this team (same pattern as /complete)
     const { data: wms } = await supabase
@@ -33,18 +33,22 @@ onboardingRouter.post('/step-1', verifySupabaseAuth, async (req, res) => {
         .eq('id', workspaceId);
     }
 
-    // Store use-case and website as workspace memories for AI context
-    const memories = [];
-    if (use_case?.trim()) memories.push(`Use case: ${use_case.trim()}`);
-    if (website?.trim()) memories.push(`Company website: ${website.trim()}`);
-    for (const content of memories) {
-      await supabase.from('workspace_memories').insert({
-        workspace_id: workspaceId,
-        category: 'Company',
-        content,
-        source: 'onboarding',
-        is_active: true,
-      }).catch(() => {});
+    if (workspaceId) {
+      if (website?.trim()) {
+        await saveNote(supabase, workspaceId, {
+          category: 'Company',
+          content: `Company website: ${website.trim()}`,
+          source: 'onboarding',
+        }).catch(() => {});
+      }
+      // 'ICP' category seeds the Scorecard auto-build on the Intelligence page.
+      if (icp_description?.trim()) {
+        await saveNote(supabase, workspaceId, {
+          category: 'ICP',
+          content: icp_description.trim(),
+          source: 'onboarding',
+        }).catch(() => {});
+      }
     }
 
     return res.json({ ok: true });
@@ -54,16 +58,106 @@ onboardingRouter.post('/step-1', verifySupabaseAuth, async (req, res) => {
   }
 });
 
-// Sample contacts inserted on /complete when the workspace is empty.
-// Gives the user something to query against from day one.
-const SAMPLE_CONTACTS = [
-  { email: 'priya.shah@acme.io',     first_name: 'Priya',   last_name: 'Shah',     company: 'Acme',         domain: 'acme.io',     job_title: 'VP Sales',          source: 'sample' },
-  { email: 'marcus.lee@northwind.co',first_name: 'Marcus',  last_name: 'Lee',      company: 'Northwind',    domain: 'northwind.co',job_title: 'Head of GTM',       source: 'sample' },
-  { email: 'sara.koenig@lattice.dev',first_name: 'Sara',    last_name: 'Koenig',   company: 'Lattice',      domain: 'lattice.dev', job_title: 'Director of RevOps',source: 'sample' },
-  { email: 'jp.romero@helix.ai',     first_name: 'JP',      last_name: 'Romero',   company: 'Helix',        domain: 'helix.ai',    job_title: 'Founder',           source: 'sample' },
-  { email: 'aisha.okafor@orbital.io',first_name: 'Aisha',   last_name: 'Okafor',   company: 'Orbital',      domain: 'orbital.io',  job_title: 'Head of Growth',    source: 'sample' },
-  { email: 'tom.bauer@kestrel.so',   first_name: 'Tom',     last_name: 'Bauer',    company: 'Kestrel',      domain: 'kestrel.so',  job_title: 'CRO',               source: 'sample' },
-];
+// GET /api/onboarding/checklist?workspaceId=... — 5-item post-onboarding progress.
+// Prefers req.workspaceId (set by middleware from query), falls back to the
+// user's first workspace via workspace_members. The query param is what the
+// frontend actually sends, so it stays accurate when a user has many workspaces.
+onboardingRouter.get('/checklist', verifySupabaseAuth, async (req, res) => {
+  try {
+    const supabase = getSupabaseClient();
+
+    let workspaceId = req.workspaceId || null;
+    if (!workspaceId) {
+      const { user, team } = await ensureUserAndTeam(req.user);
+      const { data: wms } = await supabase
+        .from('workspace_members')
+        .select('workspace_id, workspaces:workspace_id(id, team_id)')
+        .eq('user_id', user.id);
+      const match = (wms || []).find(m => m.workspaces?.team_id === team.id);
+      workspaceId = match?.workspace_id || null;
+    }
+    if (!workspaceId) {
+      return res.json({ steps: [], completed_count: 0, total: 5, workspaceId: null });
+    }
+
+    const safe = async (fn) => { try { return await fn(); } catch (e) { return { error: String(e?.message || e) }; } };
+
+    // Fetch api_keys once and filter in JS — more reliable than .is()/.not() chains.
+    const [icpNotes, scorecardSignals, contacts, apiKeys, webhooks] = await Promise.all([
+      safe(() => listNotes(supabase, workspaceId, { categories: ['ICP'] })),
+      safe(async () => {
+        const { data } = await supabase
+          .from('scorecard_signals')
+          .select('id')
+          .eq('workspace_id', workspaceId)
+          .limit(1);
+        return data ?? [];
+      }),
+      safe(async () => {
+        const { count } = await supabase
+          .from('contacts')
+          .select('id', { count: 'exact', head: true })
+          .eq('workspace_id', workspaceId);
+        return count ?? 0;
+      }),
+      safe(async () => {
+        const { data } = await supabase
+          .from('api_keys')
+          .select('id, revoked_at, last_used_at')
+          .eq('workspace_id', workspaceId);
+        return data ?? [];
+      }),
+      safe(async () => {
+        const { count } = await supabase
+          .from('workspace_webhook_subscriptions')
+          .select('id', { count: 'exact', head: true })
+          .eq('workspace_id', workspaceId);
+        return count ?? 0;
+      }),
+    ]);
+
+    const icpCount       = Array.isArray(icpNotes)        ? icpNotes.length : 0;
+    const signalCount    = Array.isArray(scorecardSignals) ? scorecardSignals.length : 0;
+    const contactCount   = typeof contacts === 'number'   ? contacts : 0;
+    const apiKeyRows     = Array.isArray(apiKeys)         ? apiKeys : [];
+    const activeKeyCount = apiKeyRows.filter(k => !k.revoked_at).length;
+    const usedKeyCount   = apiKeyRows.filter(k => !!k.last_used_at).length;
+    const webhookCount   = typeof webhooks === 'number'   ? webhooks : 0;
+
+    // ICP done = either workspace has an ICP-category memory OR a Scorecard exists.
+    const icpDone = icpCount > 0 || signalCount > 0;
+
+    const steps = [
+      { id: 'icp',      label: 'Describe your ICP',  completed: icpDone,                href: '/intelligence' },
+      { id: 'contacts', label: 'Bring contacts in',  completed: contactCount > 0,       href: '/people' },
+      { id: 'api_key',  label: 'Create an API key',  completed: activeKeyCount > 0,     href: '/keys' },
+      { id: 'install',  label: 'Install Nous',       completed: usedKeyCount > 0,       href: '/install' },
+      { id: 'webhooks', label: 'Set up 3 webhooks',  completed: webhookCount >= 3,      href: '/webhooks' },
+    ];
+
+    const debug = process.env.NODE_ENV !== 'production' ? {
+      workspaceId,
+      counts: { icpCount, signalCount, contactCount, activeKeyCount, usedKeyCount, webhookCount },
+      errors: {
+        icp:       icpNotes?.error ?? null,
+        scorecard: scorecardSignals?.error ?? null,
+        contacts:  typeof contacts !== 'number' ? contacts?.error ?? null : null,
+        apiKeys:   !Array.isArray(apiKeys) ? apiKeys?.error ?? null : null,
+        webhooks:  typeof webhooks !== 'number' ? webhooks?.error ?? null : null,
+      },
+    } : undefined;
+
+    return res.json({
+      steps,
+      completed_count: steps.filter(s => s.completed).length,
+      total: steps.length,
+      ...(debug ? { debug } : {}),
+    });
+  } catch (err) {
+    console.error('[GET /api/onboarding/checklist]', err);
+    return res.status(500).json({ error: 'internal_error', detail: String(err?.message || err) });
+  }
+});
 
 // Fire-and-forget POST to ONBOARDING_WEBHOOK_URL when a user finishes onboarding.
 // Lets external systems (Slack, Zapier, n8n, CRM) react to new signups.
@@ -85,7 +179,7 @@ async function fireOnboardingWebhook(payload) {
 onboardingRouter.post('/complete', verifySupabaseAuth, async (req, res) => {
   try {
     const supabase = getSupabaseClient();
-    const { template_id } = req.body;
+    const { template_id, name, company_name, website, icp_description } = req.body;
     const { user, team } = await ensureUserAndTeam(req.user);
 
     let workspace = null;
@@ -101,22 +195,23 @@ onboardingRouter.post('/complete', verifySupabaseAuth, async (req, res) => {
       workspace = match?.workspaces || null;
     }
 
-    // Seed demo contacts if the workspace is empty, so the dashboard isn't blank.
-    if (workspace?.id) {
-      const { count } = await supabase
-        .from('contacts')
-        .select('id', { count: 'exact', head: true })
-        .eq('workspace_id', workspace.id);
-      if (!count) {
-        await supabase.from('contacts').insert(
-          SAMPLE_CONTACTS.map(c => ({ ...c, workspace_id: workspace.id, created_by: user.id }))
-        ).catch(() => {});
-      }
-    }
-
     const isFirstCompletion = !user.onboarding_completed_at;
     if (isFirstCompletion) {
       await supabase.from('users').update({ onboarding_completed_at: new Date().toISOString() }).eq('id', user.id);
+    }
+
+    // Guarantee the team has a Free subscription. ensureUserAndTeam creates one
+    // on first auth; this is the belt-and-suspenders if that ever missed.
+    // ignoreDuplicates leaves an existing (potentially paid) row untouched.
+    if (isFirstCompletion) {
+      await supabase.from('subscriptions').upsert({
+        team_id: team.id,
+        plan_id: 'free',
+        plan_name: 'free',
+        status: 'active',
+        current_period_start: new Date().toISOString(),
+      }, { onConflict: 'team_id', ignoreDuplicates: true })
+        .catch(e => console.warn('[onboarding/complete] free-plan upsert:', e?.message || e));
     }
 
     // Outbound webhook — only on first completion, fire-and-forget.
@@ -124,9 +219,18 @@ onboardingRouter.post('/complete', verifySupabaseAuth, async (req, res) => {
       fireOnboardingWebhook({
         event: 'onboarding.completed',
         timestamp: new Date().toISOString(),
-        user: { id: user.id, name: user.name || null, email: user.email || null },
+        user: {
+          id: user.id,
+          name: (typeof name === 'string' && name.trim()) || user.name || null,
+          email: user.email || null,
+        },
         workspace: workspace ? { id: workspace.id, name: workspace.name } : null,
         team: { id: team.id, name: team.name || null },
+        company: {
+          name: (typeof company_name === 'string' && company_name.trim()) || workspace?.name || null,
+          website: (typeof website === 'string' && website.trim()) || null,
+        },
+        icp_description: (typeof icp_description === 'string' && icp_description.trim()) || null,
       });
     }
 

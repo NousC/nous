@@ -47,18 +47,21 @@ const STAGE: Record<string, string> = {
 };
 
 const PROVIDER_LOGO: Record<string, string> = {
-  rb2b:      "/provider-logos/rb2b.svg",
-  linkedin:  "/provider-logos/linkedin.png",
-  gmail:     "/provider-logos/gmail.svg",
-  instantly: "/provider-logos/instantly.svg",
-  fireflies: "/provider-logos/fireflies.svg",
-  apollo:    "/provider-logos/apollo.svg",
-  hubspot:   "/provider-logos/hubspot.svg",
-  pipedrive: "/provider-logos/pipedrive.svg",
-  slack:     "/provider-logos/slack.svg",
-  notion:    "/provider-logos/notion.svg",
-  anthropic: "/provider-logos/anthropic.svg",
-  claude:    "/provider-logos/claude.svg",
+  rb2b:       "/provider-logos/rb2b.png",
+  linkedin:   "/provider-logos/linkedin.png",
+  gmail:      "/provider-logos/gmail.svg",
+  instantly:  "/provider-logos/instantly.svg",
+  emailbison: "/provider-logos/emailbison.png",
+  heyreach:   "/provider-logos/heyreach.png",
+  smartlead:  "/provider-logos/smartlead.png",
+  fireflies:  "/provider-logos/fireflies.svg",
+  apollo:     "/provider-logos/apollo.svg",
+  hubspot:    "/provider-logos/hubspot.svg",
+  pipedrive:  "/provider-logos/pipedrive.svg",
+  slack:      "/provider-logos/slack.svg",
+  notion:     "/provider-logos/notion.svg",
+  anthropic:  "/provider-logos/anthropic.svg",
+  claude:     "/provider-logos/claude.svg",
 };
 
 const PROVIDER_SHORT: Record<string, string> = {

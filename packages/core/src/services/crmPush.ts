@@ -70,7 +70,7 @@ export interface CrmPushEvent {
   workspaceId: string;
   contactId: string;
   activityType: string;
-  activityId?: string | null;     // contact_activity_log.id — enables per-row push dedup
+  activityId?: string | null;     // observation id — enables per-row push dedup
   occurredAt?: string;
   summary?: string | null;
   description?: string | null;
@@ -133,14 +133,16 @@ export async function pushActivityToAllCrms(evt: CrmPushEvent): Promise<void> {
   if (!contact?.email) return;
 
   // Read existing per-provider engagement IDs so a retry doesn't double-post.
+  // Phase 2: keyed by observation id in the v2 substrate (was contact_activity_log).
   let alreadyPushed: Record<string, string> = {};
   if (evt.activityId) {
-    const { data: act } = await supabase
-      .from('contact_activity_log')
-      .select('pushed_to_crms')
-      .eq('id', evt.activityId)
-      .single();
-    alreadyPushed = (act?.pushed_to_crms as Record<string, string>) || {};
+    const { data: rows } = await supabase
+      .from('observation_crm_pushes')
+      .select('provider, engagement_id')
+      .eq('observation_id', evt.activityId);
+    for (const r of (rows as { provider: string; engagement_id: string }[]) || []) {
+      alreadyPushed[r.provider] = r.engagement_id;
+    }
   }
 
   await Promise.allSettled(enabled.map((cfg: any) =>
@@ -207,7 +209,7 @@ async function pushOne(
 
     // Idempotency: record what we pushed so a retry sees it and skips
     if (evt.activityId && engagementId) {
-      await markActivityPushed(supabase, evt.activityId, provider, engagementId);
+      await markActivityPushed(supabase, evt.workspaceId, evt.activityId, provider, engagementId);
     }
 
     await logCrmOp(supabase, evt, provider, 'activity_pushed',
@@ -221,21 +223,22 @@ async function pushOne(
   }
 }
 
-// Atomic update of contact_activity_log.pushed_to_crms via JSONB merge — safe under concurrency.
-async function markActivityPushed(supabase: any, activityId: string, provider: string, engagementId: string): Promise<void> {
+// Record one (observation, provider, engagement) push. PK (observation_id, provider)
+// makes this naturally idempotent under concurrency.
+async function markActivityPushed(
+  supabase: any,
+  workspaceId: string,
+  observationId: string,
+  provider: string,
+  engagementId: string,
+): Promise<void> {
   try {
-    // Re-read to merge without clobbering other providers' values
-    const { data: row } = await supabase
-      .from('contact_activity_log')
-      .select('pushed_to_crms')
-      .eq('id', activityId)
-      .single();
-    const merged = { ...(row?.pushed_to_crms || {}), [provider]: engagementId };
-    await supabase.from('contact_activity_log')
-      .update({ pushed_to_crms: merged })
-      .eq('id', activityId);
+    await supabase.from('observation_crm_pushes').upsert(
+      { workspace_id: workspaceId, observation_id: observationId, provider, engagement_id: engagementId },
+      { onConflict: 'observation_id,provider', ignoreDuplicates: false },
+    );
   } catch (err: any) {
-    console.warn('[CRM_PUSH] pushed_to_crms write failed:', err?.message || err);
+    console.warn('[CRM_PUSH] dedup write failed:', err?.message || err);
   }
 }
 

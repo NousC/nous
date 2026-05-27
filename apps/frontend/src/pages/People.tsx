@@ -68,62 +68,62 @@ function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token:
     { id:"calls",     label:"Calls",     count: calls.length   },
     { id:"notes",     label:"Notes",     count: notes.length   },
     { id:"company",   label:"Company"                          },
-    { id:"memory",    label:"Memory",    count: mems.length    },
+    { id:"memory",    label:"Facts",     count: mems.length    },
   ];
 
   const tabItems = tab==="activity" ? acts : tab==="emails" ? emails : tab==="linkedin" ? linkedin : tab==="slack" ? slack : tab==="calls" ? calls : tab==="notes" ? notes : [];
 
   return (
-    <div className="flex flex-col h-full bg-white">
+    <div className="flex flex-col h-full bg-background">
       {/* Header */}
       <div className="flex-shrink-0 px-8 pt-7 pb-0">
         <div className="flex items-center gap-3 mb-1">
           <button onClick={onBack}
-            className="inline-flex items-center justify-center h-8 w-8 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 hover:text-gray-900 transition-colors flex-shrink-0">
+            className="inline-flex items-center justify-center h-8 w-8 rounded-lg border border-border text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors flex-shrink-0">
             <ArrowLeft className="h-4 w-4" />
           </button>
-          <h1 className="text-[20px] font-semibold tracking-tight text-gray-900">{contact.name}</h1>
+          <h1 className="text-[20px] font-semibold tracking-tight text-foreground">{contact.name}</h1>
         </div>
         <div className="flex items-center gap-2 pl-11 mb-4 flex-wrap">
-          {contact.email && <span className="text-[13px] text-gray-500">{contact.email}</span>}
-          {contact.lastActivityAt && <span className="text-[12px] text-gray-400">· {relTime(contact.lastActivityAt)}</span>}
+          {contact.email && <span className="text-[13px] text-muted-foreground">{contact.email}</span>}
+          {contact.lastActivityAt && <span className="text-[12px] text-muted-foreground/70">· {relTime(contact.lastActivityAt)}</span>}
         </div>
-        <div className="flex gap-6 border-b border-gray-200 overflow-x-auto">
+        <div className="flex gap-6 border-b border-border overflow-x-auto">
           {TABS.map(t => (
             <button key={t.id} onClick={() => setTab(t.id)}
               className={`flex items-center gap-1.5 pb-2.5 text-[13px] font-medium transition-colors flex-shrink-0 ${
-                tab===t.id ? "text-gray-900 border-b-2 border-gray-900 -mb-px" : "text-gray-400 hover:text-gray-700"
+                tab===t.id ? "text-foreground border-b-2 border-foreground -mb-px" : "text-muted-foreground/70 hover:text-foreground/80"
               }`}>
               {t.label}
-              {t.count !== undefined && <span className={`text-[11px] ${tab===t.id ? "text-gray-400" : "text-gray-300"}`}>{t.count}</span>}
+              {t.count !== undefined && <span className={`text-[11px] ${tab===t.id ? "text-muted-foreground/70" : "text-muted-foreground/50"}`}>{t.count}</span>}
             </button>
           ))}
         </div>
       </div>
 
       {loading ? (
-        <div className="flex-1 flex items-center justify-center text-[13px] text-gray-400">Loading…</div>
+        <div className="flex-1 flex items-center justify-center text-[13px] text-muted-foreground/70">Loading…</div>
       ) : (
         <div className="flex flex-1 min-h-0 overflow-hidden">
           {/* Main content */}
           <div className="flex-1 overflow-y-auto px-8 py-4">
             {(tab !== "company" && tab !== "memory") && (
               tabItems.length === 0
-                ? <p className="text-[13px] text-gray-400 py-12 text-center">Nothing here yet</p>
-                : <div className="divide-y divide-gray-100">
+                ? <p className="text-[13px] text-muted-foreground/70 py-12 text-center">Nothing here yet</p>
+                : <div className="divide-y divide-border/60">
                     {tabItems.map((a: any) => {
                       const body = a.subtitle || a.raw_data?.text || a.raw_data?.body || null;
                       return (
                         <div key={a.id} className="py-3">
                           <div className="flex items-center gap-2.5 mb-1.5">
                             <ActivityIcon source={a.source} type={a.activity_type || ""} />
-                            <span className="text-[12px] text-gray-500 flex-1 truncate">
+                            <span className="text-[12px] text-muted-foreground flex-1 truncate">
                               {a.activity_type?.replace(/_/g," ").toLowerCase()}
                             </span>
-                            <span className="text-[12px] text-gray-400 tabular-nums flex-shrink-0">{relTime(a.created_at || a.occurred_at)}</span>
+                            <span className="text-[12px] text-muted-foreground/70 tabular-nums flex-shrink-0">{relTime(a.created_at || a.occurred_at)}</span>
                           </div>
                           {body && (
-                            <p className="text-[13px] text-gray-700 leading-relaxed pl-[26px]">{body}</p>
+                            <p className="text-[13px] text-foreground/80 leading-relaxed pl-[26px]">{body}</p>
                           )}
                         </div>
                       );
@@ -132,21 +132,21 @@ function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token:
             )}
             {tab === "company" && (
               <div className="py-4 space-y-1">
-                <div className="text-[15px] font-semibold text-gray-900">{contact.companyName ?? raw?.company ?? "—"}</div>
-                {(contact.domain ?? raw?.domain) && <div className="text-[13px] text-gray-500">{contact.domain ?? raw?.domain}</div>}
+                <div className="text-[15px] font-semibold text-foreground">{contact.companyName ?? raw?.company ?? "—"}</div>
+                {(contact.domain ?? raw?.domain) && <div className="text-[13px] text-muted-foreground">{contact.domain ?? raw?.domain}</div>}
               </div>
             )}
             {tab === "memory" && (
               mems.length === 0
-                ? <p className="text-[13px] text-gray-400 py-12 text-center">No memories yet</p>
-                : <div className="divide-y divide-gray-100">
+                ? <p className="text-[13px] text-muted-foreground/70 py-12 text-center">No facts yet</p>
+                : <div className="divide-y divide-border/60">
                     {mems.map((m: any) => (
                       <div key={m.id} className="py-3">
                         <div className="flex items-baseline gap-2 mb-1">
-                          <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 capitalize">{m.category?.toLowerCase()}</span>
-                          <span className="text-[12px] text-gray-400 ml-auto">{relTime(m.created_at)}</span>
+                          <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 capitalize">{m.category?.toLowerCase()}</span>
+                          <span className="text-[12px] text-muted-foreground/70 ml-auto">{relTime(m.created_at)}</span>
                         </div>
-                        <p className="text-[13px] text-gray-700 leading-relaxed">{m.content}</p>
+                        <p className="text-[13px] text-foreground/80 leading-relaxed">{m.content}</p>
                       </div>
                     ))}
                   </div>
@@ -154,10 +154,10 @@ function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token:
           </div>
 
           {/* Record Details sidebar — editable */}
-          <div className="w-64 flex-shrink-0 border-l border-gray-200 px-5 py-5 overflow-y-auto">
+          <div className="w-64 flex-shrink-0 border-l border-border px-5 py-5 overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Record Details</span>
-              {saving && <span className="text-[11px] text-gray-400">saving…</span>}
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">Record Details</span>
+              {saving && <span className="text-[11px] text-muted-foreground/70">saving…</span>}
             </div>
             <div className="space-y-3.5">
               {([
@@ -182,12 +182,12 @@ function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token:
                 const isEditing = editingField === key;
                 return (
                   <div key={key}>
-                    <div className="text-[11px] font-medium text-gray-400 mb-1">{label}</div>
+                    <div className="text-[11px] font-medium text-muted-foreground/70 mb-1">{label}</div>
                     {isEditing ? (
                       type === "select" ? (
                         <select value={editValue} autoFocus
                           onChange={e => { setEditValue(e.target.value); patchContact(key, e.target.value); }}
-                          className="w-full rounded-md border border-gray-300 bg-white text-[13px] text-gray-900 px-2 py-1 outline-none focus:border-gray-400">
+                          className="w-full rounded-md border border-border bg-background text-[13px] text-foreground px-2 py-1 outline-none focus:border-foreground/40">
                           {opts?.map(o => <option key={o} value={o}>{o}</option>)}
                         </select>
                       ) : type === "textarea" ? (
@@ -195,17 +195,17 @@ function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token:
                           onChange={e => setEditValue(e.target.value)}
                           onBlur={() => patchContact(key, editValue)}
                           onKeyDown={e => { if (e.key==="Escape") setEditingField(null); }}
-                          className="w-full rounded-md border border-gray-300 bg-white text-[13px] text-gray-900 px-2 py-1 outline-none focus:border-gray-400 resize-none leading-relaxed" />
+                          className="w-full rounded-md border border-border bg-background text-[13px] text-foreground px-2 py-1 outline-none focus:border-foreground/40 resize-none leading-relaxed" />
                       ) : (
                         <input type={type==="number"?"number":"text"} value={editValue} autoFocus
                           onChange={e => setEditValue(e.target.value)}
                           onBlur={() => patchContact(key, editValue)}
                           onKeyDown={e => { if (e.key==="Enter") patchContact(key, editValue); if (e.key==="Escape") setEditingField(null); }}
-                          className="w-full rounded-md border border-gray-300 bg-white text-[13px] text-gray-900 px-2 py-1 outline-none focus:border-gray-400" />
+                          className="w-full rounded-md border border-border bg-background text-[13px] text-foreground px-2 py-1 outline-none focus:border-foreground/40" />
                       )
                     ) : (
                       <div onClick={() => startEdit(key, val)}
-                        className={`text-[13px] leading-snug break-words cursor-pointer rounded-md px-1.5 -mx-1.5 py-1 transition-colors hover:bg-gray-50 ${val ? "text-gray-700" : "text-gray-300 italic"}`}>
+                        className={`text-[13px] leading-snug break-words cursor-pointer rounded-md px-1.5 -mx-1.5 py-1 transition-colors hover:bg-muted/50 ${val ? "text-foreground/80" : "text-muted-foreground/50 italic"}`}>
                         {val ?? "—"}
                       </div>
                     )}
@@ -334,21 +334,21 @@ export default function People() {
     <button onClick={() => { cycleSort(col); setPage(0); }}
       className="text-[11px] font-semibold uppercase tracking-wide flex items-center gap-0.5 flex-shrink-0 group"
       style={{width:w}}>
-      <span className={sortCol===col ? "text-gray-700" : "text-gray-400 group-hover:text-gray-700 transition-colors"}>{label}</span>
-      {sortCol===col && <span className="text-[10px] text-gray-500 ml-0.5">{sortDir==="asc"?"↑":"↓"}</span>}
+      <span className={sortCol===col ? "text-foreground/80" : "text-muted-foreground/70 group-hover:text-foreground/80 transition-colors"}>{label}</span>
+      {sortCol===col && <span className="text-[10px] text-muted-foreground ml-0.5">{sortDir==="asc"?"↑":"↓"}</span>}
     </button>
   );
 
   if (detail) {
     return (
-      <div className="h-full bg-white">
+      <div className="h-full bg-background">
         <PeopleDetail contact={detail} token={token} onBack={() => setDetail(null)} />
       </div>
     );
   }
 
   return (
-    <div className="h-full overflow-y-auto bg-white">
+    <div className="h-full overflow-y-auto bg-background">
       {showImport && <PeopleImportModal workspaceId={workspaceId} token={token} onClose={()=>setShowImport(false)} onDone={()=>{ setShowImport(false); load(); }}/>}
       <div className="px-8 py-7">
         <PageHeader
@@ -357,11 +357,11 @@ export default function People() {
           actions={
             <>
               <button onClick={handleExport}
-                className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-white border border-gray-200 text-gray-700 text-[13px] font-semibold hover:bg-gray-50 transition-colors">
+                className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-background border border-border text-foreground/80 text-[13px] font-semibold hover:bg-muted/50 transition-colors">
                 <Download className="h-3.5 w-3.5" /> Export
               </button>
               <button onClick={() => setShowImport(true)}
-                className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-white border border-gray-200 text-gray-700 text-[13px] font-semibold hover:bg-gray-50 transition-colors">
+                className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-background border border-border text-foreground/80 text-[13px] font-semibold hover:bg-muted/50 transition-colors">
                 <Upload className="h-3.5 w-3.5" /> Import
               </button>
             </>
@@ -371,64 +371,64 @@ export default function People() {
         {/* Toolbar */}
         <div className="flex items-center justify-between gap-3 mb-4">
           <div className="relative w-full max-w-xs">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/70 pointer-events-none" />
             <input value={q} onChange={e=>handleSearch(e.target.value)} placeholder="Search people…" autoFocus
-              className="h-9 w-full rounded-lg border border-gray-200 bg-white pl-9 pr-3 text-[13px] text-gray-900 placeholder:text-gray-400 focus:border-gray-400 outline-none" />
+              className="h-9 w-full rounded-lg border border-border bg-background pl-9 pr-3 text-[13px] text-foreground placeholder:text-muted-foreground/70 focus:border-foreground/40 outline-none" />
           </div>
           <div className="flex items-center gap-1.5 flex-shrink-0">
             {stages.map(s => (
               <button key={s} onClick={() => handleStage(s)}
-                className={`text-[12px] px-2.5 py-1 rounded-md border transition-colors capitalize ${stage===s ? "text-gray-900 border-gray-900 bg-gray-50 font-medium" : "text-gray-500 border-gray-200 hover:border-gray-400"}`}>
+                className={`text-[12px] px-2.5 py-1 rounded-md border transition-colors capitalize ${stage===s ? "text-foreground border-foreground bg-muted/50 font-medium" : "text-muted-foreground border-border hover:border-foreground/40"}`}>
                 {s}
               </button>
             ))}
-            <span className="text-[12px] text-gray-400 ml-1 tabular-nums">{sorted.length} of {contacts.length}</span>
+            <span className="text-[12px] text-muted-foreground/70 ml-1 tabular-nums">{sorted.length} of {contacts.length}</span>
           </div>
         </div>
 
         {/* Table */}
-        <div className="rounded-xl border border-gray-200 overflow-hidden">
+        <div className="rounded-xl border border-border overflow-hidden">
           {/* Table header */}
-          <div className="flex items-center px-4 py-2.5 bg-gray-50 border-b border-gray-200">
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 flex-shrink-0" style={{width:170}}>Name</span>
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 flex-shrink-0" style={{width:115}}>Company</span>
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 flex-shrink-0" style={{width:100}}>Domain</span>
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 flex-shrink-0" style={{width:40}}>LI</span>
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 flex-shrink-0" style={{width:88}}>Stage</span>
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 flex-shrink-0" style={{width:42}}>ICP</span>
+          <div className="flex items-center px-4 py-2.5 bg-muted/50 border-b border-border">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-shrink-0" style={{width:170}}>Name</span>
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-shrink-0" style={{width:115}}>Company</span>
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-shrink-0" style={{width:100}}>Domain</span>
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-shrink-0" style={{width:40}}>LI</span>
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-shrink-0" style={{width:88}}>Stage</span>
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-shrink-0" style={{width:42}}>ICP</span>
             <SortBtn col="deal" label="Deal" w={88} />
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 flex-shrink-0" style={{width:72}}>Segment</span>
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 flex-shrink-0" style={{width:60}}>Health</span>
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-shrink-0" style={{width:72}}>Segment</span>
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-shrink-0" style={{width:60}}>Health</span>
             <SortBtn col="lastActivity" label="Last Int." w={96} />
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 flex-shrink-0 text-right" style={{width:78}}>Enrich</span>
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-shrink-0 text-right" style={{width:78}}>Enrich</span>
           </div>
           {/* Rows */}
-          {loading && contacts.length === 0 && <div className="text-[13px] text-gray-400 text-center py-12">Loading…</div>}
+          {loading && contacts.length === 0 && <div className="text-[13px] text-muted-foreground/70 text-center py-12">Loading…</div>}
           {pageRows.map(c => (
-            <div key={c.id} className="flex items-center px-4 py-3 border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors group">
+            <div key={c.id} className="flex items-center px-4 py-3 border-b border-border/60 last:border-0 hover:bg-muted/50 transition-colors group">
               <button onClick={() => setDetail(c)} className="flex-shrink-0 text-left min-w-0 pr-3" style={{width:170}}>
-                <div className="text-[13px] font-medium text-gray-900 truncate">{c.name}</div>
-                {c.title && <div className="text-[12px] text-gray-400 truncate">{c.title}</div>}
+                <div className="text-[13px] font-medium text-foreground truncate">{c.name}</div>
+                {c.title && <div className="text-[12px] text-muted-foreground/70 truncate">{c.title}</div>}
               </button>
-              <button onClick={() => setDetail(c)} className="text-[13px] text-gray-500 truncate pr-2 flex-shrink-0 text-left" style={{width:115}}>{c.companyName ?? "—"}</button>
-              <span className="text-[13px] text-gray-400 truncate pr-2 flex-shrink-0" style={{width:100}}>{c.domain ?? "—"}</span>
+              <button onClick={() => setDetail(c)} className="text-[13px] text-muted-foreground truncate pr-2 flex-shrink-0 text-left" style={{width:115}}>{c.companyName ?? "—"}</button>
+              <span className="text-[13px] text-muted-foreground/70 truncate pr-2 flex-shrink-0" style={{width:100}}>{c.domain ?? "—"}</span>
               <div className="flex-shrink-0" style={{width:40}}>
                 {c.linkedinUrl
                   ? <a href={c.linkedinUrl} target="_blank" rel="noopener noreferrer" onClick={e=>e.stopPropagation()}
-                      className="text-gray-400 hover:text-gray-900 transition-colors flex items-center">
+                      className="text-muted-foreground/70 hover:text-foreground transition-colors flex items-center">
                       <Linkedin className="h-3.5 w-3.5" />
                     </a>
-                  : <span className="text-gray-300 text-[12px]">—</span>
+                  : <span className="text-muted-foreground/50 text-[12px]">—</span>
                 }
               </div>
               <button onClick={() => setDetail(c)} className="text-[13px] pr-2 flex-shrink-0 text-left capitalize" style={{width:88,color:stageColor(c.pipelineStage)}}>{c.pipelineStage}</button>
-              <button onClick={() => setDetail(c)} className="text-[13px] text-gray-500 pr-2 flex-shrink-0 text-left tabular-nums" style={{width:42}}>{c.icpScore != null ? c.icpScore : "—"}</button>
-              <button onClick={() => setDetail(c)} className="text-[13px] text-gray-500 truncate pr-2 flex-shrink-0 text-left" style={{width:88}}>{c.dealStage ?? "—"}</button>
-              <button onClick={() => setDetail(c)} className="text-[13px] text-gray-500 truncate pr-2 flex-shrink-0 text-left" style={{width:72}}>{c.segmentLabel ?? "—"}</button>
+              <button onClick={() => setDetail(c)} className="text-[13px] text-muted-foreground pr-2 flex-shrink-0 text-left tabular-nums" style={{width:42}}>{c.icpScore != null ? c.icpScore : "—"}</button>
+              <button onClick={() => setDetail(c)} className="text-[13px] text-muted-foreground truncate pr-2 flex-shrink-0 text-left" style={{width:88}}>{c.dealStage ?? "—"}</button>
+              <button onClick={() => setDetail(c)} className="text-[13px] text-muted-foreground truncate pr-2 flex-shrink-0 text-left" style={{width:72}}>{c.segmentLabel ?? "—"}</button>
               <button onClick={() => setDetail(c)} className="text-[13px] tabular-nums pr-2 flex-shrink-0 text-left" style={{width:60,color:c.dealHealthScore!=null?healthColor(c.dealHealthScore):""}}>
                 {c.dealHealthScore!=null ? `${c.dealHealthScore}` : "—"}
               </button>
-              <button onClick={() => setDetail(c)} className="text-[13px] text-gray-500 flex-1 text-left" style={{minWidth:0}}>{relTime(c.lastActivityAt)}</button>
+              <button onClick={() => setDetail(c)} className="text-[13px] text-muted-foreground flex-1 text-left" style={{minWidth:0}}>{relTime(c.lastActivityAt)}</button>
               <div className="flex-shrink-0 flex items-center justify-end gap-2" style={{width:78}}>
                 {enriched.has(c.id) ? (
                   <span className="text-[11px] text-emerald-600">enriched</span>
@@ -436,28 +436,28 @@ export default function People() {
                   <span className="text-[11px] text-red-500">failed</span>
                 ) : (
                   <button onClick={e => handleEnrich(c, e)} disabled={enriching.has(c.id)}
-                    className="text-[12px] font-medium text-gray-500 hover:text-gray-900 transition-colors disabled:opacity-40 flex items-center gap-0.5">
+                    className="text-[12px] font-medium text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 flex items-center gap-0.5">
                     {enriching.has(c.id) ? <RefreshCw className="h-3 w-3 animate-spin"/> : <span>Enrich</span>}
                   </button>
                 )}
                 <button onClick={e => deleteContact(c.id, e)}
-                  className="opacity-0 group-hover:opacity-100 transition-opacity text-gray-300 hover:text-red-500 flex-shrink-0">
+                  className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground/50 hover:text-red-500 flex-shrink-0">
                   <Trash2 className="h-3.5 w-3.5"/>
                 </button>
               </div>
             </div>
           ))}
-          {!loading && sorted.length===0 && <div className="text-[13px] text-gray-400 text-center py-12">No results</div>}
+          {!loading && sorted.length===0 && <div className="text-[13px] text-muted-foreground/70 text-center py-12">No results</div>}
         </div>
 
         {/* Pagination footer */}
         <div className="mt-4 flex items-center justify-between">
-          <span className="text-[12px] text-gray-400 tabular-nums">page {page+1} of {totalPages} · {sorted.length} people</span>
+          <span className="text-[12px] text-muted-foreground/70 tabular-nums">page {page+1} of {totalPages} · {sorted.length} people</span>
           <div className="flex items-center gap-2">
             <button onClick={() => setPage(p=>p-1)} disabled={page===0}
-              className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-white border border-gray-200 text-gray-700 text-[13px] font-semibold hover:bg-gray-50 transition-colors disabled:opacity-30">Prev</button>
+              className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-background border border-border text-foreground/80 text-[13px] font-semibold hover:bg-muted/50 transition-colors disabled:opacity-30">Prev</button>
             <button onClick={() => setPage(p=>p+1)} disabled={page>=totalPages-1}
-              className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-white border border-gray-200 text-gray-700 text-[13px] font-semibold hover:bg-gray-50 transition-colors disabled:opacity-30">Next</button>
+              className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-background border border-border text-foreground/80 text-[13px] font-semibold hover:bg-muted/50 transition-colors disabled:opacity-30">Next</button>
           </div>
         </div>
       </div>

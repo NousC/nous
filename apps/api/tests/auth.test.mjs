@@ -9,16 +9,16 @@ function withSupabase(name, fn) {
   test(name, { skip: 'SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not set' }, fn);
 }
 
-// These routes reject before touching Supabase (missing header check)
-test('GET /v1/contacts → 401 without API key', async () => {
-  const res = await get('/v1/contacts');
+// The v2 Context API rejects before touching Supabase (missing header check)
+test('GET /v2/accounts/:id → 401 without API key', async () => {
+  const res = await get('/v2/accounts/test');
   assert.equal(res.status, 401);
   const body = await res.json();
   assert.equal(body.error, 'api_key_required');
 });
 
-test('GET /v1/memories → 401 without API key', async () => {
-  const res = await get('/v1/memories');
+test('GET /v2/attention → 401 without API key', async () => {
+  const res = await get('/v2/attention');
   assert.equal(res.status, 401);
   const body = await res.json();
   assert.equal(body.error, 'api_key_required');
@@ -57,8 +57,8 @@ for (const route of protectedGetRoutes) {
   });
 }
 
-withSupabase('GET /v1/contacts with bad API key → 401', async () => {
-  const res = await get('/v1/contacts', { 'x-api-key': 'not-a-real-key' });
+withSupabase('GET /v2/accounts/:id with bad API key → 401', async () => {
+  const res = await get('/v2/accounts/test', { 'x-api-key': 'not-a-real-key' });
   assert.equal(res.status, 401);
   const body = await res.json();
   assert.equal(body.error, 'invalid_api_key');

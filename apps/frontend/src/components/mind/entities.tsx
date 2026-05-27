@@ -122,16 +122,19 @@ const LOGO_FALLBACK: Record<string, string> = {
   apollo: "/provider-logos/apollo.svg",
   "apollo.io": "/provider-logos/apollo.svg",
   gmail: "/provider-logos/gmail.svg",
-  linkedin: "/provider-logos/linkedin.svg",
+  linkedin: "/provider-logos/linkedin.png",
   hubspot: "/provider-logos/hubspot.svg",
   slack: "/provider-logos/slack.svg",
   instantly: "/provider-logos/instantly.svg",
-  rb2b: "/provider-logos/rb2b.svg",
+  rb2b: "/provider-logos/rb2b.png",
   fireflies: "/provider-logos/fireflies.svg",
   fathom: "/provider-logos/fathom.svg",
   calendly: "/provider-logos/calendly.svg",
   cal_com: "/provider-logos/cal_com.svg",
   "cal.com": "/provider-logos/cal_com.svg",
+  emailbison: "/provider-logos/emailbison.png",
+  heyreach: "/provider-logos/heyreach.png",
+  smartlead: "/provider-logos/smartlead.png",
 };
 
 // Logos whose marks are predominantly black/dark — they need a light tile.

@@ -3,8 +3,12 @@
 // Called on every new contact, and after any identity resolution
 // ============================================================
 
-import Anthropic from '@anthropic-ai/sdk';
-import { logActivity, listSignals, scoreLead } from '@nous/core';
+import Anthropic from 'useleak';
+import {
+  logActivity, listSignals, scoreLead,
+  listNotes, listActivities,
+  resolveEntity, getOrCreateEntity, identifiersFromContactData,
+} from '@nous/core';
 import { decrypt } from '../utils/encryption.js';
 
 async function logSysEvent(supabase, workspaceId, source, eventType, summary, contactId, metadata) {
@@ -86,53 +90,21 @@ export async function resolveContact(supabase, workspaceId, data, { createIfMiss
     company_name,
   } = data;
 
-  // Step 1 — match by external integration ID (fastest, no fuzzy logic)
-  const externalChecks = [
-    hubspot_id   && { hubspot_id:    hubspot_id },
-    pipedrive_id && { pipedrive_id:  pipedrive_id },
-    apollo_id    && { apollo_id:     apollo_id },
-    rb2b_id      && { rb2b_id:       rb2b_id },
-    attio_id     && { attio_id:      attio_id },
-  ].filter(Boolean);
+  const identifiers = identifiersFromContactData({
+    email, linkedin_url, hubspot_id, pipedrive_id, apollo_id, rb2b_id, attio_id,
+  });
 
-  for (const filter of externalChecks) {
-    const key = Object.keys(filter)[0];
-    const val = filter[key];
-    const { data: match } = await supabase
-      .from('contacts')
-      .select('*')
-      .eq('workspace_id', workspaceId)
-      .eq(key, val)
-      .maybeSingle();
+  // Step 1 — resolve via entity_identifiers; fetch the contact row by id
+  // (entity.id == contact.id under the migration convention).
+  for (const ident of identifiers) {
+    const entityId = await resolveEntity(supabase, workspaceId, ident);
+    if (!entityId) continue;
+    const { data: match } = await supabase.from('contacts').select('*').eq('id', entityId).maybeSingle();
     if (match) return { contact: await mergeContact(supabase, match, data), created: false };
   }
 
-  // Step 2 — match by email (ground truth)
-  if (email) {
-    const { data: match } = await supabase
-      .from('contacts')
-      .select('*')
-      .eq('workspace_id', workspaceId)
-      .eq('email', email.toLowerCase().trim())
-      .maybeSingle();
-    if (match) return { contact: await mergeContact(supabase, match, data), created: false };
-  }
-
-  // Step 3 — match by LinkedIn URL
-  if (linkedin_url) {
-    const { data: match } = await supabase
-      .from('contacts')
-      .select('*')
-      .eq('workspace_id', workspaceId)
-      .eq('linkedin_url', linkedin_url)
-      .maybeSingle();
-    if (match) return { contact: await mergeContact(supabase, match, data), created: false };
-  }
-
-  // Step 3.5 — name-based fallback: find a contact with matching name but no email,
-  // and self-heal by writing the newly discovered email back to their record.
-  // Only triggers when we have both an email AND a parseable full name, and only
-  // on a unique name match (2+ matches = ambiguous, skip to avoid false positives).
+  // Step 2 — name heal: contact with matching name but no email → patch in.
+  // Names aren't v2 identifiers; this is a contacts-only fallback Phase 4 retires.
   if (email) {
     const name = full_name || [first_name, last_name].filter(Boolean).join(' ') || null;
     if (name) {
@@ -141,35 +113,31 @@ export async function resolveContact(supabase, workspaceId, data, { createIfMiss
       const ln = parts.slice(1).join(' ');
       if (fn && ln) {
         const { data: nameMatches } = await supabase
-          .from('contacts')
-          .select('*')
-          .eq('workspace_id', workspaceId)
-          .is('email', null)
-          .ilike('first_name', fn)
-          .ilike('last_name', ln);
+          .from('contacts').select('*')
+          .eq('workspace_id', workspaceId).is('email', null)
+          .ilike('first_name', fn).ilike('last_name', ln);
         if (nameMatches?.length === 1) {
           const cleanEmail = email.toLowerCase().trim();
           await supabase.from('contacts').update({ email: cleanEmail }).eq('id', nameMatches[0].id);
+          await supabase.from('entity_identifiers').insert({
+            workspace_id: workspaceId, entity_id: nameMatches[0].id, kind: 'email', value: cleanEmail,
+          }).then(() => {}, () => {});
           nameMatches[0].email = cleanEmail;
-          console.log(`[IDENTITY] Name resolved "${name}" → ${cleanEmail} (contact ${nameMatches[0].id})`);
+          console.log(`[IDENTITY] Name resolved "${name}" → ${cleanEmail} (entity ${nameMatches[0].id})`);
           return { contact: await mergeContact(supabase, nameMatches[0], data), created: false };
         }
       }
     }
   }
 
-  // Step 4 — no match → create or reject based on createIfMissing flag
-  if (!createIfMissing) {
-    return { contact: null, created: false };
-  }
-
+  // Step 3 — no match → create or reject
+  if (!createIfMissing) return { contact: null, created: false };
   if (!email && !linkedin_url) {
     console.warn('[IDENTITY] Cannot create contact without email or linkedin_url, skipping');
     return { contact: null, created: false };
   }
 
   const name = full_name || [first_name, last_name].filter(Boolean).join(' ') || null;
-
   const normalizedDomain = company_domain?.replace(/^www\./, '').toLowerCase().trim()
     || (email ? email.split('@')[1]?.toLowerCase() : null)
     || null;
@@ -183,9 +151,13 @@ export async function resolveContact(supabase, workspaceId, data, { createIfMiss
     companyId = company?.id || null;
   }
 
+  // Create the v2 entity first; the contact row reuses its id.
+  const entityId = await getOrCreateEntity(supabase, workspaceId, 'person', identifiers);
+
   const { data: created, error } = await supabase
     .from('contacts')
     .insert({
+      id: entityId,
       workspace_id: workspaceId,
       email:        email ? email.toLowerCase().trim() : null,
       first_name:   first_name || name?.split(' ')[0] || null,
@@ -203,6 +175,11 @@ export async function resolveContact(supabase, workspaceId, data, { createIfMiss
     .single();
 
   if (error) {
+    if (error.code === '23505') {
+      // PK conflict — entity already had a contact row. Fetch + merge.
+      const { data: existing } = await supabase.from('contacts').select('*').eq('id', entityId).maybeSingle();
+      if (existing) return { contact: await mergeContact(supabase, existing, data), created: false };
+    }
     console.error('[IDENTITY] Create contact error:', error);
     return { contact: null, created: false };
   }
@@ -326,6 +303,8 @@ async function enrichContactViaApollo(supabase, contact, apolloKey) {
       if (company) updates.company_id = company.id;
     }
 
+    // The `contacts` view's INSTEAD OF trigger writes state observations
+    // for every changed field, so this single UPDATE flows all the way to v2.
     await supabase.from('contacts').update(updates).eq('id', contact.id);
 
     await logActivity(supabase, {
@@ -584,12 +563,13 @@ export async function upsertCompany(supabase, workspaceId, data) {
     enriched_at:        new Date().toISOString(),
   };
 
+  // The `companies` view's INSTEAD OF triggers translate INSERT/UPDATE into
+  // v2 ops (entity upsert + identifier upserts + state observations).
   if (existing) {
     const { data: updated } = await supabase.from('companies')
       .update(payload).eq('id', existing.id).select('*').single();
     return updated;
   }
-
   const { data: created } = await supabase.from('companies')
     .insert(payload).select('*').single();
   return created;
@@ -599,8 +579,7 @@ export async function upsertCompany(supabase, workspaceId, data) {
 // ── ICP scoring ──────────────────────────────────────────────────────────────
 
 export async function scoreICP(supabase, workspaceId, contact) {
-  // Point-in-time feature snapshot — drives Scorecard scoring AND the
-  // mind_episodes record the learning loop re-scores against. Company-level
+  // Point-in-time feature snapshot that drives Scorecard scoring. Company-level
   // features are merged in below once the contact's company is known.
   let features = {
     job_title:  contact.job_title  || null,
@@ -660,20 +639,17 @@ export async function scoreICP(supabase, workspaceId, contact) {
         : 'Scorecard: no signals matched this profile';
       model = 'scorecard';
     } else {
-      const { data: memories } = await supabase
-        .from('workspace_memories')
-        .select('id, category, content')
-        .eq('workspace_id', workspaceId)
-        .eq('is_active', true)
-        .in('category', ['ICP', 'Market', 'Company', 'Product'])
-        .order('created_at', { ascending: false })
-        .limit(60);
+      const memories = await listNotes(supabase, workspaceId, {
+        categories: ['ICP', 'Market', 'Company', 'Product'],
+        limit: 60,
+      });
 
-      const prompt = memories?.length
+      const prompt = memories.length
         ? `Workspace ICP criteria:\n${memories.map(m => `[${m.category}] ${m.content}`).join('\n')}\n\nContact:\n${contactSummary}\n\nScore this contact's ICP fit 0-100 and give a one-sentence reason. Respond as JSON: {"score": <int>, "fit": <bool>, "reasoning": "<one sentence>"}`
         : `Contact profile:\n${contactSummary}\n\nScore this B2B contact's ICP fit 0-100 based on their role alone. Use seniority as the primary signal: C-suite/VP/Director = high (75-95), Manager/Senior = medium (45-70), IC/unknown = low (20-40). Give a one-sentence reason. Note: no specific ICP criteria configured. Respond as JSON: {"score": <int>, "fit": <bool>, "reasoning": "<one sentence>"}`;
 
       const msg = await anthropic.messages.create({
+        feature: 'icp-score-llm-fallback',
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 200,
         messages: [{ role: 'user', content: prompt }],
@@ -700,28 +676,9 @@ export async function scoreICP(supabase, workspaceId, contact) {
       icp_scored_at: new Date().toISOString(),
     }).eq('id', contact.id);
 
-    // The Mind — snapshot this prediction so the outcome job and learning loop
-    // can join it to the realized outcome. Non-fatal: a failed snapshot must
-    // not block scoring. See docs/adaptive-lead-scoring.md.
-    const { data: stageRow } = await supabase
-      .from('contacts')
-      .select('pipeline_stage')
-      .eq('id', contact.id)
-      .maybeSingle();
-    const { error: episodeErr } = await supabase.from('mind_episodes').insert({
-      workspace_id:          workspaceId,
-      contact_id:            contact.id,
-      company_id:            contact.company_id || null,
-      kind:                  'icp_score',
-      predicted_score:       score,
-      predicted_fit:         fit,
-      predicted_reason:      reasoning,
-      basis_memory_ids:      basisMemoryIds,
-      model,
-      outcome_pipeline_from: stageRow?.pipeline_stage || contact.pipeline_stage || 'identified',
-      features,
-    });
-    if (episodeErr) console.warn('[MIND_EPISODE] snapshot failed for contact', contact.id, ':', episodeErr.message);
+    // The prediction snapshot now lives in the v2 substrate: the scoreEntities
+    // worker stakes an `icp_fit` prediction from the entity's claims, and the
+    // outcome job resolves it. (Was: a mind_episodes insert here.)
 
     const fitLabel = score >= 75 ? 'Strong fit' : score >= 50 ? 'Potential fit' : 'Weak fit';
     await logActivity(supabase, {
@@ -808,14 +765,8 @@ export async function updateDealHealthScore(supabase, contactId, workspaceId, tr
   const days30Iso = new Date(nowMs - 30 * 86400000).toISOString();
   const days60Iso = new Date(nowMs - 60 * 86400000).toISOString();
 
-  // Fetch all activities for this contact
-  const { data: activities } = await supabase
-    .from('contact_activity_log')
-    .select('activity_type, occurred_at, source, raw_data')
-    .eq('contact_id', contactId)
-    .order('occurred_at', { ascending: false });
-
-  const rows = activities || [];
+  // Fetch all activities for this contact (v2: from observations).
+  const rows = await listActivities(supabase, { contactId, limit: 2000 });
 
   // Hard rule: fewer than 2 qualified activities → insufficient data
   const qualifiedCount = rows.filter(a => QUALIFIED_TYPES.has(a.activity_type)).length;
@@ -985,15 +936,22 @@ export async function updateDealHealthScore(supabase, contactId, workspaceId, tr
   let s12 = null;
 
   if (contact.company_id) {
-    // Signal 11: Stakeholder coverage (max 15)
-    const { data: stakeholderRows } = await supabase
-      .from('contact_activity_log')
-      .select('contact_id')
-      .eq('company_id', contact.company_id)
-      .gte('occurred_at', days60Iso)
-      .in('activity_type', [...QUALIFIED_TYPES]);
-
-    const distinctStakeholders = new Set((stakeholderRows || []).map(r => r.contact_id)).size;
+    // Signal 11: Stakeholder coverage (max 15) — distinct contacts at this
+    // company with a qualified interaction in the last 60 days.
+    const { data: companyContacts } = await supabase
+      .from('contacts')
+      .select('id')
+      .eq('company_id', contact.company_id);
+    const companyContactIds = (companyContacts || []).map(c => c.id);
+    const stakeholderRows = companyContactIds.length
+      ? await listActivities(supabase, {
+          contactIds: companyContactIds,
+          since: days60Iso,
+          types: [...QUALIFIED_TYPES],
+          limit: 500,
+        })
+      : [];
+    const distinctStakeholders = new Set(stakeholderRows.map(r => r.contact_id)).size;
     s11 = distinctStakeholders >= 3 ? 15 : distinctStakeholders === 2 ? 10 : 5;
     rawPositive += s11; activeMax += 15;
     breakdown.s11_stakeholders = s11;
@@ -1015,14 +973,13 @@ export async function updateDealHealthScore(supabase, contactId, workspaceId, tr
         .neq('id', contactId);
 
       if (seniorContacts?.length > 0) {
-        const { data: seniorActivity } = await supabase
-          .from('contact_activity_log')
-          .select('contact_id')
-          .in('contact_id', seniorContacts.map(c => c.id))
-          .gte('occurred_at', days60Iso)
-          .in('activity_type', [...QUALIFIED_TYPES])
-          .limit(1);
-        s12 = seniorActivity?.length > 0 ? 15 : 0;
+        const seniorActivity = await listActivities(supabase, {
+          contactIds: seniorContacts.map(c => c.id),
+          since: days60Iso,
+          types: [...QUALIFIED_TYPES],
+          limit: 1,
+        });
+        s12 = seniorActivity.length > 0 ? 15 : 0;
       } else {
         s12 = 0; // Case C: IC/manager, no senior contact at company
       }

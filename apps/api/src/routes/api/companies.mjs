@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getSupabaseClient } from '@nous/core';
+import { getSupabaseClient, listNotes, listActivities } from '@nous/core';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
 import { enrichCompany } from '../../services/enrichment.mjs';
 
@@ -112,13 +112,10 @@ companiesApiRouter.get('/:id/activity-and-memory', verifySupabaseAuth, async (re
 
     let activities = [], memories = [];
     if (contactIds.length) {
-      const { data: acts } = await supabase.from('contact_activity_log').select('*').in('contact_id', contactIds).order('occurred_at', { ascending: false }).limit(50);
-      activities = acts || [];
+      activities = await listActivities(supabase, { contactIds, limit: 50 });
 
-      const { data: mems } = await supabase.from('workspace_memories').select('id, content, category, source, created_at, metadata')
-        .eq('workspace_id', workspaceId).eq('is_active', true)
-        .order('created_at', { ascending: false }).limit(20);
-      memories = (mems || []).filter(m => contactIds.includes(m.metadata?.contact_id));
+      // Notes attached to any of the company's contacts (entity_id == contact_id).
+      memories = await listNotes(supabase, workspaceId, { entityIds: contactIds, limit: 20 });
     }
 
     return res.json({ activities, memories });
@@ -144,12 +141,17 @@ companiesApiRouter.get('/:id/graph', verifySupabaseAuth, async (req, res) => {
     let signals = [], memories = [];
     if (contactIds.length) {
       const cutoff = new Date(Date.now() - 90 * 86400000).toISOString();
-      const { data: acts } = await supabase.from('contact_activity_log').select('id, contact_id, activity_type, source, occurred_at, summary').in('contact_id', contactIds).gte('occurred_at', cutoff).order('occurred_at', { ascending: false }).limit(contactIds.length * 4);
+      const acts = await listActivities(supabase, { contactIds, since: cutoff, limit: contactIds.length * 4 });
       const counts = {};
-      signals = (acts || []).filter(a => { counts[a.contact_id] = (counts[a.contact_id] || 0) + 1; return counts[a.contact_id] <= 4; });
+      signals = acts.filter(a => { counts[a.contact_id] = (counts[a.contact_id] || 0) + 1; return counts[a.contact_id] <= 4; });
 
-      const memResults = await Promise.all(contactIds.map(cid => supabase.from('workspace_memories').select('id, content, category, created_at, metadata').eq('workspace_id', workspaceId).eq('is_active', true).filter('metadata->>contact_id', 'eq', cid).order('created_at', { ascending: false }).limit(2)));
-      memories = memResults.flatMap((r, i) => (r.data || []).map(m => ({ ...m, contact_id: contactIds[i] })));
+      // Latest 2 notes per contact — entity_id == contact_id in v2.
+      const memResults = await Promise.all(contactIds.map(cid =>
+        listNotes(supabase, workspaceId, { entityId: cid, limit: 2 }),
+      ));
+      memories = memResults.flatMap((notes, i) =>
+        notes.map(m => ({ ...m, contact_id: contactIds[i] })),
+      );
     }
 
     return res.json({ company, contacts: contacts || [], signals, memories });
@@ -207,9 +209,9 @@ companiesApiRouter.get('/contact-graph', verifySupabaseAuth, async (req, res) =>
     const { data: contacts } = await supabase.from('contacts').select('id, first_name, last_name, email, job_title, pipeline_stage, deal_health_score, last_activity_at').eq('workspace_id', workspaceId).in('id', contactIds);
 
     const cutoff = new Date(Date.now() - 90 * 86400000).toISOString();
-    const { data: acts } = await supabase.from('contact_activity_log').select('id, contact_id, activity_type, source, occurred_at, summary').in('contact_id', contactIds).gte('occurred_at', cutoff).order('occurred_at', { ascending: false }).limit(contactIds.length * 4);
+    const acts = await listActivities(supabase, { contactIds, since: cutoff, limit: contactIds.length * 4 });
     const counts = {};
-    const signals = (acts || []).filter(a => { counts[a.contact_id] = (counts[a.contact_id] || 0) + 1; return counts[a.contact_id] <= 4; });
+    const signals = acts.filter(a => { counts[a.contact_id] = (counts[a.contact_id] || 0) + 1; return counts[a.contact_id] <= 4; });
 
     const synthetic = { id: 'synthetic', name: companyName || 'Company', deal_health_score: null };
     return res.json({ company: synthetic, contacts: contacts || [], signals, memories: [] });

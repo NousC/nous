@@ -7,6 +7,8 @@
 //   VITE_API_URL     — your public app URL (for OAuth redirect)
 // ============================================================
 
+import { logActivity as coreLogActivity } from '@nous/core';
+
 const BASE = () => {
   const dsn = process.env.UNIPILE_DSN;
   if (!dsn) throw new Error('UNIPILE_DSN not configured');
@@ -193,29 +195,18 @@ async function matchContact(supabase, workspaceId, { profileUrl, fullName, membe
 
 // Write a deduped activity log entry (skip if same type+source already logged today)
 async function logActivity(supabase, { workspaceId, contactId, activityType, description, occurredAt, rawData }) {
-  const dayStart = new Date(occurredAt);
-  dayStart.setUTCHours(0, 0, 0, 0);
-
-  const { data: existing } = await supabase
-    .from('contact_activity_log')
-    .select('id')
-    .eq('workspace_id', workspaceId)
-    .eq('contact_id', contactId)
-    .eq('activity_type', activityType)
-    .eq('source', 'linkedin')
-    .gte('occurred_at', dayStart.toISOString())
-    .limit(1);
-
-  if (existing?.length > 0) return; // already logged today
-
-  await supabase.from('contact_activity_log').insert({
-    workspace_id:  workspaceId,
-    contact_id:    contactId,
-    activity_type: activityType,
+  // Day-bucket dedup via the v2 observations external_id uniqueness.
+  const dayKey = new Date(occurredAt).toISOString().slice(0, 10);
+  const externalId = `linkedin_${contactId}_${activityType}_${dayKey}`;
+  await coreLogActivity(supabase, {
+    workspaceId,
+    contactId,
+    type: activityType,
+    source: 'linkedin',
+    externalId,
+    occurredAt,
     description,
-    source:        'linkedin',
-    occurred_at:   occurredAt,
-    raw_data:      rawData,
+    rawData,
   });
 }
 
