@@ -116,6 +116,18 @@ export async function recomputeClaim(
   entityId: string,
   property: string,
 ): Promise<void> {
+  // Asserted claims are sticky. A user (or a workflow PATCH) declared this
+  // fact as ground truth; derivation from observations must not overwrite it.
+  const { data: existing } = await supabase
+    .from('claims')
+    .select('epistemic_class')
+    .eq('workspace_id', workspaceId)
+    .eq('entity_id', entityId)
+    .eq('property', property)
+    .is('invalid_at', null)
+    .maybeSingle();
+  if ((existing as { epistemic_class?: string } | null)?.epistemic_class === 'asserted') return;
+
   const observations = await getObservations(supabase, workspaceId, entityId, { property });
   const derived = deriveClaim(observations);
   if (!derived) return;
@@ -207,6 +219,74 @@ export async function getClaim(
     .maybeSingle();
   if (error) throw new Error(`failed to load claim: ${error.message}`);
   return (data as Claim) ?? null;
+}
+
+// ── assertions ──────────────────────────────────────────────────────────────
+// A PATCH endpoint writes here. Asserted claims have no observation backing
+// and are protected from the derivation engine (see recomputeClaim above).
+// They are the deterministic write surface workflow runtimes need; agents
+// should still prefer recording observations and letting the substrate derive.
+
+export interface AssertClaimsInput {
+  /** property -> value. Pass null to invalidate (soft-delete) the claim. */
+  values: Record<string, unknown>;
+  /** Where the assertion came from. Defaults to 'user'. */
+  source?: string;
+}
+
+/**
+ * Assert one or more claims on an entity. Each (entity, property) is upserted
+ * as an asserted claim with confidence 1.0; passing null invalidates the
+ * claim. Returns the property names that were written or invalidated.
+ */
+export async function assertClaims(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  entityId: string,
+  input: AssertClaimsInput,
+): Promise<{ written: string[]; invalidated: string[] }> {
+  const now = new Date().toISOString();
+  const written: string[] = [];
+  const invalidated: string[] = [];
+
+  for (const [property, value] of Object.entries(input.values)) {
+    if (!property) continue;
+    if (value === null) {
+      const { error } = await supabase
+        .from('claims')
+        .update({ invalid_at: now })
+        .eq('workspace_id', workspaceId)
+        .eq('entity_id', entityId)
+        .eq('property', property)
+        .is('invalid_at', null);
+      if (error) throw new Error(`failed to invalidate claim ${property}: ${error.message}`);
+      invalidated.push(property);
+      continue;
+    }
+    const { error } = await supabase.from('claims').upsert(
+      {
+        workspace_id: workspaceId,
+        entity_id: entityId,
+        property,
+        value,
+        distribution: null,
+        confidence: 1.0,
+        epistemic_class: 'asserted',
+        freshness: 'fresh',
+        valid_from: now,
+        invalid_at: null,
+        supporting_observation_ids: [],
+        observation_count: 0,
+        last_observed_at: null,
+        computed_at: now,
+      },
+      { onConflict: 'workspace_id,entity_id,property' },
+    );
+    if (error) throw new Error(`failed to assert claim ${property}: ${error.message}`);
+    written.push(property);
+  }
+
+  return { written, invalidated };
 }
 
 /** Re-derive a claim on demand and report before/after — the calibration check. */
