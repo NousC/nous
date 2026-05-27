@@ -45,12 +45,16 @@ export interface TriggerSubscription {
   name: string;
   url: string;
   events: TriggerEvent[];
+  signing_secret: string;
   active: boolean;
   created_at: string;
   updated_at: string;
 }
 
-const SUB_COLUMNS = 'id, workspace_id, name, url, events, active, created_at, updated_at';
+// signing_secret is returned to authenticated workspace members. The dashboard
+// shows it on demand (a "Show secret" toggle on each row) so users don't have
+// to think about secrets unless they explicitly need to verify signatures.
+const SUB_COLUMNS = 'id, workspace_id, name, url, events, signing_secret, active, created_at, updated_at';
 
 function generateSecret(): string {
   return 'whsec_' + crypto.randomBytes(24).toString('base64url');

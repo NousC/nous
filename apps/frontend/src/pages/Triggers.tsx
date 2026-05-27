@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Zap, Plus, Copy, Trash2, CheckCircle2, RotateCcw, Power, ExternalLink,
-  Mail, Linkedin, Calendar, Link2, Check,
+  Calendar, Link2, Check, Eye, EyeOff,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -20,9 +20,35 @@ interface Trigger {
   name: string;
   url: string;
   events: string[];
+  signing_secret: string;
   active: boolean;
   created_at: string;
   updated_at: string;
+}
+
+// Mini logo tile — same look as the Webhooks page ProviderLogo but with a
+// fallback Lucide icon when the provider logo isn't present.
+function EventLogo({ logo, fallback: Fallback, size = "sm" }: {
+  logo: string | null;
+  fallback: React.ElementType;
+  size?: "sm" | "md";
+}) {
+  const [src, setSrc] = useState(logo ? `/provider-logos/${logo}.svg` : null);
+  const tile = size === "md" ? "w-8 h-8 rounded-lg" : "w-4 h-4 rounded";
+  const inner = size === "md" ? "w-5 h-5" : "w-3 h-3";
+  const icon = size === "md" ? "h-4 w-4" : "h-3 w-3";
+  return (
+    <div className={`relative ${tile} bg-muted/50 border border-border/60 flex items-center justify-center overflow-hidden flex-shrink-0`}>
+      <Fallback className={`${icon} text-muted-foreground/50`} strokeWidth={1.75} />
+      {src && (
+        <img src={src} alt="" className={`absolute inset-0 m-auto ${inner} object-contain`}
+          onError={() => {
+            if (src.endsWith(".svg")) setSrc(`/provider-logos/${logo}.png`);
+            else setSrc(null);
+          }} />
+      )}
+    </div>
+  );
 }
 
 interface EventDef {
@@ -30,18 +56,22 @@ interface EventDef {
   label: string;
   description: string;
   icon: React.ElementType;
+  logo: string | null;   // provider-logos/<logo>.{svg,png}; null = use icon only
 }
 
+// Each event renders with a real provider logo when one's available
+// (gmail, linkedin); meetings fall back to the Calendar icon since the
+// scheduler varies.
 const EVENT_CATALOG: { group: string; items: EventDef[] }[] = [
   {
     group: "Email",
     items: [
       { id: "interaction.email_received", label: "Email received",
         description: "A reply landed in Instantly, Smartlead, EmailBison, Lemlist, or Gmail.",
-        icon: Mail },
+        icon: Calendar, logo: "gmail" },
       { id: "interaction.email_bounced", label: "Email bounced",
         description: "A bounce or unsubscribe was reported by the sender.",
-        icon: Mail },
+        icon: Calendar, logo: "gmail" },
     ],
   },
   {
@@ -49,10 +79,10 @@ const EVENT_CATALOG: { group: string; items: EventDef[] }[] = [
     items: [
       { id: "interaction.linkedin_connection_accepted", label: "Connection accepted",
         description: "Someone accepted a connection request you sent.",
-        icon: Linkedin },
+        icon: Calendar, logo: "linkedin" },
       { id: "interaction.linkedin_message_received", label: "LinkedIn message received",
         description: "A reply or new message arrived through HeyReach or the direct LinkedIn integration.",
-        icon: Linkedin },
+        icon: Calendar, logo: "linkedin" },
     ],
   },
   {
@@ -60,10 +90,10 @@ const EVENT_CATALOG: { group: string; items: EventDef[] }[] = [
     items: [
       { id: "interaction.meeting_scheduled", label: "Meeting scheduled",
         description: "A booking landed in Calendly or Cal.com.",
-        icon: Calendar },
+        icon: Calendar, logo: null },
       { id: "interaction.meeting_held", label: "Meeting held",
         description: "Fireflies or Fathom recorded a meeting transcript.",
-        icon: Calendar },
+        icon: Calendar, logo: null },
     ],
   },
 ];
@@ -99,8 +129,8 @@ export default function Triggers() {
   const [availableEvents, setAvailableEvents] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [revealedSecret, setRevealedSecret] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [revealedRow, setRevealedRow] = useState<string | null>(null);   // trigger id whose secret is visible
 
   const [newName, setNewName] = useState("");
   const [newUrl, setNewUrl] = useState("");
@@ -159,7 +189,9 @@ export default function Triggers() {
       });
       const data = await res.json();
       if (!res.ok) { setCreateError(data.error ?? "create_failed"); return; }
-      if (data.signing_secret) setRevealedSecret(data.signing_secret);
+      // No "save the secret now" banner — the row shows the secret on demand
+      // via the "Show secret" toggle, so users don't have to think about it
+      // unless they want to verify signatures.
       setDialogOpen(false);
       resetForm();
       load();
@@ -181,13 +213,14 @@ export default function Triggers() {
 
   const rotateSecret = async (id: string) => {
     if (!confirm("Rotate the signing secret? The current secret will stop working immediately.")) return;
-    const res = await fetch(`${apiUrl}/api/triggers/${id}?workspace_id=${encodeURIComponent(workspaceId)}`, {
+    await fetch(`${apiUrl}/api/triggers/${id}?workspace_id=${encodeURIComponent(workspaceId)}`, {
       method: "PATCH",
       headers: { ...authH(token), "Content-Type": "application/json" },
       body: JSON.stringify({ workspace_id: workspaceId, rotate_secret: true }),
     });
-    const data = await res.json();
-    if (data.signing_secret) setRevealedSecret(data.signing_secret);
+    // Refresh so the row shows the new secret, and reveal it inline.
+    await load();
+    setRevealedRow(id);
   };
 
   const remove = async (id: string) => {
@@ -228,29 +261,6 @@ export default function Triggers() {
           </a>
         </div>
 
-        {/* Revealed-secret banner */}
-        {revealedSecret && (
-          <div className="mb-5 rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 space-y-2.5">
-            <div className="flex items-center gap-2 text-[13px] font-semibold text-emerald-700">
-              <CheckCircle2 className="h-4 w-4" /> Signing secret — copy it now
-            </div>
-            <p className="text-[12px] text-emerald-600">
-              This is the only time the secret is shown. Use it to verify the <code className="font-mono">X-Nous-Signature</code> header on each incoming POST.
-            </p>
-            <div className="flex gap-2">
-              <input value={revealedSecret} readOnly
-                className="flex-1 font-mono text-[12px] bg-background border border-emerald-200 rounded-lg px-3 py-2 text-foreground outline-none" />
-              <button onClick={() => copy(revealedSecret, "revealed")}
-                className="px-3 py-2 rounded-lg bg-background border border-emerald-200 hover:bg-emerald-50">
-                {copiedId === "revealed"
-                  ? <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                  : <Copy className="h-4 w-4 text-muted-foreground/70" />}
-              </button>
-            </div>
-            <button onClick={() => setRevealedSecret(null)} className="text-[12px] text-emerald-600 hover:underline">Done</button>
-          </div>
-        )}
-
         {/* Triggers list — Webhooks-style rows (full width, icon + content + status + actions) */}
         {loading ? (
           <div className="space-y-px rounded-xl overflow-hidden border border-border">
@@ -264,62 +274,88 @@ export default function Triggers() {
           </div>
         ) : (
           <div className="rounded-xl border border-border overflow-hidden">
-            {triggers.map(t => (
-              <div key={t.id}
-                className="flex items-center gap-3 px-4 py-3.5 bg-background hover:bg-accent border-b border-border/60 last:border-0 transition-colors">
-                {/* Icon tile */}
-                <div className="relative w-8 h-8 rounded-lg bg-muted/50 border border-border/60 flex items-center justify-center flex-shrink-0">
-                  <Zap className="h-4 w-4 text-muted-foreground/70" strokeWidth={1.75} />
-                </div>
+            {triggers.map(t => {
+              const secretVisible = revealedRow === t.id;
+              return (
+                <div key={t.id} className="border-b border-border/60 last:border-0">
+                  <div className="flex items-center gap-3 px-4 py-3.5 bg-background hover:bg-accent transition-colors">
+                    {/* Icon tile */}
+                    <div className="relative w-8 h-8 rounded-lg bg-muted/50 border border-border/60 flex items-center justify-center flex-shrink-0">
+                      <Zap className="h-4 w-4 text-muted-foreground/70" strokeWidth={1.75} />
+                    </div>
 
-                {/* Name + URL + events */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <p className="text-[13px] font-semibold text-foreground truncate">{t.name}</p>
-                    <span className="text-[11px] text-muted-foreground/60">
-                      Created {format(new Date(t.created_at), "MMM d, yyyy")}
-                    </span>
-                  </div>
-                  <p className="text-[12px] text-muted-foreground/70 font-mono truncate mt-0.5" title={t.url}>{t.url}</p>
-                  <div className="flex flex-wrap gap-1 mt-1.5">
-                    {t.events.map(ev => {
-                      const def = eventDef(ev);
-                      const Icon = def?.icon ?? Zap;
-                      return (
-                        <span key={ev} title={def?.description ?? ev}
-                          className="inline-flex items-center gap-1 text-[10px] font-medium text-muted-foreground bg-muted/60 border border-border/40 px-1.5 py-0.5 rounded">
-                          <Icon className="h-3 w-3" strokeWidth={1.75} />
-                          {def?.label ?? ev.replace(/^interaction\./, "")}
+                    {/* Name + URL + event chips with logos */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="text-[13px] font-semibold text-foreground truncate">{t.name}</p>
+                        <span className="text-[11px] text-muted-foreground/60">
+                          Created {format(new Date(t.created_at), "MMM d, yyyy")}
                         </span>
-                      );
-                    })}
+                      </div>
+                      <p className="text-[12px] text-muted-foreground/70 font-mono truncate mt-0.5" title={t.url}>{t.url}</p>
+                      <div className="flex flex-wrap gap-1 mt-1.5">
+                        {t.events.map(ev => {
+                          const def = eventDef(ev);
+                          return (
+                            <span key={ev} title={def?.description ?? ev}
+                              className="inline-flex items-center gap-1.5 text-[10px] font-medium text-muted-foreground bg-muted/60 border border-border/40 pl-0.5 pr-1.5 py-0.5 rounded">
+                              <EventLogo logo={def?.logo ?? null} fallback={def?.icon ?? Zap} />
+                              {def?.label ?? ev.replace(/^interaction\./, "")}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <StatusPill active={t.active} />
+
+                    {/* Actions */}
+                    <button onClick={() => copy(t.url, t.id)}
+                      className="flex-shrink-0 inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-background border border-border text-foreground/80 text-[13px] font-semibold hover:bg-accent transition-colors">
+                      {copiedId === t.id
+                        ? <><Check className="h-3.5 w-3.5 text-emerald-600" /> Copied</>
+                        : <><Copy className="h-3.5 w-3.5" /> Copy</>}
+                    </button>
+                    <button title={secretVisible ? "Hide signing secret" : "Show signing secret"}
+                      onClick={() => setRevealedRow(secretVisible ? null : t.id)}
+                      className="flex-shrink-0 inline-flex items-center justify-center h-9 w-9 rounded-lg bg-background border border-border text-foreground/60 hover:text-foreground hover:bg-muted/50 transition-colors">
+                      {secretVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                    <button title={t.active ? "Pause" : "Resume"} onClick={() => setActive(t.id, !t.active)}
+                      className={`flex-shrink-0 inline-flex items-center justify-center h-9 w-9 rounded-lg bg-background border border-border transition-colors hover:bg-muted/50 ${t.active ? "text-emerald-500" : "text-muted-foreground/60 hover:text-foreground"}`}>
+                      <Power className="h-4 w-4" />
+                    </button>
+                    <button title="Rotate signing secret" onClick={() => rotateSecret(t.id)}
+                      className="flex-shrink-0 inline-flex items-center justify-center h-9 w-9 rounded-lg bg-background border border-border text-foreground/60 hover:text-foreground hover:bg-muted/50 transition-colors">
+                      <RotateCcw className="h-4 w-4" />
+                    </button>
+                    <button title="Delete" onClick={() => remove(t.id)}
+                      className="flex-shrink-0 inline-flex items-center justify-center h-9 w-9 rounded-lg bg-background border border-border text-muted-foreground/60 hover:text-red-500 hover:bg-red-50 hover:border-red-200 transition-colors">
+                      <Trash2 className="h-4 w-4" />
+                    </button>
                   </div>
+
+                  {/* Inline signing-secret reveal */}
+                  {secretVisible && (
+                    <div className="px-4 pb-3.5 pt-0 bg-muted/20 border-t border-border/60">
+                      <p className="text-[11px] text-muted-foreground/80 mt-3 mb-2">
+                        Signing secret. Optional. Use it to verify the <code className="font-mono">X-Nous-Signature</code> header on each POST if your receiver is internet-exposed and you want to confirm the call really came from Nous.
+                      </p>
+                      <div className="flex gap-2">
+                        <input value={t.signing_secret} readOnly
+                          className="flex-1 font-mono text-[12px] bg-background border border-border rounded-lg px-3 py-2 text-foreground outline-none" />
+                        <button onClick={() => copy(t.signing_secret, `secret-${t.id}`)}
+                          className="px-3 py-2 rounded-lg bg-background border border-border hover:bg-accent">
+                          {copiedId === `secret-${t.id}`
+                            ? <Check className="h-4 w-4 text-emerald-600" />
+                            : <Copy className="h-4 w-4 text-muted-foreground/70" />}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
-
-                {/* Status pill */}
-                <StatusPill active={t.active} />
-
-                {/* Actions */}
-                <button onClick={() => copy(t.url, t.id)}
-                  className="flex-shrink-0 inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-background border border-border text-foreground/80 text-[13px] font-semibold hover:bg-accent transition-colors">
-                  {copiedId === t.id
-                    ? <><Check className="h-3.5 w-3.5 text-emerald-600" /> Copied</>
-                    : <><Copy className="h-3.5 w-3.5" /> Copy</>}
-                </button>
-                <button title={t.active ? "Pause" : "Resume"} onClick={() => setActive(t.id, !t.active)}
-                  className={`flex-shrink-0 inline-flex items-center justify-center h-9 w-9 rounded-lg bg-background border border-border transition-colors hover:bg-muted/50 ${t.active ? "text-emerald-500" : "text-muted-foreground/60 hover:text-foreground"}`}>
-                  <Power className="h-4 w-4" />
-                </button>
-                <button title="Rotate signing secret" onClick={() => rotateSecret(t.id)}
-                  className="flex-shrink-0 inline-flex items-center justify-center h-9 w-9 rounded-lg bg-background border border-border text-foreground/60 hover:text-foreground hover:bg-muted/50 transition-colors">
-                  <RotateCcw className="h-4 w-4" />
-                </button>
-                <button title="Delete" onClick={() => remove(t.id)}
-                  className="flex-shrink-0 inline-flex items-center justify-center h-9 w-9 rounded-lg bg-background border border-border text-muted-foreground/60 hover:text-red-500 hover:bg-red-50 hover:border-red-200 transition-colors">
-                  <Trash2 className="h-4 w-4" />
-                </button>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -380,14 +416,13 @@ export default function Triggers() {
                     {group.items.map(ev => {
                       const checked = newEvents.includes(ev.id);
                       const isAvailable = availableEvents.size === 0 || availableEvents.has(ev.id);
-                      const Icon = ev.icon;
                       return (
                         <label key={ev.id}
                           className={`flex items-start gap-3 px-4 py-3 cursor-pointer transition-colors hover:bg-accent/40 ${checked ? "bg-primary/[0.03]" : ""} ${!isAvailable ? "opacity-40 cursor-not-allowed" : ""}`}>
                           <input type="checkbox" checked={checked} disabled={!isAvailable}
                             onChange={() => isAvailable && toggleEvent(ev.id)}
                             className="mt-0.5 h-4 w-4 rounded border-input text-primary focus:ring-primary focus:ring-offset-0" />
-                          <Icon className="h-4 w-4 text-muted-foreground/70 mt-0.5 flex-shrink-0" strokeWidth={1.75} />
+                          <EventLogo logo={ev.logo} fallback={ev.icon} size="md" />
                           <div className="flex-1 min-w-0">
                             <div className="flex items-baseline gap-2">
                               <p className="text-[13px] font-medium text-foreground">{ev.label}</p>
@@ -410,17 +445,12 @@ export default function Triggers() {
             )}
           </div>
 
-          <DialogFooter className="px-6 py-3 border-t border-border/60 bg-muted/30 flex sm:justify-between items-center gap-2">
-            <p className="text-[11px] text-muted-foreground/70 hidden sm:block">
-              The signing secret will be shown once after you create.
-            </p>
-            <div className="flex gap-2">
-              <Button variant="ghost" onClick={() => setDialogOpen(false)} className="h-8 text-[13px]">Cancel</Button>
-              <Button onClick={create} disabled={!canCreate || submitting}
-                className="bg-primary text-primary-foreground hover:bg-primary/90 h-8 text-[13px] px-3">
-                {submitting ? "Creating…" : "Create trigger"}
-              </Button>
-            </div>
+          <DialogFooter className="px-6 py-3 border-t border-border/60 bg-muted/30 flex sm:justify-end items-center gap-2">
+            <Button variant="ghost" onClick={() => setDialogOpen(false)} className="h-8 text-[13px]">Cancel</Button>
+            <Button onClick={create} disabled={!canCreate || submitting}
+              className="bg-primary text-primary-foreground hover:bg-primary/90 h-8 text-[13px] px-3">
+              {submitting ? "Creating…" : "Create trigger"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
