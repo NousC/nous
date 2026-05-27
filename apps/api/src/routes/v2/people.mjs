@@ -7,7 +7,25 @@ import {
   assertClaims,
   fetchEntityOverlays,
   applyContactOverlay,
+  normaliseLinkedInUrl,
 } from '@nous/core';
+
+// LinkedIn URL variants (with/without trailing slash, with/without www) so
+// the linkedin_url= exact filter matches historical rows that were stored raw
+// before normaliseIdentifier started normalising on write.
+function linkedInVariants(url) {
+  const out = new Set();
+  const trimmed = String(url ?? '').trim();
+  if (!trimmed) return [];
+  const canonical = normaliseLinkedInUrl(trimmed);
+  if (canonical) {
+    const noWww = canonical.replace('https://www.', 'https://');
+    for (const base of [canonical, noWww]) { out.add(base); out.add(base + '/'); }
+  }
+  out.add(trimmed);
+  out.add(trimmed.toLowerCase());
+  return Array.from(out);
+}
 
 export const peopleV2Router = Router();
 
@@ -79,6 +97,8 @@ peopleV2Router.get('/', async (req, res) => {
       status,
       has_email,
       has_linkedin,
+      linkedin_url,
+      email,
       last_activity_before,
       last_activity_after,
       sort,
@@ -95,6 +115,12 @@ peopleV2Router.get('/', async (req, res) => {
     if (has_linkedin === 'true')  q = q.not('linkedin_url', 'is', null);
     if (has_linkedin === 'false') q = q.is('linkedin_url', null);
 
+    // Exact-match lookups by identifier — the shape workflow runtimes use
+    // when they already have the value. linkedin_url= tries variant forms
+    // (with/without trailing slash, with/without www) so old rows match too.
+    if (email) q = q.eq('email', String(email).toLowerCase().trim());
+    if (linkedin_url) q = q.in('linkedin_url', linkedInVariants(linkedin_url));
+
     const beforeMs = parseDuration(last_activity_before);
     if (beforeMs != null) {
       const cutoff = new Date(Date.now() - beforeMs).toISOString();
@@ -109,7 +135,7 @@ peopleV2Router.get('/', async (req, res) => {
 
     if (search && String(search).trim()) {
       const t = `%${String(search).trim()}%`;
-      q = q.or(`email.ilike.${t},first_name.ilike.${t},last_name.ilike.${t},company.ilike.${t}`);
+      q = q.or(`email.ilike.${t},first_name.ilike.${t},last_name.ilike.${t},company.ilike.${t},linkedin_url.ilike.${t}`);
     }
 
     q = sort === 'last_activity_asc'
