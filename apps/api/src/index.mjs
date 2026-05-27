@@ -49,6 +49,7 @@ import { workspaceMemoriesRouter } from './routes/api/workspaceMemories.mjs';
 import { playgroundRouter } from './routes/api/playground.mjs';
 import { mindRouter } from './routes/api/mind.mjs';
 import { leadListsRouter } from './routes/api/leadLists.mjs';
+import { triggersRouter } from './routes/api/triggers.mjs';
 import { workflowProvidersRouter } from './routes/api/workflowProviders.mjs';
 import { linkedinRouter } from './routes/api/linkedin.mjs';
 import { systemLogRouter } from './routes/api/systemLog.mjs';
@@ -132,6 +133,7 @@ app.use('/api/workspace/memories',    verifySupabaseAuth, workspaceMemoriesRoute
 app.use('/api/playground',            playgroundRouter);
 app.use('/api/mind',                  verifySupabaseAuth, mindRouter);
 app.use('/api/lead-lists',            verifyAuthEither, requireFeature('leadLists'), leadListsRouter);
+app.use('/api/triggers',              verifyAuthEither, triggersRouter);
 app.use('/api/webhooks',              verifySupabaseAuth, webhooksRouter);
 app.use('/api/workflow-providers',    verifySupabaseAuth, workflowProvidersRouter);
 // LinkedIn action endpoints — invite/message/sync (Supabase JWT, workspaceId in body),
