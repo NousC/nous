@@ -11,8 +11,8 @@
 // Mind page plot it. See docs/compound-intelligence-mind.md §7.
 
 import { Router } from 'express';
-import Anthropic from '@anthropic-ai/sdk';
-import { getSupabaseClient, listSignals, seedSignals } from '@nous/core';
+import Anthropic from 'useleak';
+import { getSupabaseClient, listSignals, seedSignals, listNotes, scoreLead, getAttention } from '@nous/core';
 
 export const mindRouter = Router();
 
@@ -36,70 +36,242 @@ function weekKey(iso) {
 const round3 = (n) => Math.round(n * 1000) / 1000;
 const avg = (arr) => (arr.length ? arr.reduce((s, v) => s + v, 0) / arr.length : null);
 
-// GET /api/mind/calibration?workspaceId=…
-mindRouter.get('/calibration', async (req, res) => {
+// GET /api/mind/substrate?workspaceId=… — the compound-intelligence loop,
+// stage by stage, read straight from the v2 evidence substrate:
+//
+//   observations  →  claims (self-healing)  →  predictions  →  calibration
+//
+// Each stage is a real table. This is the loop made transparent: the
+// evidence it has seen, the beliefs it derived, the predictions it staked,
+// and how well those predictions held up.
+mindRouter.get('/substrate', async (req, res) => {
   try {
     const { workspaceId } = req.query;
     if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
     const supabase = getSupabaseClient();
+    const sevenDaysAgo = new Date(Date.now() - 7 * 86400_000).toISOString();
 
-    const [episodesRes, openRes] = await Promise.all([
-      supabase
-        .from('mind_episodes')
-        .select('predicted_score, outcome_score, predicted_at')
-        .eq('workspace_id', workspaceId)
-        .eq('kind', 'icp_score')
-        .not('outcome_resolved_at', 'is', null)
-        .not('outcome_score', 'is', null)
-        .not('predicted_score', 'is', null)
-        .order('predicted_at', { ascending: true })
-        .limit(5000),
-      supabase
-        .from('mind_episodes')
-        .select('id', { count: 'exact', head: true })
-        .eq('workspace_id', workspaceId)
-        .eq('kind', 'icp_score')
-        .is('outcome_resolved_at', null),
+    // Totals via count('exact') — Supabase/PostgREST caps row-returning
+    // queries at 1000 server-side, so .length of a fetched array LIES about
+    // total count. Use head:true count queries for the headline numbers and
+    // separate (capped) sample queries for breakdowns.
+    const [
+      obsTotalRes, obsSampleRes, obs7Res,
+      claimsTotalRes, claimsSampleRes,
+      jobsRes,
+      predTotalRes, predSampleRes,
+    ] = await Promise.all([
+      // observations total
+      supabase.from('observations').select('id', { count: 'exact', head: true })
+        .eq('workspace_id', workspaceId),
+      // observations sample for by-source breakdown (top sources, not exhaustive)
+      supabase.from('observations').select('source')
+        .eq('workspace_id', workspaceId).limit(2000),
+      // last-7d observations count
+      supabase.from('observations').select('id', { count: 'exact', head: true })
+        .eq('workspace_id', workspaceId).gte('ingested_at', sevenDaysAgo),
+      // claims total
+      supabase.from('claims').select('id', { count: 'exact', head: true })
+        .eq('workspace_id', workspaceId).is('invalid_at', null),
+      // claims sample for freshness + epistemic-class breakdown
+      supabase.from('claims').select('freshness, epistemic_class')
+        .eq('workspace_id', workspaceId).is('invalid_at', null).limit(2000),
+      // self-healing — the unprocessed recompute queue
+      supabase.from('claim_jobs').select('id', { count: 'exact', head: true })
+        .eq('workspace_id', workspaceId).is('picked_at', null),
+      // predictions total
+      supabase.from('predictions').select('id', { count: 'exact', head: true })
+        .eq('workspace_id', workspaceId),
+      // predictions sample for kind/open/resolved + calibration trend
+      supabase.from('predictions')
+        .select('kind, predicted_value, outcome_value, predicted_at, resolved_at')
+        .eq('workspace_id', workspaceId).limit(2000),
     ]);
-    if (episodesRes.error) throw episodesRes.error;
+    if (obsSampleRes.error) throw obsSampleRes.error;
+    if (claimsSampleRes.error) throw claimsSampleRes.error;
+    if (predSampleRes.error) throw predSampleRes.error;
 
-    const rows = episodesRes.data || [];
-    const high = rows.filter((r) => r.predicted_score >= 70).map((r) => r.outcome_score);
-    const low = rows.filter((r) => r.predicted_score < 70).map((r) => r.outcome_score);
-    const avgHigh = avg(high);
-    const avgLow = avg(low);
-    const gap = avgHigh != null && avgLow != null ? round3(avgHigh - avgLow) : null;
+    const observationsTotal = obsTotalRes.count ?? 0;
+    const claimsTotal = claimsTotalRes.count ?? 0;
+    const predictionsTotal = predTotalRes.count ?? 0;
 
-    // Weekly trend — gap per week, computed only where both cohorts are present.
-    const byWeek = new Map();
-    for (const r of rows) {
-      const k = weekKey(r.predicted_at);
-      if (!byWeek.has(k)) byWeek.set(k, { high: [], low: [] });
-      const bucket = byWeek.get(k);
-      (r.predicted_score >= 70 ? bucket.high : bucket.low).push(r.outcome_score);
+    // ── 1. evidence ──────────────────────────────────────────────
+    const observations = obsSampleRes.data || [];
+    const bySource = {};
+    for (const o of observations) bySource[o.source] = (bySource[o.source] || 0) + 1;
+    const sources = Object.entries(bySource)
+      .map(([source, count]) => ({ source, count }))
+      .sort((a, b) => b.count - a.count);
+
+    // ── 2. beliefs ───────────────────────────────────────────────
+    const claims = claimsSampleRes.data || [];
+    const freshness = { fresh: 0, aging: 0, suspect: 0, expired: 0 };
+    const epistemic = { observed: 0, inferred: 0, predicted: 0, asserted: 0 };
+    for (const c of claims) {
+      if (c.freshness in freshness) freshness[c.freshness]++;
+      if (c.epistemic_class in epistemic) epistemic[c.epistemic_class]++;
     }
+
+    // ── 3 + 4. predictions and calibration ───────────────────────
+    // A well-calibrated model scores the accounts that actually convert
+    // higher than those that don't, so
+    //   gap = avg(outcome | predicted >= 70) - avg(outcome | predicted < 70)
+    // is large and positive.
+    const preds = predSampleRes.data || [];
+    const byKind = {};
+    let open = 0, resolved = 0;
+    const high = [], low = [];
+    const byWeek = new Map();
+    for (const p of preds) {
+      byKind[p.kind] = (byKind[p.kind] || 0) + 1;
+      if (!p.resolved_at) { open++; continue; }
+      resolved++;
+      const ps = Number(p.predicted_value?.score);
+      const os = Number(p.outcome_value?.score);
+      if (!Number.isFinite(ps) || !Number.isFinite(os)) continue;
+      (ps >= 70 ? high : low).push(os);
+      const k = weekKey(p.predicted_at);
+      if (!byWeek.has(k)) byWeek.set(k, { high: [], low: [] });
+      (ps >= 70 ? byWeek.get(k).high : byWeek.get(k).low).push(os);
+    }
+    const avgHigh = avg(high), avgLow = avg(low);
+    const gap = avgHigh != null && avgLow != null ? round3(avgHigh - avgLow) : null;
     const trend = [...byWeek.entries()]
       .sort((a, b) => a[0].localeCompare(b[0]))
       .map(([week, c]) => {
-        const h = avg(c.high);
-        const l = avg(c.low);
-        return {
-          week,
-          n: c.high.length + c.low.length,
-          gap: h != null && l != null ? round3(h - l) : null,
-        };
+        const h = avg(c.high), l = avg(c.low);
+        return { week, n: c.high.length + c.low.length, gap: h != null && l != null ? round3(h - l) : null };
       });
 
+    // ── 5. compound-intelligence layer — signals, predictions feed, misses, attention ──
+
+    // Active scorecard signals (used both for hit-rate analysis and ranking)
+    const activeSignals = await listSignals(supabase, workspaceId, { activeOnly: true });
+
+    // Top firing signals — by re-evaluating each resolved prediction's
+    // feature_snapshot through the current Scorecard. We count fires + hits
+    // (positive outcome = outcome_value.score >= 0.5).
+    const signalStats = new Map();
+    for (const s of activeSignals) signalStats.set(s.key, { signal: s, fires: 0, hits: 0 });
+    for (const p of preds) {
+      if (!p.resolved_at) continue;
+      const snap = p.feature_snapshot || {};
+      const features = {};
+      for (const [k, v] of Object.entries(snap)) features[k] = v?.value;
+      const { fired } = scoreLead(features, activeSignals);
+      const out = Number(p.outcome_value?.score);
+      const positive = Number.isFinite(out) && out >= 0.5;
+      for (const f of fired) {
+        const stat = signalStats.get(f.key);
+        if (!stat) continue;
+        stat.fires++;
+        if (positive) stat.hits++;
+      }
+    }
+    const topSignals = [...signalStats.values()]
+      .filter(s => s.fires > 0)
+      .sort((a, b) => b.fires - a.fires)
+      .slice(0, 8)
+      .map(s => ({
+        key: s.signal.key,
+        label: s.signal.label,
+        weight: s.signal.weight,
+        fires: s.fires,
+        hits: s.hits,
+        hit_rate: s.fires ? Math.round((s.hits / s.fires) * 100) : 0,
+      }));
+
+    // Recent predictions feed (last 20) — enriched with entity name + email
+    const recentPredsRes = await supabase
+      .from('predictions')
+      .select('id, entity_id, predicted_value, predicted_at, outcome_value, resolved_at')
+      .eq('workspace_id', workspaceId).eq('kind', 'icp_fit')
+      .order('predicted_at', { ascending: false }).limit(20);
+    const recentRows = recentPredsRes.data || [];
+    const recentEntityIds = [...new Set(recentRows.map(r => r.entity_id))];
+
+    let nameByEntity = {}, emailByEntity = {};
+    if (recentEntityIds.length) {
+      const [{ data: claimsForNames }, { data: emailIdents }] = await Promise.all([
+        supabase.from('claims').select('entity_id, property, value')
+          .in('entity_id', recentEntityIds).is('invalid_at', null)
+          .in('property', ['first_name', 'last_name']),
+        supabase.from('entity_identifiers').select('entity_id, value')
+          .in('entity_id', recentEntityIds).eq('kind', 'email').eq('status', 'active'),
+      ]);
+      for (const c of claimsForNames || []) {
+        if (!nameByEntity[c.entity_id]) nameByEntity[c.entity_id] = { first_name: null, last_name: null };
+        nameByEntity[c.entity_id][c.property] = c.value;
+      }
+      for (const i of emailIdents || []) emailByEntity[i.entity_id] = i.value;
+    }
+
+    const buildRecent = (p) => {
+      const n = nameByEntity[p.entity_id];
+      const name = n ? [n.first_name, n.last_name].filter(Boolean).join(' ') || null : null;
+      // Top firing signal keys (recompute, lightweight)
+      const snap = p.feature_snapshot || {};
+      const features = {};
+      for (const [k, v] of Object.entries(snap)) features[k] = v?.value;
+      const fired = scoreLead(features, activeSignals).fired.slice(0, 3).map(f => f.key);
+      return {
+        id: p.id,
+        entity_id: p.entity_id,
+        name,
+        email: emailByEntity[p.entity_id] || null,
+        score: p.predicted_value?.score ?? null,
+        fit: p.predicted_value?.fit ?? null,
+        predicted_at: p.predicted_at,
+        resolved_at: p.resolved_at,
+        outcome_score: p.outcome_value?.score ?? null,
+        replied: p.outcome_value?.replied ?? null,
+        fired,
+      };
+    };
+    const recentEnriched = recentRows.map(buildRecent);
+
+    // Misses — resolved predictions where the model and reality disagreed
+    const misses = recentEnriched
+      .filter(p => {
+        if (!p.resolved_at || typeof p.outcome_score !== 'number') return false;
+        const s = Number(p.score);
+        if (!Number.isFinite(s)) return false;
+        return (s >= 70 && p.outcome_score < 0.3) || (s < 30 && p.outcome_score > 0.7);
+      })
+      .slice(0, 10);
+
+    // Attention — accounts going quiet, claims decayed. Already a v2 helper.
+    let attention = [];
+    try {
+      const atRes = await getAttention(supabase, workspaceId, { limit: 8 });
+      attention = atRes.items ?? [];
+    } catch (e) {
+      console.warn('[GET /api/mind/substrate] attention failed:', e?.message);
+    }
+
     return res.json({
-      resolved: rows.length,
-      open: openRes.count ?? 0,
-      high: { count: high.length, avgOutcome: avgHigh != null ? round3(avgHigh) : null },
-      low: { count: low.length, avgOutcome: avgLow != null ? round3(avgLow) : null },
-      gap,
-      trend,
+      observations: {
+        total: observationsTotal,
+        last_7d: obs7Res.count ?? 0,
+        by_source: sources,
+      },
+      claims: { total: claimsTotal, freshness, epistemic },
+      recompute: { pending: jobsRes.count ?? 0 },
+      predictions: { total: predictionsTotal, open, resolved, by_kind: byKind },
+      calibration: {
+        resolved: high.length + low.length,
+        gap,
+        high: { count: high.length, avg_outcome: avgHigh != null ? round3(avgHigh) : null },
+        low: { count: low.length, avg_outcome: avgLow != null ? round3(avgLow) : null },
+        trend,
+      },
+      top_signals: topSignals,
+      recent_predictions: recentEnriched,
+      misses,
+      attention,
     });
   } catch (err) {
-    console.error('[GET /api/mind/calibration]', err);
+    console.error('[GET /api/mind/substrate]', err);
     return res.status(500).json({ error: 'internal_error' });
   }
 });
@@ -153,6 +325,43 @@ mindRouter.get('/scorecard', async (req, res) => {
   }
 });
 
+// GET /api/mind/worker-runs?workspaceId=…&limit=50 — surface the
+// compound-intelligence loop's run history on the Intelligence page.
+//
+// Scoped tightly: only the two workers that *are* the loop —
+//   mind_outcomes  (outcome resolution, nightly)
+//   scorecard_loop (Scorecard learning, nightly)
+// Infrastructure workers (crm_sync, pipeline_decay, claim_engine,
+// embeddings, lead_replies, score_entities) write to worker_runs too,
+// but they belong in a separate "infra" view, not in this one — the
+// user wants the loop dashboard to be about the loop, not plumbing.
+const LOOP_WORKERS = ['mind_outcomes', 'scorecard_loop'];
+
+mindRouter.get('/worker-runs', async (req, res) => {
+  try {
+    const { workspaceId } = req.query;
+    if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
+    const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 50));
+
+    const { data, error } = await getSupabaseClient()
+      .from('worker_runs')
+      .select('id, workspace_id, worker, status, summary, details, error, duration_ms, started_at, finished_at')
+      .in('worker', LOOP_WORKERS)
+      .or(`workspace_id.eq.${workspaceId},workspace_id.is.null`)
+      .order('finished_at', { ascending: false })
+      .limit(limit);
+
+    if (error?.code === '42P01' || error?.code === 'PGRST205') {
+      return res.json({ runs: [], migration_pending: true });
+    }
+    if (error) throw error;
+    return res.json({ runs: data || [] });
+  } catch (err) {
+    console.error('[GET /api/mind/worker-runs]', err);
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
 // GET /api/mind/scorecard/runs?workspaceId=… — the learning loop's run history.
 mindRouter.get('/scorecard/runs', async (req, res) => {
   try {
@@ -187,16 +396,12 @@ mindRouter.post('/scorecard/seed', async (req, res) => {
     }
 
     // The ICP lives in Memory — the ICP / Market / Product / Pricing /
-    // Competitors facts the user has added. Translate them into the Scorecard.
-    const { data: mems } = await supabase
-      .from('workspace_memories')
-      .select('category, content')
-      .eq('workspace_id', workspaceId)
-      .eq('is_active', true)
-      .in('category', ['ICP', 'Market', 'Product', 'Pricing', 'Competitors'])
-      .order('created_at', { ascending: false })
-      .limit(80);
-    const icpText = (mems || []).map(m => `[${m.category}] ${m.content}`).join('\n').trim();
+    // Competitors notes the user has added. Translate them into the Scorecard.
+    const mems = await listNotes(supabase, workspaceId, {
+      categories: ['ICP', 'Market', 'Product', 'Pricing', 'Competitors'],
+      limit: 80,
+    });
+    const icpText = mems.map(m => `[${m.category}] ${m.content}`).join('\n').trim();
     if (!icpText) return res.status(400).json({ error: 'no_icp_memory' });
 
     const prompt =
@@ -215,6 +420,7 @@ mindRouter.post('/scorecard/seed', async (req, res) => {
       `Respond with ONLY a JSON array, no prose.`;
 
     const msg = await anthropic.messages.create({
+      feature: 'scorecard-seed-translate',
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 900,
       messages: [{ role: 'user', content: prompt }],

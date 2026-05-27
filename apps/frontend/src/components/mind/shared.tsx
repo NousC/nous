@@ -73,4 +73,4 @@ export function relTime(iso: string | null): string {
 
 // ─── Types shared across popups ───────────────────────────────────────────────
 
-export type SettingsTab = "profile" | "team" | "api-keys" | "billing" | "usage" | "admin";
+export type SettingsTab = "profile" | "team" | "agora" | "api-keys" | "billing" | "usage" | "admin";

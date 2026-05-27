@@ -1,8 +1,20 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+// Activities — the v2 connector ingestion path.
+//
+// Every connector "activity" (email, reply, meeting, message, payment, …) is
+// recorded as a kind='event' observation with property 'interaction.<type>'.
+// The append-only spine; recompute fires on insert via the DB trigger.
+// `logActivity` is the single entry point; `listActivities` reads them back
+// in a backward-compatible shape so the v1 contact_activity_log readers don't
+// have to know the storage swapped underneath them.
+
 export interface LogActivityParams {
   workspaceId: string;
+  /** v2 entity id. Under the migration convention, contact.id == entity.id. */
   contactId: string;
+  /** Optional override — for company-scoped events (e.g. Signalbase). */
+  entityId?: string;
   companyId?: string | null;
   type: string;
   source: string;
@@ -29,7 +41,12 @@ function stageForType(type: string): string | null {
   return null;
 }
 
-async function advancePipelineStage(supabase: SupabaseClient, contactId: string, type: string): Promise<void> {
+async function advancePipelineStage(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  contactId: string,
+  type: string,
+): Promise<void> {
   const targetStage = stageForType(type);
   if (!targetStage) return;
 
@@ -42,67 +59,204 @@ async function advancePipelineStage(supabase: SupabaseClient, contactId: string,
   if (!contact || contact.stage_locked) return;
 
   const current = contact.pipeline_stage || 'identified';
-  if ((STAGE_ORDER[targetStage] ?? 0) > (STAGE_ORDER[current] ?? 0)) {
-    await supabase.from('contacts').update({ pipeline_stage: targetStage }).eq('id', contactId);
-  }
+  if ((STAGE_ORDER[targetStage] ?? 0) <= (STAGE_ORDER[current] ?? 0)) return;
+
+  // Update the v1 column (still read by the Contacts UI; Phase 4 retires it)
+  // AND record a v2 state observation so the pipeline_stage claim recomputes.
+  await supabase.from('contacts').update({ pipeline_stage: targetStage }).eq('id', contactId);
+  await supabase.from('observations').insert({
+    workspace_id: workspaceId,
+    entity_id: contactId,
+    kind: 'state',
+    property: 'pipeline_stage',
+    value: targetStage,
+    source: 'system',
+    method: 'inference',
+    observed_at: new Date().toISOString(),
+  }).then(({ error }) => {
+    if (error && !['23505', '42P01', 'PGRST205'].includes(error.code ?? '')) {
+      console.warn('[ACTIVITY] pipeline_stage observation failed:', error.message);
+    }
+  });
 }
 
+/**
+ * Record one connector activity as an event observation. Returns the
+ * observation id (the v1 contact_activity_log.id replacement), or null if a
+ * dup or write failure.
+ */
 export async function logActivity(
   supabase: SupabaseClient,
   params: LogActivityParams,
 ): Promise<{ id: string } | null> {
-  const { workspaceId, contactId, companyId, type, source, externalId, occurredAt, description, summary, rawData } = params;
+  const { workspaceId, contactId, type, source, externalId, occurredAt, description, summary, rawData } = params;
+  const entityId = params.entityId ?? contactId;
+  if (!entityId) return null;
 
-  // Dedup by externalId — prevents double-logging the same calendar event / webhook delivery
-  if (externalId) {
-    const { count } = await supabase
-      .from('contact_activity_log')
-      .select('id', { count: 'exact', head: true })
-      .eq('workspace_id', workspaceId)
-      .eq('source', source)
-      .eq('external_id', externalId);
-
-    if ((count ?? 0) > 0) {
-      console.log(`[ACTIVITY] Dedup skip: ${source}/${externalId}`);
-      return null;
-    }
-  }
+  // Ensure the entity exists (id == v1 row id, per migration convention).
+  await supabase.from('entities').upsert(
+    { id: entityId, workspace_id: workspaceId, type: 'person', status: 'active' },
+    { onConflict: 'id', ignoreDuplicates: true },
+  );
 
   const { data, error } = await supabase
-    .from('contact_activity_log')
+    .from('observations')
     .insert({
-      workspace_id:  workspaceId,
-      contact_id:    contactId,
-      company_id:    companyId || null,
-      activity_type: type,
+      workspace_id: workspaceId,
+      entity_id:    entityId,
+      kind:         'event',
+      property:     `interaction.${type}`,
+      value:        { description: description ?? null, summary: summary ?? null },
       source,
-      external_id:   externalId || null,
-      occurred_at:   occurredAt || new Date().toISOString(),
-      received_at:   new Date().toISOString(),
-      raw_data:      rawData || null,
-      summary:       summary || null,
-      description:   description || null,
+      method:       'connector',
+      observed_at:  occurredAt || new Date().toISOString(),
+      external_id:  externalId || null,
+      raw:          rawData || null,
     })
     .select('id')
     .single();
 
   if (error) {
-    console.error('[ACTIVITY] Insert failed:', error.message, { source, type, contactId });
+    if (error.code === '23505') {
+      console.log(`[ACTIVITY] Dedup skip: ${source}/${externalId}`);
+      return null;
+    }
+    console.error('[ACTIVITY] insert failed:', error.message, { source, type, entityId });
     return null;
   }
 
-  // Advance pipeline stage based on signal type
-  await advancePipelineStage(supabase, contactId, type).catch(() => {});
+  // Advance pipeline stage based on signal type (best-effort, contact-only).
+  if (contactId) {
+    await advancePipelineStage(supabase, workspaceId, contactId, type).catch(() => {});
+  }
 
   // Fire-and-forget: push this activity to every enabled CRM connection.
-  // activityId enables per-row dedup so retries / replays don't double-post engagements.
-  void notifyCrmPush({ workspaceId, contactId, activityType: type, activityId: data?.id, occurredAt, summary, description, rawData });
+  void notifyCrmPush({
+    workspaceId,
+    contactId: contactId || entityId,
+    activityType: type,
+    activityId: (data as { id: string } | null)?.id,
+    occurredAt,
+    summary,
+    description,
+    rawData,
+  });
 
   return data as { id: string };
 }
 
-// Resolved lazily so packages/core stays free of any apps/* dependency. The API process
-// registers a handler at startup; other consumers (CLI, tests) are no-ops.
+// ── Reads: v1-compatible activity shape, sourced from observations ───────────
+
+export interface ActivityRow {
+  id: string;
+  workspace_id: string;
+  contact_id: string;
+  company_id: string | null;
+  activity_type: string;
+  description: string | null;
+  summary: string | null;
+  source: string;
+  occurred_at: string;
+  raw_data: unknown;
+}
+
+function fromObservation(o: Record<string, unknown>): ActivityRow {
+  const value = (o.value as Record<string, unknown> | null) ?? {};
+  return {
+    id: o.id as string,
+    workspace_id: o.workspace_id as string,
+    contact_id: o.entity_id as string,
+    company_id: null,           // events aren't double-tagged in v2
+    activity_type: String(o.property ?? '').replace(/^interaction\./, ''),
+    description: (value.description as string | null) ?? null,
+    summary: (value.summary as string | null) ?? null,
+    source: o.source as string,
+    occurred_at: o.observed_at as string,
+    raw_data: o.raw ?? null,
+  };
+}
+
+export interface ListActivitiesOpts {
+  contactId?: string;
+  contactIds?: string[];
+  types?: string[];                 // activity_type values (without the 'interaction.' prefix)
+  source?: string;
+  since?: string;                   // ISO; filters on observed_at
+  ingestedSince?: string;           // ISO; filters on ingested_at (≈ v1 created_at)
+  limit?: number;
+}
+
+/** v1-shape activities from observations. Filters on the `interaction.*` spine. */
+export async function listActivities(
+  supabase: SupabaseClient,
+  opts: ListActivitiesOpts = {},
+): Promise<ActivityRow[]> {
+  let q = supabase
+    .from('observations')
+    .select('id, workspace_id, entity_id, property, value, source, observed_at, ingested_at, raw');
+
+  if (opts.types?.length) {
+    q = q.in('property', opts.types.map(t => `interaction.${t}`));
+  } else {
+    q = q.like('property', 'interaction.%');
+  }
+  if (opts.contactId) q = q.eq('entity_id', opts.contactId);
+  if (opts.contactIds?.length) q = q.in('entity_id', opts.contactIds);
+  if (opts.source) q = q.eq('source', opts.source);
+  if (opts.since) q = q.gte('observed_at', opts.since);
+  if (opts.ingestedSince) q = q.gte('ingested_at', opts.ingestedSince);
+
+  q = q.order('observed_at', { ascending: false });
+  if (opts.limit) q = q.limit(opts.limit);
+
+  const { data, error } = await q;
+  if (error) throw error;
+  return (data ?? []).map(o => fromObservation(o as Record<string, unknown>));
+}
+
+/** Count activities for an entity (or set) — `{ count: number }` for head() compat. */
+export async function countActivities(
+  supabase: SupabaseClient,
+  opts: { contactId?: string; types?: string[]; source?: string; since?: string } = {},
+): Promise<number> {
+  let q = supabase
+    .from('observations')
+    .select('id', { count: 'exact', head: true });
+
+  if (opts.types?.length) {
+    q = q.in('property', opts.types.map(t => `interaction.${t}`));
+  } else {
+    q = q.like('property', 'interaction.%');
+  }
+  if (opts.contactId) q = q.eq('entity_id', opts.contactId);
+  if (opts.source) q = q.eq('source', opts.source);
+  if (opts.since) q = q.gte('observed_at', opts.since);
+
+  const { count } = await q;
+  return count ?? 0;
+}
+
+/** Has an event with this external_id already been recorded for this source? */
+export async function hasActivityWithExternalId(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  source: string,
+  externalId: string,
+): Promise<boolean> {
+  const { data } = await supabase
+    .from('observations')
+    .select('id')
+    .eq('workspace_id', workspaceId)
+    .eq('source', source)
+    .eq('external_id', externalId)
+    .limit(1);
+  return (data?.length ?? 0) > 0;
+}
+
+// ── CRM push side-channel ────────────────────────────────────────────────────
+// Resolved lazily so packages/core stays free of any apps/* dependency. The
+// API process registers a handler at startup; other consumers (CLI, tests) are no-ops.
+
 type CrmPushHandler = (evt: {
   workspaceId: string; contactId: string; activityType: string;
   activityId?: string | null;

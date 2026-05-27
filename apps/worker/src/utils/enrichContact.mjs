@@ -2,7 +2,8 @@
 // Priority: Apollo BYOK (if enabled) → Prospeo BYOK → built-in Prospeo key.
 // scoreICP runs after every successful enrichment.
 
-import Anthropic from '@anthropic-ai/sdk';
+import Anthropic, { setUser } from 'useleak';
+import { listNotes } from '@nous/core';
 import { logActivity } from './activity.mjs';
 import { upsertCompany } from './resolveContact.mjs';
 import { decrypt } from './encryption.mjs';
@@ -37,6 +38,7 @@ async function getProviderKey(supabase, workspaceId, providerName, requireEnrich
 // ── ICP scoring ───────────────────────────────────────────────────────────────
 
 export async function scoreICP(supabase, workspaceId, contact) {
+  setUser({ id: String(workspaceId) });
   const profileLines = [
     contact.job_title  && `Title: ${contact.job_title}`,
     contact.seniority  && `Seniority: ${contact.seniority}`,
@@ -45,18 +47,19 @@ export async function scoreICP(supabase, workspaceId, contact) {
   ].filter(Boolean);
   if (!profileLines.length) return;
 
-  const { data: memories } = await supabase.from('workspace_memories').select('category, content')
-    .eq('workspace_id', workspaceId).eq('is_active', true)
-    .in('category', ['ICP', 'Market', 'Company', 'Product'])
-    .order('created_at', { ascending: false }).limit(60);
+  const memories = await listNotes(supabase, workspaceId, {
+    categories: ['ICP', 'Market', 'Company', 'Product'],
+    limit: 60,
+  });
 
   const profile = profileLines.join('\n');
-  const prompt = memories?.length
+  const prompt = memories.length
     ? `Workspace ICP criteria:\n${memories.map(m => `[${m.category}] ${m.content}`).join('\n')}\n\nContact:\n${profile}\n\nScore 0-100 and give a one-sentence reason. JSON only: {"score":<int>,"fit":<bool>,"reasoning":"<sentence>"}`
     : `Contact:\n${profile}\n\nScore this B2B contact's ICP fit 0-100 based on role alone. C-suite/VP/Director=high(75-95), Manager/Senior=medium(45-70), IC/unknown=low(20-40). JSON only: {"score":<int>,"fit":<bool>,"reasoning":"<sentence>"}`;
 
   try {
     const msg = await anthropic.messages.create({
+      feature: 'icp-score-on-enrich',
       model: 'claude-haiku-4-5-20251001', max_tokens: 150,
       messages: [{ role: 'user', content: prompt }],
     });
@@ -80,7 +83,7 @@ export async function scoreICP(supabase, workspaceId, contact) {
       summary: json.reasoning || null,
     }).catch(() => {});
 
-    console.log(`[ICP_SCORE] contact=${contact.id} score=${json.score} fit=${json.fit} (${memories?.length ? 'workspace criteria' : 'generic'})`);
+    console.log(`[ICP_SCORE] contact=${contact.id} score=${json.score} fit=${json.fit} (${memories.length ? 'workspace criteria' : 'generic'})`);
   } catch (e) {
     console.warn('[ICP_SCORE] Failed:', e.message);
   }

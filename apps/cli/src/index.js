@@ -1,5 +1,10 @@
 #!/usr/bin/env node
 
+// Nous CLI — a thin client of the v2 Context API.
+//
+// You read engineered, epistemics-tagged context and write observations.
+// You never overwrite — Nous derives the facts.
+
 import { program, Command } from "commander";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { homedir } from "os";
@@ -26,7 +31,7 @@ function apiClient() {
   const apiUrl = process.env.NOUS_API_URL || cfg.apiUrl || "https://api.opennous.cloud";
 
   if (!apiKey) {
-    console.error("No API key found. Run: nous auth login");
+    console.error("No API key found. Run: nous auth login --key <your-key>");
     process.exit(1);
   }
 
@@ -54,12 +59,35 @@ function apiClient() {
   return {
     get: (path, query) => request("GET", path, { query }),
     post: (path, body) => request("POST", path, { body }),
-    del: (path) => request("DELETE", path),
   };
 }
 
+// A name that matches several entities comes back as { status: 'ambiguous' }.
+// Print the candidates and stop — the caller re-runs with a precise focus.
+function handleAmbiguous(r) {
+  if (r && r.status === "ambiguous") {
+    console.log("Several entities match that focus — re-run with one of:");
+    for (const c of r.candidates ?? []) {
+      const detail = c.detail ? ` — ${c.detail}` : "";
+      console.log(`  ${c.name || "(unnamed)"}${detail}  [${c.entity_id}]`);
+    }
+    return true;
+  }
+  return false;
+}
+
+// --value accepts JSON ('{"description":"…"}') or a bare string.
+function parseValue(raw) {
+  if (raw === undefined) return undefined;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return raw;
+  }
+}
+
 // ---------------------------------------------------------------------------
-// nous auth login
+// nous auth
 // ---------------------------------------------------------------------------
 program
   .command("auth")
@@ -74,7 +102,7 @@ program
         cfg.apiKey = key;
         if (url) cfg.apiUrl = url;
         writeConfig(cfg);
-        console.log("✓ Authenticated. Run `nous contact list` to verify.");
+        console.log("✓ Authenticated. Run `nous attention` to verify.");
       })
   )
   .addCommand(
@@ -93,135 +121,274 @@ program
   );
 
 // ---------------------------------------------------------------------------
-// nous contact
+// nous context <focus> — engineered, intent-shaped context for a task
 // ---------------------------------------------------------------------------
-const contact = program.command("contact").description("Manage contacts");
-
-contact
-  .command("get <email-or-id>")
-  .description("Get a contact profile")
-  .action(async (identifier) => {
+program
+  .command("context <focus>")
+  .description("Engineered context for a task about one person or company")
+  .option(
+    "--intent <intent>",
+    "draft_email | follow_up | meeting_prep | call_prep | account_review",
+    "account_review"
+  )
+  .option("--budget <tokens>", "Token budget for the assembled context")
+  .option("--json", "Print the raw JSON response")
+  .action(async (focus, { intent, budget, json }) => {
     const api = apiClient();
-    const c = await api.get(`/v1/contact/${encodeURIComponent(identifier)}`);
-    const lines = [
-      `${c.name || c.email}${c.title ? ` · ${c.title}` : ""}${c.company ? ` @ ${c.company}` : ""}`,
-      `Stage: ${c.pipeline_stage || "identified"}${c.icp_score != null ? `  ICP: ${c.icp_score}` : ""}`,
-    ];
-    if (c.summary) lines.push(`\nSummary: ${c.summary}`);
-    const facts = c.facts ?? [];
-    if (facts.length) {
-      lines.push(`\nFacts:`);
-      facts.forEach(f => lines.push(`  [${f.category}] ${f.content}`));
+    const ctx = await api.post("/v2/context", {
+      focus,
+      intent,
+      budget_tokens: budget ? Number(budget) : undefined,
+    });
+    if (handleAmbiguous(ctx)) return;
+    if (json) {
+      console.log(JSON.stringify(ctx, null, 2));
+      return;
     }
-    const acts = c.recent_activities ?? [];
-    if (acts.length) {
-      lines.push(`\nRecent activity:`);
-      acts.slice(0, 5).forEach(a => {
-        const date = a.occurred_at ? new Date(a.occurred_at).toLocaleDateString() : "";
-        lines.push(`  ${date} — ${a.type}${a.description ? `: ${a.description.slice(0, 80)}` : ""}`);
+    const lines = [`${ctx.entity.type} ${ctx.entity.id}  ·  intent: ${ctx.intent}`];
+    if (ctx.summary) lines.push(`\n${ctx.summary}`);
+    if (ctx.claims?.length) {
+      lines.push(`\nClaims:`);
+      ctx.claims.forEach(c => {
+        const val = typeof c.value === "object" ? JSON.stringify(c.value) : c.value;
+        lines.push(
+          `  ${c.property} = ${val}  (${c.epistemic_class}, ${c.freshness}, ` +
+            `conf ${Math.round((c.confidence ?? 0) * 100)}%)`
+        );
       });
     }
-    lines.push(`\nID: ${c.contact_id || c.id}`);
+    if (ctx.timeline?.length) {
+      lines.push(`\nTimeline:`);
+      ctx.timeline.slice(0, 8).forEach(t => {
+        const when = t.when ? new Date(t.when).toLocaleDateString() : "";
+        const detail = t.summary ? `: ${t.summary}` : t.count ? ` ×${t.count}` : "";
+        lines.push(`  ${when} — ${t.type}${detail}`);
+      });
+    }
+    if (ctx.stakeholders?.length) {
+      lines.push(`\nStakeholders:`);
+      ctx.stakeholders.forEach(s =>
+        lines.push(`  ${s.name || s.entity_id}${s.role ? ` — ${s.role}` : ""}`)
+      );
+    }
+    lines.push(`\n~${ctx.meta?.token_estimate ?? "?"} tokens`);
     console.log(lines.join("\n"));
   });
 
-contact
-  .command("list")
-  .description("List contacts")
-  .option("--stage <stage>", "Filter by stage (identified|aware|interested|evaluating|client)")
+// ---------------------------------------------------------------------------
+// nous account <focus> — the full record: every claim + its epistemics
+// ---------------------------------------------------------------------------
+program
+  .command("account <focus>")
+  .description("The full account record — every claim with its epistemics + timeline")
+  .option("--json", "Print the raw JSON response")
+  .action(async (focus, { json }) => {
+    const api = apiClient();
+    const rec = await api.get(`/v2/accounts/${encodeURIComponent(focus)}`);
+    if (handleAmbiguous(rec)) return;
+    if (json) {
+      console.log(JSON.stringify(rec, null, 2));
+      return;
+    }
+    const lines = [`${rec.type} ${rec.entity_id}`];
+    const claims = Object.entries(rec.claims ?? {});
+    if (claims.length) {
+      lines.push(`\nClaims:`);
+      claims.forEach(([prop, c]) => {
+        const val = typeof c.value === "object" ? JSON.stringify(c.value) : c.value;
+        lines.push(
+          `  ${prop} = ${val}  (${c.epistemic_class}, ${c.freshness}, ` +
+            `conf ${Math.round((c.confidence ?? 0) * 100)}%)`
+        );
+      });
+    }
+    const obs = rec.recent_observations ?? [];
+    if (obs.length) {
+      lines.push(`\nRecent observations:`);
+      obs.slice(0, 10).forEach(o => {
+        const when = o.observed_at ? new Date(o.observed_at).toLocaleDateString() : "";
+        lines.push(`  ${when} — [${o.kind}] ${o.property}  (${o.source})`);
+      });
+    }
+    console.log(lines.join("\n"));
+  });
+
+// ---------------------------------------------------------------------------
+// nous record <focus> — observe what happened; Nous derives the facts
+// ---------------------------------------------------------------------------
+program
+  .command("record <focus>")
+  .description("Record an observation. You observe — Nous derives the claims.")
+  .requiredOption("--kind <kind>", "event | state")
+  .requiredOption("--property <property>", "e.g. interaction.email_sent or job_title")
+  .option("--value <value>", "The event detail or fact value (JSON or string)")
+  .option("--source <source>", "Where this came from", "cli")
+  .option("--method <method>", "How it was observed")
+  .option("--observed-at <iso>", "When it was observed (ISO 8601)")
+  .action(async (focus, opts) => {
+    const api = apiClient();
+    const observation = {
+      kind: opts.kind,
+      property: opts.property,
+      value: parseValue(opts.value),
+      source: opts.source,
+      method: opts.method,
+      observed_at: opts.observedAt,
+    };
+    const result = await api.post("/v2/observations", { focus, observations: [observation] });
+    if (handleAmbiguous(result)) return;
+    const recomputed = result.claims_recomputed ?? [];
+    console.log(
+      `✓ Recorded ${result.recorded} observation(s) for ${result.entity_id}` +
+        (recomputed.length ? `\n  Claims recomputed: ${recomputed.join(", ")}` : "")
+    );
+  });
+
+// ---------------------------------------------------------------------------
+// nous query — retrieve and summarise a corpus of activity across many people
+// ---------------------------------------------------------------------------
+program
+  .command("query")
+  .description("Retrieve and summarise activity across many people")
+  .option("--kind <kind>", "event | state")
+  .option("--property <prefix>", "Property prefix — e.g. interaction.linkedin")
+  .option("--source <source>", "Filter by source")
+  .option("--entity <id>", "Restrict to one entity")
+  .option("--since <days>", "Look back this many days")
   .option("--limit <n>", "Max results", "20")
-  .action(async ({ stage, limit }) => {
+  .option("--question <text>", "A question — switches to semantic retrieval")
+  .option("--json", "Print the raw JSON response")
+  .action(async opts => {
     const api = apiClient();
-    const data = await api.get("/v1/contacts", { stage, limit });
-    const contacts = data.contacts ?? [];
-    if (!contacts.length) { console.log("No contacts found."); return; }
-    contacts.forEach(c => {
-      const name = c.name || c.email;
-      const co = c.company ? ` @ ${c.company}` : "";
-      console.log(`${name}${co}  [${c.pipeline_stage || "identified"}]  ${c.id}`);
-    });
-    console.log(`\n${contacts.length} of ${data.total ?? contacts.length} contacts`);
-  });
-
-contact
-  .command("create")
-  .description("Create a new contact")
-  .requiredOption("--email <email>", "Email address")
-  .option("--name <name>", "Full name")
-  .option("--company <company>", "Company name")
-  .option("--title <title>", "Job title")
-  .option("--linkedin <url>", "LinkedIn URL")
-  .action(async ({ email, name, company, title, linkedin }) => {
-    const api = apiClient();
-    const [first_name, ...rest] = (name || "").split(" ");
-    const result = await api.post("/v1/contacts", {
-      email,
-      first_name: first_name || undefined,
-      last_name: rest.join(" ") || undefined,
-      company,
-      job_title: title,
-      linkedin_url: linkedin,
-    });
-    console.log(`✓ Created: ${result.name || result.email} (${result.id})`);
-  });
-
-// ---------------------------------------------------------------------------
-// nous memory
-// ---------------------------------------------------------------------------
-const memory = program.command("memory").description("Manage workspace memory");
-
-memory
-  .command("list")
-  .description("List all workspace memories")
-  .option("--category <cat>", "Filter by category")
-  .action(async ({ category }) => {
-    const api = apiClient();
-    const data = await api.get("/v1/memories", { category });
-    const memories = data.memories ?? [];
-    if (!memories.length) { console.log("No memories stored yet."); return; }
-    const byCategory = {};
-    for (const m of memories) {
-      (byCategory[m.category] ??= []).push(m);
+    const scope = {
+      kind: opts.kind,
+      property: opts.property,
+      source: opts.source,
+      entity_id: opts.entity,
+      since_days: opts.since ? Number(opts.since) : undefined,
+      limit: opts.limit ? Number(opts.limit) : undefined,
+    };
+    const data = await api.post("/v2/query", { scope, question: opts.question });
+    if (opts.json) {
+      console.log(JSON.stringify(data, null, 2));
+      return;
     }
-    for (const [cat, facts] of Object.entries(byCategory)) {
-      console.log(`\n[${cat}]`);
-      facts.forEach(f => console.log(`  • ${f.content}  (${f.id})`));
+    const items = data.items ?? [];
+    if (!items.length) {
+      console.log("No matching activity.");
+      return;
     }
-  });
-
-memory
-  .command("save <fact>")
-  .description("Save a workspace-level fact")
-  .option("--category <cat>", "Category", "General")
-  .action(async (fact, { category }) => {
-    const api = apiClient();
-    const result = await api.post("/v1/remember", { text: fact, category, source: "cli" });
-    console.log(`✓ Saved ${result.stored ?? 1} fact(s) [${category}]`);
-  });
-
-memory
-  .command("search <query>")
-  .description("Semantic search across workspace memories")
-  .option("--limit <n>", "Max results", "10")
-  .action(async (q, { limit }) => {
-    const api = apiClient();
-    const data = await api.post("/v1/search", { q, limit: Number(limit) });
-    const results = data.results ?? [];
-    if (!results.length) { console.log(`No results for "${q}".`); return; }
-    results.forEach(r => {
-      const score = `${(r.similarity * 100).toFixed(0)}%`;
-      console.log(`  [${r.category}] ${score}  ${r.content}`);
+    items.forEach(it => {
+      const when = it.when ? new Date(it.when).toLocaleDateString() : "";
+      const who = it.entity_name || it.entity_id;
+      const sim = it.similarity != null ? `  ${Math.round(it.similarity * 100)}%` : "";
+      console.log(`  ${when} — ${who} — ${it.type}${sim}${it.summary ? `: ${it.summary}` : ""}`);
     });
-  });
-
-memory
-  .command("delete <id>")
-  .description("Delete a workspace memory by ID")
-  .action(async (id) => {
-    const api = apiClient();
-    const result = await api.del(`/v1/memory/${encodeURIComponent(id)}`);
-    console.log(`✓ Deleted: "${result.content}"`);
+    console.log(
+      `\n${data.returned} of ${data.matched} (${data.mode})` +
+        (data.sampled ? " — sampled" : "")
+    );
   });
 
 // ---------------------------------------------------------------------------
-program.name("nous").version("0.1.0").parse();
+// nous attention — what needs attention across the workspace
+// ---------------------------------------------------------------------------
+program
+  .command("attention")
+  .description("Accounts gone quiet, facts decayed — ranked, with suggested actions")
+  .option("--limit <n>", "Max results", "20")
+  .option("--json", "Print the raw JSON response")
+  .action(async ({ limit, json }) => {
+    const api = apiClient();
+    const data = await api.get("/v2/attention", { limit });
+    if (json) {
+      console.log(JSON.stringify(data, null, 2));
+      return;
+    }
+    const items = data.items ?? [];
+    if (!items.length) {
+      console.log("Nothing needs attention. ✓");
+      return;
+    }
+    items.forEach(it => {
+      const who = it.entity_name || it.entity_id;
+      console.log(`  [${it.kind}] ${who} — ${it.what} (${it.age_days}d)`);
+      console.log(`     → ${it.suggested_action}`);
+    });
+  });
+
+// ---------------------------------------------------------------------------
+// nous verify <focus> <property> — re-check a claim before acting on it
+// ---------------------------------------------------------------------------
+program
+  .command("verify <focus> <property>")
+  .description("Re-check a claim before acting on it — the calibration check")
+  .action(async (focus, property) => {
+    const api = apiClient();
+    const r = await api.post("/v2/verify", { focus, property });
+    if (handleAmbiguous(r)) return;
+    const fmt = c =>
+      c
+        ? `${typeof c.value === "object" ? JSON.stringify(c.value) : c.value} ` +
+          `(${c.freshness}, conf ${Math.round((c.confidence ?? 0) * 100)}%)`
+        : "—";
+    console.log(`${r.property}`);
+    console.log(`  before: ${fmt(r.before)}`);
+    console.log(`  after:  ${fmt(r.after)}`);
+    if (r.note) console.log(`  ${r.note}`);
+  });
+
+// ---------------------------------------------------------------------------
+// nous classify — pre-flight cold-outbound dedup
+// ---------------------------------------------------------------------------
+program
+  .command("classify")
+  .description("Pre-flight dedup a list of emails and/or LinkedIn URLs against the workspace's engagement history")
+  .option("--emails <list>", "Comma-separated emails")
+  .option("--linkedin <list>", "Comma-separated LinkedIn URLs")
+  .option("--file <path>", "Path to any text/CSV — both emails and LinkedIn URLs are auto-extracted")
+  .option("--json", "Print the raw JSON response")
+  .action(async ({ emails, linkedin, file, json }) => {
+    const api = apiClient();
+    const EMAIL_RE    = /[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}/gi;
+    const LINKEDIN_RE = /https?:\/\/(?:www\.)?linkedin\.com\/in\/[a-zA-Z0-9_\-%]+/gi;
+
+    let emailList = [];
+    let linkedinList = [];
+
+    if (file) {
+      const { readFileSync } = await import("fs");
+      const text = readFileSync(file, "utf8");
+      emailList = text.match(EMAIL_RE) || [];
+      linkedinList = text.match(LINKEDIN_RE) || [];
+    }
+    if (emails)   emailList    = emailList.concat(emails.split(/[\s,]+/).filter(Boolean));
+    if (linkedin) linkedinList = linkedinList.concat(linkedin.split(/[\s,]+/).filter(Boolean));
+
+    emailList    = [...new Set(emailList.map(e => e.toLowerCase().trim()))].filter(Boolean);
+    linkedinList = [...new Set(linkedinList.map(u => u.trim()))].filter(Boolean);
+
+    if (!emailList.length && !linkedinList.length) {
+      console.error("Pass at least one of --emails, --linkedin, or --file");
+      process.exit(1);
+    }
+
+    const body = {};
+    if (emailList.length)    body.emails        = emailList;
+    if (linkedinList.length) body.linkedin_urls = linkedinList;
+
+    const data = await api.post("/v2/dedup", body);
+    if (json) { console.log(JSON.stringify(data, null, 2)); return; }
+    const s = data.summary || {};
+    const pad = (n, w = 6) => String(n).padStart(w);
+    console.log(`\n  ${pad(s.total)}  total  (${emailList.length} emails, ${linkedinList.length} linkedin)`);
+    console.log(`  ${pad(s.net_new)}  net_new       ← safe to send / safe to buy`);
+    console.log(`  ${pad(s.engaged)}  engaged       skip (in an active convo)`);
+    console.log(`  ${pad(s.recent)}  recent        defer (contacted in last 30d)`);
+    console.log(`  ${pad(s.bounced)}  bounced       skip`);
+    console.log(`  ${pad(s.unsubscribed)}  unsubscribed  skip`);
+    console.log(`  ${pad(s.suppressed)}  suppressed    skip (workspace policy)\n`);
+  });
+
+// ---------------------------------------------------------------------------
+program.name("nous").version("0.3.0").parse();

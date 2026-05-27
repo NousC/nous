@@ -1,5 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { isUUID } from '../utils/identity.js';
+import { listNotes } from './notes.js';
+import { fetchEntityOverlays, applyContactOverlay, applyCompanyOverlay } from './entities.js';
 
 export interface CompanyProfile {
   company_id: string;
@@ -49,34 +51,32 @@ export async function getCompanyProfile(
       .eq('workspace_id', workspaceId)
       .order('last_activity_at', { ascending: false })
       .limit(20),
-    supabase
-      .from('workspace_memories')
-      .select('category, content, created_at')
-      .eq('workspace_id', workspaceId)
-      .eq('is_active', true)
-      .filter('metadata->>company_id', 'eq', companyId)
-      .order('created_at', { ascending: false })
-      .limit(20),
+    listNotes(supabase, workspaceId, { entityId: companyId, limit: 20 }).then(data => ({ data })),
   ]);
 
   if (!companyResult.data) return null;
 
-  const c = companyResult.data;
+  // Overlay v2 substrate values on the company row + on each of its contacts.
+  const contactRows = (contactsResult.data || []) as Record<string, unknown>[];
+  const ids = [companyId, ...contactRows.map(c => c.id as string)];
+  const overlays = await fetchEntityOverlays(supabase, ids);
+  const c = applyCompanyOverlay(companyResult.data as Record<string, unknown>, overlays.get(companyId));
+  const contacts = contactRows.map(r => applyContactOverlay(r, overlays.get(r.id as string)));
 
   return {
-    company_id: c.id,
-    name: c.name,
-    domain: c.domain || null,
-    industry: c.industry || null,
-    employee_count: c.employee_count || null,
-    location: c.location || null,
-    deal_health_score: c.deal_health_score || null,
-    contacts: (contactsResult.data || []).map(con => ({
-      contact_id: con.id,
+    company_id: c.id as string,
+    name: c.name as string,
+    domain: (c.domain as string) || null,
+    industry: (c.industry as string) || null,
+    employee_count: (c.employee_count as number) || null,
+    location: (c.location as string) || null,
+    deal_health_score: (c.deal_health_score as number) || null,
+    contacts: contacts.map(con => ({
+      contact_id: con.id as string,
       name: [con.first_name, con.last_name].filter(Boolean).join(' ') || null,
-      email: con.email,
-      title: con.job_title || null,
-      pipeline_stage: con.pipeline_stage || 'identified',
+      email: con.email as string,
+      title: (con.job_title as string) || null,
+      pipeline_stage: (con.pipeline_stage as string) || 'identified',
     })),
     total_contacts: contactsResult.count || 0,
     facts: (factsResult.data || []).map(f => ({

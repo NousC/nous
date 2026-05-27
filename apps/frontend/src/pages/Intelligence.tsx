@@ -1,69 +1,113 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { RefreshCw } from "lucide-react";
-import { format } from "date-fns";
+import { RefreshCw, Activity, CheckCircle2, AlertTriangle, MinusCircle, XCircle } from "lucide-react";
+import { format, formatDistanceToNow } from "date-fns";
 import { PageHeader } from "@/components/ui/page-header";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 
-// Intelligence — the compound intelligence of the workspace: how well the Mind
-// predicts (calibration), what it believes (the Scorecard), how it learned
-// (the runs), and the knowledge it reasons over (memory).
+// Intelligence — the dashboard for the compound-intelligence loop.
+//
+// Answers two questions on one page:
+//   1. Is the model getting better over time?
+//   2. What should I act on next?
+//
+// Backed by /api/mind/substrate which reads the v2 substrate stage by stage:
+// observations → claims → predictions → calibration → scorecard.
 
 const apiUrl = import.meta.env.VITE_API_URL ?? "";
 
-const MEMORY_CATEGORIES = ["ICP", "Product", "Pricing", "Market", "Competitors", "Team", "Patterns", "General"];
-
-interface Calibration {
-  resolved: number;
-  open: number;
-  gap: number | null;
+interface Substrate {
+  observations: { total: number; last_7d: number; by_source: { source: string; count: number }[] };
+  claims: { total: number; freshness: Record<string, number>; epistemic: Record<string, number> };
+  recompute: { pending: number };
+  predictions: { total: number; open: number; resolved: number; by_kind: Record<string, number> };
+  calibration: {
+    resolved: number;
+    gap: number | null;
+    high: { count: number; avg_outcome: number | null };
+    low: { count: number; avg_outcome: number | null };
+    trend: { week: string; n: number; gap: number | null }[];
+  };
+  top_signals: { key: string; label: string; weight: number; fires: number; hits: number; hit_rate: number }[];
+  recent_predictions: {
+    id: string; entity_id: string; name: string | null; email: string | null;
+    score: number | null; fit: boolean | null;
+    predicted_at: string; resolved_at: string | null;
+    outcome_score: number | null; replied: boolean | null;
+    fired: string[];
+  }[];
+  misses: Substrate["recent_predictions"];
+  attention: {
+    kind: string; entity_id: string; entity_name: string | null;
+    what: string; suggested_action: string; age_days: number;
+  }[];
 }
 interface Signal {
-  id: string;
-  key: string;
-  label: string;
-  weight: number;
-  coverage: number;
-  active: boolean;
+  id: string; key: string; label: string; weight: number; coverage: number; active: boolean;
 }
-interface Run {
-  id: string;
-  steps: number;
-  gap_before: number | null;
-  gap_after: number | null;
-  note: string | null;
-  created_at: string;
+interface IcpFact {
+  id: string; category: string; content: string; created_at?: string | null;
 }
-interface MemoryFact {
+interface WorkerRun {
   id: string;
-  category: string;
-  content: string;
-  created_at: string;
+  workspace_id: string | null;
+  worker: string;
+  status: 'success' | 'error' | 'no_op';
+  summary: string | null;
+  details: Record<string, unknown> | null;
+  error: string | null;
+  duration_ms: number | null;
+  started_at: string;
+  finished_at: string;
 }
+
+// Human-readable worker names for the run log.
+const WORKER_LABELS: Record<string, string> = {
+  mind_outcomes: "Outcome resolution",
+  scorecard_loop: "Scorecard learning",
+  claim_engine: "Claim self-healing",
+  score_entities: "Prediction staking",
+  crm_sync: "CRM sync",
+  lead_replies: "Reply classification",
+  embeddings: "Embeddings",
+  pipeline_decay: "Pipeline decay",
+};
+const labelForWorker = (key: string) => WORKER_LABELS[key] ?? key.replace(/_/g, " ");
+
+const ICP_CATEGORIES = ["ICP", "Market", "Product", "Pricing", "Competitors"];
 
 const fmtGap = (g: number | null | undefined) =>
   g == null ? "—" : `${g > 0 ? "+" : ""}${g.toFixed(2)}`;
+const fmtAgo = (iso: string | null) => iso ? formatDistanceToNow(new Date(iso), { addSuffix: false }) : "—";
 
-// ─── Building blocks — the platform's card vocabulary ─────────────────────────
+// ─── Building blocks ─────────────────────────────────────────────────────────
 
-function StatTile({ label, value, sub }: { label: string; value: string; sub: string }) {
+function StatTile({ label, value, sub, tone = "neutral" }: {
+  label: string; value: string; sub?: React.ReactNode; tone?: "neutral" | "good" | "warn";
+}) {
+  const valueColor = tone === "good" ? "#15803d" : tone === "warn" ? "#b45309" : undefined;
   return (
-    <div className="rounded-xl border border-gray-200 bg-white px-4 py-3.5">
-      <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">{label}</div>
-      <div className="text-[22px] font-semibold text-gray-900 tabular-nums tracking-tight leading-none mt-2">{value}</div>
-      <div className="text-[12px] text-gray-400 mt-1.5">{sub}</div>
+    <div className="rounded-xl border border-border bg-background px-4 py-3.5">
+      <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">{label}</div>
+      <div className="text-[22px] font-semibold tabular-nums tracking-tight leading-none mt-2" style={{ color: valueColor }}>{value}</div>
+      {sub && <div className="text-[12px] text-muted-foreground/70 mt-1.5">{sub}</div>}
     </div>
   );
 }
 
 function Card({ label, right, children }: {
-  label: string;
-  right?: React.ReactNode;
-  children: React.ReactNode;
+  label: string; right?: React.ReactNode; children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-2.5 bg-gray-50 border-b border-gray-200">
-        <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">{label}</span>
+    <div className="rounded-xl border border-border bg-background overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-2.5 bg-muted/50 border-b border-border">
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">{label}</span>
         {right}
       </div>
       {children}
@@ -71,59 +115,104 @@ function Card({ label, right, children }: {
   );
 }
 
+// Sparkline for the calibration trend.
+function Sparkline({ values, width = 96, height = 24 }: { values: (number | null)[]; width?: number; height?: number }) {
+  const points = values.filter((v): v is number => v != null);
+  if (points.length < 2) return <span className="text-muted-foreground/50 text-[11px]">no trend yet</span>;
+  const min = Math.min(...points);
+  const max = Math.max(...points);
+  const range = max - min || 1;
+  const path = values
+    .map((v, i) => {
+      if (v == null) return null;
+      const x = (i / (values.length - 1)) * width;
+      const y = height - ((v - min) / range) * height;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .filter(Boolean)
+    .join(" ");
+  const last = points[points.length - 1];
+  const colour = last > 0 ? "#15803d" : last < 0 ? "#b91c1c" : "#6b7280";
+  return (
+    <svg width={width} height={height} className="inline-block" style={{ verticalAlign: "middle" }}>
+      <polyline points={path} fill="none" stroke={colour} strokeWidth="1.5" />
+    </svg>
+  );
+}
+
+// ─── The page ────────────────────────────────────────────────────────────────
+
 export default function Intelligence() {
   const { session, userData } = useAuth();
   const token = session?.access_token ?? "";
   const workspaceId = userData?.workspace?.id ?? "";
 
-  const [calibration, setCalibration] = useState<Calibration | null>(null);
+  const [substrate, setSubstrate] = useState<Substrate | null>(null);
   const [signals, setSignals] = useState<Signal[]>([]);
-  const [runs, setRuns] = useState<Run[]>([]);
-  const [memories, setMemories] = useState<MemoryFact[]>([]);
   const [loading, setLoading] = useState(true);
-
-  const [adding, setAdding] = useState(false);
-  const [newCat, setNewCat] = useState("ICP");
-  const [newContent, setNewContent] = useState("");
-  const [savingMem, setSavingMem] = useState(false);
   const [seeding, setSeeding] = useState(false);
+
+  // ICP facts — workspace-level notes (asserted claims). Loaded only when the
+  // Scorecard is empty so the user has an inline path to bootstrap one.
+  const [icpFacts, setIcpFacts] = useState<IcpFact[]>([]);
+  const [newCategory, setNewCategory] = useState("ICP");
+  const [newContent, setNewContent] = useState("");
+  const [savingFact, setSavingFact] = useState(false);
+
+  // Worker runs — the transparency feed for the compound-intelligence loop.
+  // Powers the top-right pill + the run-history drawer.
+  const [workerRuns, setWorkerRuns] = useState<WorkerRun[]>([]);
+  const [runsOpen, setRunsOpen] = useState(false);
 
   const load = useCallback(() => {
     if (!workspaceId || !token) return;
     const h = { Authorization: `Bearer ${token}` };
     setLoading(true);
     Promise.all([
-      fetch(`${apiUrl}/api/mind/calibration?workspaceId=${workspaceId}`, { headers: h }).then(r => (r.ok ? r.json() : null)),
+      fetch(`${apiUrl}/api/mind/substrate?workspaceId=${workspaceId}`, { headers: h }).then(r => (r.ok ? r.json() : null)),
       fetch(`${apiUrl}/api/mind/scorecard?workspaceId=${workspaceId}`, { headers: h }).then(r => (r.ok ? r.json() : null)),
-      fetch(`${apiUrl}/api/mind/scorecard/runs?workspaceId=${workspaceId}`, { headers: h }).then(r => (r.ok ? r.json() : null)),
-      fetch(`${apiUrl}/api/workspace/memories?workspaceId=${workspaceId}&limit=200`, { headers: h }).then(r => (r.ok ? r.json() : null)),
+      fetch(`${apiUrl}/api/workspace/memories?workspaceId=${workspaceId}&limit=80`, { headers: h }).then(r => (r.ok ? r.json() : null)),
+      fetch(`${apiUrl}/api/mind/worker-runs?workspaceId=${workspaceId}&limit=50`, { headers: h }).then(r => (r.ok ? r.json() : null)),
     ])
-      .then(([cal, sc, rn, mem]) => {
-        if (cal) setCalibration(cal);
+      .then(([sub, sc, mem, runs]) => {
+        if (sub) setSubstrate(sub);
         if (sc) setSignals(sc.signals ?? []);
-        if (rn) setRuns(rn.runs ?? []);
-        if (mem) setMemories(mem.memories ?? []);
-        setLoading(false);
+        if (mem) {
+          const facts: IcpFact[] = (mem.memories ?? [])
+            .filter((m: any) => ICP_CATEGORIES.includes(m.category))
+            .map((m: any) => ({ id: m.id, category: m.category, content: m.content, created_at: m.created_at }));
+          setIcpFacts(facts);
+        }
+        if (runs) setWorkerRuns(runs.runs ?? []);
       })
-      .catch(() => setLoading(false));
+      .finally(() => setLoading(false));
   }, [workspaceId, token]);
 
   useEffect(() => { load(); }, [load]);
 
-  const addMemory = async () => {
-    if (!newContent.trim() || savingMem) return;
-    setSavingMem(true);
+  const addIcpFact = async () => {
+    if (!newContent.trim() || savingFact) return;
+    setSavingFact(true);
     try {
       await fetch(`${apiUrl}/api/workspace/memories`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ workspaceId, content: newContent.trim(), category: newCat }),
+        body: JSON.stringify({ workspaceId, category: newCategory, content: newContent.trim() }),
       });
       setNewContent("");
-      setAdding(false);
       load();
-    } catch { /* silent */ }
-    finally { setSavingMem(false); }
+    } finally { setSavingFact(false); }
+  };
+
+  const removeIcpFact = async (id: string) => {
+    try {
+      await fetch(`${apiUrl}/api/workspace/memories/${id}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ workspaceId }),
+      });
+      load();
+    } catch { /* ignore */ }
   };
 
   const buildScorecard = async () => {
@@ -136,97 +225,366 @@ export default function Intelligence() {
         body: JSON.stringify({ workspaceId }),
       });
       load();
-    } catch { /* silent */ }
-    finally { setSeeding(false); }
+    } finally { setSeeding(false); }
   };
 
-  const active = signals.filter(s => s.active);
+  const active   = signals.filter(s => s.active);
   const positive = active.filter(s => s.weight > 0).sort((a, b) => b.weight - a.weight);
   const negative = active.filter(s => s.weight < 0).sort((a, b) => a.weight - b.weight);
 
-  const gap = calibration?.gap ?? null;
+  const gap = substrate?.calibration.gap ?? null;
   const status =
-    gap == null ? "Gathering evidence"
-    : gap > 0.05 ? "Sharpening"
-    : gap < 0 ? "Miscalibrated"
+    !substrate || substrate.calibration.resolved === 0 ? "Gathering evidence"
+    : gap == null ? "Gathering evidence"
+    : gap > 0.05  ? "Sharpening"
+    : gap < 0     ? "Miscalibrated"
     : "Holding steady";
 
+  const trendValues = substrate?.calibration.trend.map(t => t.gap) ?? [];
+
+  // ── Worker-runs pill state ──────────────────────────────────────────────────
+  // Green dot when there's a successful run in the last 24h, orange if all
+  // runs are older than 24h, red if the most recent run errored. The user
+  // should be able to see, at a glance, that the loop is alive.
+  const lastRun = workerRuns[0] ?? null;
+  const sevenDayCutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const runsLast7d = workerRuns.filter(r => new Date(r.finished_at).getTime() >= sevenDayCutoff).length;
+  const lastRunAgeMs = lastRun ? Date.now() - new Date(lastRun.finished_at).getTime() : null;
+  const pillTone: "good" | "warn" | "bad" | "neutral" =
+    !lastRun ? "neutral"
+    : lastRun.status === "error" ? "bad"
+    : (lastRunAgeMs ?? Infinity) > 24 * 60 * 60 * 1000 ? "warn"
+    : "good";
+  const pillDotColor =
+    pillTone === "good" ? "#15803d"
+    : pillTone === "warn" ? "#b45309"
+    : pillTone === "bad" ? "#b91c1c"
+    : "#9ca3af";
+
   return (
-    <div className="h-full overflow-y-auto bg-white">
+    <div className="h-full overflow-y-auto bg-background">
       <div className="px-8 py-7">
         <PageHeader
           title="Intelligence"
-          subtitle="The compound intelligence of your workspace — how well it predicts, what it believes, and how it keeps getting sharper."
+          subtitle="Is the model getting better over time, and what should you act on next?"
           actions={
-            <button
-              onClick={load}
-              className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-white border border-gray-200 text-gray-700 text-[13px] font-semibold hover:bg-gray-50 transition-colors"
-            >
-              <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setRunsOpen(true)}
+                title={lastRun
+                  ? `Last run: ${labelForWorker(lastRun.worker)} · ${formatDistanceToNow(new Date(lastRun.finished_at), { addSuffix: true })}`
+                  : "No worker runs yet"}
+                className="inline-flex items-center gap-2 h-9 px-3 rounded-lg bg-background border border-border text-foreground/80 text-[13px] font-semibold hover:bg-muted/50 transition-colors"
+              >
+                <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ backgroundColor: pillDotColor }} />
+                <Activity className="h-3.5 w-3.5" />
+                {lastRun
+                  ? <span className="tabular-nums">{formatDistanceToNow(new Date(lastRun.finished_at))}</span>
+                  : <span>No runs yet</span>}
+                <span className="text-muted-foreground/60 text-[12px] tabular-nums">·</span>
+                <span className="text-muted-foreground/70 text-[12px] tabular-nums">{runsLast7d}/7d</span>
+              </button>
+              <button
+                onClick={load}
+                className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-background border border-border text-foreground/80 text-[13px] font-semibold hover:bg-muted/50 transition-colors"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
+              </button>
+            </div>
           }
         />
 
-        {/* Stat tiles */}
+        {/* Stat tiles — the headline numbers */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-          <StatTile label="Calibration" value={fmtGap(gap)} sub={status} />
+          <StatTile
+            label="Calibration"
+            value={fmtGap(gap)}
+            tone={gap == null ? "neutral" : gap > 0.05 ? "good" : gap < 0 ? "warn" : "neutral"}
+            sub={
+              <span className="inline-flex items-center gap-2">
+                {status}
+                <Sparkline values={trendValues} width={56} height={16} />
+              </span>
+            }
+          />
           <StatTile
             label="Predictions"
-            value={(calibration?.resolved ?? 0).toLocaleString()}
-            sub={`${calibration?.open ?? 0} still maturing`}
+            value={(substrate?.predictions.total ?? 0).toLocaleString()}
+            sub={`${substrate?.predictions.open ?? 0} open · ${substrate?.predictions.resolved ?? 0} resolved`}
           />
           <StatTile
-            label="Scorecard"
-            value={String(active.length)}
-            sub={active.length ? `${positive.length} fit · ${negative.length} miss` : "no signals yet"}
+            label="Evidence"
+            value={(substrate?.observations.total ?? 0).toLocaleString()}
+            sub={`${(substrate?.observations.last_7d ?? 0).toLocaleString()} in the last 7d`}
           />
-          <StatTile label="Memory" value={memories.length.toLocaleString()} sub="facts" />
+          <StatTile
+            label="Beliefs"
+            value={(substrate?.claims.total ?? 0).toLocaleString()}
+            sub={
+              substrate?.recompute.pending
+                ? <span className="text-[#b45309]">{substrate.recompute.pending} recomputing</span>
+                : `${substrate?.claims.freshness?.fresh ?? 0} fresh · self-healing idle`
+            }
+          />
         </div>
 
         <div className="space-y-4">
 
-          {/* Scorecard */}
+          {/* Top firing signals — which signals actually predict outcomes */}
+          <Card
+            label="Top firing signals"
+            right={
+              <span className="text-[12px] text-muted-foreground/70 tabular-nums">
+                {substrate?.top_signals.length ?? 0} signals firing on resolved predictions
+              </span>
+            }
+          >
+            {!substrate?.top_signals.length ? (
+              <div className="px-4 py-8 text-[13px] text-muted-foreground/70 text-center">
+                No signal hit-rate yet — need resolved predictions first.
+              </div>
+            ) : (
+              <div className="divide-y divide-border/60">
+                {substrate.top_signals.map(s => {
+                  const tone = s.weight > 0 ? "#15803d" : "#b91c1c";
+                  return (
+                    <div key={s.key} className="grid grid-cols-[40px_1fr_auto_auto] items-baseline gap-4 px-4 py-2.5">
+                      <span className="text-[12px] font-semibold tabular-nums" style={{ color: tone }}>
+                        {s.weight > 0 ? "+" : ""}{s.weight}
+                      </span>
+                      <span className="text-[13px] text-foreground/80 leading-snug truncate">{s.label}</span>
+                      <span className="text-[12px] text-muted-foreground tabular-nums whitespace-nowrap">
+                        fires <span className="text-foreground/70 font-medium">{s.fires}×</span>
+                      </span>
+                      <span className="text-[12px] text-muted-foreground tabular-nums whitespace-nowrap text-right" style={{ width: 60 }}>
+                        hit <span className="text-foreground/70 font-medium">{s.hit_rate}%</span>
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </Card>
+
+          {/* Recent predictions — the pulse */}
+          <Card
+            label="Recent predictions"
+            right={
+              <span className="text-[12px] text-muted-foreground/70 tabular-nums">
+                {substrate?.recent_predictions.length ?? 0} most recent
+              </span>
+            }
+          >
+            {!substrate?.recent_predictions.length ? (
+              <div className="px-4 py-8 text-[13px] text-muted-foreground/70 text-center">
+                No predictions yet — the Scorecard stakes one per scored entity.
+              </div>
+            ) : (
+              <div className="divide-y divide-border/60">
+                {substrate.recent_predictions.map(p => {
+                  const status =
+                    p.resolved_at && typeof p.outcome_score === "number"
+                      ? p.outcome_score >= 0.5 ? "hit" : "miss"
+                      : "open";
+                  const statusColor = status === "hit" ? "#15803d" : status === "miss" ? "#b91c1c" : "#6b7280";
+                  return (
+                    <div key={p.id} className="grid grid-cols-[1fr_60px_1fr_70px_60px] items-baseline gap-3 px-4 py-2.5">
+                      <span className="text-[13px] text-foreground/80 truncate">
+                        {p.name || p.email || p.entity_id.slice(0, 8)}
+                      </span>
+                      <span className="text-[13px] font-semibold tabular-nums">
+                        {p.score ?? "—"}
+                      </span>
+                      <span className="text-[12px] text-muted-foreground truncate">
+                        {p.fired.length ? p.fired.join(" · ") : "—"}
+                      </span>
+                      <span className="text-[12px] tabular-nums text-right" style={{ color: statusColor }}>
+                        {status}
+                      </span>
+                      <span className="text-[11px] text-muted-foreground/70 tabular-nums text-right">
+                        {fmtAgo(p.predicted_at)}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </Card>
+
+          {/* Two-up: Attention + Misses */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <Card
+              label="Attention"
+              right={
+                substrate?.attention.length ? (
+                  <span className="text-[12px] text-muted-foreground/70 tabular-nums">{substrate.attention.length}</span>
+                ) : null
+              }
+            >
+              {!substrate?.attention.length ? (
+                <div className="px-4 py-8 text-[13px] text-muted-foreground/70 text-center">
+                  Nothing needs attention. ✓
+                </div>
+              ) : (
+                <div className="divide-y divide-border/60">
+                  {substrate.attention.map((a, i) => (
+                    <div key={i} className="px-4 py-2.5">
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/60">{a.kind.replace(/_/g, ' ')}</span>
+                        <span className="text-[13px] text-foreground/80 truncate">{a.entity_name || a.entity_id.slice(0, 8)}</span>
+                        <span className="text-[12px] text-muted-foreground ml-auto tabular-nums">{a.age_days}d</span>
+                      </div>
+                      <div className="text-[12px] text-muted-foreground mt-0.5">{a.what}</div>
+                      <div className="text-[12px] text-foreground/70 mt-0.5">→ {a.suggested_action}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+
+            <Card
+              label="Misses — what tonight's loop trains on"
+              right={
+                substrate?.misses.length ? (
+                  <span className="text-[12px] text-muted-foreground/70 tabular-nums">{substrate.misses.length}</span>
+                ) : null
+              }
+            >
+              {!substrate?.misses.length ? (
+                <div className="px-4 py-8 text-[13px] text-muted-foreground/70 text-center">
+                  No surprises in resolved predictions yet.
+                </div>
+              ) : (
+                <div className="divide-y divide-border/60">
+                  {substrate.misses.map(p => {
+                    const scoreHigh = (p.score ?? 0) >= 70;
+                    const surprise = scoreHigh ? "high score, no conversion" : "low score, surprised conversion";
+                    const tone = scoreHigh ? "#b91c1c" : "#15803d";
+                    return (
+                      <div key={p.id} className="px-4 py-2.5">
+                        <div className="flex items-baseline gap-2">
+                          <span className="text-[13px] text-foreground/80 truncate">
+                            {p.name || p.email || p.entity_id.slice(0, 8)}
+                          </span>
+                          <span className="text-[12px] tabular-nums" style={{ color: tone }}>
+                            scored {p.score} · outcome {(p.outcome_score ?? 0).toFixed(2)}
+                          </span>
+                        </div>
+                        <div className="text-[12px] text-muted-foreground mt-0.5">{surprise}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </Card>
+          </div>
+
+          {/* The Scorecard — the model itself */}
           <Card
             label="The Scorecard"
             right={
-              active.length > 0 && (
-                <span className="text-[12px] text-gray-400 tabular-nums">{active.length} signals</span>
-              )
+              active.length > 0 ? (
+                <span className="text-[12px] text-muted-foreground/70 tabular-nums">{active.length} signals</span>
+              ) : null
             }
           >
             {active.length === 0 ? (
-              <div className="px-4 py-8 text-center">
-                <p className="text-[13px] text-gray-500">
-                  No Scorecard yet — the weighted signals the Mind scores accounts on.
+              <div className="px-4 py-4 space-y-4">
+                <p className="text-[13px] text-muted-foreground">
+                  No Scorecard yet — describe your ICP in a few sentences below and we'll
+                  translate it into a weighted signal list the model scores accounts against.
                 </p>
-                <button
-                  onClick={buildScorecard}
-                  disabled={seeding}
-                  className="mt-3 inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-gray-900 text-white text-[13px] font-semibold hover:bg-gray-800 transition-colors disabled:opacity-40"
-                >
-                  {seeding ? "Building…" : "Build from your ICP memory"}
-                </button>
+
+                {/* Inline ICP facts list — only shown while bootstrapping */}
+                {icpFacts.length > 0 && (
+                  <div className="divide-y divide-border/60 rounded-lg border border-border/60">
+                    {icpFacts.map(f => (
+                      <div key={f.id} className="flex items-start gap-3 px-3 py-2">
+                        <span
+                          className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70 mt-0.5"
+                          style={{ width: 80 }}
+                        >
+                          {f.category}
+                        </span>
+                        <span className="text-[13px] text-foreground/80 leading-snug flex-1">{f.content}</span>
+                        <button
+                          onClick={() => removeIcpFact(f.id)}
+                          className="text-[11px] text-muted-foreground/60 hover:text-foreground transition-colors"
+                          aria-label="Remove fact"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Add-fact row */}
+                <div className="flex flex-col gap-2">
+                  <div className="flex gap-2 items-stretch">
+                    <select
+                      value={newCategory}
+                      onChange={e => setNewCategory(e.target.value)}
+                      className="rounded-md border border-border bg-background text-[13px] text-foreground px-2 py-1.5 outline-none focus:border-foreground/40"
+                    >
+                      {ICP_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                    <input
+                      type="text"
+                      value={newContent}
+                      onChange={e => setNewContent(e.target.value)}
+                      onKeyDown={e => { if (e.key === "Enter") addIcpFact(); }}
+                      placeholder="e.g. B2B SaaS, 50–200 employees, RevOps and Sales Ops leaders, US."
+                      className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-[13px] text-foreground placeholder:text-muted-foreground/70 outline-none focus:border-foreground/40"
+                    />
+                    <button
+                      onClick={addIcpFact}
+                      disabled={savingFact || !newContent.trim()}
+                      className="h-9 px-3.5 rounded-md bg-background border border-border text-foreground/80 text-[13px] font-semibold hover:bg-muted/50 transition-colors disabled:opacity-30"
+                    >
+                      Add fact
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3 pt-2 border-t border-border/60">
+                  <button
+                    onClick={buildScorecard}
+                    disabled={seeding || icpFacts.length === 0}
+                    className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-primary text-primary-foreground text-[13px] font-semibold hover:bg-primary/90 transition-colors disabled:opacity-30"
+                  >
+                    {seeding
+                      ? "Building…"
+                      : icpFacts.length === 0
+                        ? "Add at least one ICP fact"
+                        : `Build Scorecard from ${icpFacts.length} fact${icpFacts.length === 1 ? "" : "s"}`}
+                  </button>
+                  {icpFacts.length > 0 && (
+                    <span className="text-[12px] text-muted-foreground/70">
+                      Claude translates these into 4–8 weighted signals.
+                    </span>
+                  )}
+                </div>
               </div>
             ) : (
-              <div className="grid grid-cols-2 divide-x divide-gray-100">
+              <div className="grid grid-cols-2 divide-x divide-border/60">
                 {[
-                  { rows: positive, head: "Predicts a fit", color: "#15803d" },
-                  { rows: negative, head: "Predicts a miss", color: "#b91c1c" },
+                  { rows: positive, head: "Predicts a fit",   color: "#15803d" },
+                  { rows: negative, head: "Predicts a miss",  color: "#b91c1c" },
                 ].map(({ rows, head, color }) => (
                   <div key={head}>
-                    <div className="px-4 py-2 border-b border-gray-100 text-[11px] font-semibold uppercase tracking-wide"
-                      style={{ color }}>
+                    <div className="px-4 py-2 border-b border-border/60 text-[11px] font-semibold uppercase tracking-wide" style={{ color }}>
                       {head}
                     </div>
                     {rows.length === 0 ? (
-                      <div className="px-4 py-4 text-[13px] text-gray-300">None</div>
+                      <div className="px-4 py-4 text-[13px] text-muted-foreground/50">None</div>
                     ) : (
                       rows.map(s => (
-                        <div key={s.id} className="flex items-baseline gap-3 px-4 py-2.5 border-b border-gray-100 last:border-0">
+                        <div key={s.id} className="flex items-baseline gap-3 px-4 py-2.5 border-b border-border/60 last:border-0">
                           <span className="text-[12px] font-semibold tabular-nums w-8 flex-shrink-0" style={{ color }}>
                             {s.weight > 0 ? "+" : ""}{s.weight}
                           </span>
-                          <span className="text-[13px] text-gray-700 leading-snug">{s.label}</span>
+                          <span className="text-[13px] text-foreground/80 leading-snug">{s.label}</span>
                         </div>
                       ))
                     )}
@@ -236,95 +594,101 @@ export default function Intelligence() {
             )}
           </Card>
 
-          {/* Learning runs */}
-          <Card label="Learning Runs">
-            {runs.length === 0 ? (
-              <div className="px-4 py-8 text-[13px] text-gray-400 text-center">
-                The loop runs nightly once there are enough resolved predictions to learn from.
+          {/* Substrate footer — the data plumbing under the loop */}
+          <Card label="Substrate">
+            <div className="px-4 py-3 text-[12px] text-muted-foreground grid grid-cols-3 gap-4">
+              <div>
+                <div className="text-[11px] uppercase tracking-wide text-muted-foreground/70 mb-1">Evidence</div>
+                {(substrate?.observations.total ?? 0).toLocaleString()} observations from{" "}
+                {substrate?.observations.by_source.slice(0, 3).map(s => s.source).join(", ") || "—"}
               </div>
-            ) : (
-              runs.map(r => (
-                <div key={r.id} className="flex items-center gap-4 px-4 py-3 border-b border-gray-100 last:border-0">
-                  <span className="text-[12px] text-gray-400 tabular-nums flex-shrink-0" style={{ width: 52 }}>
-                    {format(new Date(r.created_at), "MMM d")}
-                  </span>
-                  <span className="text-[13px] text-gray-500 tabular-nums flex-shrink-0" style={{ width: 116 }}>
-                    {fmtGap(r.gap_before)} → {fmtGap(r.gap_after)}
-                  </span>
-                  <span className="text-[13px] text-gray-700 truncate">
-                    {r.note || `${r.steps} step${r.steps === 1 ? "" : "s"}`}
-                  </span>
-                </div>
-              ))
-            )}
-          </Card>
-
-          {/* Memory */}
-          <Card
-            label="Memory"
-            right={
-              !adding && (
-                <button
-                  onClick={() => setAdding(true)}
-                  className="text-[12px] font-semibold text-gray-500 hover:text-gray-900 transition-colors"
-                >
-                  + Add fact
-                </button>
-              )
-            }
-          >
-            {adding && (
-              <div className="px-4 py-3.5 border-b border-gray-100 bg-gray-50/50 space-y-2.5">
-                <select
-                  value={newCat}
-                  onChange={e => setNewCat(e.target.value)}
-                  className="rounded-md border border-gray-200 bg-white text-[13px] text-gray-800 px-2 py-1.5 outline-none focus:border-gray-400"
-                >
-                  {MEMORY_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-                <textarea
-                  value={newContent}
-                  onChange={e => setNewContent(e.target.value)}
-                  rows={3}
-                  autoFocus
-                  placeholder="e.g. B2B SaaS companies, 50–200 employees, RevOps and Sales Ops leaders, US."
-                  className="w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-[13px] text-gray-900 placeholder:text-gray-400 outline-none focus:border-gray-400 resize-none leading-relaxed"
-                />
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={addMemory}
-                    disabled={savingMem || !newContent.trim()}
-                    className="h-8 px-3.5 rounded-md bg-gray-900 text-white text-[13px] font-semibold hover:bg-gray-800 transition-colors disabled:opacity-30"
-                  >
-                    {savingMem ? "Saving…" : "Save"}
-                  </button>
-                  <button
-                    onClick={() => { setAdding(false); setNewContent(""); }}
-                    className="h-8 px-3 text-[13px] text-gray-500 hover:text-gray-800 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                </div>
+              <div>
+                <div className="text-[11px] uppercase tracking-wide text-muted-foreground/70 mb-1">Beliefs</div>
+                {(substrate?.claims.total ?? 0).toLocaleString()} claims ·{" "}
+                {substrate?.claims.freshness?.fresh ?? 0} fresh ·{" "}
+                {(substrate?.claims.freshness?.aging ?? 0) + (substrate?.claims.freshness?.suspect ?? 0)} aging ·{" "}
+                {substrate?.claims.freshness?.expired ?? 0} expired
               </div>
-            )}
-            {memories.length === 0 && !adding ? (
-              <div className="px-4 py-8 text-[13px] text-gray-400 text-center">
-                No facts yet — add what you know about your ICP, product, and market.
+              <div>
+                <div className="text-[11px] uppercase tracking-wide text-muted-foreground/70 mb-1">Self-healing</div>
+                {substrate?.recompute.pending
+                  ? <span className="text-[#b45309]">recomputing {substrate.recompute.pending}</span>
+                  : "queue idle — beliefs are current"}
+                <span className="text-muted-foreground/60"> · trigger fires on every new observation</span>
               </div>
-            ) : (
-              memories.slice(0, 24).map(m => (
-                <div key={m.id} className="flex items-baseline gap-3 px-4 py-2.5 border-b border-gray-100 last:border-0">
-                  <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 flex-shrink-0" style={{ width: 84 }}>
-                    {m.category}
+            </div>
+            {substrate?.calibration.trend.length ? (
+              <div className="px-4 pb-3 text-[12px] text-muted-foreground/70 border-t border-border/60 pt-2 flex items-center gap-2">
+                <span>Calibration trend:</span>
+                {substrate.calibration.trend.map((t, i) => (
+                  <span key={t.week} className="tabular-nums">
+                    {i > 0 && <span className="text-muted-foreground/40 mx-1">·</span>}
+                    {format(new Date(t.week), "MMM d")}: {fmtGap(t.gap)}
                   </span>
-                  <span className="text-[13px] text-gray-700 leading-snug">{m.content}</span>
-                </div>
-              ))
-            )}
+                ))}
+              </div>
+            ) : null}
           </Card>
 
         </div>
       </div>
+
+      {/* Worker runs drawer — full transparency on the compound loop. */}
+      <Sheet open={runsOpen} onOpenChange={setRunsOpen}>
+        <SheetContent side="right" className="w-full sm:max-w-[560px] p-0 flex flex-col">
+          <SheetHeader className="px-6 py-5 border-b border-border">
+            <SheetTitle className="text-[15px]">Loop activity</SheetTitle>
+            <SheetDescription className="text-[12px]">
+              Every nightly and periodic worker that powers the compound-intelligence loop.
+              Showing the {workerRuns.length} most recent runs.
+            </SheetDescription>
+          </SheetHeader>
+          <div className="flex-1 overflow-y-auto">
+            {workerRuns.length === 0 ? (
+              <div className="px-6 py-12 text-[13px] text-muted-foreground/70 text-center">
+                No runs recorded yet. Workers write a row here after each invocation.
+              </div>
+            ) : (
+              <div className="divide-y divide-border/60">
+                {workerRuns.map(r => {
+                  const tone = r.status === 'success' ? '#15803d'
+                    : r.status === 'error' ? '#b91c1c'
+                    : '#6b7280';
+                  const Icon = r.status === 'success' ? CheckCircle2
+                    : r.status === 'error' ? XCircle
+                    : r.status === 'no_op' ? MinusCircle
+                    : AlertTriangle;
+                  return (
+                    <div key={r.id} className="px-6 py-3">
+                      <div className="flex items-baseline gap-2">
+                        <Icon className="h-3.5 w-3.5 flex-shrink-0 self-center" style={{ color: tone }} />
+                        <span className="text-[13px] font-semibold text-foreground/90">{labelForWorker(r.worker)}</span>
+                        {r.workspace_id === null && (
+                          <span className="text-[10px] uppercase tracking-wide text-muted-foreground/60 font-semibold">system</span>
+                        )}
+                        <span className="ml-auto text-[11px] text-muted-foreground/70 tabular-nums" title={format(new Date(r.finished_at), "yyyy-MM-dd HH:mm:ss")}>
+                          {formatDistanceToNow(new Date(r.finished_at), { addSuffix: true })}
+                        </span>
+                      </div>
+                      {r.summary && (
+                        <div className="text-[12px] text-muted-foreground mt-1 pl-5">{r.summary}</div>
+                      )}
+                      {r.error && (
+                        <div className="text-[12px] mt-1 pl-5" style={{ color: '#b91c1c' }}>{r.error}</div>
+                      )}
+                      {r.duration_ms != null && (
+                        <div className="text-[11px] text-muted-foreground/50 mt-1 pl-5 tabular-nums">
+                          took {r.duration_ms < 1000 ? `${r.duration_ms}ms` : `${(r.duration_ms / 1000).toFixed(1)}s`}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

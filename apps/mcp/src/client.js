@@ -3,8 +3,19 @@
  * Thin HTTP wrapper that handles auth, workspace context, and error handling.
  */
 
-const API_URL = process.env.NOUS_API_URL || "https://api.opennous.cloud";
-const API_KEY = process.env.NOUS_API_KEY;
+// Resolve an env var defensively — Claude Code plugins use ${user_config.X}
+// substitution; when an optional userConfig field is left blank, the literal
+// "${user_config.field}" string can leak through. Treat any value that looks
+// like an unresolved substitution as missing.
+function resolvedEnv(name) {
+  const v = process.env[name];
+  if (!v) return undefined;
+  if (v.includes("${")) return undefined;   // unresolved substitution marker
+  return v;
+}
+
+const API_URL = resolvedEnv("NOUS_API_URL") || "https://api.opennous.cloud";
+const API_KEY = resolvedEnv("NOUS_API_KEY");
 
 export function validateConfig() {
   if (!API_KEY) {

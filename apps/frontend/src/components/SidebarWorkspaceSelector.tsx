@@ -461,37 +461,37 @@ export function SidebarWorkspaceSelector({ collapsed = false }: SidebarWorkspace
         {collapsed ? (
           <button
             onClick={() => setDropdownOpen(o => !o)}
-            className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-white/70 transition-all duration-150"
+            className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-gray-100/70 dark:hover:bg-white/[0.05] transition-all duration-150"
             disabled={loading}
           >
             {WorkspaceIcon ? (
-              <WorkspaceIcon className="h-4 w-4 text-gray-600" />
+              <WorkspaceIcon className="h-4 w-4 text-gray-600 dark:text-foreground/80" />
             ) : (
-              <Folder className="h-4 w-4 text-gray-600" />
+              <Folder className="h-4 w-4 text-gray-600 dark:text-foreground/80" />
             )}
           </button>
         ) : (
           <button
             onClick={() => setDropdownOpen(o => !o)}
-            className="flex items-center gap-1.5 w-full px-2 py-1.5 rounded-lg hover:bg-white/70 transition-all duration-150 min-w-0"
+            className="flex items-center gap-1.5 w-full px-2 py-1.5 rounded-lg hover:bg-gray-100/70 dark:hover:bg-white/[0.05] transition-all duration-150 min-w-0"
             disabled={loading}
           >
-            <span className="flex-1 text-[13px] font-semibold text-gray-800 truncate text-left leading-tight">
+            <span className="flex-1 text-[13px] font-semibold text-gray-800 dark:text-foreground truncate text-left leading-tight">
               {currentWorkspace?.name || 'Workspace'}
             </span>
-            <ChevronsUpDown className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
+            <ChevronsUpDown className="h-3.5 w-3.5 text-gray-400 dark:text-muted-foreground flex-shrink-0" />
           </button>
         )}
 
         {/* Inline popover — no external popup */}
         {dropdownOpen && (
-          <div className="absolute left-0 top-full mt-1 w-full z-50 bg-white rounded-xl border border-gray-200 shadow-lg py-1 overflow-hidden">
+          <div className="absolute left-0 top-full mt-1 w-full z-50 bg-popover text-popover-foreground rounded-xl border border-border shadow-lg dark:shadow-2xl dark:shadow-black/40 py-1 overflow-hidden">
             {workspaces.map((workspace) => {
               const isCurrent = currentWorkspace?.id === workspace.id;
               return (
                 <div
                   key={workspace.id}
-                  className="group flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-gray-50 transition-colors"
+                  className="group flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-white/[0.05] transition-colors"
                   onMouseEnter={() => setHoveredWorkspaceId(workspace.id)}
                   onMouseLeave={() => setHoveredWorkspaceId(null)}
                   onClick={() => {
@@ -499,14 +499,14 @@ export function SidebarWorkspaceSelector({ collapsed = false }: SidebarWorkspace
                     switchWorkspace(workspace.id);
                   }}
                 >
-                  <span className={`flex-1 text-[13px] truncate ${isCurrent ? 'font-semibold text-gray-900' : 'text-gray-600'}`}>
+                  <span className={`flex-1 text-[13px] truncate ${isCurrent ? 'font-semibold text-gray-900 dark:text-foreground' : 'text-gray-600 dark:text-muted-foreground'}`}>
                     {workspace.name}
                   </span>
                   {hoveredWorkspaceId === workspace.id && (
                     <div className="flex items-center gap-0.5 flex-shrink-0">
                       <button
                         onClick={(e) => handleRenameClick(e, workspace)}
-                        className="p-0.5 rounded text-gray-400 hover:text-gray-700 transition-colors"
+                        className="p-0.5 rounded text-gray-400 dark:text-muted-foreground hover:text-gray-700 dark:hover:text-foreground transition-colors"
                         title="Rename"
                       >
                         <Pencil className="h-3 w-3" />
@@ -514,7 +514,7 @@ export function SidebarWorkspaceSelector({ collapsed = false }: SidebarWorkspace
                       {!isCurrent && (
                         <button
                           onClick={(e) => handleDeleteClick(e, workspace.id)}
-                          className="p-0.5 rounded text-gray-400 hover:text-red-500 transition-colors"
+                          className="p-0.5 rounded text-gray-400 dark:text-muted-foreground hover:text-red-500 transition-colors"
                           title="Delete"
                         >
                           <Trash2 className="h-3 w-3" />
@@ -523,15 +523,15 @@ export function SidebarWorkspaceSelector({ collapsed = false }: SidebarWorkspace
                     </div>
                   )}
                   {!hoveredWorkspaceId || hoveredWorkspaceId !== workspace.id ? (
-                    isCurrent ? <Check className="h-3.5 w-3.5 text-teal-600 flex-shrink-0" /> : null
+                    isCurrent ? <Check className="h-3.5 w-3.5 text-teal-600 dark:text-teal-400 flex-shrink-0" /> : null
                   ) : null}
                 </div>
               );
             })}
-            <div className="mx-2 my-1 border-t border-gray-100" />
+            <div className="mx-2 my-1 border-t border-gray-100 dark:border-border" />
             <button
               onClick={(e) => { e.stopPropagation(); setDropdownOpen(false); setCreateDialogOpen(true); }}
-              className="flex items-center gap-2 w-full px-3 py-2 text-[13px] text-gray-500 hover:text-gray-900 hover:bg-gray-50 transition-colors"
+              className="flex items-center gap-2 w-full px-3 py-2 text-[13px] text-gray-500 dark:text-muted-foreground hover:text-gray-900 dark:hover:text-foreground hover:bg-gray-50 dark:hover:bg-white/[0.05] transition-colors"
             >
               <Plus className="h-3.5 w-3.5" />
               New workspace

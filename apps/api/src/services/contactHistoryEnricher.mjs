@@ -1,11 +1,12 @@
 // Retroactive contact history enricher.
 // After CSV import, fans out to every connected integration (Gmail, IMAP/SMTP,
 // LinkedIn/Unipile, Instantly, Slack) to find prior interactions and logs them
-// as contact_activity_log entries so pipeline stages are correct from day 1.
+// as event observations so pipeline stages are correct from day 1.
 
 import { google } from 'googleapis';
 import { decrypt } from '../utils/crypto.mjs';
 import { refreshGoogleTokenIfNeeded } from '../utils/googleOAuth.js';
+import { logActivity as coreLogActivity, hasActivityWithExternalId } from '@nous/core';
 
 // ── Unipile helpers ───────────────────────────────────────────────────────────
 
@@ -56,27 +57,14 @@ export const enrichmentJobs = new Map();
 // ── logActivity — dedup by external_id ───────────────────────────────────────
 
 async function logActivity(supabase, { workspaceId, contactId, companyId, type, source, externalId, occurredAt, description, summary }) {
-  if (externalId) {
-    const { data: existing } = await supabase
-      .from('contact_activity_log')
-      .select('id')
-      .eq('workspace_id', workspaceId)
-      .eq('external_id', externalId)
-      .maybeSingle();
-    if (existing) return false;
+  if (externalId && await hasActivityWithExternalId(supabase, workspaceId, source, externalId)) {
+    return false;
   }
-  const { error } = await supabase.from('contact_activity_log').insert({
-    workspace_id:  workspaceId,
-    contact_id:    contactId,
-    company_id:    companyId || null,
-    activity_type: type,
-    source,
-    external_id:   externalId || null,
-    occurred_at:   occurredAt,
-    description,
-    summary:       summary || null,
+  const result = await coreLogActivity(supabase, {
+    workspaceId, contactId, companyId, type, source, externalId,
+    occurredAt, description, summary,
   });
-  return !error;
+  return result != null;
 }
 
 // ── Connection loader ─────────────────────────────────────────────────────────

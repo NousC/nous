@@ -68,7 +68,7 @@ export default function ApiKeys() {
   };
 
   return (
-    <div className="h-full overflow-y-auto bg-white">
+    <div className="h-full overflow-y-auto bg-background">
       <div className="px-8 py-7">
         <PageHeader
           title="API Keys"
@@ -80,13 +80,13 @@ export default function ApiKeys() {
           <Button
             onClick={() => setShowForm(true)}
             disabled={showForm || !!revealed}
-            className="bg-gray-900 text-white hover:bg-gray-800 h-8 text-[13px] px-3 rounded-lg"
+            className="bg-primary text-primary-foreground hover:bg-primary/90 h-8 text-[13px] px-3 rounded-lg"
           >
             <Plus className="h-3.5 w-3.5 mr-1.5" /> Create new key
           </Button>
           <a
             href="/install"
-            className="flex items-center gap-1.5 text-[13px] text-gray-500 hover:text-gray-800 transition-colors"
+            className="flex items-center gap-1.5 text-[13px] text-muted-foreground hover:text-foreground transition-colors"
           >
             <ExternalLink className="h-3.5 w-3.5" /> Installation guide
           </a>
@@ -101,12 +101,12 @@ export default function ApiKeys() {
             <p className="text-[12px] text-emerald-600">This is the only time the full key is shown.</p>
             <div className="flex gap-2">
               <input value={revealed} readOnly
-                className="flex-1 font-mono text-[12px] bg-white border border-emerald-200 rounded-lg px-3 py-2 text-gray-800 outline-none" />
+                className="flex-1 font-mono text-[12px] bg-background border border-emerald-200 rounded-lg px-3 py-2 text-foreground outline-none" />
               <button onClick={() => copy(revealed, "revealed")}
-                className="px-3 py-2 rounded-lg bg-white border border-emerald-200 hover:bg-emerald-50">
+                className="px-3 py-2 rounded-lg bg-background border border-emerald-200 hover:bg-emerald-50">
                 {copiedId === "revealed"
                   ? <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                  : <Copy className="h-4 w-4 text-gray-400" />}
+                  : <Copy className="h-4 w-4 text-muted-foreground/70" />}
               </button>
             </div>
             <button onClick={() => setRevealed(null)} className="text-[12px] text-emerald-600 hover:underline">Done</button>
@@ -115,15 +115,15 @@ export default function ApiKeys() {
 
         {/* Create form */}
         {showForm && !revealed && (
-          <div className="mb-5 rounded-xl border border-gray-200 bg-gray-50/50 p-4 space-y-2.5">
-            <p className="text-[13px] font-medium text-gray-800">Name your key</p>
+          <div className="mb-5 rounded-xl border border-border bg-muted/50 p-4 space-y-2.5">
+            <p className="text-[13px] font-medium text-foreground">Name your key</p>
             <div className="flex gap-2">
               <Input autoFocus value={newName} onChange={e => setNewName(e.target.value)}
                 onKeyDown={e => e.key === "Enter" && create()}
                 placeholder="e.g. Production, n8n, CRM sync"
-                className="flex-1 bg-white h-9 text-[13px]" />
+                className="flex-1 bg-background h-9 text-[13px]" />
               <Button onClick={create} disabled={!newName.trim()}
-                className="bg-gray-900 text-white hover:bg-gray-800 h-9 text-[13px]">Create</Button>
+                className="bg-primary text-primary-foreground hover:bg-primary/90 h-9 text-[13px]">Create</Button>
               <Button variant="ghost" onClick={() => { setShowForm(false); setNewName(""); }}
                 className="h-9 text-[13px]">Cancel</Button>
             </div>
@@ -132,52 +132,52 @@ export default function ApiKeys() {
 
         {/* Table */}
         {loading ? (
-          <div className="space-y-px rounded-xl overflow-hidden border border-gray-100">
-            {[...Array(3)].map((_, i) => <div key={i} className="h-14 bg-gray-50 animate-pulse" />)}
+          <div className="space-y-px rounded-xl overflow-hidden border border-border/60">
+            {[...Array(3)].map((_, i) => <div key={i} className="h-14 bg-muted/50 animate-pulse" />)}
           </div>
         ) : keys.length === 0 && !showForm ? (
-          <div className="rounded-xl border border-dashed border-gray-200 py-14 text-center">
-            <Key className="h-7 w-7 text-gray-300 mx-auto mb-3" strokeWidth={1.5} />
-            <p className="text-[13px] font-medium text-gray-600 mb-1">No API keys yet</p>
-            <p className="text-[12px] text-gray-400">Create your first key to start making requests.</p>
+          <div className="rounded-xl border border-dashed border-border py-14 text-center">
+            <Key className="h-7 w-7 text-muted-foreground/50 mx-auto mb-3" strokeWidth={1.5} />
+            <p className="text-[13px] font-medium text-foreground/80 mb-1">No API keys yet</p>
+            <p className="text-[12px] text-muted-foreground/70">Create your first key to start making requests.</p>
           </div>
         ) : keys.length > 0 ? (
-          <div className="rounded-xl border border-gray-100 overflow-hidden">
+          <div className="rounded-xl border border-border/60 overflow-hidden">
             {/* Table header */}
-            <div className="grid grid-cols-[2fr_1.5fr_1.5fr_80px] gap-4 px-4 py-2.5 bg-gray-50 border-b border-gray-100">
+            <div className="grid grid-cols-[2fr_1.5fr_1.5fr_80px] gap-4 px-4 py-2.5 bg-muted/50 border-b border-border/60">
               {["Name", "API Key", "Last accessed", "Actions"].map(h => (
-                <p key={h} className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">{h}</p>
+                <p key={h} className="text-[10px] font-semibold text-muted-foreground/70 uppercase tracking-wide">{h}</p>
               ))}
             </div>
             {/* Rows */}
             {keys.map(k => (
               <div key={k.id}
-                className="grid grid-cols-[2fr_1.5fr_1.5fr_80px] gap-4 items-center px-4 py-3.5 bg-white hover:bg-gray-50/60 border-b border-gray-50 last:border-0 transition-colors">
+                className="grid grid-cols-[2fr_1.5fr_1.5fr_80px] gap-4 items-center px-4 py-3.5 bg-background hover:bg-accent border-b border-border/60 last:border-0 transition-colors">
                 <div>
-                  <p className="text-[13px] font-semibold text-gray-900">{k.name}</p>
-                  <p className="text-[11px] text-gray-400 mt-0.5">
+                  <p className="text-[13px] font-semibold text-foreground">{k.name}</p>
+                  <p className="text-[11px] text-muted-foreground/70 mt-0.5">
                     Created {format(new Date(k.created_at), "MMM d, yyyy")}
                   </p>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <span className="font-mono text-[12px] text-gray-500 truncate">{k.key}</span>
+                  <span className="font-mono text-[12px] text-muted-foreground truncate">{k.key}</span>
                   <button onClick={() => copy(k.key, k.id)}
-                    className="flex-shrink-0 p-1 rounded text-gray-300 hover:text-gray-600 transition-colors">
+                    className="flex-shrink-0 p-1 rounded text-muted-foreground/50 hover:text-foreground/80 transition-colors">
                     {copiedId === k.id
                       ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
                       : <Copy className="h-3.5 w-3.5" />}
                   </button>
                 </div>
-                <p className="text-[12px] text-gray-400">
+                <p className="text-[12px] text-muted-foreground/70">
                   {k.last_used ? format(new Date(k.last_used), "MMM d, yyyy") : "—"}
                 </p>
                 <div className="flex items-center gap-1.5">
                   <button title="Revoke & regenerate" onClick={() => revoke(k.id)}
-                    className="p-1.5 rounded text-gray-300 hover:text-gray-600 hover:bg-gray-100 transition-colors">
+                    className="p-1.5 rounded text-muted-foreground/50 hover:text-foreground/80 hover:bg-accent transition-colors">
                     <RotateCcw className="h-3.5 w-3.5" />
                   </button>
                   <button title="Delete" onClick={() => revoke(k.id)}
-                    className="p-1.5 rounded text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors">
+                    className="p-1.5 rounded text-muted-foreground/50 hover:text-red-500 hover:bg-red-50 transition-colors">
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
                 </div>

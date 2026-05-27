@@ -12,16 +12,15 @@ interface Item {
   action: () => void;
 }
 
-// Items with popup: undefined navigate; items with popup: string fire a custom event
-// that Mind.tsx listens for to open the correct popover.
 const NAV_ITEMS = [
-  { id: "mind",         label: "Mind",         sublabel: "Knowledge graph",     path: "/",           popup: undefined },
-  { id: "people",       label: "People",       sublabel: "Contacts & profiles", path: undefined,     popup: "people" },
-  { id: "companies",    label: "Companies",    sublabel: "Company records",      path: undefined,     popup: "companies" },
-  { id: "integrations", label: "Integrations", sublabel: "Connected services",   path: undefined,     popup: "integrations" },
-  { id: "memories",     label: "Memories",     sublabel: "Agent memory store",   path: undefined,     popup: "memories" },
-  { id: "settings",     label: "Settings",     sublabel: "Workspace & billing",  path: undefined,     popup: "settings" },
-  { id: "developer",    label: "Developer",    sublabel: "API keys & docs",      path: "/developer",  popup: undefined },
+  { id: "ops",          label: "Ops",          sublabel: "Live operations log", path: "/ops" },
+  { id: "people",       label: "People",       sublabel: "Contacts & profiles", path: "/people" },
+  { id: "companies",    label: "Companies",    sublabel: "Company records",     path: "/companies" },
+  { id: "integrations", label: "Integrations", sublabel: "Connected services",  path: "/integrations" },
+  { id: "intelligence", label: "Intelligence", sublabel: "Calibration & memory", path: "/intelligence" },
+  { id: "lists",        label: "Lists",        sublabel: "Lead lists",          path: "/lists" },
+  { id: "settings",     label: "Settings",     sublabel: "Workspace & billing", path: "/settings" },
+  { id: "keys",         label: "API Keys",     sublabel: "Workspace API keys",  path: "/keys" },
 ];
 
 export function CommandPalette() {
@@ -60,19 +59,13 @@ export function CommandPalette() {
   const buildResults = useCallback((q: string, contacts: any[]) => {
     const lq = q.toLowerCase();
 
-    const openPopup = (popup: string) => {
-      window.dispatchEvent(new CustomEvent("nous:open-popup", { detail: popup }));
-      setOpen(false);
-    };
+    const go = (path: string) => { navigate(path); setOpen(false); };
 
     const navItems: Item[] = NAV_ITEMS
       .filter(n => !q || n.label.toLowerCase().includes(lq) || (n.sublabel ?? "").toLowerCase().includes(lq))
       .map(n => ({
         id: n.id, label: n.label, sublabel: n.sublabel, group: "Navigate",
-        action: () => {
-          if (n.popup) { openPopup(n.popup); }
-          else { navigate(n.path!); setOpen(false); }
-        },
+        action: () => go(n.path),
       }));
 
     const contactItems: Item[] = contacts.map((c: any) => ({
@@ -80,7 +73,7 @@ export function CommandPalette() {
       label:    [c.first_name, c.last_name].filter(Boolean).join(" ") || c.email || "—",
       sublabel: c.job_title ?? c.email ?? undefined,
       group:    "People",
-      action:   () => { openPopup("people"); },
+      action:   () => go(`/people/${c.id}`),
     }));
 
     const all = [...navItems, ...contactItems];

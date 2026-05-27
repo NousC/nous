@@ -120,11 +120,17 @@ export interface UpdateContactParams {
 export type LeadStatus = 'pending' | 'sent' | 'replied' | 'bounced';
 export type ReplyOutcome = 'interested' | 'objection' | 'wrong_fit' | 'unsubscribe';
 
+export interface LeadColumn {
+  key: string;
+  label: string;
+}
+
 export interface LeadList {
   id: string;
   workspace_id: string;
   name: string;
   source: string;            // 'linkedin' | 'instantly' | 'csv' | 'apollo' | …
+  columns: LeadColumn[];     // user-defined columns beyond the fixed ones
   created_at: string;
   updated_at: string;
   lead_count?: number;       // populated by listLeadLists()
@@ -142,6 +148,7 @@ export interface Lead {
   send_variant: string | null;
   is_repeat_contact: boolean;
   features: Record<string, unknown>;
+  fields: Record<string, unknown>;   // values for the list's user-defined columns
   scorecard_score: number | null;
   reply_outcome: ReplyOutcome | null;
   replied_at: string | null;

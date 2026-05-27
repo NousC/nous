@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getSupabaseClient, logActivity } from '@nous/core';
+import { getSupabaseClient, logActivity, syncCrmProvider } from '@nous/core';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
 import { requireFeature } from '../../lib/access.mjs';
 import crypto from 'crypto';
@@ -288,18 +288,20 @@ crmRouter.post('/sync-config', verifySupabaseAuth, requireCrmSync, async (req, r
   }
 });
 
-// POST /api/crm/sync-now — pulls every contact from the provider and upserts into Nous.
-// Runs inline (small CRMs finish in seconds; bigger ones can be moved to the worker later).
+// POST /api/crm/sync-now — manual incremental pull. Same code path the worker
+// cron uses (syncCrmProvider) so manual and auto-sync stay in sync.
 crmRouter.post('/sync-now', verifySupabaseAuth, requireCrmSync, async (req, res) => {
   try {
     const supabase = getSupabaseClient();
-    const { workspaceId, provider = 'hubspot' } = req.body;
+    const { workspaceId, provider = 'hubspot', full = false } = req.body;
     if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
 
-    const { data: cfg } = await supabase.from('crm_sync_configs').select('*').eq('workspace_id', workspaceId).eq('provider', provider).maybeSingle();
+    const { data: cfg } = await supabase.from('crm_sync_configs')
+      .select('*').eq('workspace_id', workspaceId).eq('provider', provider).maybeSingle();
     if (!cfg) return res.status(404).json({ error: 'Sync not configured' });
 
-    const { data: conn } = await supabase.from('workflow_provider_connections').select('encrypted_credentials').eq('id', cfg.connection_id).single();
+    const { data: conn } = await supabase.from('workflow_provider_connections')
+      .select('encrypted_credentials').eq('id', cfg.connection_id).single();
     if (!conn) return res.status(404).json({ error: 'Connection not found' });
 
     const creds = {};
@@ -308,69 +310,58 @@ crmRouter.post('/sync-now', verifySupabaseAuth, requireCrmSync, async (req, res)
     }
     const firstCred = Object.values(creds).find(Boolean);
 
-    let contacts = [];
+    let token;
+    if (provider === 'hubspot')   token = creds.access_token || creds.api_key || firstCred;
+    else if (provider === 'pipedrive') token = creds.api_token || creds.api_key || firstCred;
+    else if (provider === 'attio')     token = creds.api_key || creds.access_token || firstCred;
+    else if (provider === 'salesforce') {
+      // Salesforce pull stays on the legacy path until the shared module covers it.
+      return res.status(400).json({ error: 'salesforce_not_yet_supported_in_v2_sync' });
+    } else {
+      return res.status(400).json({ error: `unsupported_provider: ${provider}` });
+    }
+    if (!token) return res.status(400).json({ error: 'missing_credentials' });
+
+    const startedAt = new Date().toISOString();
+    // `full=true` ignores last_synced_at and re-fetches everything (capped by
+    // MAX_PAGES_PER_RUN inside the shared helper).
+    const since = full ? null : (cfg.last_synced_at || null);
+
+    let result;
     try {
-      if (provider === 'hubspot') {
-        const token = creds.access_token || creds.api_key || firstCred;
-        if (!token) return res.status(400).json({ error: 'missing_credentials' });
-        contacts = await fetchHubSpotRecords(token, 'contact');
-      } else if (provider === 'pipedrive') {
-        const token = creds.api_token || creds.api_key || firstCred;
-        if (!token) return res.status(400).json({ error: 'missing_credentials' });
-        contacts = await fetchPipedriveRecords(token, 'contact');
-      } else if (provider === 'attio') {
-        const token = creds.api_key || creds.access_token || firstCred;
-        if (!token) return res.status(400).json({ error: 'missing_credentials' });
-        contacts = await fetchAttioRecords(token, 'contact');
-      } else if (provider === 'salesforce') {
-        if (!creds.access_token || !creds.instance_url) return res.status(400).json({ error: 'missing_credentials' });
-        contacts = await fetchSalesforceRecords(creds, 'contact');
-      } else {
-        return res.status(400).json({ error: `unsupported_provider: ${provider}` });
-      }
+      result = await syncCrmProvider(supabase, workspaceId, provider, token, since);
     } catch (err) {
       return res.status(502).json({ error: 'provider_fetch_failed', message: err.message });
     }
 
-    let imported = 0;
-    let skipped = 0;
-    for (const r of contacts) {
-      if (!r.email) { skipped++; continue; }
-      try {
-        const before = await supabase
-          .from('contacts')
-          .select('id')
-          .eq('workspace_id', workspaceId)
-          .eq('email', r.email.toLowerCase().trim())
-          .maybeSingle();
-        const created = await upsertContactForImport(supabase, workspaceId, provider, {
-          email: r.email, name: r.name, company: r.company,
-        });
-        if (created && !before.data) imported++;
-      } catch { skipped++; }
-    }
-
-    const total = contacts.length;
-    await supabase.from('crm_sync_configs').update({
-      last_synced_at:  new Date().toISOString(),
-      contacts_synced: (cfg.contacts_synced || 0) + imported,
+    // Advance the cursor only on a clean run — otherwise next call retries
+    // the same window (no missed records).
+    const patch = {
+      contacts_synced: (cfg.contacts_synced || 0) + result.contacts.inserted + result.companies.inserted,
       updated_at:      new Date().toISOString(),
-    }).eq('id', cfg.id);
+    };
+    if (result.errors.length === 0) patch.last_synced_at = startedAt;
+    await supabase.from('crm_sync_configs').update(patch).eq('id', cfg.id);
 
-    // Telemetry: surface this run in the Live Op Log + per-CRM activity panel
+    const totalFetched = result.contacts.fetched + result.companies.fetched + result.deals.fetched;
+    const totalNew     = result.contacts.inserted + result.companies.inserted + result.deals.inserted;
+    const totalUp      = result.contacts.updated  + result.companies.updated  + result.deals.updated;
     const providerLabel = provider.charAt(0).toUpperCase() + provider.slice(1);
     await supabase.from('workspace_system_log').insert({
       workspace_id: workspaceId,
       source: provider,
-      event_type: 'sync_complete',
-      summary: `Pulled ${total} contacts from ${providerLabel} — ${imported} new, ${skipped} skipped`,
-      metadata: { total, imported, skipped, trigger: 'manual' },
+      event_type: result.errors.length ? 'sync_partial' : 'sync_complete',
+      summary:
+        `Pulled ${totalFetched} from ${providerLabel} (c:${result.contacts.fetched} ` +
+        `co:${result.companies.fetched} d:${result.deals.fetched}) — ` +
+        `${totalNew} new, ${totalUp} updated` +
+        (result.errors.length ? ` · errors: ${result.errors.length}` : ''),
+      metadata: { trigger: 'manual', ...result },
     }).then(() => {}, () => {});
 
-    return res.json({ ok: true, total, imported, skipped });
+    return res.json({ ok: true, ...result });
   } catch (err) {
     console.error('[POST /api/crm/sync-now]', err);
-    // Best-effort failure log
     try {
       const supabase2 = getSupabaseClient();
       const provider2 = req.body?.provider || 'unknown';

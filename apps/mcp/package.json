@@ -1,6 +1,6 @@
 {
   "name": "@opennous/mcp",
-  "version": "0.8.9",
+  "version": "0.10.1",
   "description": "Nous MCP Server — GTM data infrastructure for agents.",
   "type": "module",
   "bin": {

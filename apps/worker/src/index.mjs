@@ -6,16 +6,21 @@
 
 import express from 'express';
 import cron from 'node-cron';
-import { getSupabaseClient, registerCrmPushHandler, pushActivityToAllCrms } from '@nous/core';
+import { getSupabaseClient, registerCrmPushHandler, pushActivityToAllCrms, logWorkerRun } from '@nous/core';
 import { pollAllWorkspaces } from './pollers/calendar.mjs';
 import { pollAllSlackWorkspaces } from './pollers/slack.mjs';
 import { pollAllGmailWorkspaces } from './pollers/gmail.mjs';
 import { pollAllSmtpWorkspaces } from './pollers/smtp.mjs';
 import { webhookRouter } from './webhooks/index.mjs';
 import { processWebhookInbox } from './workers/webhookRetry.mjs';
-import { resolveMindEpisodes } from './workers/mindOutcomes.mjs';
+import { resolveOutcomes } from './workers/mindOutcomes.mjs';
 import { processLeadReplies } from './workers/leadReplies.mjs';
 import { runScorecardLoop } from './workers/scorecardLoop.mjs';
+import { processClaimJobs } from './workers/claimEngine.mjs';
+import { scoreEntities } from './workers/scoreEntities.mjs';
+import { processEmbeddings } from './workers/embeddings.mjs';
+import { runCrmAutoSync } from './workers/crmSync.mjs';
+import { runStageDerivation } from './workers/stageDerivation.mjs';
 
 // Wire webhook-driven activity logging → CRM push at module load.
 // Worker is where most logActivity() calls originate (Instantly/Lemlist replies,
@@ -92,29 +97,43 @@ console.log('[WORKER] SMTP/IMAP poller — every hour');
 
 // ── Pipeline stage decay — daily at 03:00 UTC ────────────────────────────────
 async function runPipelineDecay() {
+  const supabase = getSupabaseClient();
+  const startedAt = new Date();
   try {
-    const supabase = getSupabaseClient();
     const { error } = await supabase.rpc('decay_pipeline_stages');
     if (error) throw error;
     console.log('[WORKER] Pipeline stage decay complete');
+    await logWorkerRun(supabase, {
+      worker: 'pipeline_decay',
+      status: 'success',
+      summary: 'pipeline stage decay complete',
+      startedAt,
+    });
   } catch (err) {
     console.error('[WORKER] Pipeline decay error:', err.message);
+    await logWorkerRun(supabase, {
+      worker: 'pipeline_decay',
+      status: 'error',
+      summary: 'pipeline decay failed',
+      error: err.message,
+      startedAt,
+    });
   }
 }
 
 cron.schedule('0 3 * * *', runPipelineDecay, { timezone: 'UTC' });
 console.log('[WORKER] Pipeline decay — daily at 03:00 UTC');
 
-// ── Mind outcome resolution — daily at 03:30 UTC ─────────────────────────────
-// Joins each ICP prediction in mind_episodes to its realized outcome (reply /
-// pipeline advance / closed-won revenue) and writes a weighted outcome_score.
-// Runs after pipeline decay so contact stages are fresh.
-// See docs/compound-intelligence-mind.md (Phase 2).
+// ── Outcome resolution — daily at 03:30 UTC ──────────────────────────────────
+// Joins each open `icp_fit` prediction to its realized outcome — reply,
+// pipeline advance, closed-won revenue, all read from observations — and
+// writes a weighted outcome_value. Runs after pipeline decay so stage claims
+// are fresh. See docs/compound-intelligence-mind.md (Phase 2).
 async function runMindOutcomes() {
   try {
-    await resolveMindEpisodes();
+    await resolveOutcomes();
   } catch (err) {
-    console.error('[WORKER] Mind outcomes error:', err.message);
+    console.error('[WORKER] Outcome resolution error:', err.message);
   }
 }
 
@@ -155,5 +174,49 @@ console.log('[WORKER] Scorecard learning loop — daily at 04:00 UTC');
 // timeout, etc.) and reprocesses them with exponential backoff.
 cron.schedule('* * * * *', processWebhookInbox);
 console.log('[WORKER] Webhook retry queue — every minute');
+
+// ── Claim-derivation engine — every minute ───────────────────────────────────
+// Drains claim_jobs (filled by a DB trigger on every observation insert) and
+// re-derives each affected claim from its observations. The self-healing loop:
+// a new observation pulls the belief back toward truth. See docs/v2-build-plan.md.
+cron.schedule('* * * * *', processClaimJobs);
+console.log('[WORKER] Claim-derivation engine — every minute');
+
+// ── Scorecard prediction-write — every 10 minutes ────────────────────────────
+// Stakes an `icp_fit` prediction on every person-entity that has claims but no
+// open prediction. Turns the front of the compound loop on: beliefs (claims)
+// become a prediction the outcome job later grades. See workers/scoreEntities.mjs.
+cron.schedule('*/10 * * * *', scoreEntities);
+console.log('[WORKER] Scorecard prediction-write — every 10 minutes');
+
+// ── Embedding worker — every 2 minutes ───────────────────────────────────────
+// Fills claim embeddings so semantic search (the Context API retrieve step)
+// works. No-op without OPENAI_API_KEY.
+cron.schedule('*/2 * * * *', processEmbeddings);
+console.log('[WORKER] Embedding worker — every 2 minutes');
+
+// ── CRM auto-sync — daily at 02:00 UTC ───────────────────────────────────────
+// For every workspace with auto_sync=true on a CRM config, pulls new/updated
+// contacts + companies + deals incrementally (since last_synced_at) and
+// upserts into the v2 substrate. Runs BEFORE pipeline decay (03:00) so the
+// calibration chain (decay → outcomes → scorecard) sees fresh CRM state.
+// Users can always trigger an on-demand pull via the "Sync now" button.
+// See workers/crmSync.mjs.
+cron.schedule('0 2 * * *', runCrmAutoSync, { timezone: 'UTC' });
+console.log('[WORKER] CRM auto-sync — daily at 02:00 UTC');
+
+// ── Pipeline-stage derivation — hourly at :15 ────────────────────────────────
+// Walks active person entities and advances pipeline_stage based on observed
+// activity (meeting/proposal → evaluating; replies → interested; connect →
+// aware). Only promotes — never downgrades; the daily decay worker owns
+// regression. Writes a state observation per advancement, so the claim engine
+// re-derives the pipeline_stage claim downstream. See workers/stageDerivation.mjs.
+async function runStageDerivationSafe() {
+  try { await runStageDerivation(); }
+  catch (err) { console.error('[WORKER] stage derivation error:', err.message); }
+}
+runStageDerivationSafe();
+cron.schedule('15 * * * *', runStageDerivationSafe);
+console.log('[WORKER] Pipeline-stage derivation — hourly at :15');
 
 console.log('[WORKER] Started');

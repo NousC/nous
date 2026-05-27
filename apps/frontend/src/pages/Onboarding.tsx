@@ -3,37 +3,28 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/components/ui/sonner";
 import {
-  Check, Copy, Eye, EyeOff, Key, RefreshCw, ExternalLink, ArrowLeft, ArrowRight,
+  Check, Copy, Eye, EyeOff, Key, RefreshCw, ArrowLeft, ArrowRight,
 } from "lucide-react";
 import { PeopleImportPanel } from "@/components/contacts/PeopleImportModal";
 
-// ─── Option sets ─────────────────────────────────────────────────────────────
-const USE_CASES = [
-  { id: "gtm_agent",            label: "GTM agent" },
-  { id: "ai_sdr",               label: "AI SDR" },
-  { id: "outbound",             label: "Outbound" },
-  { id: "sales_assistant",      label: "Sales assistant" },
-  { id: "customer_success",     label: "Customer success" },
-  { id: "meeting_intelligence", label: "Meeting intel" },
-  { id: "custom",               label: "Custom" },
-];
-
 const TOTAL_STEPS = 3;
-const STORAGE_KEY = "nous_onboarding_v6";
+const STORAGE_KEY = "nous_onboarding_v7";
 const API_URL    = import.meta.env.VITE_API_URL ?? "";
 
-// ─── Shared button styles ────────────────────────────────────────────────────
+// ─── Shared button styles (theme-aware) ──────────────────────────────────────
 const BTN_PRIMARY =
-  "inline-flex items-center justify-center gap-1.5 h-10 px-5 rounded-lg bg-gray-900 text-white text-[13px] font-semibold hover:bg-gray-800 disabled:opacity-40 transition-colors";
+  "inline-flex items-center justify-center gap-1.5 h-10 px-5 rounded-lg text-[13px] font-semibold disabled:opacity-40 transition-colors " +
+  "bg-foreground text-background hover:bg-foreground/90 " +
+  "dark:bg-muted dark:text-foreground dark:hover:bg-muted/70 dark:border dark:border-border";
 const BTN_SECONDARY =
-  "inline-flex items-center justify-center gap-1.5 h-10 px-4 rounded-lg bg-white border border-gray-200 text-gray-700 text-[13px] font-semibold hover:bg-gray-50 disabled:opacity-40 transition-colors";
+  "inline-flex items-center justify-center gap-1.5 h-10 px-4 rounded-lg bg-background border border-border text-foreground/80 text-[13px] font-semibold hover:bg-muted/50 hover:text-foreground disabled:opacity-40 transition-colors";
 
 // ─── Tiny primitives ─────────────────────────────────────────────────────────
 function FieldLabel({ children, optional }: { children: React.ReactNode; optional?: boolean }) {
   return (
-    <div className="text-[13px] font-medium text-gray-700 mb-1.5">
+    <div className="text-[13px] font-medium text-foreground/80 mb-1.5">
       {children}
-      {optional && <span className="ml-1.5 text-[12px] font-normal text-gray-400">Optional</span>}
+      {optional && <span className="ml-1.5 text-[12px] font-normal text-muted-foreground">Optional</span>}
     </div>
   );
 }
@@ -43,8 +34,21 @@ function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
     <input
       {...props}
       className={
-        "w-full h-10 rounded-lg border border-gray-200 bg-white px-3 text-[13px] text-gray-900 " +
-        "placeholder:text-gray-400 focus:border-gray-400 outline-none transition-colors " +
+        "w-full h-10 rounded-lg border border-border bg-background px-3 text-[13px] text-foreground " +
+        "placeholder:text-muted-foreground/70 focus:border-foreground/40 outline-none transition-colors " +
+        (props.className ?? "")
+      }
+    />
+  );
+}
+
+function TextArea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  return (
+    <textarea
+      {...props}
+      className={
+        "w-full min-h-[88px] rounded-lg border border-border bg-background px-3 py-2.5 text-[13px] text-foreground " +
+        "placeholder:text-muted-foreground/70 focus:border-foreground/40 outline-none transition-colors resize-y " +
         (props.className ?? "")
       }
     />
@@ -54,41 +58,8 @@ function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
 function StepTitle({ title, desc }: { title: string; desc: string }) {
   return (
     <div className="space-y-1">
-      <h2 className="text-[20px] font-semibold tracking-tight text-gray-900">{title}</h2>
-      <p className="text-[13px] text-gray-500">{desc}</p>
-    </div>
-  );
-}
-
-function ChipGroup({
-  options, value, onChange,
-}: {
-  options: { id: string; label: string }[];
-  value: string[];
-  onChange: (v: string[]) => void;
-}) {
-  const toggle = (id: string) =>
-    onChange(value.includes(id) ? value.filter(x => x !== id) : [...value, id]);
-  return (
-    <div className="flex flex-wrap gap-2">
-      {options.map(({ id, label }) => {
-        const selected = value.includes(id);
-        return (
-          <button
-            key={id}
-            type="button"
-            onClick={() => toggle(id)}
-            className={`inline-flex items-center gap-1.5 text-[13px] font-medium px-3.5 py-2 rounded-lg border transition-colors ${
-              selected
-                ? "border-gray-900 bg-gray-50 text-gray-900"
-                : "border-gray-200 bg-white text-gray-700 hover:border-gray-300"
-            }`}
-          >
-            {selected && <Check className="h-3.5 w-3.5" />}
-            {label}
-          </button>
-        );
-      })}
+      <h1 className="text-[20px] font-semibold tracking-tight text-foreground">{title}</h1>
+      <p className="text-[13px] text-muted-foreground">{desc}</p>
     </div>
   );
 }
@@ -98,20 +69,20 @@ function StepWelcome({
   name, setName,
   companyName, setCompanyName,
   website, setWebsite,
-  useCases, setUseCases,
+  icpDescription, setIcpDescription,
   onNext, isLoading,
 }: {
   name: string; setName: (v: string) => void;
   companyName: string; setCompanyName: (v: string) => void;
   website: string; setWebsite: (v: string) => void;
-  useCases: string[]; setUseCases: (v: string[]) => void;
+  icpDescription: string; setIcpDescription: (v: string) => void;
   onNext: () => void; isLoading: boolean;
 }) {
   return (
     <div className="space-y-6">
       <StepTitle
         title="Welcome to Nous"
-        desc="A few details so your memory layer knows what you're building."
+        desc="A few details so the context layer knows what you're building."
       />
 
       <div className="space-y-5">
@@ -145,15 +116,20 @@ function StepWelcome({
         </div>
 
         <div>
-          <FieldLabel>What are you building?</FieldLabel>
-          <ChipGroup options={USE_CASES} value={useCases} onChange={setUseCases} />
+          <FieldLabel>Describe your ICP</FieldLabel>
+          <TextArea
+            value={icpDescription}
+            onChange={e => setIcpDescription(e.target.value)}
+            placeholder="B2B SaaS, 50–500 employees, US/EU, sales teams using HubSpot or Salesforce…"
+            rows={3}
+          />
         </div>
       </div>
 
       <div className="flex justify-end pt-1">
         <button
           onClick={onNext}
-          disabled={!name.trim() || !companyName.trim() || isLoading}
+          disabled={!name.trim() || !companyName.trim() || !icpDescription.trim() || isLoading}
           className={BTN_PRIMARY}
         >
           {isLoading && <RefreshCw className="h-3.5 w-3.5 animate-spin" />}
@@ -167,14 +143,13 @@ function StepWelcome({
 
 // ─── Step 2: Import contacts (real column-mapping importer) ──────────────────
 function StepImport({
-  onAdvance, onBack, onSkip, session, workspaceId, testMode,
+  onAdvance, onBack, onSkip, session, workspaceId,
 }: {
   onAdvance: () => void;
   onBack: () => void;
   onSkip: () => void;
   session: any;
   workspaceId: string | undefined;
-  testMode?: boolean;
 }) {
   return (
     <div className="space-y-6">
@@ -183,13 +158,12 @@ function StepImport({
         desc="Drop a CSV and map columns to Nous fields, or skip to start with demo data."
       />
 
-      <div className="rounded-xl border border-gray-200 overflow-hidden">
+      <div className="rounded-xl border border-border overflow-hidden">
         <PeopleImportPanel
           workspaceId={workspaceId ?? ""}
           token={session?.access_token ?? ""}
           onDone={onAdvance}
           onClose={onAdvance}
-          testMode={testMode}
         />
       </div>
 
@@ -199,7 +173,7 @@ function StepImport({
         </button>
         <button
           onClick={onSkip}
-          className="text-[13px] font-medium text-gray-500 hover:text-gray-900 transition-colors"
+          className="text-[13px] font-medium text-muted-foreground hover:text-foreground transition-colors"
         >
           Skip — use demo data
         </button>
@@ -261,35 +235,35 @@ function StepCreateKey({
         </div>
       ) : (
         <div className="space-y-3">
-          <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-5">
-            <div className="flex items-center gap-2 mb-3 text-[12px] font-semibold text-emerald-600">
+          <div className="rounded-xl border border-emerald-200 dark:border-emerald-900/40 bg-emerald-50 dark:bg-emerald-950/30 p-5">
+            <div className="flex items-center gap-2 mb-3 text-[12px] font-semibold text-emerald-600 dark:text-emerald-300">
               <Check className="h-4 w-4" />
               <span>Key created</span>
             </div>
-            <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 h-10">
+            <div className="flex items-center gap-2 rounded-lg border border-border bg-background px-3 h-10">
               <input
                 readOnly
                 value={apiKey}
                 type={showKey ? "text" : "password"}
-                className="flex-1 bg-transparent text-[13px] text-gray-900 outline-none truncate font-mono"
+                className="flex-1 bg-transparent text-[13px] text-foreground outline-none truncate font-mono"
               />
               <button
                 type="button"
                 onClick={() => setShowKey(!showKey)}
-                className="text-gray-400 hover:text-gray-700 transition-colors"
+                className="text-muted-foreground hover:text-foreground transition-colors"
               >
                 {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </button>
               <button
                 type="button"
                 onClick={copy}
-                className="text-gray-400 hover:text-gray-700 transition-colors"
+                className="text-muted-foreground hover:text-foreground transition-colors"
               >
-                {copied ? <Check className="h-4 w-4 text-emerald-600" /> : <Copy className="h-4 w-4" />}
+                {copied ? <Check className="h-4 w-4 text-emerald-600 dark:text-emerald-400" /> : <Copy className="h-4 w-4" />}
               </button>
             </div>
           </div>
-          <p className="text-[13px] text-gray-500">
+          <p className="text-[13px] text-muted-foreground">
             You can revoke or rotate this any time from settings.
           </p>
         </div>
@@ -308,24 +282,14 @@ function StepCreateKey({
   );
 }
 
-// ─── Finishing: loading screen with tip ──────────────────────────────────────
+// ─── Finishing: minimal centered loader ──────────────────────────────────────
 function FinishingScreen() {
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col items-center justify-center py-8 text-center">
-        <RefreshCw className="h-6 w-6 animate-spin text-gray-400 mb-4" />
-        <h2 className="text-[20px] font-semibold tracking-tight text-gray-900">
-          Setting up your workspace
-        </h2>
-        <p className="text-[13px] text-gray-500 mt-1">Just a moment…</p>
-      </div>
-
-      <div className="rounded-xl border border-gray-200 bg-gray-50 p-5">
-        <p className="text-[13px] text-gray-700 leading-relaxed">
-          <span className="font-semibold text-gray-900">Tip — </span>
-          click the <span className="font-medium text-gray-900">mind status</span> indicator (it'll be offline) to set up your MCP server or SDK integration.
-        </p>
-      </div>
+    <div className="fixed inset-0 flex flex-col items-center justify-center gap-3 text-center">
+      <RefreshCw className="h-5 w-5 animate-spin text-muted-foreground" />
+      <p className="text-[13px] text-muted-foreground">
+        Setting up your workspace, just a moment…
+      </p>
     </div>
   );
 }
@@ -333,18 +297,13 @@ function FinishingScreen() {
 // ─── Step indicator ──────────────────────────────────────────────────────────
 function StepIndicator({ current, total }: { current: number; total: number }) {
   return (
-    <div className="space-y-2.5">
-      <div className="flex items-center justify-between">
-        <span className="text-[12px] font-medium text-gray-500">
-          Step {current} of {total}
-        </span>
-        <span className="text-[12px] font-medium text-gray-400">
-          {Math.round((current / total) * 100)}%
-        </span>
+    <div className="space-y-2.5 flex-1 min-w-0">
+      <div className="text-[12px] font-medium text-muted-foreground">
+        Step {current} of {total}
       </div>
-      <div className="h-1 w-full rounded-full bg-gray-100 overflow-hidden">
+      <div className="h-1 w-full rounded-full bg-muted overflow-hidden">
         <div
-          className="h-full rounded-full bg-gray-900 transition-all duration-300"
+          className="h-full rounded-full bg-foreground transition-all duration-300"
           style={{ width: `${(current / total) * 100}%` }}
         />
       </div>
@@ -353,13 +312,9 @@ function StepIndicator({ current, total }: { current: number; total: number }) {
 }
 
 // ─── Main ────────────────────────────────────────────────────────────────────
-interface OnboardingProps {
-  testMode?: boolean;
-}
-
 type Phase = 1 | 2 | 3 | "finishing";
 
-export default function Onboarding({ testMode = false }: OnboardingProps) {
+export default function Onboarding() {
   const navigate = useNavigate();
   const { session, userData, refreshUserData } = useAuth();
 
@@ -369,7 +324,7 @@ export default function Onboarding({ testMode = false }: OnboardingProps) {
   const [name, setName] = useState("");
   const [companyName, setCompanyName] = useState("");
   const [website, setWebsite] = useState("");
-  const [useCases, setUseCases] = useState<string[]>([]);
+  const [icpDescription, setIcpDescription] = useState("");
 
   // Pre-fill name from the signed-in user if we have it.
   useEffect(() => {
@@ -380,10 +335,10 @@ export default function Onboarding({ testMode = false }: OnboardingProps) {
   const [generatingKey, setGeneratingKey] = useState(false);
 
   useEffect(() => {
-    if (!testMode && userData?.onboarding_completed) {
+    if (userData?.onboarding_completed) {
       navigate("/", { replace: true });
     }
-  }, [testMode, userData?.onboarding_completed, navigate]);
+  }, [userData?.onboarding_completed, navigate]);
 
   useEffect(() => {
     try {
@@ -391,49 +346,40 @@ export default function Onboarding({ testMode = false }: OnboardingProps) {
       if (!saved) return;
       const p = JSON.parse(saved);
       if (p.phase && p.phase !== "finishing") setPhase(p.phase);
-      if (p.name)         setName(p.name);
-      if (p.companyName)  setCompanyName(p.companyName);
-      if (p.website)      setWebsite(p.website);
-      if (p.useCases)     setUseCases(p.useCases);
+      if (p.name)            setName(p.name);
+      if (p.companyName)     setCompanyName(p.companyName);
+      if (p.website)         setWebsite(p.website);
+      if (p.icpDescription)  setIcpDescription(p.icpDescription);
     } catch { /* ignore */ }
   }, []);
 
   useEffect(() => {
     if (phase === "finishing") return;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ phase, name, companyName, website, useCases }));
-  }, [phase, name, companyName, website, useCases]);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ phase, name, companyName, website, icpDescription }));
+  }, [phase, name, companyName, website, icpDescription]);
 
   const auth = { Authorization: `Bearer ${session?.access_token}`, "Content-Type": "application/json" };
 
   const submitStep1 = async () => {
     if (!name.trim() || !companyName.trim()) return;
     setStepLoading(true);
-    if (!testMode) {
-      try {
-        await fetch(`${API_URL}/api/onboarding/step-1`, {
-          method: "POST",
-          headers: auth,
-          body: JSON.stringify({
-            name: name.trim(),
-            company_name: companyName.trim(),
-            website: website.trim() || undefined,
-            use_case: useCases.map(id => USE_CASES.find(u => u.id === id)?.label || id).join(", "),
-          }),
-        });
-      } catch { /* non-blocking */ }
-    }
+    try {
+      await fetch(`${API_URL}/api/onboarding/step-1`, {
+        method: "POST",
+        headers: auth,
+        body: JSON.stringify({
+          name: name.trim(),
+          company_name: companyName.trim(),
+          website: website.trim() || undefined,
+          icp_description: icpDescription.trim() || undefined,
+        }),
+      });
+    } catch { /* non-blocking */ }
     setStepLoading(false);
     setPhase(2);
   };
 
   const generateApiKey = async (name: string) => {
-    if (testMode) {
-      setGeneratingKey(true);
-      await new Promise(r => setTimeout(r, 400));
-      setApiKey("pk_test_demo_3c1f8a92b7e4d650f1ac");
-      setGeneratingKey(false);
-      return;
-    }
     const workspaceId = userData?.workspace?.id;
     if (!workspaceId) { toast.error("workspace not ready — try again in a moment"); return; }
     setGeneratingKey(true);
@@ -455,98 +401,73 @@ export default function Onboarding({ testMode = false }: OnboardingProps) {
 
   const finish = async () => {
     setPhase("finishing");
-    if (testMode) {
-      await new Promise(r => setTimeout(r, 8000));
-      toast.success("test run complete — restarting");
-      localStorage.removeItem(STORAGE_KEY);
-      setApiKey(null);
-      setPhase(1);
-      return;
-    }
     try {
       await fetch(`${API_URL}/api/onboarding/complete`, {
         method: "POST",
         headers: auth,
-        body: JSON.stringify({}),
+        body: JSON.stringify({
+          name: name.trim() || undefined,
+          company_name: companyName.trim() || undefined,
+          website: website.trim() || undefined,
+          icp_description: icpDescription.trim() || undefined,
+        }),
       });
       localStorage.removeItem(STORAGE_KEY);
       localStorage.setItem("nous_just_onboarded", "true");
       localStorage.setItem("nous_onboarding_company_name", companyName.trim());
       refreshUserData().catch(console.error);
     } catch { /* non-blocking */ }
-    await new Promise(r => setTimeout(r, 8000));
+    await new Promise(r => setTimeout(r, 2500));
     navigate("/", { replace: true });
   };
 
-  // Card widens when the importer panel needs space for column mapping.
-  const maxWidth = phase === 2 ? 640 : 480;
   const currentStep = phase === "finishing" ? 3 : phase;
+  const contentMaxWidth = phase === 2 ? 640 : 480;
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-gray-50 overflow-y-auto py-10">
-      <div className="w-full mx-4 flex flex-col" style={{ maxWidth }}>
-        {/* brand */}
-        <div className="flex items-center justify-center gap-2 mb-6">
-          <span className="text-[15px] font-semibold tracking-tight text-gray-900">Nous</span>
-          {testMode && (
-            <span className="text-[11px] font-semibold text-amber-600 border border-amber-200 bg-amber-50 rounded-md px-1.5 py-0.5">
-              Test mode
-            </span>
-          )}
-        </div>
-
-        {/* card */}
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
-          {/* step indicator */}
-          <div className="px-6 sm:px-8 pt-6 pb-5 border-b border-gray-100">
+    <div
+      className="fixed inset-0 z-[80] flex items-center justify-center bg-background overflow-y-auto py-10"
+      style={{
+        backgroundImage:
+          "radial-gradient(circle, rgb(0 0 0 / 0.08) 1px, transparent 1px)",
+        backgroundSize: "24px 24px",
+      }}
+    >
+      <div className="w-full mx-6 flex flex-col" style={{ maxWidth: contentMaxWidth }}>
+        {phase !== "finishing" && (
+          <div className="mb-6">
             <StepIndicator current={currentStep} total={TOTAL_STEPS} />
           </div>
+        )}
 
-          {/* body */}
-          <div className="px-6 sm:px-8 py-7">
-            {phase === 1 && (
-              <StepWelcome
-                name={name} setName={setName}
-                companyName={companyName} setCompanyName={setCompanyName}
-                website={website} setWebsite={setWebsite}
-                useCases={useCases} setUseCases={setUseCases}
-                onNext={submitStep1} isLoading={stepLoading}
-              />
-            )}
-            {phase === 2 && (
-              <StepImport
-                session={session}
-                workspaceId={userData?.workspace?.id}
-                testMode={testMode}
-                onAdvance={() => setPhase(3)}
-                onBack={() => setPhase(1)}
-                onSkip={() => setPhase(3)}
-              />
-            )}
-            {phase === 3 && (
-              <StepCreateKey
-                apiKey={apiKey}
-                generateKey={generateApiKey}
-                generating={generatingKey}
-                onFinish={finish}
-                onBack={() => setPhase(2)}
-              />
-            )}
-            {phase === "finishing" && <FinishingScreen />}
-          </div>
-        </div>
-
-        {/* footer */}
-        <div className="flex justify-center mt-5">
-          <a
-            href="https://docs.opennous.cloud"
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center gap-1 text-[12px] text-gray-400 hover:text-gray-600 transition-colors"
-          >
-            docs.opennous.cloud <ExternalLink className="h-3 w-3" />
-          </a>
-        </div>
+        {phase === 1 && (
+          <StepWelcome
+            name={name} setName={setName}
+            companyName={companyName} setCompanyName={setCompanyName}
+            website={website} setWebsite={setWebsite}
+            icpDescription={icpDescription} setIcpDescription={setIcpDescription}
+            onNext={submitStep1} isLoading={stepLoading}
+          />
+        )}
+        {phase === 2 && (
+          <StepImport
+            session={session}
+            workspaceId={userData?.workspace?.id}
+            onAdvance={() => setPhase(3)}
+            onBack={() => setPhase(1)}
+            onSkip={() => setPhase(3)}
+          />
+        )}
+        {phase === 3 && (
+          <StepCreateKey
+            apiKey={apiKey}
+            generateKey={generateApiKey}
+            generating={generatingKey}
+            onFinish={finish}
+            onBack={() => setPhase(2)}
+          />
+        )}
+        {phase === "finishing" && <FinishingScreen />}
       </div>
     </div>
   );

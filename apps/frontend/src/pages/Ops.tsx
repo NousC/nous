@@ -76,7 +76,16 @@ export default function Ops() {
       const agentData = agentRes.ok ? await agentRes.json() : { requests: [] };
       const sysOps: LiveOp[] = (sysData.events ?? []).map((e: any) => {
         const op = systemLogOpName(e.source, e.event_type, e.metadata);
-        return { id: e.id, ts: e.occurred_at, name: op.name, color: OP_COLORS[op.color], detail: e.summary || e.source, source: e.source === "mcp" ? "agent" as const : "system" as const };
+        // Any caller-facing surface (MCP, SDK, named agent, raw API client)
+        // counts as an Agent op for the System/Agent tally. Everything else
+        // (Attio sync, LinkedIn webhook, Gmail poller…) stays as system.
+        const isAgentSource = ["mcp", "sdk", "agent", "api"].includes(e.source);
+        return {
+          id: e.id, ts: e.occurred_at,
+          name: op.name, color: OP_COLORS[op.color],
+          detail: e.summary || e.source,
+          source: isAgentSource ? (e.source as LiveOp["source"]) : "system" as const,
+        };
       });
       const agentOps: LiveOp[] = (agentData.requests ?? []).map((r: any) => {
         const op = agentOpName(r.op_type, r.entity_type);
@@ -126,7 +135,7 @@ export default function Ops() {
   ];
 
   return (
-    <div className="h-full overflow-y-auto bg-white">
+    <div className="h-full overflow-y-auto bg-background">
       <div className="px-8 py-7">
         <PageHeader
           title="Ops"
@@ -137,11 +146,11 @@ export default function Ops() {
         <div className="mb-5 flex items-center justify-between gap-4">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 flex-1">
             {stats.map(s => (
-              <div key={s.label} className="rounded-xl border border-gray-200 bg-white p-4">
-                <div className="text-[22px] font-bold text-gray-900 tabular-nums">
+              <div key={s.label} className="rounded-xl border border-border bg-background p-4">
+                <div className="text-[22px] font-bold text-foreground tabular-nums">
                   {s.raw ? s.value : (typeof s.value === "number" ? s.value.toLocaleString() : s.value)}
                 </div>
-                <div className="text-[12px] text-gray-500 mt-0.5">{s.label}</div>
+                <div className="text-[12px] text-muted-foreground mt-0.5">{s.label}</div>
               </div>
             ))}
           </div>
@@ -149,19 +158,19 @@ export default function Ops() {
 
         {/* ── Date-range toggle ── */}
         <div className="mb-4 flex items-center justify-between gap-3">
-          <span className="flex items-center gap-2 text-[12px] font-semibold tracking-wide text-gray-500">
+          <span className="flex items-center gap-2 text-[12px] font-semibold tracking-wide text-muted-foreground">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
             LIVE OP LOG
           </span>
-          <div className="inline-flex items-center rounded-lg border border-gray-200 bg-white p-0.5">
+          <div className="inline-flex items-center rounded-lg border border-border bg-background p-0.5">
             {(["all", "1d", "7d", "30d"] as Range[]).map(r => (
               <button
                 key={r}
                 onClick={() => setRange(r)}
                 className={`px-3 py-1 rounded-md text-[12px] font-semibold transition-colors ${
                   range === r
-                    ? "bg-gray-900 text-white"
-                    : "text-gray-500 hover:text-gray-900"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground"
                 }`}>
                 {RANGE_LABEL[r]}
               </button>
@@ -171,33 +180,33 @@ export default function Ops() {
 
         {/* ── Op log ── */}
         {loading ? (
-          <div className="space-y-px rounded-xl overflow-hidden border border-gray-200">
-            {[...Array(6)].map((_, i) => <div key={i} className="h-11 bg-gray-50 animate-pulse" />)}
+          <div className="space-y-px rounded-xl overflow-hidden border border-border">
+            {[...Array(6)].map((_, i) => <div key={i} className="h-11 bg-muted/50 animate-pulse" />)}
           </div>
         ) : groups.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-gray-200 py-12 text-center">
-            <Activity className="h-7 w-7 text-gray-300 mx-auto mb-3" strokeWidth={1.5} />
-            <p className="text-[13px] font-medium text-gray-700 mb-1">No operations in this range</p>
-            <p className="text-[12px] text-gray-400">Connect an integration or widen the date range to see activity.</p>
+          <div className="rounded-xl border border-dashed border-border py-12 text-center">
+            <Activity className="h-7 w-7 text-muted-foreground/50 mx-auto mb-3" strokeWidth={1.5} />
+            <p className="text-[13px] font-medium text-foreground/80 mb-1">No operations in this range</p>
+            <p className="text-[12px] text-muted-foreground/70">Connect an integration or widen the date range to see activity.</p>
           </div>
         ) : (
-          <div className="rounded-xl border border-gray-200 overflow-hidden">
+          <div className="rounded-xl border border-border overflow-hidden">
             {groups.map(group => (
               <div key={group.label}>
-                <div className="flex items-center gap-3 px-4 py-2 border-b border-gray-100 bg-gray-50">
-                  <span className="text-[11px] font-semibold tracking-widest text-gray-500">{group.label}</span>
-                  <span className="text-[11px] text-gray-400 tabular-nums">{group.ops.length} ops</span>
+                <div className="flex items-center gap-3 px-4 py-2 border-b border-border/60 bg-muted/50">
+                  <span className="text-[11px] font-semibold tracking-widest text-muted-foreground">{group.label}</span>
+                  <span className="text-[11px] text-muted-foreground/70 tabular-nums">{group.ops.length} ops</span>
                 </div>
                 {group.ops.map(op => (
                   <div key={op.id}
-                    className="flex items-baseline gap-4 px-4 py-2.5 border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors group">
-                    <span className="text-[11px] text-gray-400 w-24 flex-shrink-0 tabular-nums font-mono">
+                    className="flex items-baseline gap-4 px-4 py-2.5 border-b border-border/60 last:border-0 hover:bg-accent transition-colors group">
+                    <span className="text-[11px] text-muted-foreground/70 w-24 flex-shrink-0 tabular-nums font-mono">
                       {format(new Date(op.ts), "HH:mm:ss")}
                     </span>
                     <span className="text-[12px] w-56 flex-shrink-0 truncate font-mono" style={{ color: op.color }}>
                       {op.name}
                     </span>
-                    <span className="text-[12px] text-gray-500 group-hover:text-gray-900 flex-1 truncate transition-colors">
+                    <span className="text-[12px] text-muted-foreground group-hover:text-foreground flex-1 truncate transition-colors">
                       {op.detail}
                     </span>
                     <span className={`text-[10px] px-1.5 py-0.5 rounded flex-shrink-0 ${
@@ -219,7 +228,7 @@ export default function Ops() {
         )}
 
         {!loading && groups.length > 0 && (
-          <div className="flex items-center justify-center gap-1.5 py-4 text-[11px] text-gray-400">
+          <div className="flex items-center justify-center gap-1.5 py-4 text-[11px] text-muted-foreground/70">
             <RefreshCw className="h-3 w-3" /> Auto-refreshes every 15s
           </div>
         )}
