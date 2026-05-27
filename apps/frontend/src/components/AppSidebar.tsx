@@ -9,6 +9,7 @@ import {
   Building2,
   Plug,
   Webhook,
+  Zap,
   FileDown,
   Brain,
   Database,
@@ -42,6 +43,7 @@ const mainNavItems: NavItem[] = [
   { title: "Companies",    url: "/companies",    icon: Building2 },
   { title: "Integrations", url: "/integrations", icon: Plug      },
   { title: "Webhooks",     url: "/webhooks",     icon: Webhook   },
+  { title: "Triggers",     url: "/triggers",     icon: Zap       },
   { title: "Exports",      url: "/exports",      icon: FileDown  },
   { title: "Intelligence", url: "/intelligence", icon: Brain     },
 ];
