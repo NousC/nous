@@ -156,6 +156,7 @@ export async function logActivity(
     description,
     externalId: externalId ?? null,
     occurredAt: occurredAt || new Date().toISOString(),
+    rawData: rawData ?? null,
   });
 
   return data as { id: string };
@@ -174,12 +175,20 @@ interface EmitParams {
   description?: string | null;
   externalId: string | null;
   occurredAt: string;
+  rawData: Record<string, unknown> | null;
 }
 
 async function maybeEnqueueTrigger(supabase: SupabaseClient, p: EmitParams): Promise<void> {
   try {
     const eventType = triggerEventForActivity(p.activityType);
     if (!eventType) return;
+
+    // The direct LinkedIn (Unipile) integration writes ALL messages — both
+    // inbound and outbound — as activityType=linkedin_message with the
+    // direction stashed in rawData. The trigger is "message received", so
+    // skip outbound. HeyReach's linkedin_message_received is already
+    // inbound-only and never hits this branch.
+    if (p.activityType === 'linkedin_message' && p.rawData?.is_outbound === true) return;
 
     // Minimal person snapshot — just enough that the receiver knows WHO this
     // is about without a re-fetch. Subscribers wanting more call /v2/context.
