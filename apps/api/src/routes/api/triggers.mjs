@@ -16,6 +16,15 @@ import {
 
 export const triggersRouter = Router();
 
+// All triggers routes require a workspace context. The dashboard passes
+// ?workspace_id=…; verifyAuthEither/verifySupabaseAuth set req.workspaceId
+// when membership is confirmed. Fail fast with a clear error so silent
+// empty-list bugs in the UI don't happen.
+triggersRouter.use((req, res, next) => {
+  if (!req.workspaceId) return res.status(400).json({ error: 'workspace_id_required' });
+  next();
+});
+
 // GET /api/triggers — list subscriptions for the workspace.
 // Response: { triggers: [...], available_events: [...] }
 triggersRouter.get('/', async (req, res) => {
