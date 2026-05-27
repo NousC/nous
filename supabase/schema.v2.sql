@@ -631,6 +631,57 @@ $$;
 
 
 -- ============================================================
+-- 12. TRIGGERS  — outbound webhooks (the "agent gets paged" surface)
+--
+-- The flip side of observation-in: event-out. A subscriber registers a
+-- URL + event list; whenever a tracked interaction lands, the worker
+-- POSTs a signed payload. Per-(event, subscription) fan-out at enqueue
+-- time so one bad URL doesn't block the others; HMAC-SHA256 signing on
+-- the raw body; exponential-backoff retry, dead-letter after 3 tries.
+-- ============================================================
+
+CREATE TABLE trigger_subscriptions (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  workspace_id    UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  name            TEXT NOT NULL,
+  url             TEXT NOT NULL,
+  events          TEXT[] NOT NULL,           -- e.g. ['interaction.email_received', ...]
+  signing_secret  TEXT NOT NULL,             -- shown ONCE in the create response
+  active          BOOLEAN NOT NULL DEFAULT true,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX trigger_subs_workspace ON trigger_subscriptions(workspace_id) WHERE active;
+CREATE INDEX trigger_subs_events    ON trigger_subscriptions USING GIN (events) WHERE active;
+ALTER TABLE trigger_subscriptions ENABLE ROW LEVEL SECURITY;
+CREATE POLICY trs_select ON trigger_subscriptions FOR SELECT USING (is_workspace_member(workspace_id));
+
+CREATE TABLE outbound_events (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  workspace_id      UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  subscription_id   UUID NOT NULL REFERENCES trigger_subscriptions(id) ON DELETE CASCADE,
+  entity_id         UUID REFERENCES entities(id) ON DELETE SET NULL,
+  event_type        TEXT NOT NULL,
+  payload           JSONB NOT NULL,                                     -- the signed POST body
+  occurred_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  -- delivery state
+  delivered_at      TIMESTAMPTZ,
+  attempts          INT NOT NULL DEFAULT 0,
+  next_attempt_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_status_code  INT,
+  last_error        TEXT,
+  dead_lettered_at  TIMESTAMPTZ
+);
+CREATE INDEX outbound_pending
+  ON outbound_events(next_attempt_at)
+  WHERE delivered_at IS NULL AND dead_lettered_at IS NULL;
+CREATE INDEX outbound_workspace
+  ON outbound_events(workspace_id, occurred_at DESC);
+ALTER TABLE outbound_events ENABLE ROW LEVEL SECURITY;
+CREATE POLICY oe_select ON outbound_events FOR SELECT USING (is_workspace_member(workspace_id));
+
+
+-- ============================================================
 -- Done.
 --
 -- The whole model: entities are anchors; observations are

@@ -1142,6 +1142,71 @@ CREATE INDEX IF NOT EXISTS worker_runs_worker
 CREATE INDEX IF NOT EXISTS worker_runs_finished
   ON worker_runs(finished_at DESC);
 
+
+-- ============================================================
+-- 19. TRIGGERS  — outbound webhooks (the "agent gets paged" surface)
+--
+-- Subscriptions hold the user's signup ("call this URL when X happens");
+-- outbound_events is the per-(event, subscription) delivery ledger — the
+-- outbox pattern. Fan-out happens at enqueue time so delivery state is
+-- naturally per-subscription (one bad URL doesn't block the others).
+--
+-- The delivery worker (apps/worker/src/workers/triggerDelivery.mjs) drains
+-- pending rows every 30s, signs each body with HMAC-SHA256, and POSTs to
+-- the subscriber's URL with exponential-backoff retry. The signing_secret
+-- is stored plaintext — standard for webhook signing (Stripe/GitHub/Linear
+-- all do the same); the worker needs it to sign each outgoing body.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS trigger_subscriptions (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  workspace_id    UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  name            TEXT NOT NULL,
+  url             TEXT NOT NULL,
+  events          TEXT[] NOT NULL,           -- e.g. ['interaction.email_received', ...]
+  signing_secret  TEXT NOT NULL,             -- shown ONCE in the create response
+  active          BOOLEAN NOT NULL DEFAULT true,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS trigger_subs_workspace
+  ON trigger_subscriptions(workspace_id) WHERE active;
+CREATE INDEX IF NOT EXISTS trigger_subs_events
+  ON trigger_subscriptions USING GIN (events) WHERE active;
+ALTER TABLE trigger_subscriptions ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS trs_select ON trigger_subscriptions;
+CREATE POLICY trs_select ON trigger_subscriptions
+  FOR SELECT USING (is_workspace_member(workspace_id));
+
+CREATE TABLE IF NOT EXISTS outbound_events (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  workspace_id      UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  subscription_id   UUID NOT NULL REFERENCES trigger_subscriptions(id) ON DELETE CASCADE,
+  entity_id         UUID REFERENCES entities(id) ON DELETE SET NULL,
+  event_type        TEXT NOT NULL,
+  payload           JSONB NOT NULL,                                     -- the signed POST body
+  occurred_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  -- delivery state
+  delivered_at      TIMESTAMPTZ,
+  attempts          INT NOT NULL DEFAULT 0,
+  next_attempt_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_status_code  INT,
+  last_error        TEXT,
+  dead_lettered_at  TIMESTAMPTZ
+);
+-- The worker's drain query: pending, ready-to-send rows.
+CREATE INDEX IF NOT EXISTS outbound_pending
+  ON outbound_events(next_attempt_at)
+  WHERE delivered_at IS NULL AND dead_lettered_at IS NULL;
+-- Workspace timeline / debug view.
+CREATE INDEX IF NOT EXISTS outbound_workspace
+  ON outbound_events(workspace_id, occurred_at DESC);
+ALTER TABLE outbound_events ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS oe_select ON outbound_events;
+CREATE POLICY oe_select ON outbound_events
+  FOR SELECT USING (is_workspace_member(workspace_id));
+
+
 -- ============================================================
 -- Done.
 --
