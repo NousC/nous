@@ -13,6 +13,7 @@ import { pollAllGmailWorkspaces } from './pollers/gmail.mjs';
 import { pollAllSmtpWorkspaces } from './pollers/smtp.mjs';
 import { webhookRouter } from './webhooks/index.mjs';
 import { processWebhookInbox } from './workers/webhookRetry.mjs';
+import { deliverTriggers } from './workers/triggerDelivery.mjs';
 import { resolveOutcomes } from './workers/mindOutcomes.mjs';
 import { processLeadReplies } from './workers/leadReplies.mjs';
 import { runScorecardLoop } from './workers/scorecardLoop.mjs';
@@ -174,6 +175,14 @@ console.log('[WORKER] Scorecard learning loop — daily at 04:00 UTC');
 // timeout, etc.) and reprocesses them with exponential backoff.
 cron.schedule('* * * * *', processWebhookInbox);
 console.log('[WORKER] Webhook retry queue — every minute');
+
+// ── Triggers delivery (outbound webhooks) — every 30 seconds ────────────────
+// Drains outbound_events (filled by logActivity → enqueueOutboundEvent for
+// the 6 interaction trigger types). Signs each payload with HMAC-SHA256 and
+// POSTs to the subscriber's URL with retry + exponential backoff. The "agent
+// gets paged" surface for the Account Record.
+cron.schedule('*/30 * * * * *', deliverTriggers);
+console.log('[WORKER] Trigger delivery — every 30 seconds');
 
 // ── Claim-derivation engine — every minute ───────────────────────────────────
 // Drains claim_jobs (filled by a DB trigger on every observation insert) and

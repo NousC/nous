@@ -16,6 +16,7 @@ export * from './db/scorecard.js';
 export * from './db/workerRuns.js';
 export * from './db/companies.js';
 export * from './db/activities.js';
+export * from './db/triggers.js';
 // Note: db/memories.ts removed in Phase 1 — superseded by db/notes.ts (claim-shaped).
 export * from './utils/identity.js';
 export * from './utils/linkedin.js';

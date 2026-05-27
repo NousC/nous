@@ -1,4 +1,6 @@
+import * as crypto from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { triggerEventForActivity, enqueueOutboundEvent } from './triggers.js';
 
 // Activities — the v2 connector ingestion path.
 //
@@ -142,7 +144,99 @@ export async function logActivity(
     rawData,
   });
 
+  // Fire-and-forget: enqueue an outbound trigger event if any subscriber
+  // listens for this interaction. Building person snapshot is cheap (one
+  // claims read); failures are swallowed inside enqueueOutboundEvent.
+  void maybeEnqueueTrigger(supabase, {
+    workspaceId,
+    entityId,
+    activityType: type,
+    source,
+    summary,
+    description,
+    externalId: externalId ?? null,
+    occurredAt: occurredAt || new Date().toISOString(),
+  });
+
   return data as { id: string };
+}
+
+// ── Trigger emit ────────────────────────────────────────────────────────────
+// Bridge from logActivity into the triggers outbox. Pulls a minimal person
+// snapshot so subscribers don't immediately have to re-fetch.
+
+interface EmitParams {
+  workspaceId: string;
+  entityId: string;
+  activityType: string;
+  source: string;
+  summary?: string | null;
+  description?: string | null;
+  externalId: string | null;
+  occurredAt: string;
+}
+
+async function maybeEnqueueTrigger(supabase: SupabaseClient, p: EmitParams): Promise<void> {
+  try {
+    const eventType = triggerEventForActivity(p.activityType);
+    if (!eventType) return;
+
+    // Minimal person snapshot — just enough that the receiver knows WHO this
+    // is about without a re-fetch. Subscribers wanting more call /v2/context.
+    const [{ data: identifiers }, { data: claims }] = await Promise.all([
+      supabase.from('entity_identifiers')
+        .select('kind, value')
+        .eq('workspace_id', p.workspaceId)
+        .eq('entity_id', p.entityId)
+        .eq('status', 'active')
+        .in('kind', ['email', 'linkedin_url']),
+      supabase.from('claims')
+        .select('property, value')
+        .eq('workspace_id', p.workspaceId)
+        .eq('entity_id', p.entityId)
+        .is('invalid_at', null)
+        .in('property', ['first_name', 'last_name', 'name', 'job_title', 'company']),
+    ]);
+
+    const idMap = new Map<string, string>();
+    for (const i of (identifiers ?? []) as { kind: string; value: string }[]) idMap.set(i.kind, i.value);
+    const claimMap = new Map<string, unknown>();
+    for (const c of (claims ?? []) as { property: string; value: unknown }[]) claimMap.set(c.property, c.value);
+
+    const name = claimMap.get('name')
+      ?? [claimMap.get('first_name'), claimMap.get('last_name')].filter(Boolean).join(' ')
+      ?? null;
+
+    await enqueueOutboundEvent(supabase, {
+      workspaceId: p.workspaceId,
+      entityId:    p.entityId,
+      eventType,
+      occurredAt:  p.occurredAt,
+      payload: {
+        event_id:    crypto.randomUUID(),
+        event_type:  eventType,
+        occurred_at: p.occurredAt,
+        workspace_id: p.workspaceId,
+        entity_id:   p.entityId,
+        person: {
+          entity_id:    p.entityId,
+          email:        idMap.get('email') ?? null,
+          linkedin_url: idMap.get('linkedin_url') ?? null,
+          name:         (name && String(name).trim()) || null,
+          job_title:    claimMap.get('job_title') ?? null,
+          company:      claimMap.get('company') ?? null,
+        },
+        event_data: {
+          source:       p.source,
+          summary:      p.summary ?? null,
+          description:  p.description ?? null,
+          external_id:  p.externalId,
+        },
+      },
+    });
+  } catch {
+    // never fail the activity write because the trigger system is unhealthy
+  }
 }
 
 // ── Reads: v1-compatible activity shape, sourced from observations ───────────
