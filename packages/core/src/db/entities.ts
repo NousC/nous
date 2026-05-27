@@ -1,6 +1,28 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { normaliseLinkedInUrl, isUUID } from '../utils/identity.js';
 
+// LinkedIn URL variants we'll accept as equivalent on lookup. Covers the
+// historical inconsistency where the write path stored URLs raw (with/without
+// trailing slash, with/without www, mixed case) but the read path now
+// normalises. New writes go through normaliseLinkedInUrl so this is only
+// load-bearing for pre-existing data; once a backfill runs it can shrink.
+function linkedInVariants(url: string): string[] {
+  const out = new Set<string>();
+  const trimmed = url.trim();
+  if (!trimmed) return [];
+  const canonical = normaliseLinkedInUrl(trimmed);
+  if (canonical) {
+    const noWww = canonical.replace('https://www.', 'https://');
+    for (const base of [canonical, noWww]) {
+      out.add(base);
+      out.add(base + '/');
+    }
+  }
+  out.add(trimmed);
+  out.add(trimmed.toLowerCase());
+  return Array.from(out);
+}
+
 // Entities are canonical, temporal anchors. They hold almost no data —
 // everything is observations and claims attached to them. The same
 // person-entity survives a job change or a new email.
@@ -19,10 +41,12 @@ export interface Identifier {
   value: string;
 }
 
-/** Normalise an identifier value so lookups are consistent. */
+/** Normalise an identifier value so writes + lookups land on the same string. */
 export function normaliseIdentifier(kind: string, value: string): string {
   const v = value.trim();
-  return kind === 'email' || kind === 'domain' ? v.toLowerCase() : v;
+  if (kind === 'email' || kind === 'domain') return v.toLowerCase();
+  if (kind === 'linkedin_url') return normaliseLinkedInUrl(v) ?? v;
+  return v;
 }
 
 /** Build the v2 Identifier[] list from a v1-style contact data blob. */
@@ -56,6 +80,23 @@ export async function resolveEntity(
 ): Promise<string | null> {
   const value = normaliseIdentifier(identifier.kind, identifier.value);
   if (!value) return null;
+
+  // LinkedIn URLs need variant matching so historical rows (stored before
+  // normalisation existed) still resolve. .in() with the variant set is one
+  // round-trip vs the old single-value .eq().
+  if (identifier.kind === 'linkedin_url') {
+    const variants = linkedInVariants(identifier.value);
+    const { data } = await supabase
+      .from('entity_identifiers')
+      .select('entity_id')
+      .eq('workspace_id', workspaceId)
+      .eq('kind', 'linkedin_url')
+      .in('value', variants)
+      .eq('status', 'active')
+      .limit(1);
+    return (data as { entity_id: string }[] | null)?.[0]?.entity_id ?? null;
+  }
+
   const { data } = await supabase
     .from('entity_identifiers')
     .select('entity_id')
