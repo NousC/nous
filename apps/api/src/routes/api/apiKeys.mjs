@@ -36,17 +36,30 @@ apiKeysRouter.post('/', async (req, res) => {
 
     const rawKey = `pk_${crypto.randomBytes(24).toString('hex')}`;
     const hashedKey = crypto.createHash('sha256').update(rawKey).digest('hex');
+    const supabase = getSupabaseClient();
+    const baseName = name.trim();
 
     console.log('[API_KEYS_CREATE] workspaceId=', req.workspaceId, 'bodyWorkspaceId=', req.body?.workspace_id);
-    const { data, error } = await getSupabaseClient()
-      .from('api_keys')
-      .insert({
-        workspace_id: req.workspaceId,
-        name: name.trim(),
-        key_hash: hashedKey,
-      })
-      .select('id, name, created_at')
-      .single();
+
+    // (workspace_id, name) is UNIQUE. If the user already has a key with this
+    // name (common when re-running onboarding), pick the next free " N" suffix
+    // so the create still succeeds instead of 500ing.
+    let attemptName = baseName;
+    let data, error;
+    for (let i = 0; i < 25; i++) {
+      ({ data, error } = await supabase
+        .from('api_keys')
+        .insert({
+          workspace_id: req.workspaceId,
+          name: attemptName,
+          key_hash: hashedKey,
+        })
+        .select('id, name, created_at')
+        .single());
+      if (!error) break;
+      if (error.code !== '23505') break;
+      attemptName = `${baseName} ${i + 2}`;
+    }
 
     if (error) { console.error('[API_KEYS_CREATE] supabase error:', JSON.stringify(error)); throw error; }
     // Raw key only returned once — never stored in plaintext
