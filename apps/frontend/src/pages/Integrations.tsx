@@ -6,7 +6,7 @@ import { watchOAuthPopup } from "@/lib/oauthPopup";
 import { IntegrationConn, AvailableProvider, IntegrationLogo } from "@/components/mind/entities";
 import { PageHeader } from "@/components/ui/page-header";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { TrackYourSignupsCard } from "@/components/integrations/TrackYourSignupsCard";
+import { NousInstallTabs } from "@/components/integrations/TrackYourSignupsCard";
 
 const apiUrl = import.meta.env.VITE_API_URL ?? "";
 
@@ -261,8 +261,6 @@ export default function Integrations() {
           }
         />
 
-        {catTab === "all" && <TrackYourSignupsCard />}
-
         {/* Category tab row */}
         <div className="flex gap-6 border-b border-border mb-5 overflow-x-auto">
           {([["all", `All (${allConns.length})`], ...connectedCats.map(c => [c, CATEGORY_LABEL[c]] as [string,string])]).map(([t,label]) => (
@@ -348,6 +346,10 @@ export default function Integrations() {
               <div className="text-center py-10">
                 <Check className="h-9 w-9 text-emerald-600 mx-auto mb-2"/>
                 <div className="text-[14px] font-semibold text-emerald-700">{connSuccess} connected</div>
+              </div>
+            ) : connecting.name === "nous" ? (
+              <div className="rounded-xl border border-border p-5">
+                <NousInstallTabs />
               </div>
             ) : isOAuth(connecting) ? (
               <div className="rounded-xl border border-border p-5 space-y-4">

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Check, Copy, Plus, Terminal, Sparkles, Code } from "lucide-react";
+import { Check, Copy, Terminal, Sparkles, Code } from "lucide-react";
 
 // ── Install scripts, agent prompts, and inline snippets ─────────────────────
 // These are the three things shippable today. The CLI flow is the most polished
@@ -60,7 +60,11 @@ const TABS: { id: Tab; label: string; Icon: typeof Terminal }[] = [
   { id: "curl",  label: "Raw curl",    Icon: Code      },
 ];
 
-export function TrackYourSignupsCard() {
+/**
+ * Tabbed install panel — tabs + code block, no card chrome.
+ * Used inside the Add-integration → Nous → Connect modal.
+ */
+export function NousInstallTabs() {
   const [tab, setTab] = useState<Tab>("cli");
   const [copied, setCopied] = useState(false);
 
@@ -77,72 +81,58 @@ export function TrackYourSignupsCard() {
   };
 
   return (
-    <div className="rounded-xl border border-border bg-background p-5 mb-6">
-      <div className="flex items-start gap-4">
-        <div className="h-10 w-10 rounded-lg bg-foreground/[0.04] dark:bg-foreground/[0.06] border border-border flex items-center justify-center flex-shrink-0 p-1">
-          <img src="/nous-logo.svg" alt="Nous" className="h-full w-full object-contain" />
-        </div>
+    <div className="space-y-3">
+      <p className="text-[13px] text-muted-foreground">
+        Pipe your own signups and Stripe lifecycle events into Nous. Every new user
+        becomes a person in your workspace and their subscription state stays in sync.
+      </p>
 
-        <div className="flex-1 min-w-0">
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex-1 min-w-0">
-              <h3 className="text-[14px] font-semibold text-foreground">Nous</h3>
-              <p className="text-[13px] text-muted-foreground mt-0.5">
-                Pipe your own signups and Stripe lifecycle events into Nous. Every new
-                user becomes a person, and their subscription state stays in sync.
-              </p>
-            </div>
-            <button
-              onClick={copy}
-              className="flex-shrink-0 inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg bg-foreground text-background text-[12px] font-semibold hover:bg-foreground/90 transition-colors"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              Install
-            </button>
-          </div>
-
-          {/* Tab strip */}
-          <div className="mt-4 flex items-center gap-1 border-b border-border">
-            {TABS.map(({ id, label, Icon }) => (
-              <button
-                key={id}
-                onClick={() => setTab(id)}
-                className={
-                  "flex items-center gap-1.5 px-2.5 py-1.5 text-[12px] font-medium border-b-2 -mb-px transition-colors " +
-                  (tab === id
-                    ? "border-foreground text-foreground"
-                    : "border-transparent text-muted-foreground hover:text-foreground/80")
-                }
-              >
-                <Icon className="h-3 w-3" />
-                {label}
-              </button>
-            ))}
-          </div>
-
-          {/* Code block */}
-          <div className="mt-3 rounded-lg bg-zinc-950 border border-zinc-800 overflow-hidden">
-            <div className="flex items-center justify-between px-3 py-1.5 border-b border-zinc-800">
-              <span className="text-[10px] uppercase tracking-wide text-zinc-500 font-mono">
-                {tab === "cli" ? "shell" : tab === "agent" ? "prompt" : "curl"}
-              </span>
-              <button
-                onClick={copy}
-                className={
-                  "flex items-center gap-1 text-[11px] px-2 py-1 rounded transition-colors " +
-                  (copied ? "text-emerald-400" : "text-zinc-400 hover:text-white hover:bg-zinc-800")
-                }
-              >
-                {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-                {copied ? "Copied" : "Copy"}
-              </button>
-            </div>
-            <pre className="text-[12px] font-mono text-zinc-200 p-3 overflow-x-auto leading-relaxed whitespace-pre-wrap break-words">
-              <code>{payload}</code>
-            </pre>
-          </div>
-        </div>
+      {/* Tab strip */}
+      <div className="flex items-center gap-1 border-b border-border">
+        {TABS.map(({ id, label, Icon }) => (
+          <button
+            key={id}
+            onClick={() => setTab(id)}
+            className={
+              "flex items-center gap-1.5 px-2.5 py-1.5 text-[12px] font-medium border-b-2 -mb-px transition-colors " +
+              (tab === id
+                ? "border-foreground text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground/80")
+            }
+          >
+            <Icon className="h-3 w-3" />
+            {label}
+          </button>
+        ))}
       </div>
+
+      {/* Code block */}
+      <div className="rounded-lg bg-zinc-950 border border-zinc-800 overflow-hidden">
+        <div className="flex items-center justify-between px-3 py-1.5 border-b border-zinc-800">
+          <span className="text-[10px] uppercase tracking-wide text-zinc-500 font-mono">
+            {tab === "cli" ? "shell" : tab === "agent" ? "prompt" : "curl"}
+          </span>
+          <button
+            onClick={copy}
+            className={
+              "flex items-center gap-1 text-[11px] px-2 py-1 rounded transition-colors " +
+              (copied ? "text-emerald-400" : "text-zinc-400 hover:text-white hover:bg-zinc-800")
+            }
+          >
+            {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+            {copied ? "Copied" : "Copy"}
+          </button>
+        </div>
+        <pre className="text-[12px] font-mono text-zinc-200 p-3 overflow-x-auto leading-relaxed whitespace-pre-wrap break-words max-h-[320px]">
+          <code>{payload}</code>
+        </pre>
+      </div>
+
+      <p className="text-[12px] text-muted-foreground/80">
+        The CLI writes a small <code className="px-1 py-0.5 rounded bg-muted text-foreground/80">nous.js</code> or{" "}
+        <code className="px-1 py-0.5 rounded bg-muted text-foreground/80">nous.py</code> module and updates your{" "}
+        <code className="px-1 py-0.5 rounded bg-muted text-foreground/80">.env</code>. You stay in control — read it, edit it, or delete it.
+      </p>
     </div>
   );
 }
