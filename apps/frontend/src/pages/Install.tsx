@@ -357,10 +357,10 @@ function FieldRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-type N8nMode = "cloud" | "self-hosted";
+type N8nMode = "http" | "stdio";
 
 function N8nInstall() {
-  const [mode, setMode] = useState<N8nMode>("cloud");
+  const [mode, setMode] = useState<N8nMode>("http");
 
   return (
     <div className="space-y-4">
@@ -368,8 +368,8 @@ function N8nInstall() {
         <h3 className="text-[13px] font-semibold text-foreground">Connect Nous in n8n</h3>
         <TabBar
           tabs={[
-            { id: "cloud" as N8nMode, label: "n8n Cloud" },
-            { id: "self-hosted" as N8nMode, label: "Self-hosted" },
+            { id: "http" as N8nMode, label: "HTTP" },
+            { id: "stdio" as N8nMode, label: "Community node" },
           ]}
           active={mode}
           onChange={setMode}
@@ -377,9 +377,9 @@ function N8nInstall() {
         />
       </div>
 
-      {mode === "cloud" && (
+      {mode === "http" && (
         <div className="space-y-3">
-          <p className="text-[12px] text-muted-foreground">Add the native <span className="text-foreground/80 font-medium">MCP Client Tool</span> node and set it up over HTTP. No community node, no local process.</p>
+          <p className="text-[12px] text-muted-foreground">Cloud or self-hosted, any n8n with the native <span className="text-foreground/80 font-medium">MCP Client Tool</span> node (n8n 1.88+). No community node, no local process.</p>
           <div className="rounded-lg bg-background border border-border/60 p-4 space-y-3">
             <p className="text-[12px] text-muted-foreground">Set <span className="text-foreground/80 font-medium">Server Transport</span> to <code className="bg-muted px-1 rounded text-[11px]">HTTP Streamable</code></p>
             <FieldRow label="Endpoint URL" value={HOSTED_MCP_URL} />
@@ -389,10 +389,10 @@ function N8nInstall() {
         </div>
       )}
 
-      {mode === "self-hosted" && (
+      {mode === "stdio" && (
         <div className="space-y-4">
           <div className="flex items-center justify-between gap-3">
-            <p className="text-[12px] text-muted-foreground">Self-hosted n8n can launch the stdio server directly.</p>
+            <p className="text-[12px] text-muted-foreground">Self-hosted n8n only. Launches the stdio server locally, for older n8n without the native node.</p>
             <a href="https://www.npmjs.com/package/n8n-nodes-mcp" target="_blank" rel="noopener noreferrer"
               className="text-[12px] text-muted-foreground/70 hover:text-foreground/80 transition-colors whitespace-nowrap">
               n8n-nodes-mcp on npm ↗
