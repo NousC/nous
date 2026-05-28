@@ -1,18 +1,24 @@
 {
   "name": "@opennous/cli",
-  "version": "0.1.0",
-  "description": "Nous CRM CLI — manage contacts and memory from the terminal",
+  "version": "0.2.0",
+  "description": "Nous CLI — install Nous event tracking into your app, plus terminal access to the Context API",
   "type": "module",
   "bin": {
     "nous": "src/index.js"
   },
-  "files": ["src"],
+  "files": ["src", "README.md"],
   "scripts": {
     "dev": "node src/index.js",
     "start": "node src/index.js"
   },
-  "keywords": ["nous", "crm", "cli", "agents", "memory"],
+  "keywords": ["nous", "crm", "cli", "agents", "memory", "observability", "stripe"],
   "license": "AGPL-3.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bennetglinder1/nous.git",
+    "directory": "apps/cli"
+  },
+  "homepage": "https://opennous.cloud",
   "dependencies": {
     "commander": "^12.1.0"
   }
