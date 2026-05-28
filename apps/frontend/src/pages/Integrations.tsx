@@ -6,6 +6,7 @@ import { watchOAuthPopup } from "@/lib/oauthPopup";
 import { IntegrationConn, AvailableProvider, IntegrationLogo } from "@/components/mind/entities";
 import { PageHeader } from "@/components/ui/page-header";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { TrackYourSignupsCard } from "@/components/integrations/TrackYourSignupsCard";
 
 const apiUrl = import.meta.env.VITE_API_URL ?? "";
 
@@ -256,6 +257,8 @@ export default function Integrations() {
             </button>
           }
         />
+
+        {catTab === "all" && <TrackYourSignupsCard />}
 
         {/* Category tab row */}
         <div className="flex gap-6 border-b border-border mb-5 overflow-x-auto">

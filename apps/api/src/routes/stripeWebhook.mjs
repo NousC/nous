@@ -11,6 +11,25 @@
 import Stripe from 'stripe';
 import { getSupabaseClient } from '@nous/core';
 import { normalizePlanId, isSelfHosted } from '../lib/plans.mjs';
+import { logNousObservation } from '../lib/dogfood.mjs';
+
+// Look up the founder's email for a team — used to attach Stripe lifecycle
+// events to the right person on our own Nous timeline.
+async function founderEmailForTeam(supabase, teamId) {
+  if (!teamId) return null;
+  try {
+    const { data } = await supabase
+      .from('team_members')
+      .select('users:user_id(email)')
+      .eq('team_id', teamId)
+      .eq('role', 'founder')
+      .limit(1);
+    return data?.[0]?.users?.email || null;
+  } catch (err) {
+    console.warn('[stripe-webhook] founder email lookup failed:', err.message);
+    return null;
+  }
+}
 
 let _stripe = null;
 function getStripe() {
@@ -80,6 +99,32 @@ export async function stripeWebhookHandler(req, res) {
           },
           { onConflict: 'team_id' },
         );
+
+        // Dogfood: log the paid-plan transition on the founder's timeline in
+        // our own Nous workspace, and promote their state.stage to Customer.
+        if (sub.status === 'active' && planId !== 'free') {
+          const founderEmail = await founderEmailForTeam(supabase, teamId);
+          if (founderEmail) {
+            const price = sub.items?.data?.[0]?.price;
+            const isCreate = event.type === 'customer.subscription.created';
+            logNousObservation(founderEmail, [
+              { kind: 'event',
+                property: isCreate ? 'interaction.subscription_started' : 'interaction.subscription_updated',
+                value: {
+                  source: 'stripe',
+                  plan: planId,
+                  status: sub.status,
+                  billing_interval: price?.recurring?.interval || 'month',
+                  amount: price?.unit_amount ? price.unit_amount / 100 : null,
+                  currency: sub.currency || 'eur',
+                  stripe_subscription_id: sub.id,
+                  at: new Date().toISOString(),
+                } },
+              { kind: 'state', property: 'stage', value: 'Customer' },
+              { kind: 'state', property: 'plan', value: planId },
+            ]).catch(err => console.error('[stripe-webhook] obs failed:', err.message));
+          }
+        }
         break;
       }
 
@@ -97,6 +142,23 @@ export async function stripeWebhookHandler(req, res) {
             cancel_at_period_end: false,
           })
           .eq('team_id', teamId);
+
+        // Dogfood: log the cancellation + flip stage to Churned.
+        const founderEmail = await founderEmailForTeam(supabase, teamId);
+        if (founderEmail) {
+          logNousObservation(founderEmail, [
+            { kind: 'event', property: 'interaction.subscription_canceled',
+              value: {
+                source: 'stripe',
+                plan: sub.metadata?.plan_id || null,
+                stripe_subscription_id: sub.id,
+                reason: sub.cancellation_details?.reason || null,
+                feedback: sub.cancellation_details?.feedback || null,
+                at: new Date().toISOString(),
+              } },
+            { kind: 'state', property: 'stage', value: 'Churned' },
+          ]).catch(err => console.error('[stripe-webhook] obs failed:', err.message));
+        }
         break;
       }
 
