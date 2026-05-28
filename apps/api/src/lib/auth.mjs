@@ -196,20 +196,24 @@ export async function ensureUserAndTeam(supabaseUser, skipTeamCreation = false) 
         // when there's no other natural focus (ICP, company website, etc).
         // Without it, saveNote() throws "workspace entity not found" and
         // onboarding's ICP + website never get stored.
-        const { data: existingWsEntity } = await supabase
+        // supabase-js doesn't throw on query errors — check .error directly,
+        // otherwise we'd log "created" while the insert silently failed.
+        const { data: existingWsEntity, error: wsEntitySelectErr } = await supabase
           .from('entities')
           .select('id')
           .eq('workspace_id', workspaceId)
           .eq('type', 'workspace')
           .maybeSingle();
-        if (!existingWsEntity) {
-          try {
-            await supabase
-              .from('entities')
-              .insert({ workspace_id: workspaceId, type: 'workspace', status: 'active' });
+        if (wsEntitySelectErr) {
+          console.warn('[ensureUserAndTeam] Heal: workspace entity select failed:', wsEntitySelectErr.message, wsEntitySelectErr.code);
+        } else if (!existingWsEntity) {
+          const { error: wsEntityInsertErr } = await supabase
+            .from('entities')
+            .insert({ workspace_id: workspaceId, type: 'workspace', status: 'active' });
+          if (wsEntityInsertErr) {
+            console.warn('[ensureUserAndTeam] Heal: workspace entity insert failed:', wsEntityInsertErr.message, wsEntityInsertErr.code, wsEntityInsertErr.details);
+          } else {
             console.log(`[ensureUserAndTeam] Heal: created missing workspace entity for ${workspaceId}`);
-          } catch (e) {
-            console.warn('[ensureUserAndTeam] Heal: workspace entity insert failed:', e?.message || e);
           }
         }
       }
