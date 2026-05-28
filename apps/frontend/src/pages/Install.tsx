@@ -1,57 +1,44 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Copy, CheckCircle2, Plug, ArrowUpRight } from "lucide-react";
+import { Copy, CheckCircle2, Plug, ArrowUpRight, Terminal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
 
-// ── Brand logos used in the method-selector cards. PNGs render crisp at
-// small sizes; the mascot uses image-rendering: pixelated to keep its 8-bit
-// edges sharp.
-const LOGO_NOUS_MASCOT  = "/provider-logos/nous-mascot.png";   // Claude Code → the Nous pixel mascot
-const LOGO_CODEX_CLOUD  = "/provider-logos/codex.png";         // Codex + "Other MCP Clients" — purple cloud-terminal
+// ── Brand logos used in the client rail. PNGs render crisp at small sizes;
+// the mascot uses image-rendering: pixelated to keep its 8-bit edges sharp.
+const LOGO_NOUS_MASCOT = "/provider-logos/nous-mascot.png"; // Claude Code → Nous pixel mascot
+const LOGO_CODEX_CLOUD = "/provider-logos/codex.png";       // Codex — purple cloud-terminal
+const LOGO_CLAUDE      = "/provider-logos/claude.svg";      // Claude Desktop
+const LOGO_CURSOR      = "/provider-logos/cursor.png";      // Cursor
+const LOGO_N8N         = "/provider-logos/n8n.svg";         // n8n
+
+// The canonical org-preferences prompt also lives in the repo so the "view
+// source" link below resolves to a real file. Keep the two in sync.
+const ORG_PREFS_SOURCE =
+  "https://github.com/bennetglinder1/nous/blob/main/docs/claude-org-preferences.md";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-type InstallMethod = "plugin" | "client";
-type PluginClient = "claude-code" | "codex";
-type McpClient = "claude-desktop" | "cursor" | "generic";
+type Client = "claude" | "codex" | "cursor" | "n8n" | "generic";
+type ClaudeMethod = "plugin" | "cli" | "desktop";
+type PrefLength = "short" | "long";
 
-// ─── Data ────────────────────────────────────────────────────────────────────
+// Org preferences and the routing test are a claude.ai feature, so Steps 2 and 3
+// only apply when the selected tool is Claude.
+const CLAUDE_CLIENTS: Client[] = ["claude"];
 
-// `icon` is a ReactNode (not an ElementType) so each card can ship its own
-// rendering — the Nous mascot needs image-rendering:pixelated, the cloud
-// glyph doesn't. Both render at 18×18 inside the 36×36 tinted frame.
-const INSTALL_METHODS: { id: InstallMethod; label: string; desc: string; icon: React.ReactNode }[] = [
-  {
-    id: "plugin",
-    label: "Plugin",
-    desc: "Claude Code & Codex",
-    icon: (
-      <img
-        src={LOGO_NOUS_MASCOT}
-        alt=""
-        className="h-[18px] w-[18px] object-contain"
-        style={{ imageRendering: "pixelated" }}
-      />
-    ),
-  },
-  {
-    id: "client",
-    label: "Other MCP Clients",
-    desc: "Claude Desktop, Cursor, etc.",
-    // Generic Lucide icon (matches the original feel) — the sub-tabs inside
-    // this panel carry the real per-client logos.
-    icon: <Plug className="h-4 w-4 text-muted-foreground" strokeWidth={1.75} />,
-  },
-];
+// ─── Shared bits ──────────────────────────────────────────────────────────────
 
-// ─── Shared bits ────────────────────────────────────────────────────────────
-
-function CodeSnippet({ code }: { code: string }) {
+function CodeSnippet({ code, caption }: { code: string; caption?: string }) {
   const [copied, setCopied] = useState(false);
   const copy = () => { navigator.clipboard.writeText(code); setCopied(true); setTimeout(() => setCopied(false), 1500); };
   return (
-    <div className="relative group rounded-lg bg-muted/50 border border-border/60 overflow-hidden">
+    <div className="relative group rounded-lg bg-background border border-border/60 overflow-hidden">
+      {caption && (
+        <div className="px-4 pt-2.5 pb-2 text-[11px] font-medium text-muted-foreground/70 border-b border-border/40 pr-10">
+          {caption}
+        </div>
+      )}
       <pre className="text-[12px] text-foreground/80 px-4 py-3 overflow-x-auto font-mono whitespace-pre leading-relaxed">{code}</pre>
       <button onClick={copy}
         className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded bg-background border border-border hover:bg-accent">
@@ -72,7 +59,7 @@ function TabBar<T extends string>({
   size?: "sm" | "md";
 }) {
   return (
-    <div className="inline-flex rounded-lg border border-border/60 bg-muted/50 p-0.5 gap-0.5">
+    <div className="inline-flex flex-wrap rounded-lg border border-border/60 bg-muted/50 p-0.5 gap-0.5">
       {tabs.map(t => (
         <button
           key={t.id}
@@ -93,6 +80,30 @@ function TabBar<T extends string>({
   );
 }
 
+// A numbered step in the install spine. The content sits in its own muted
+// sub-panel, so each step reads as a distinct block lifted off the white card.
+function Step({ n, title, hint, children }: { n: number; title: string; hint?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <section className="space-y-4">
+      <div className="flex items-baseline gap-3">
+        <span className="flex-shrink-0 w-6 h-6 rounded-full bg-foreground text-background text-[12px] font-semibold flex items-center justify-center translate-y-[3px]">
+          {n}
+        </span>
+        <div>
+          <h2 className="text-[15px] font-semibold text-foreground leading-tight">{title}</h2>
+          {hint && <p className="text-[12px] text-muted-foreground/70 mt-1 leading-relaxed">{hint}</p>}
+        </div>
+      </div>
+      <div className="rounded-xl border border-border/50 bg-muted/40 p-4 sm:p-5 space-y-4">{children}</div>
+    </section>
+  );
+}
+
+// A small muted footnote under a code box — one short clause, not a paragraph.
+function FootNote({ children }: { children: React.ReactNode }) {
+  return <p className="text-[11.5px] text-muted-foreground/60 leading-relaxed">{children}</p>;
+}
+
 function ApiKeyHint() {
   return (
     <p className="text-[12px] text-muted-foreground/70">
@@ -104,161 +115,460 @@ function ApiKeyHint() {
   );
 }
 
-// ─── Panels ─────────────────────────────────────────────────────────────────
+// ─── Step 1 — per-client install ───────────────────────────────────────────────
 
-function PluginPanel() {
-  const [client, setClient] = useState<PluginClient>("claude-code");
+const CLAUDE_CODE_MARKETPLACE = `/plugin marketplace add bennetglinder1/nous`;
+const CLAUDE_CODE_INSTALL = `/plugin install nous@nous-plugins`;
 
-  const claudeCodeMarketplace = `/plugin marketplace add bennetglinder1/nous`;
-  const claudeCodeInstall     = `/plugin install nous@nous-plugins`;
+// Raw CLI alternative to the plugin — adds the stdio server directly.
+// Add -s user to make it available in every project.
+const CLAUDE_CODE_CLI = `claude mcp add nous -e NOUS_API_KEY=YOUR_API_KEY -- npx -y @opennous/mcp`;
 
-  const codexMcp = `# ~/.codex/config.toml
-[mcp_servers.nous]
+const CODEX_CONFIG = `[mcp_servers.nous]
 command = "npx"
 args = ["-y", "@opennous/mcp"]
 env = { NOUS_API_KEY = "YOUR_API_KEY" }`;
 
+const CURSOR_CONFIG = `{
+  "mcpServers": {
+    "nous": {
+      "command": "npx",
+      "args": ["-y", "@opennous/mcp"],
+      "env": { "NOUS_API_KEY": "YOUR_API_KEY" }
+    }
+  }
+}`;
+
+const CLAUDE_DESKTOP_CONFIG = `{
+  "mcpServers": {
+    "nous": {
+      "command": "npx",
+      "args": ["-y", "@opennous/mcp"],
+      "env": { "NOUS_API_KEY": "YOUR_API_KEY" }
+    }
+  }
+}`;
+
+const GENERIC_CONFIG = `{
+  "mcpServers": {
+    "nous": {
+      "command": "npx",
+      "args": ["-y", "@opennous/mcp"],
+      "env": { "NOUS_API_KEY": "YOUR_API_KEY" }
+    }
+  }
+}`;
+
+// Hosted MCP endpoint — lets cloud clients (n8n cloud, etc.) connect over HTTPS.
+const HOSTED_MCP_URL = "https://mcp.opennous.cloud/mcp";
+
+// n8n is a UI form, not a config file, so its setup is shown as labelled fields.
+// Self-hosted n8n launches the stdio server via the community node.
+const N8N_STDIO_FIELDS: { label: string; value: string }[] = [
+  { label: "Command", value: "npx" },
+  { label: "Arguments", value: "-y @opennous/mcp" },
+  { label: "Environment", value: "NOUS_API_KEY=YOUR_API_KEY" },
+];
+
+const CLIENTS: Record<Client, {
+  label: string;
+  tab: string;
+  icon: React.ReactNode;
+  heading: string;
+  intro?: string;
+  steps: { label?: string; code: string }[];
+  note: React.ReactNode;
+  source: { href: string; label: string };
+}> = {
+  // "claude" is rendered by a custom panel (ClaudeInstall) that covers all three
+  // ways. The fields below only feed the tool tab; steps/note are unused.
+  "claude": {
+    label: "Claude MCP",
+    tab: "Claude MCP",
+    icon: <img src={LOGO_CLAUDE} alt="" className="w-3.5 h-3.5 object-contain" />,
+    heading: "",
+    steps: [],
+    note: null,
+    source: { href: "https://github.com/bennetglinder1/nous", label: "View source ↗" },
+  },
+  "codex": {
+    label: "Codex",
+    tab: "Codex",
+    icon: <img src={LOGO_CODEX_CLOUD} alt="" className="w-3.5 h-3.5 object-contain" />,
+    heading: "Connect Nous in Codex",
+    steps: [{ label: "Add this to ~/.codex/config.toml, then restart Codex", code: CODEX_CONFIG }],
+    note: null,
+    source: { href: "https://www.npmjs.com/package/@opennous/mcp", label: "@opennous/mcp on npm ↗" },
+  },
+  "cursor": {
+    label: "Cursor",
+    tab: "Cursor",
+    icon: <img src={LOGO_CURSOR} alt="" className="w-3.5 h-3.5 object-contain rounded-[3px]" />,
+    heading: "Connect Nous in Cursor",
+    steps: [{ label: "Add this to ~/.cursor/mcp.json, then reload Cursor", code: CURSOR_CONFIG }],
+    note: null,
+    source: { href: "https://www.npmjs.com/package/@opennous/mcp", label: "@opennous/mcp on npm ↗" },
+  },
+  "n8n": {
+    label: "n8n",
+    tab: "n8n",
+    icon: <img src={LOGO_N8N} alt="" className="w-3.5 h-3.5 object-contain" />,
+    heading: "Connect Nous in n8n",
+    steps: [],
+    note: null,
+    source: { href: "https://www.npmjs.com/package/n8n-nodes-mcp", label: "n8n-nodes-mcp on npm ↗" },
+  },
+  "generic": {
+    label: "Generic MCP",
+    tab: "Generic MCP",
+    icon: <Plug className="w-3.5 h-3.5" strokeWidth={1.75} />,
+    heading: "Connect Nous in any MCP client",
+    steps: [{ label: "Add this to your MCP client's config (the mcpServers format)", code: GENERIC_CONFIG }],
+    note: null,
+    source: { href: "https://www.npmjs.com/package/@opennous/mcp", label: "@opennous/mcp on npm ↗" },
+  },
+};
+
+const CLIENT_ORDER: Client[] = ["claude", "codex", "cursor", "n8n", "generic"];
+
+// Horizontal logo tabs — the tool decider sits across the top, left to right.
+// Selecting one swaps the install shown below.
+function ClientTabs({ active, onChange }: { active: Client; onChange: (c: Client) => void }) {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {CLIENT_ORDER.map(id => {
+        const c = CLIENTS[id];
+        const selected = id === active;
+        return (
+          <button
+            key={id}
+            onClick={() => onChange(id)}
+            className={cn(
+              "flex items-center gap-2 rounded-lg px-3 py-2 text-[12.5px] font-semibold transition-all border",
+              selected
+                ? "bg-background border-border/60 shadow-sm text-foreground"
+                : "bg-transparent border-transparent text-muted-foreground/70 hover:text-foreground/80 hover:bg-background/60"
+            )}
+          >
+            <span className="w-5 h-5 flex items-center justify-center flex-shrink-0">{c.icon}</span>
+            {c.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// The simple clients (Codex, Cursor, n8n, Generic) — one heading, one config.
+function GenericClientSetup({ client }: { client: Client }) {
+  const c = CLIENTS[client];
   return (
     <div className="space-y-4">
-      <TabBar
-        tabs={[
-          { id: "claude-code" as PluginClient, label: "Claude Code", icon: <img src={LOGO_NOUS_MASCOT} alt="" className="w-3.5 h-3.5 object-contain" style={{ imageRendering: "pixelated" }} /> },
-          { id: "codex"       as PluginClient, label: "Codex",       icon: <img src={LOGO_CODEX_CLOUD} alt="" className="w-3.5 h-3.5 object-contain" /> },
-        ]}
-        active={client}
-        onChange={setClient}
-        size="sm"
-      />
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-[13px] font-semibold text-foreground">{c.heading}</h3>
+        <a href={c.source.href} target="_blank" rel="noopener noreferrer"
+          className="text-[12px] text-muted-foreground/70 hover:text-foreground/80 transition-colors whitespace-nowrap">
+          {c.source.label}
+        </a>
+      </div>
 
-      <div className="rounded-xl border border-border/60 bg-background p-5 space-y-4">
-        <div className="flex items-center justify-between">
-          <h3 className="text-[13px] font-semibold text-foreground">
-            {client === "claude-code" ? "Install the Nous plugin for Claude Code" : "Connect Nous in Codex"}
-          </h3>
-          <a href="https://github.com/bennetglinder1/nous" target="_blank" rel="noopener noreferrer"
-            className="text-[12px] text-muted-foreground/70 hover:text-foreground/80 transition-colors">View source ↗</a>
+      {c.intro && <p className="text-[12px] text-muted-foreground/70 leading-relaxed">{c.intro}</p>}
+
+      <div className="space-y-3.5">
+        {c.steps.map((s, i) => (
+          <CodeSnippet key={i} caption={s.label} code={s.code} />
+        ))}
+      </div>
+
+      {c.note && <FootNote>{c.note}</FootNote>}
+
+      <ApiKeyHint />
+    </div>
+  );
+}
+
+// Claude merges Claude Code and Claude Desktop. Three ways to add Nous: the
+// plugin (recommended), the CLI, or the Claude Desktop config.
+const CLAUDE_METHODS: { id: ClaudeMethod; label: string; icon: React.ReactNode }[] = [
+  { id: "plugin",  label: "Plugin",         icon: <img src={LOGO_NOUS_MASCOT} alt="" className="w-3.5 h-3.5 object-contain" style={{ imageRendering: "pixelated" }} /> },
+  { id: "cli",     label: "CLI",            icon: <Terminal className="w-3.5 h-3.5" strokeWidth={1.75} /> },
+  { id: "desktop", label: "Claude Desktop", icon: <img src={LOGO_CLAUDE} alt="" className="w-3.5 h-3.5 object-contain" /> },
+];
+
+function ClaudeInstall() {
+  const [method, setMethod] = useState<ClaudeMethod>("plugin");
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-[13px] font-semibold text-foreground">Add Nous to Claude in one of three ways</p>
+        <a href="https://github.com/bennetglinder1/nous" target="_blank" rel="noopener noreferrer"
+          className="text-[12px] text-muted-foreground/70 hover:text-foreground/80 transition-colors whitespace-nowrap">
+          View source ↗
+        </a>
+      </div>
+
+      <TabBar tabs={CLAUDE_METHODS} active={method} onChange={setMethod} size="sm" />
+
+      {method === "plugin" && (
+        <div className="space-y-3">
+          <CodeSnippet caption="1. In Claude Code, add the Nous plugin marketplace" code={CLAUDE_CODE_MARKETPLACE} />
+          <CodeSnippet caption="2. Install the Nous plugin" code={CLAUDE_CODE_INSTALL} />
+          <FootNote>Prompts for your API key and stores it in your OS keychain. Restart Claude Code once.</FootNote>
         </div>
+      )}
 
-        {client === "claude-code" && (
-          <div className="space-y-3.5">
-            <div>
-              <p className="text-[12px] text-muted-foreground mb-1.5">Step 1 — add the marketplace</p>
-              <CodeSnippet code={claudeCodeMarketplace} />
-            </div>
-            <div>
-              <p className="text-[12px] text-muted-foreground mb-1.5">Step 2 — install the plugin</p>
-              <CodeSnippet code={claudeCodeInstall} />
-            </div>
-            <p className="text-[12px] text-muted-foreground/70 leading-relaxed pt-1">
-              Claude Code prompts for your Nous API key during install and stores it in your OS keychain — never in plaintext. Restart Claude Code once and the seven Nous tools (<code className="bg-muted px-1 rounded text-[11px]">get_context</code>, <code className="bg-muted px-1 rounded text-[11px]">get_account</code>, <code className="bg-muted px-1 rounded text-[11px]">record</code>, <code className="bg-muted px-1 rounded text-[11px]">query</code>, <code className="bg-muted px-1 rounded text-[11px]">attention</code>, <code className="bg-muted px-1 rounded text-[11px]">verify</code>, <code className="bg-muted px-1 rounded text-[11px]">get_workspace_facts</code>) are available in every session.
-            </p>
+      {method === "cli" && (
+        <div className="space-y-3">
+          <CodeSnippet caption="Run this in your terminal to add the Nous MCP server to Claude Code" code={CLAUDE_CODE_CLI} />
+          <FootNote>Add <code className="bg-muted px-1 rounded text-[11px]">-s user</code> to install it for every project. Restart Claude Code.</FootNote>
+        </div>
+      )}
+
+      {method === "desktop" && (
+        <div className="space-y-3">
+          <CodeSnippet caption="Add this to your Claude Desktop config file, then restart the app" code={CLAUDE_DESKTOP_CONFIG} />
+        </div>
+      )}
+
+      <ApiKeyHint />
+    </div>
+  );
+}
+
+// A single labelled credential field with a copyable value — for UI-form clients
+// like n8n where you fill in fields rather than paste a config file.
+function FieldRow({ label, value }: { label: string; value: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => { navigator.clipboard.writeText(value); setCopied(true); setTimeout(() => setCopied(false), 1500); };
+  return (
+    <div className="flex items-center gap-3 group">
+      <span className="w-28 flex-shrink-0 text-[12px] font-medium text-muted-foreground">{label}</span>
+      <div className="relative flex-1 min-w-0 rounded-md bg-background border border-border/60 px-3 py-1.5">
+        <code className="text-[12px] text-foreground/80 font-mono break-all">{value}</code>
+        <button onClick={copy}
+          className="absolute top-1/2 -translate-y-1/2 right-1.5 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded bg-background border border-border hover:bg-accent">
+          {copied
+            ? <CheckCircle2 className="h-3 w-3 text-emerald-500" />
+            : <Copy className="h-3 w-3 text-muted-foreground/70" />}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+type N8nMode = "cloud" | "self-hosted";
+
+function N8nInstall() {
+  const [mode, setMode] = useState<N8nMode>("cloud");
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-[13px] font-semibold text-foreground">Connect Nous in n8n</h3>
+        <TabBar
+          tabs={[
+            { id: "cloud" as N8nMode, label: "n8n Cloud" },
+            { id: "self-hosted" as N8nMode, label: "Self-hosted" },
+          ]}
+          active={mode}
+          onChange={setMode}
+          size="sm"
+        />
+      </div>
+
+      {mode === "cloud" && (
+        <div className="space-y-3">
+          <p className="text-[12px] text-muted-foreground">Add the native <span className="text-foreground/80 font-medium">MCP Client Tool</span> node and set it up over HTTP. No community node, no local process.</p>
+          <div className="rounded-lg bg-background border border-border/60 p-4 space-y-3">
+            <p className="text-[12px] text-muted-foreground">Set <span className="text-foreground/80 font-medium">Server Transport</span> to <code className="bg-muted px-1 rounded text-[11px]">HTTP Streamable</code></p>
+            <FieldRow label="Endpoint URL" value={HOSTED_MCP_URL} />
+            <p className="text-[12px] text-muted-foreground">Set <span className="text-foreground/80 font-medium">Authentication</span> to <code className="bg-muted px-1 rounded text-[11px]">Bearer Auth</code> and paste your Nous API key as the token.</p>
           </div>
-        )}
+          <ApiKeyHint />
+        </div>
+      )}
 
-        {client === "codex" && (
-          <>
-            <p className="text-[12px] text-muted-foreground/70">
-              Add to{" "}
-              <code className="bg-muted px-1 rounded text-[11px]">~/.codex/config.toml</code>
-              , then restart Codex.
-            </p>
-            <CodeSnippet code={codexMcp} />
-            <p className="text-[12px] text-muted-foreground/70 leading-relaxed pt-1">
-              The server downloads on first run via <code className="bg-muted px-1 rounded text-[11px]">npx</code> (no global install). Seven Nous tools become callable in every Codex session.
-            </p>
-          </>
-        )}
-      </div>
-      <ApiKeyHint />
+      {mode === "self-hosted" && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-[12px] text-muted-foreground">Self-hosted n8n can launch the stdio server directly.</p>
+            <a href="https://www.npmjs.com/package/n8n-nodes-mcp" target="_blank" rel="noopener noreferrer"
+              className="text-[12px] text-muted-foreground/70 hover:text-foreground/80 transition-colors whitespace-nowrap">
+              n8n-nodes-mcp on npm ↗
+            </a>
+          </div>
+          <div>
+            <p className="text-[12px] text-muted-foreground mb-1.5">1. Install the <code className="bg-muted px-1 rounded text-[11px]">n8n-nodes-mcp</code> community node</p>
+            <p className="text-[12px] text-muted-foreground">2. Create an <span className="text-foreground/80 font-medium">MCP Client (STDIO)</span> credential with these fields</p>
+          </div>
+          <div className="rounded-lg bg-background border border-border/60 p-4 space-y-2.5">
+            {N8N_STDIO_FIELDS.map(f => <FieldRow key={f.label} label={f.label} value={f.value} />)}
+          </div>
+          <FootNote>3. Add the <span className="text-foreground/80 font-medium">MCP Client</span> node to any workflow and select the credential.</FootNote>
+          <ApiKeyHint />
+        </div>
+      )}
     </div>
   );
 }
 
-function McpClientPanel() {
-  const [client, setClient] = useState<McpClient>("claude-desktop");
+function ClientPanel({ client, onChange }: { client: Client; onChange: (c: Client) => void }) {
+  return (
+    <div className="space-y-4">
+      <ClientTabs active={client} onChange={onChange} />
 
-  // Every MCP-speaking client takes the same npx command — only the config path
-  // and JSON wrapper change. We don't invent harnesses; we show the real ones.
+      <div className="border-t border-border/50 pt-4">
+        {client === "claude" ? <ClaudeInstall />
+          : client === "n8n" ? <N8nInstall />
+          : <GenericClientSetup client={client} />}
+      </div>
+    </div>
+  );
+}
 
-  const claudeDesktop = `// ~/Library/Application Support/Claude/claude_desktop_config.json   (macOS)
-// %APPDATA%\\Claude\\claude_desktop_config.json                       (Windows)
-{
-  "mcpServers": {
-    "nous": {
-      "command": "npx",
-      "args": ["-y", "@opennous/mcp"],
-      "env": { "NOUS_API_KEY": "YOUR_API_KEY" }
-    }
-  }
-}`;
+// ─── Step 2 — org preferences (the routing layer) ──────────────────────────────
 
-  const cursor = `// ~/.cursor/mcp.json   (or .cursor/mcp.json in a project for project-scoped)
-{
-  "mcpServers": {
-    "nous": {
-      "command": "npx",
-      "args": ["-y", "@opennous/mcp"],
-      "env": { "NOUS_API_KEY": "YOUR_API_KEY" }
-    }
-  }
-}`;
+const PREF_SHORT = `# Nous is this workspace's GTM account record
 
-  const generic = `# Any MCP-compatible client. The server is published on npm — no clone needed.
-NOUS_API_KEY=YOUR_API_KEY npx -y @opennous/mcp
+Nous holds the identity-resolved account record for every person and company we
+sell to. Known facts with their confidence and freshness, the full interaction
+timeline, plus our own ICP, positioning, and pricing. Agents read engineered
+context from Nous rather than raw CRM rows.
 
-# Or pin a version:
-NOUS_API_KEY=YOUR_API_KEY npx -y @opennous/mcp@0.10.1`;
+## Ground GTM work in Nous
 
-  const META: Record<McpClient, { label: string; icon: React.ReactNode; copy: string; code: string }> = {
-    "claude-desktop": {
-      label: "Claude Desktop",
-      icon: <img src="/provider-logos/claude.svg" alt="" className="w-3.5 h-3.5 object-contain" />,
-      copy: "Add to your Claude Desktop config (path differs by OS), then restart Claude Desktop.",
-      code: claudeDesktop,
-    },
-    "cursor": {
-      label: "Cursor",
-      icon: <img src="/provider-logos/cursor.png" alt="" className="w-3.5 h-3.5 object-contain rounded-[3px]" />,
-      copy: "Add to Cursor's MCP config and reload — Cursor picks it up automatically.",
-      code: cursor,
-    },
-    "generic": {
-      label: "Any MCP client",
-      icon: <Plug className="w-3.5 h-3.5" />,
-      copy: "The MCP server is just a stdio process — point any compliant client at it.",
-      code: generic,
-    },
-  };
-  const active = META[client];
+Before any go-to-market task (drafting outreach, prepping a call or meeting,
+reviewing an account, qualifying a prospect) call get_context with the person's
+email and the matching intent (draft_email, follow_up, meeting_prep, call_prep,
+account_review). Use what it returns. Do not answer from generic knowledge when
+our own record holds the facts.
+
+## Default to Nous, even unprompted
+
+For any GTM question about a person, company, deal, or our own business, reach for
+Nous first even when the user never says "Nous".
+- Who is this, every known fact, full history  → get_account
+- Context for a specific task                   → get_context
+- Something happened or you learned a fact      → record
+- Activity or a list across many accounts       → query
+- What needs attention, what has gone quiet     → attention
+- A fact looks stale before you act on it       → verify
+- Our ICP, market, pricing, positioning         → get_workspace_facts
+
+After every interaction you help with, call record so the account record stays
+current.`;
+
+const PREF_LONG = `# Nous is this workspace's GTM context engine
+
+Nous resolves every person and company we sell to into one account record. It holds
+the known facts with their confidence and freshness, the full interaction timeline
+across our tools, and our own ICP, positioning, pricing, and competitors. When raw
+CRM and call-intelligence tools (HubSpot, Salesforce, Gong, Granola, Apollo,
+Smartlead) are also connected, Nous is the synthesis layer that sits on top of them.
+Those tools hold rows. Nous holds the engineered, identity-resolved record agents
+should act on.
+
+## Ground every GTM answer in Nous
+
+Before answering any go-to-market question (outreach, objections, competitors,
+personas, value props, pricing narrative, account status, next steps) pull the
+relevant context from Nous first with get_context or get_workspace_facts. Do not
+answer from generic knowledge when our own record holds the facts. Name the account
+or fact you used.
+
+## Default to Nous, even unprompted
+
+For any GTM task about a person, company, deal, buyer, or our own business, reach for
+Nous first even when the user never says "Nous".
+- Context for a specific task → get_context (pass the email and the intent:
+  draft_email, follow_up, meeting_prep, call_prep, account_review)
+- Who is this, every known fact, full history → get_account
+- Something happened or you learned a fact → record (you observe, Nous derives the
+  updated record, you never overwrite)
+- Activity, patterns, or a list across many accounts → query
+- What needs attention right now, accounts gone quiet → attention
+- A fact looks stale before you act on it → verify
+- Our ICP, target market, pricing, positioning, competitors → get_workspace_facts
+
+## Prefer Nous over raw records
+
+When HubSpot, Salesforce, Gong, or Granola could answer the same question, prefer
+Nous. Reach for a raw tool only to pull a record Nous has not yet observed, then call
+record so the account record absorbs what you found.
+
+## Keep the record current
+
+After every interaction you help with (an email sent, a call held, a reply received,
+a fact learned) call record so the next agent starts from the truth. State changes
+use kind:'state'. Interactions use kind:'event'.`;
+
+const PREF_META: Record<PrefLength, { tab: string; chars: string; blurb: string }> = {
+  short: {
+    tab: "Short",
+    chars: "~1.7k chars",
+    blurb: "Covers core routing and the most common Nous intents.",
+  },
+  long: {
+    tab: "Long",
+    chars: "~2.95k chars",
+    blurb: "Use when raw CRM and call tools are also connected. Adds explicit demotion of those tools plus write discipline, with room to layer your own ICPs and playbooks on top.",
+  },
+};
+
+function OrgPrefsPanel() {
+  const [len, setLen] = useState<PrefLength>("short");
+  const meta = PREF_META[len];
 
   return (
     <div className="space-y-4">
-      <TabBar
-        tabs={(Object.keys(META) as McpClient[]).map(id => ({ id, label: META[id].label, icon: META[id].icon }))}
-        active={client}
-        onChange={setClient}
-        size="sm"
-      />
-
-      <div className="rounded-xl border border-border/60 bg-background p-5 space-y-4">
-        <div className="flex items-center justify-between">
-          <h3 className="text-[13px] font-semibold text-foreground">Connect Nous in {active.label}</h3>
-          <a href="https://www.npmjs.com/package/@opennous/mcp" target="_blank" rel="noopener noreferrer"
-            className="text-[12px] text-muted-foreground/70 hover:text-foreground/80 transition-colors">@opennous/mcp on npm ↗</a>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <TabBar
+            tabs={(["short", "long"] as PrefLength[]).map(id => ({ id, label: PREF_META[id].tab }))}
+            active={len}
+            onChange={setLen}
+            size="sm"
+          />
+          <span className="text-[11px] text-muted-foreground/60">{meta.chars}</span>
         </div>
-        <p className="text-[12px] text-muted-foreground/70">{active.copy}</p>
-        <CodeSnippet code={active.code} />
-        <p className="text-[12px] text-muted-foreground/70 leading-relaxed pt-1">
-          The server downloads on first run via <code className="bg-muted px-1 rounded text-[11px]">npx</code> (no global install). Seven Nous tools — <code className="bg-muted px-1 rounded text-[11px]">get_context</code>, <code className="bg-muted px-1 rounded text-[11px]">get_account</code>, <code className="bg-muted px-1 rounded text-[11px]">record</code>, <code className="bg-muted px-1 rounded text-[11px]">query</code>, <code className="bg-muted px-1 rounded text-[11px]">attention</code>, <code className="bg-muted px-1 rounded text-[11px]">verify</code>, <code className="bg-muted px-1 rounded text-[11px]">get_workspace_facts</code> — become callable in every session.
-        </p>
+        <a href={ORG_PREFS_SOURCE} target="_blank" rel="noopener noreferrer"
+          className="text-[12px] text-muted-foreground/70 hover:text-foreground/80 transition-colors whitespace-nowrap">
+          View source ↗
+        </a>
       </div>
-      <ApiKeyHint />
+
+      <p className="text-[12px] text-muted-foreground/70 leading-relaxed">{meta.blurb}</p>
+
+      <CodeSnippet code={len === "short" ? PREF_SHORT : PREF_LONG} />
+
+      <p className="text-[12px] text-muted-foreground/70 leading-relaxed pt-1">
+        Organization preferences are admin only (Teams and Enterprise) and can take up to an hour to propagate across Claude products. On Pro, paste the same text into <span className="text-foreground/80 font-medium">Settings → Personal preferences</span> instead.
+      </p>
     </div>
   );
 }
 
-// ─── SDK footer — surfaces the build-on-Nous path for the rare developer
-// who actually needs it, without diluting the install page's main message.
+// ─── Step 3 — verify routing ────────────────────────────────────────────────────
+
+const TEST_PROMPT = `What should I do next with jane@acme.com?`;
+
+function VerifyPanel() {
+  return (
+    <div className="space-y-3.5">
+      <p className="text-[12px] text-muted-foreground/70 leading-relaxed">
+        Open a fresh conversation and ask this without typing the word "Nous".
+      </p>
+      <CodeSnippet code={TEST_PROMPT} />
+      <p className="text-[12px] text-muted-foreground/70 leading-relaxed pt-1">
+        Claude should call <code className="bg-muted px-1 rounded text-[11px]">get_context</code> on its own before answering. If it reaches for a raw CRM tool first, the preferences have not propagated yet, or the prompt in Step 2 needs to be pasted again.
+      </p>
+    </div>
+  );
+}
+
+// ─── SDK footer — the build-on-Nous path for the rare developer who needs it,
+// without diluting the install page's main message. ───────────────────────────
 function SdkFooter() {
   return (
     <div className="pt-2 text-center">
@@ -281,49 +591,58 @@ function SdkFooter() {
 // ─── Page ───────────────────────────────────────────────────────────────────
 
 export default function Install() {
-  const [method, setMethod] = useState<InstallMethod>("plugin");
+  const [client, setClient] = useState<Client>("claude");
+  const isClaudeClient = CLAUDE_CLIENTS.includes(client);
 
   return (
-    <div className="h-full overflow-y-auto bg-background">
-      {/* Centered column — with only two install paths the page reads as
-          focused instead of stretched edge-to-edge. */}
-      <div className="px-6 py-7 max-w-2xl mx-auto">
+    <div className="h-full overflow-y-auto bg-muted/30">
+      {/* Centered column keeps the three-step flow readable instead of
+          stretched edge-to-edge. */}
+      <div className="px-6 py-7 max-w-3xl mx-auto">
         <PageHeader
           title="Install Nous"
-          subtitle="Two ways to give your agents the Account Record. Both ride the same v2 Context API and the same MCP server."
+          subtitle="Add Nous to your tool, then tell Claude to route GTM work through it by default. Every path rides the same v2 Context API and the same MCP server."
         />
-        <div className="space-y-7">
-          {/* Method selector — 2 cards, centered by the parent column */}
-          <div className="grid grid-cols-2 gap-3">
-            {INSTALL_METHODS.map(m => (
-              <button
-                key={m.id}
-                onClick={() => setMethod(m.id)}
-                className={cn(
-                  "flex items-center gap-3 p-4 rounded-xl border-2 text-left transition-all",
-                  method === m.id
-                    ? "border-foreground bg-background shadow-sm"
-                    : "border-border/60 bg-background hover:border-border"
-                )}
+
+        {/* The whole guided flow sits in one elevated white card, lifted off
+            the muted page behind it. */}
+        <div className="rounded-2xl border border-border/60 bg-background shadow-sm p-6 sm:p-8 space-y-9">
+          <Step
+            n={1}
+            title="Add Nous to your tool"
+            hint="Pick where your agent runs. Claude Code installs as a plugin; everywhere else takes the MCP server config."
+          >
+            <ClientPanel client={client} onChange={setClient} />
+          </Step>
+
+          {/* Org preferences and the routing test are a claude.ai feature, so
+              they only appear when a Claude client is selected. */}
+          {isClaudeClient && (
+            <>
+              <Step
+                n={2}
+                title="Set Claude org preferences"
+                hint={
+                  <>
+                    Tell Claude to route GTM questions through Nous by default, otherwise it can reach for raw CRM or call tools (HubSpot, Salesforce, Gong, Granola) first when someone forgets to say "Nous". Copy one version and paste it into <span className="text-foreground/80 font-medium">claude.ai → Settings → Organization preferences</span>. Optional but recommended.
+                  </>
+                }
               >
-                <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 bg-muted/50 border border-border/60">
-                  {m.icon}
-                </div>
-                <div>
-                  <p className={cn("text-[13px] font-semibold", method === m.id ? "text-foreground" : "text-foreground/80")}>{m.label}</p>
-                  <p className="text-[11px] text-muted-foreground/70 mt-0.5">{m.desc}</p>
-                </div>
-              </button>
-            ))}
-          </div>
+                <OrgPrefsPanel />
+              </Step>
 
-          {/* Panel */}
-          {method === "plugin" && <PluginPanel />}
-          {method === "client" && <McpClientPanel />}
-
-          {/* Build-your-own path — small footer link, not a third tab */}
-          <SdkFooter />
+              <Step
+                n={3}
+                title="Check it is working"
+                hint="Confirm Claude reaches for Nous on its own."
+              >
+                <VerifyPanel />
+              </Step>
+            </>
+          )}
         </div>
+
+        <SdkFooter />
       </div>
     </div>
   );
