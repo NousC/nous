@@ -124,40 +124,54 @@ const CLAUDE_CODE_INSTALL = `/plugin install nous@nous-plugins`;
 // Add -s user to make it available in every project.
 const CLAUDE_CODE_CLI = `claude mcp add nous -e NOUS_API_KEY=YOUR_API_KEY -- npx -y @opennous/mcp`;
 
-const CODEX_CONFIG = `[mcp_servers.nous]
+// Config-file clients paste a JSON `mcpServers` block. We offer two variants so
+// nobody clobbers an existing config: the full file (first MCP) or just the
+// "nous" entry to merge into servers they already have.
+const MCP_JSON_FULL = `{
+  "mcpServers": {
+    "nous": {
+      "command": "npx",
+      "args": ["-y", "@opennous/mcp"],
+      "env": { "NOUS_API_KEY": "YOUR_API_KEY" }
+    }
+  }
+}`;
+
+const MCP_JSON_ENTRY = `"nous": {
+  "command": "npx",
+  "args": ["-y", "@opennous/mcp"],
+  "env": { "NOUS_API_KEY": "YOUR_API_KEY" }
+}`;
+
+// Codex uses TOML. A [mcp_servers.nous] table is additive, so the snippet is the
+// same whether or not other servers exist — only the instruction differs.
+const CODEX_TOML = `[mcp_servers.nous]
 command = "npx"
 args = ["-y", "@opennous/mcp"]
 env = { NOUS_API_KEY = "YOUR_API_KEY" }`;
 
-const CURSOR_CONFIG = `{
-  "mcpServers": {
-    "nous": {
-      "command": "npx",
-      "args": ["-y", "@opennous/mcp"],
-      "env": { "NOUS_API_KEY": "YOUR_API_KEY" }
-    }
-  }
-}`;
+// Per-client copy: first-time (full file) vs add-to-existing (merge the entry).
+type ConfigVariant = { caption: string; code: string };
+const CONFIG_SETUP: Record<"codex" | "cursor" | "generic", { first: ConfigVariant; existing: ConfigVariant }> = {
+  codex: {
+    first:    { caption: "Add this to ~/.codex/config.toml, then restart Codex", code: CODEX_TOML },
+    existing: { caption: "Add this table alongside your other [mcp_servers.*], then restart Codex", code: CODEX_TOML },
+  },
+  cursor: {
+    first:    { caption: "Create ~/.cursor/mcp.json with this, then reload Cursor", code: MCP_JSON_FULL },
+    existing: { caption: 'Add the "nous" entry to mcpServers in ~/.cursor/mcp.json, then reload', code: MCP_JSON_ENTRY },
+  },
+  generic: {
+    first:    { caption: "Add this to your MCP client's config", code: MCP_JSON_FULL },
+    existing: { caption: 'Add the "nous" entry to your existing mcpServers', code: MCP_JSON_ENTRY },
+  },
+};
 
-const CLAUDE_DESKTOP_CONFIG = `{
-  "mcpServers": {
-    "nous": {
-      "command": "npx",
-      "args": ["-y", "@opennous/mcp"],
-      "env": { "NOUS_API_KEY": "YOUR_API_KEY" }
-    }
-  }
-}`;
-
-const GENERIC_CONFIG = `{
-  "mcpServers": {
-    "nous": {
-      "command": "npx",
-      "args": ["-y", "@opennous/mcp"],
-      "env": { "NOUS_API_KEY": "YOUR_API_KEY" }
-    }
-  }
-}`;
+// Claude Desktop (used inside the Claude MCP card's "desktop" method).
+const CLAUDE_DESKTOP_SETUP: { first: ConfigVariant; existing: ConfigVariant } = {
+  first:    { caption: "Add this to your Claude Desktop config file, then restart the app", code: MCP_JSON_FULL },
+  existing: { caption: 'Add the "nous" entry to mcpServers in your Claude Desktop config, then restart', code: MCP_JSON_ENTRY },
+};
 
 // Hosted MCP endpoint — lets cloud clients (n8n cloud, etc.) connect over HTTPS.
 const HOSTED_MCP_URL = "https://mcp.opennous.cloud/mcp";
@@ -196,7 +210,7 @@ const CLIENTS: Record<Client, {
     tab: "Codex",
     icon: <img src={LOGO_CODEX_CLOUD} alt="" className="w-3.5 h-3.5 object-contain" />,
     heading: "Connect Nous in Codex",
-    steps: [{ label: "Add this to ~/.codex/config.toml, then restart Codex", code: CODEX_CONFIG }],
+    steps: [],
     note: null,
     source: { href: "https://www.npmjs.com/package/@opennous/mcp", label: "@opennous/mcp on npm ↗" },
   },
@@ -205,7 +219,7 @@ const CLIENTS: Record<Client, {
     tab: "Cursor",
     icon: <img src={LOGO_CURSOR} alt="" className="w-3.5 h-3.5 object-contain rounded-[3px]" />,
     heading: "Connect Nous in Cursor",
-    steps: [{ label: "Add this to ~/.cursor/mcp.json, then reload Cursor", code: CURSOR_CONFIG }],
+    steps: [],
     note: null,
     source: { href: "https://www.npmjs.com/package/@opennous/mcp", label: "@opennous/mcp on npm ↗" },
   },
@@ -223,7 +237,7 @@ const CLIENTS: Record<Client, {
     tab: "Generic MCP",
     icon: <Plug className="w-3.5 h-3.5" strokeWidth={1.75} />,
     heading: "Connect Nous in any MCP client",
-    steps: [{ label: "Add this to your MCP client's config (the mcpServers format)", code: GENERIC_CONFIG }],
+    steps: [],
     note: null,
     source: { href: "https://www.npmjs.com/package/@opennous/mcp", label: "@opennous/mcp on npm ↗" },
   },
@@ -260,31 +274,11 @@ function ClientTabs({ active, onChange }: { active: Client; onChange: (c: Client
 }
 
 // The simple clients (Codex, Cursor, n8n, Generic) — one heading, one config.
-function GenericClientSetup({ client }: { client: Client }) {
+// Codex, Cursor, Generic — a config file with a first-time / add-to-existing toggle.
+function GenericClientSetup({ client }: { client: "codex" | "cursor" | "generic" }) {
   const c = CLIENTS[client];
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <h3 className="text-[13px] font-semibold text-foreground">{c.heading}</h3>
-        <a href={c.source.href} target="_blank" rel="noopener noreferrer"
-          className="text-[12px] text-muted-foreground/70 hover:text-foreground/80 transition-colors whitespace-nowrap">
-          {c.source.label}
-        </a>
-      </div>
-
-      {c.intro && <p className="text-[12px] text-muted-foreground/70 leading-relaxed">{c.intro}</p>}
-
-      <div className="space-y-3.5">
-        {c.steps.map((s, i) => (
-          <CodeSnippet key={i} caption={s.label} code={s.code} />
-        ))}
-      </div>
-
-      {c.note && <FootNote>{c.note}</FootNote>}
-
-      <ApiKeyHint />
-    </div>
-  );
+  const setup = CONFIG_SETUP[client];
+  return <SetupConfig heading={c.heading} first={setup.first} existing={setup.existing} />;
 }
 
 // Claude merges Claude Code and Claude Desktop. Three ways to add Nous: the
@@ -326,12 +320,45 @@ function ClaudeInstall() {
       )}
 
       {method === "desktop" && (
-        <div className="space-y-3">
-          <CodeSnippet caption="Add this to your Claude Desktop config file, then restart the app" code={CLAUDE_DESKTOP_CONFIG} />
-        </div>
+        <SetupConfig first={CLAUDE_DESKTOP_SETUP.first} existing={CLAUDE_DESKTOP_SETUP.existing} showApiKey={false} />
       )}
 
       <ApiKeyHint />
+    </div>
+  );
+}
+
+// Config-file install with a first-time / add-to-existing toggle (top right), so
+// pasting never clobbers an existing config. Reused by the config-file clients
+// and the Claude Desktop method.
+type SetupMode = "first" | "existing";
+
+function SetupConfig({ heading, first, existing, showApiKey = true }: {
+  heading?: string;
+  first: ConfigVariant;
+  existing: ConfigVariant;
+  showApiKey?: boolean;
+}) {
+  const [mode, setMode] = useState<SetupMode>("first");
+  const active = mode === "first" ? first : existing;
+  const toggle = (
+    <TabBar
+      tabs={[
+        { id: "first" as SetupMode, label: "First MCP" },
+        { id: "existing" as SetupMode, label: "Add to existing" },
+      ]}
+      active={mode}
+      onChange={setMode}
+      size="sm"
+    />
+  );
+  return (
+    <div className="space-y-4">
+      {heading
+        ? <div className="flex items-center justify-between gap-3"><h3 className="text-[13px] font-semibold text-foreground">{heading}</h3>{toggle}</div>
+        : <div className="flex justify-end">{toggle}</div>}
+      <CodeSnippet caption={active.caption} code={active.code} />
+      {showApiKey && <ApiKeyHint />}
     </div>
   );
 }
