@@ -115,11 +115,18 @@ async function deriveSignals(supabase, p) {
   const pipelineTo = stageClaim?.value ?? pipelineFrom;
 
   const rev = await deriveRevenue(supabase, p.entity_id, since);
+
+  // Closed-won signal. Prefer an explicit revenue observation (deal_won /
+  // payment_received / proposal_signed) when one exists, but also treat
+  // reaching the `client` pipeline stage as won — that's this CRM's closed-won
+  // state, and it's what flows today. Either one fires the 0.40 revenue weight
+  // and resolves the prediction immediately instead of waiting out the window.
+  const wonByStage = pipelineTo === 'client';
   return {
     replied,
     pipelineFrom,
     pipelineTo,
-    won: rev.won,
+    won: rev.won || wonByStage,
     revenue: rev.revenue,
     observationId: rev.observationId,
   };
