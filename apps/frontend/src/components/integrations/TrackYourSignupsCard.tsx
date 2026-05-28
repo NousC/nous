@@ -1,5 +1,44 @@
-import { useState } from "react";
-import { Check, Copy } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Check, Copy, Plus, Terminal, Sparkles, Code } from "lucide-react";
+
+// ── Install scripts, agent prompts, and inline snippets ─────────────────────
+// These are the three things shippable today. The CLI flow is the most polished
+// for humans, the agent prompt is the most polished for AI assistants, and the
+// raw curl is the escape hatch.
+
+const CLI_SNIPPET = `# in your project root
+npx -y @opennous/cli@latest install`;
+
+const AGENT_PROMPT = `Wire Nous event tracking into this project.
+
+What Nous needs:
+- After a user signs up: POST one observation tagged interaction.signed_up
+- After a Stripe customer.subscription event: POST observations tagged
+  interaction.subscription_started / interaction.subscription_updated
+  / interaction.subscription_canceled
+- All POSTs go to: https://api.opennous.cloud/v2/observations
+  with header: Authorization: Bearer \${process.env.NOUS_API_KEY}
+- Body: { "focus": "<email>",
+          "observations": [{ "kind":"event"|"state", "property":"...", "value":{...} }] }
+
+What to do:
+1. Add NOUS_API_KEY to .env (the user will fill the value).
+2. Detect the framework (Next.js, Express, Fastify, FastAPI, Django, Rails, ...).
+3. Find the signup handler. Right after the new account row is persisted, call
+   the Nous endpoint with focus=<user email>, event=interaction.signed_up,
+   value={ plan:"free", source:<your domain>, at:<ISO timestamp> }, plus a
+   state observation { property:"stage", value:"Free User" }.
+4. Find or create the Stripe webhook handler. For customer.subscription.created
+   or .updated (status=active), call /v2/observations with focus=<user email>,
+   event=interaction.subscription_started (or _updated), state stage=Customer.
+   For customer.subscription.deleted: event=interaction.subscription_canceled,
+   state stage=Churned.
+5. Wrap every call in try/catch so it never blocks the parent request. Log
+   failures with prefix [NOUS].
+6. Print a checklist of what you changed and what env vars the user must set.
+
+Style: native to the language and framework. Match existing conventions in
+this codebase. No new dependencies unless strictly necessary — fetch is fine.`;
 
 const CURL_SNIPPET = `curl -X POST https://api.opennous.cloud/v2/observations \\
   -H 'Authorization: Bearer YOUR_API_KEY' \\
@@ -7,47 +46,86 @@ const CURL_SNIPPET = `curl -X POST https://api.opennous.cloud/v2/observations \\
   -d '{
     "focus": "new-user@example.com",
     "observations": [
-      { "kind": "event",
-        "property": "interaction.signed_up",
-        "value": { "plan": "free", "source": "yourapp.com" } },
-      { "kind": "state", "property": "stage", "value": "Free User" }
+      { "kind":"event", "property":"interaction.signed_up",
+        "value": { "plan":"free", "source":"yourapp.com" } },
+      { "kind":"state", "property":"stage", "value":"Free User" }
     ]
   }'`;
 
+type Tab = "cli" | "agent" | "curl";
+
+const TABS: { id: Tab; label: string; Icon: typeof Terminal }[] = [
+  { id: "cli",   label: "CLI",         Icon: Terminal  },
+  { id: "agent", label: "AI prompt",   Icon: Sparkles  },
+  { id: "curl",  label: "Raw curl",    Icon: Code      },
+];
+
 export function TrackYourSignupsCard() {
+  const [tab, setTab] = useState<Tab>("cli");
   const [copied, setCopied] = useState(false);
 
+  const payload = useMemo(() => {
+    if (tab === "cli")   return CLI_SNIPPET;
+    if (tab === "agent") return AGENT_PROMPT;
+    return CURL_SNIPPET;
+  }, [tab]);
+
   const copy = () => {
-    navigator.clipboard.writeText(CURL_SNIPPET);
+    navigator.clipboard.writeText(payload);
     setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setTimeout(() => setCopied(false), 1800);
   };
 
   return (
     <div className="rounded-xl border border-border bg-background p-5 mb-6">
       <div className="flex items-start gap-4">
-        <div className="h-10 w-10 rounded-lg bg-foreground flex items-center justify-center flex-shrink-0 p-1.5">
-          <img src="/provider-logos/nous.svg" alt="Nous" className="h-full w-full object-contain" />
+        <div className="h-10 w-10 rounded-lg bg-foreground/[0.04] dark:bg-foreground/[0.06] border border-border flex items-center justify-center flex-shrink-0 p-1">
+          <img src="/nous-logo.svg" alt="Nous" className="h-full w-full object-contain" />
         </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <h3 className="text-[14px] font-semibold text-foreground">Track your own signups</h3>
-            <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-semibold">
-              Dogfood
-            </span>
-          </div>
-          <p className="text-[13px] text-muted-foreground mt-0.5">
-            Drop this into your signup handler. Every new user becomes a person in your Nous
-            workspace and lands on their timeline as{" "}
-            <code className="text-[12px] px-1 py-0.5 rounded bg-muted text-foreground/80">
-              interaction.signed_up
-            </code>
-            .
-          </p>
 
-          <div className="mt-4 rounded-lg bg-zinc-950 border border-zinc-800 overflow-hidden">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex-1 min-w-0">
+              <h3 className="text-[14px] font-semibold text-foreground">Nous</h3>
+              <p className="text-[13px] text-muted-foreground mt-0.5">
+                Pipe your own signups and Stripe lifecycle events into Nous. Every new
+                user becomes a person, and their subscription state stays in sync.
+              </p>
+            </div>
+            <button
+              onClick={copy}
+              className="flex-shrink-0 inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg bg-foreground text-background text-[12px] font-semibold hover:bg-foreground/90 transition-colors"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Install
+            </button>
+          </div>
+
+          {/* Tab strip */}
+          <div className="mt-4 flex items-center gap-1 border-b border-border">
+            {TABS.map(({ id, label, Icon }) => (
+              <button
+                key={id}
+                onClick={() => setTab(id)}
+                className={
+                  "flex items-center gap-1.5 px-2.5 py-1.5 text-[12px] font-medium border-b-2 -mb-px transition-colors " +
+                  (tab === id
+                    ? "border-foreground text-foreground"
+                    : "border-transparent text-muted-foreground hover:text-foreground/80")
+                }
+              >
+                <Icon className="h-3 w-3" />
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* Code block */}
+          <div className="mt-3 rounded-lg bg-zinc-950 border border-zinc-800 overflow-hidden">
             <div className="flex items-center justify-between px-3 py-1.5 border-b border-zinc-800">
-              <span className="text-[10px] uppercase tracking-wide text-zinc-500 font-mono">curl</span>
+              <span className="text-[10px] uppercase tracking-wide text-zinc-500 font-mono">
+                {tab === "cli" ? "shell" : tab === "agent" ? "prompt" : "curl"}
+              </span>
               <button
                 onClick={copy}
                 className={
@@ -59,31 +137,9 @@ export function TrackYourSignupsCard() {
                 {copied ? "Copied" : "Copy"}
               </button>
             </div>
-            <pre className="text-[12px] font-mono text-zinc-200 p-3 overflow-x-auto leading-relaxed">
-              <code>{CURL_SNIPPET}</code>
+            <pre className="text-[12px] font-mono text-zinc-200 p-3 overflow-x-auto leading-relaxed whitespace-pre-wrap break-words">
+              <code>{payload}</code>
             </pre>
-          </div>
-
-          <div className="mt-3 flex items-center gap-3 text-[12px] flex-wrap">
-            <a
-              href="/settings/api-keys"
-              className="text-foreground/80 hover:text-foreground font-medium underline-offset-2 hover:underline"
-            >
-              Mint an API key
-            </a>
-            <span className="text-muted-foreground/40">·</span>
-            <a
-              href="https://docs.opennous.cloud/public-api/observations"
-              target="_blank"
-              rel="noreferrer"
-              className="text-foreground/80 hover:text-foreground font-medium underline-offset-2 hover:underline"
-            >
-              Full reference
-            </a>
-            <span className="text-muted-foreground/40">·</span>
-            <span className="text-muted-foreground">
-              Stripe lifecycle events auto-log to the same timeline.
-            </span>
           </div>
         </div>
       </div>

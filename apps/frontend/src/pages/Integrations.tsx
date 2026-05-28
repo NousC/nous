@@ -10,8 +10,11 @@ import { TrackYourSignupsCard } from "@/components/integrations/TrackYourSignups
 
 const apiUrl = import.meta.env.VITE_API_URL ?? "";
 
-// Hardcoded providers (API key based) — mirrors the real Integrations page
+// Hardcoded providers (API key based) — mirrors the real Integrations page.
+// "nous" is the self-integration: drop the CLI into your product and your own
+// signups/sub events flow into your Nous workspace. Pinned to the top.
 const HARDCODED_PROVIDERS: AvailableProvider[] = [
+  { id:"nous",       name:"nous",       display_name:"Nous",       logo_url:"/nous-logo.svg",                  category:"self"         },
   { id:"instantly",  name:"instantly",  display_name:"Instantly",  logo_url:"/provider-logos/instantly.svg",  category:"outbound"     },
   { id:"lemlist",    name:"lemlist",    display_name:"Lemlist",    logo_url:"/provider-logos/lemlist.svg",    category:"outbound"     },
   { id:"emailbison", name:"emailbison", display_name:"EmailBison", logo_url:"/provider-logos/emailbison.png", category:"outbound"     },
@@ -36,11 +39,11 @@ const HARDCODED_PROVIDERS: AvailableProvider[] = [
     ],
   },
 ];
-const EXCLUDED = new Set(["assetly","nous","gmail","mailchimp","google_analytics","granola","notion","clickup","openai","gemini","google","rb2b","anthropic","stripe","signalbase","salesforce"]);
+const EXCLUDED = new Set(["assetly","gmail","mailchimp","google_analytics","granola","notion","clickup","openai","gemini","google","rb2b","anthropic","stripe","signalbase","salesforce"]);
 
-const CATEGORY_ORDER = ["crm","outbound","enrichment","meetings","communication","database","ai","analytics","productivity","other"] as const;
+const CATEGORY_ORDER = ["self","crm","outbound","enrichment","meetings","communication","database","ai","analytics","productivity","other"] as const;
 const CATEGORY_LABEL: Record<string,string> = {
-  crm:"CRM", outbound:"Outbound", enrichment:"Enrichment", meetings:"Meetings",
+  self:"Nous", crm:"CRM", outbound:"Outbound", enrichment:"Enrichment", meetings:"Meetings",
   communication:"Communication", database:"Database", ai:"AI", analytics:"Analytics",
   productivity:"Productivity", other:"Other",
 };
