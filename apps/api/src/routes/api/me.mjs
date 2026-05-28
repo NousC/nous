@@ -126,7 +126,9 @@ meRouter.get('/', verifySupabaseAuth, async (req, res) => {
       }
     }
 
-    const onboardingCompleted = isFounder ? !!user.account_setup_completed_at : true;
+    // Founders complete onboarding via the wizard, which writes onboarding_completed_at.
+    // Invited members skip the wizard entirely, so they're considered onboarded on first /me.
+    const onboardingCompleted = isFounder ? !!user.onboarding_completed_at : true;
 
     // Trial status
     let trialActive = false;
