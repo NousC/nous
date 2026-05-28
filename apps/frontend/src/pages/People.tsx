@@ -30,7 +30,7 @@ function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token:
     setLoading(true);
     fetch(`${apiUrl}/api/contacts/${contact.id}`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d) { setActs(d.activities ?? []); setMems(d.memories ?? []); setRaw(d.contact ?? null); } setLoading(false); })
+      .then(d => { if (d) { setActs((d.activities ?? []).filter((a: any) => a.activity_type !== 'icp_scored')); setMems(d.memories ?? []); setRaw(d.contact ?? null); } setLoading(false); })
       .catch(() => setLoading(false));
   }, [contact.id, token]);
 
@@ -160,13 +160,32 @@ function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token:
               <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">Record Details</span>
               {saving && <span className="text-[11px] text-muted-foreground/70">saving…</span>}
             </div>
+            {/* ICP score — read-only, computed by the Scorecard */}
+            {(() => {
+              const sc = contact.icpScore;
+              const fit = sc == null ? null : sc >= 75 ? "Strong fit" : sc >= 50 ? "Potential fit" : "Weak fit";
+              const col = sc == null ? "#9ca3af" : sc >= 75 ? "#15803d" : sc >= 50 ? "#b45309" : "#6b7280";
+              return (
+                <div className="mb-4 pb-3.5 border-b border-border/60">
+                  <div className="text-[11px] font-medium text-muted-foreground/70 mb-1">ICP Score</div>
+                  {sc == null ? (
+                    <div className="text-[13px] text-muted-foreground/50 italic">Not scored yet</div>
+                  ) : (
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-[22px] font-semibold tabular-nums leading-none" style={{ color: col }}>{sc}</span>
+                      <span className="text-[12px] text-muted-foreground/70">/ 100 · {fit}</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
             <div className="space-y-3.5">
               {([
                 { label:"First Name",     key:"firstName",      val: get("firstName",      raw?.first_name)                },
                 { label:"Last Name",      key:"lastName",       val: get("lastName",       raw?.last_name)                 },
                 { label:"Email",          key:"email",          val: get("email",          contact.email)                  },
                 { label:"Phone",          key:"phone",          val: get("phone",          contact.phone)                  },
-                { label:"Job Title",      key:"jobTitle",       val: get("jobTitle",       contact.title)                  },
+                { label:"Job Title",      key:"jobTitle",       val: get("jobTitle",       raw?.job_title ?? contact.title) },
                 { label:"Company",        key:"company",        val: get("company",        contact.companyName??raw?.company)},
                 { label:"LinkedIn",       key:"linkedinUrl",    val: get("linkedinUrl",    contact.linkedinUrl)            },
                 { label:"Pipeline Stage", key:"pipeline_stage", val: get("pipeline_stage", contact.pipelineStage), type:"select", opts: PIPELINE_STAGES },
@@ -174,8 +193,8 @@ function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token:
                 { label:"Deal Value",     key:"dealValue",      val: get("dealValue",      contact.dealValue!=null?String(contact.dealValue):null), type:"number" },
                 { label:"Lead Source",    key:"lead_source",    val: get("lead_source",    contact.source??raw?.lead_source)},
                 { label:"Industry",       key:"industry",       val: get("industry",       raw?.industry)                  },
-                { label:"Department",     key:"department",     val: get("department",     contact.department)             },
-                { label:"Seniority",      key:"seniority",      val: get("seniority",      contact.seniority)              },
+                { label:"Department",     key:"department",     val: get("department",     raw?.department ?? contact.department) },
+                { label:"Seniority",      key:"seniority",      val: get("seniority",      raw?.seniority ?? contact.seniority) },
                 { label:"City",           key:"city",           val: get("city",           contact.city)                   },
                 { label:"Country",        key:"country",        val: get("country",        contact.country)                },
                 { label:"Notes",          key:"notes",          val: get("notes",          raw?.notes), type:"textarea"     },
@@ -282,7 +301,13 @@ export default function People() {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (res.ok) setEnriched(prev => new Set(prev).add(c.id));
+      if (res.ok) {
+        setEnriched(prev => new Set(prev).add(c.id));
+        // Refresh so the new title/seniority/company + ICP score show without a
+        // full page reload. A short second pass catches the async claim pipeline.
+        load();
+        setTimeout(() => load(), 2500);
+      }
       else setEnrichErr(prev => new Set(prev).add(c.id));
     } catch { setEnrichErr(prev => new Set(prev).add(c.id)); }
     finally { setEnriching(prev => { const s = new Set(prev); s.delete(c.id); return s; }); }

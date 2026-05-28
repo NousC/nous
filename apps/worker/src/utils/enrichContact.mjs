@@ -66,7 +66,6 @@ export async function scoreICP(supabase, workspaceId, contact) {
     const json = JSON.parse(msg.content[0].text.trim().match(/\{[\s\S]*\}/)?.[0] || '{}');
     if (typeof json.score !== 'number') return;
 
-    const fitLabel = json.score >= 75 ? 'Strong fit' : json.score >= 50 ? 'Potential fit' : 'Weak fit';
     await supabase.from('contacts').update({
       icp_score:     json.score,
       icp_fit:       json.fit ?? json.score >= 70,
@@ -74,14 +73,7 @@ export async function scoreICP(supabase, workspaceId, contact) {
       icp_scored_at: new Date().toISOString(),
     }).eq('id', contact.id);
 
-    await logActivity(supabase, {
-      workspaceId, contactId: contact.id, companyId: contact.company_id || null,
-      type: 'icp_scored', source: 'system',
-      externalId: `icp_${contact.id}_${new Date().toISOString().slice(0, 10)}`,
-      occurredAt: new Date().toISOString(),
-      description: `ICP score: ${json.score}/100 — ${fitLabel}`,
-      summary: json.reasoning || null,
-    }).catch(() => {});
+    // ICP scoring is shown in Record Details, not the activity timeline — no logActivity.
 
     console.log(`[ICP_SCORE] contact=${contact.id} score=${json.score} fit=${json.fit} (${memories.length ? 'workspace criteria' : 'generic'})`);
   } catch (e) {
