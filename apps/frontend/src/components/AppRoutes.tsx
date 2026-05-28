@@ -38,7 +38,6 @@ const People          = lazyWithErrorBoundary(() => import("@/pages/People"));
 const Companies       = lazyWithErrorBoundary(() => import("@/pages/Companies"));
 const Integrations    = lazyWithErrorBoundary(() => import("@/pages/Integrations"));
 const CrmSync         = lazyWithErrorBoundary(() => import("@/pages/CrmSync"));
-const Exports         = lazyWithErrorBoundary(() => import("@/pages/Exports"));
 const UsageBilling    = lazyWithErrorBoundary(() => import("@/pages/UsageBilling"));
 const Inbox           = lazyWithErrorBoundary(() => import("@/pages/Inbox"));
 const Intelligence    = lazyWithErrorBoundary(() => import("@/pages/Intelligence"));
@@ -133,7 +132,6 @@ export function AppRoutes() {
             {/* Main nav */}
             <Route path="/webhooks"   element={<Suspense fallback={<MinimalLoader />}><Webhooks /></Suspense>} />
             <Route path="/triggers"   element={<Suspense fallback={<MinimalLoader />}><Triggers /></Suspense>} />
-            <Route path="/exports"    element={<Suspense fallback={<MinimalLoader />}><Exports /></Suspense>} />
 
             <Route path="/billing" element={<Suspense fallback={<MinimalLoader />}><UsageBilling /></Suspense>} />
             <Route path="/usage" element={<Suspense fallback={<MinimalLoader />}><UsageBilling /></Suspense>} />
