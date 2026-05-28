@@ -191,22 +191,24 @@ export async function ensureUserAndTeam(supabaseUser, skipTeamCreation = false) 
           }
         }
 
-        // Ensure the workspace entity exists. Every workspace has exactly one
+        // Ensure the workspace entity exists. Every workspace should have one
         // entity of type='workspace' — it's what notes/claims get attached to
         // when there's no other natural focus (ICP, company website, etc).
-        // Without it, saveNote() throws "workspace entity not found" and
-        // onboarding's ICP + website never get stored.
-        // supabase-js doesn't throw on query errors — check .error directly,
-        // otherwise we'd log "created" while the insert silently failed.
-        const { data: existingWsEntity, error: wsEntitySelectErr } = await supabase
+        // Without it, saveNote() throws "workspace entity not found".
+        //
+        // Use .limit(1) (not .maybeSingle()) so duplicates from earlier broken
+        // runs don't blow up the heal with PGRST116. Multiple existing rows is
+        // not great but means "entity exists, no work needed" — dedupe is a
+        // separate one-off cleanup, not the per-request hot path.
+        const { data: existingWsEntities, error: wsEntitySelectErr } = await supabase
           .from('entities')
           .select('id')
           .eq('workspace_id', workspaceId)
           .eq('type', 'workspace')
-          .maybeSingle();
+          .limit(1);
         if (wsEntitySelectErr) {
           console.warn('[ensureUserAndTeam] Heal: workspace entity select failed:', wsEntitySelectErr.message, wsEntitySelectErr.code);
-        } else if (!existingWsEntity) {
+        } else if (!existingWsEntities?.length) {
           const { error: wsEntityInsertErr } = await supabase
             .from('entities')
             .insert({ workspace_id: workspaceId, type: 'workspace', status: 'active' });
