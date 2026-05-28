@@ -41,6 +41,30 @@ function parseAddresses(raw) {
   }).filter(Boolean);
 }
 
+export const MAX_BODY_BYTES = 1_000_000;
+export function capBody(str) {
+  if (!str) return null;
+  return Buffer.byteLength(str, 'utf8') <= MAX_BODY_BYTES ? str : str.slice(0, MAX_BODY_BYTES);
+}
+
+// Walks the Gmail MIME tree and pulls plaintext + HTML bodies (base64url-decoded).
+export function extractBody(payload) {
+  let text = null, html = null;
+  const walk = (part) => {
+    if (!part) return;
+    if (part.body?.data) {
+      try {
+        const decoded = Buffer.from(part.body.data, 'base64url').toString('utf8');
+        if (part.mimeType === 'text/plain' && !text) text = decoded;
+        else if (part.mimeType === 'text/html' && !html) html = decoded;
+      } catch { /* skip malformed part */ }
+    }
+    if (Array.isArray(part.parts)) for (const sub of part.parts) walk(sub);
+  };
+  walk(payload);
+  return { text: capBody(text), html: capBody(html) };
+}
+
 async function pollWorkspace(supabase, conn) {
   const { credentials, needsUpdate, updatedCredentials } =
     await refreshGoogleToken(conn.encrypted_credentials);
@@ -73,8 +97,7 @@ async function pollWorkspace(supabase, conn) {
     for (const { id } of messages) {
       try {
         const { data: msg } = await gmail.users.messages.get({
-          userId: 'me', id, format: 'metadata',
-          metadataHeaders: ['From', 'To', 'Cc', 'Subject', 'Date'],
+          userId: 'me', id, format: 'full',
         });
         msgDetails.push(msg);
       } catch { /* skip inaccessible messages */ }
@@ -110,6 +133,7 @@ async function pollWorkspace(supabase, conn) {
 
           const isOutbound = fromAddr === ownerEmail;
           const counterparts = isOutbound ? toAddrs : [fromAddr].filter(Boolean);
+          const { text: bodyText, html: bodyHtml } = extractBody(msg.payload);
 
           for (const email of counterparts) {
             const contact = contactByEmail.get(email);
@@ -125,7 +149,14 @@ async function pollWorkspace(supabase, conn) {
               occurredAt,
               description: snippet || (isOutbound ? `Email sent: ${subject}` : `Email received: ${subject}`),
               summary:     snippet,
-              rawData:     { message_id: msg.id, subject, from: fromAddr, to: toAddrs },
+              rawData:     {
+                message_id: msg.id,
+                subject,
+                from: fromAddr,
+                to: toAddrs,
+                body_text: bodyText,
+                body_html: bodyHtml,
+              },
             });
             if (result) logged++;
           }
