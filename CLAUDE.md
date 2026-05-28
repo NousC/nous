@@ -1,10 +1,10 @@
-# Nous CRM — AI Agent Guide
+# Nous — AI Agent Guide
 
 This file helps AI coding assistants understand the architecture before making changes.
 
 ## What this project is
 
-Nous CRM is GTM data infrastructure for agents. It unifies Apollo, Salesforce, Smartlead, Gmail, and LinkedIn into one identity-resolved record per human, ingests signals from email/LinkedIn/calendar, and exposes that context via an MCP server and REST API so agents always have full account context in a single call.
+Nous is the customer graph for GTM agents. It resolves every person, conversation, and touchpoint across the GTM tool stack (Apollo, HubSpot, Smartlead, Gmail, LinkedIn) into one account record, ingests signals from email, LinkedIn, and calendar, and exposes that context via an MCP server and REST API so agents always have the full account in a single call.
 
 ## Monorepo structure
 
