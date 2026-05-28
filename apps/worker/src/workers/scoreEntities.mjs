@@ -47,7 +47,25 @@ export async function scoreEntities() {
       if (signals.length === 0) continue;
 
       const entityIds = await entitiesNeedingScore(supabase, workspaceId, PER_WORKSPACE_LIMIT);
+
+      // Belt-and-suspenders gate (mirrors scoreAndStake): only score entities
+      // that actually carry a scoreable ICP claim. Unenriched contacts (name /
+      // pipeline only) never get a hollow 0 staked — which pollutes calibration.
+      // Lives here in plain JS so it can't be bypassed by a stale compiled core.
+      let scoreable = new Set();
+      if (entityIds.length) {
+        const { data: scClaims } = await supabase
+          .from('claims')
+          .select('entity_id')
+          .eq('workspace_id', workspaceId)
+          .in('entity_id', entityIds)
+          .in('property', ['job_title', 'seniority', 'department', 'industry', 'employee_count'])
+          .is('invalid_at', null);
+        scoreable = new Set((scClaims || []).map(c => c.entity_id));
+      }
+
       for (const entityId of entityIds) {
+        if (!scoreable.has(entityId)) continue; // awaiting enrichment — skip, don't stake a hollow 0
         try {
           const result = await scoreAndStake(supabase, workspaceId, entityId, signals);
           if (result) { totalStaked++; bump(workspaceId, 'staked'); }
