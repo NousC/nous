@@ -30,10 +30,14 @@ onboardingRouter.post('/step-1', verifySupabaseAuth, async (req, res) => {
       } catch { /* best-effort */ }
     }
 
-    if (workspaceId && company_name?.trim()) {
-      await supabase.from('workspaces')
-        .update({ name: company_name.trim() })
-        .eq('id', workspaceId);
+    if (workspaceId && (company_name?.trim() || website?.trim())) {
+      // Mirror the structured fields on workspaces so Settings → Team can read
+      // them back. The Company note + ICP note below stay as the canonical
+      // sources for the Scorecard auto-build downstream.
+      const updates = {};
+      if (company_name?.trim()) updates.name = company_name.trim();
+      if (website?.trim()) updates.website = website.trim();
+      await supabase.from('workspaces').update(updates).eq('id', workspaceId);
     }
 
     if (workspaceId) {

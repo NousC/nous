@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { Plus, Check, Folder, Trash2, CreditCard, ChevronsUpDown, Pencil } from 'lucide-react';
+import { Plus, Check, Folder, Trash2, CreditCard, ChevronsUpDown, Pencil, Lock } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -39,6 +40,7 @@ interface SidebarWorkspaceSelectorProps {
 export function SidebarWorkspaceSelector({ collapsed = false }: SidebarWorkspaceSelectorProps) {
   const { userData, session, refreshUserData } = useAuth();
   const { toast } = useToast();
+  const navigate = useNavigate();
   const [workspaces, setWorkspaces] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
@@ -529,13 +531,33 @@ export function SidebarWorkspaceSelector({ collapsed = false }: SidebarWorkspace
               );
             })}
             <div className="mx-2 my-1 border-t border-gray-100 dark:border-border" />
-            <button
-              onClick={(e) => { e.stopPropagation(); setDropdownOpen(false); setCreateDialogOpen(true); }}
-              className="flex items-center gap-2 w-full px-3 py-2 text-[13px] text-gray-500 dark:text-muted-foreground hover:text-gray-900 dark:hover:text-foreground hover:bg-gray-50 dark:hover:bg-white/[0.05] transition-colors"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              New workspace
-            </button>
+            {isWorkspaceLimitReached ? (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setDropdownOpen(false);
+                  navigate('/settings?section=billing');
+                }}
+                className="flex items-center justify-between w-full px-3 py-2 text-[13px] text-gray-500 dark:text-muted-foreground hover:text-gray-900 dark:hover:text-foreground hover:bg-gray-50 dark:hover:bg-white/[0.05] transition-colors"
+                title={`Workspace limit reached (${usageData?.usage?.workspaces?.limit ?? 1} on ${usageData?.plan?.name ?? 'Free'})`}
+              >
+                <span className="flex items-center gap-2">
+                  <Lock className="h-3.5 w-3.5" />
+                  New workspace
+                </span>
+                <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-semibold">
+                  Upgrade
+                </span>
+              </button>
+            ) : (
+              <button
+                onClick={(e) => { e.stopPropagation(); setDropdownOpen(false); setCreateDialogOpen(true); }}
+                className="flex items-center gap-2 w-full px-3 py-2 text-[13px] text-gray-500 dark:text-muted-foreground hover:text-gray-900 dark:hover:text-foreground hover:bg-gray-50 dark:hover:bg-white/[0.05] transition-colors"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                New workspace
+              </button>
+            )}
           </div>
         )}
       </div>

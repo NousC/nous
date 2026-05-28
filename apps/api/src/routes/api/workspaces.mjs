@@ -92,7 +92,7 @@ workspacesRouter.patch('/:workspaceId', verifySupabaseAuth, async (req, res) => 
   try {
     const supabase = getSupabaseClient();
     const { workspaceId } = req.params;
-    const { name, icon, company_logo } = req.body;
+    const { name, icon, company_logo, website } = req.body;
     const { user } = await ensureUserAndTeam(req.user);
 
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -108,6 +108,7 @@ workspacesRouter.patch('/:workspaceId', verifySupabaseAuth, async (req, res) => 
       if (!name.trim()) return res.status(400).json({ error: 'name cannot be empty' });
       updates.name = name.trim();
     }
+    if (website !== undefined) updates.website = website?.trim() || null;
     if (icon !== undefined) updates.icon = icon;
     if (company_logo !== undefined) {
       const { data: cw } = await supabase.from('workspaces').select('brand_theme').eq('id', workspaceId).single();
