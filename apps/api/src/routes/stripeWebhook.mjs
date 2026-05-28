@@ -121,6 +121,7 @@ export async function stripeWebhookHandler(req, res) {
                   at: new Date().toISOString(),
                 } },
               { kind: 'state', property: 'stage', value: 'Customer' },
+              { kind: 'state', property: 'pipeline_stage', value: 'Customer' },
               { kind: 'state', property: 'plan', value: planId },
             ]).catch(err => console.error('[stripe-webhook] obs failed:', err.message));
           }
@@ -157,6 +158,7 @@ export async function stripeWebhookHandler(req, res) {
                 at: new Date().toISOString(),
               } },
             { kind: 'state', property: 'stage', value: 'Churned' },
+            { kind: 'state', property: 'pipeline_stage', value: 'Churned' },
           ]).catch(err => console.error('[stripe-webhook] obs failed:', err.message));
         }
         break;
