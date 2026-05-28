@@ -16,6 +16,12 @@ import { getClaims } from './claims.js';
 // features are simply every other claim the entity carries.
 const COMPANY_FEATURES = ['industry', 'employee_count'];
 
+// The ICP features a Scorecard actually scores on. If an entity carries none of
+// these, it isn't scoreable yet (unenriched) — staking would record a hollow 0
+// that's indistinguishable from a genuine bad fit and pollutes calibration.
+// Name / company / pipeline claims alone don't count.
+const SCOREABLE_FEATURES = ['job_title', 'seniority', 'department', 'industry', 'employee_count'];
+
 export interface StakeResult {
   prediction_id: string;
   entity_id: string;
@@ -74,6 +80,16 @@ export async function scoreAndStake(
   }
 
   const { features, snapshot } = buildSnapshot(claims);
+
+  // Gate: only stake on accounts we can actually score. If the entity carries
+  // none of the scoreable ICP features yet, it's awaiting enrichment — skip,
+  // don't record a hollow 0. It will be picked up once enrichment lands.
+  const hasScoreableFeature = SCOREABLE_FEATURES.some(k => {
+    const v = features[k];
+    return v !== undefined && v !== null && v !== '';
+  });
+  if (!hasScoreableFeature) return null;
+
   const { score, fired } = scoreLead(features, signals);
   const fit = score >= 70;
   const reason = fired.length
