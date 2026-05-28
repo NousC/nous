@@ -70,7 +70,7 @@ export const PLANS = {
   scale: {
     id: 'scale',
     name: 'Scale',
-    monthlyPriceUsd: 479,
+    monthlyPriceUsd: 499,
     includedOpsPerMonth: 250_000,
     enrichmentsPerMonth: 2_000,
     workspaceLimit: null,
