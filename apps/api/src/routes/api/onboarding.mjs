@@ -301,7 +301,10 @@ onboardingRouter.post('/complete', verifySupabaseAuth, async (req, res) => {
             stage: signupStage,
           });
 
-          // 3. Log signup on their timeline
+          // 3. Log signup on their timeline. Also write state.pipeline_stage
+          // so the contact detail view's Pipeline Stage field flips off the
+          // default 'identified' onto whatever the founder named their
+          // signup stage in onboarding.
           await logNousObservation(recipientEmail, [
             { kind: 'event', property: 'interaction.signed_up',
               value: {
@@ -313,6 +316,7 @@ onboardingRouter.post('/complete', verifySupabaseAuth, async (req, res) => {
                 at: new Date().toISOString(),
               } },
             { kind: 'state', property: 'stage', value: signupStage },
+            { kind: 'state', property: 'pipeline_stage', value: signupStage },
             ...(finalCompany ? [{ kind: 'state', property: 'company', value: finalCompany }] : []),
           ]);
         }
