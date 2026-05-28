@@ -10,6 +10,11 @@ import { logActivity } from '../utils/activity.mjs';
 import { decrypt } from '../utils/encryption.mjs';
 
 const LOOKBACK_DAYS = 30; // initial window; subsequent syncs use last_imap_sync_date
+const MAX_BODY_BYTES = 1_000_000;
+function capBody(str) {
+  if (!str) return null;
+  return Buffer.byteLength(str, 'utf8') <= MAX_BODY_BYTES ? str : str.slice(0, MAX_BODY_BYTES);
+}
 
 // Auto-reply detection (avoids logging OOO / vacation responders)
 const AUTO_REPLY_SUBJECTS = /^(auto:|automatic reply|out of office|away|vacation)/i;
@@ -153,6 +158,8 @@ async function pollWorkspace(supabase, conn) {
               to:        toEmails.join(', '),
               cc:        ccEmails.join(', ') || null,
               direction: isOutbound ? 'outbound' : 'inbound',
+              body_text: capBody(parsed.text),
+              body_html: capBody(parsed.html),
             },
           });
 
