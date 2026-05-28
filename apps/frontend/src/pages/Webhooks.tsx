@@ -219,8 +219,8 @@ const WEBHOOK_GUIDES: Record<string, WebhookGuide> = {
   },
 
   lemlist: {
-    mode: "paste",
-    modeNote: "Lemlist's webhook setup is API-only — add it once in your Lemlist team settings and every campaign you run flows in automatically.",
+    mode: "auto",
+    modeNote: "Set up automatically when you connected. Nothing for you to do here.",
     events: [
       // Email
       { source_event: "emailsSent",         nous_activity: "email_sent" },
