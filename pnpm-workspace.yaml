@@ -1,7 +1,6 @@
 packages:
   - apps/*
   - packages/*
-  - sdk-python
 allowBuilds:
   '@swc/core': true
   core-js: true
