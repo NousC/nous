@@ -343,11 +343,14 @@ mindRouter.get('/worker-runs', async (req, res) => {
     if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
     const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 50));
 
+    // Scope strictly to this workspace. NULL workspace_id rows are cross-tenant
+    // infra runs that have nothing to do with one customer's loop — surfacing
+    // them here was leaking other workspaces' activity into a fresh tenant.
     const { data, error } = await getSupabaseClient()
       .from('worker_runs')
       .select('id, workspace_id, worker, status, summary, details, error, duration_ms, started_at, finished_at')
       .in('worker', LOOP_WORKERS)
-      .or(`workspace_id.eq.${workspaceId},workspace_id.is.null`)
+      .eq('workspace_id', workspaceId)
       .order('finished_at', { ascending: false })
       .limit(limit);
 
