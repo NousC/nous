@@ -1,9 +1,11 @@
 // Smartlead webhook handler — receives email outbound events.
-// Smartlead payloads look like: { event: "EMAIL_REPLIED" | ..., campaign_id, campaign_name,
-//   lead: { email, first_name, last_name, company_name, ... }, reply: {...} (for replies), timestamp }
-// Per-campaign webhooks register via POST https://server.smartlead.ai/api/v1/webhooks/create?api_key=...
-// We keep registration manual (Smartlead UI) since their model is per-campaign,
-// which is awkward to auto-register across an unbounded campaign set.
+// Smartlead payloads look like:
+//   { event_type, timestamp, campaign_id, campaign_name, lead: {...}, email_account,
+//     sequence_number, message_id, reply_body }
+//
+// Webhooks register via POST /api/v1/webhooks (global) or with email_campaign_id +
+// association_type in the body (per-campaign). We keep registration manual in the
+// Smartlead UI since both modes need user input on which campaigns + which events.
 
 import { getSupabaseClient } from '@nous/core';
 import { logActivity } from '../../utils/activity.mjs';
@@ -11,13 +13,16 @@ import { resolveContact } from '../../utils/resolveContact.mjs';
 import { enqueueForRetry } from '../../utils/webhookInbox.mjs';
 import { logSysEvent } from '../../utils/systemLog.mjs';
 
+// Event names match Smartlead's docs exactly. Note that unsubscribe + category
+// events are named LEAD_*, not EMAIL_* — different prefix from the rest.
 const EVENT_TYPE_MAP = {
-  EMAIL_SENT:         'email_sent',
-  EMAIL_OPENED:       'email_opened',
-  EMAIL_CLICKED:      'email_opened',
-  EMAIL_REPLIED:      'email_received',
-  EMAIL_BOUNCED:      'email_bounced',
-  EMAIL_UNSUBSCRIBED: 'email_bounced',
+  EMAIL_SENT:            'email_sent',
+  EMAIL_OPENED:          'email_opened',
+  EMAIL_CLICKED:         'email_opened',
+  EMAIL_REPLIED:         'email_received',
+  EMAIL_BOUNCED:         'email_bounced',
+  LEAD_UNSUBSCRIBED:     'email_bounced',
+  LEAD_CATEGORY_UPDATED: 'lead_category_updated',
 };
 
 function pickLead(body) {

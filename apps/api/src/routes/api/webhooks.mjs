@@ -93,6 +93,7 @@ webhooksRouter.get('/urls', async (req, res) => {
     { source: 'emailbison', url: `${b}/inbound/emailbison/${workspaceId}` },
     { source: 'heyreach',   url: `${b}/inbound/heyreach/${workspaceId}` },
     { source: 'smartlead',  url: `${b}/inbound/smartlead/${workspaceId}` },
+    { source: 'lemlist',    url: `${b}/inbound/lemlist/${workspaceId}` },
     { source: 'fireflies',  url: `${b}/inbound/fireflies/${workspaceId}` },
     { source: 'fathom',     url: `${b}/inbound/fathom/${workspaceId}` },
     { source: 'calendly',   url: `${b}/inbound/calendly/${workspaceId}` },
