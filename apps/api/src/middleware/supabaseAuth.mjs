@@ -83,10 +83,11 @@ export async function verifySupabaseAuth(req, res, next) {
     if (byEmail) {
       internalUserId = byEmail.id;
       if (!byEmail.supabase_user_id) {
-        await supabase.from('users')
-          .update({ supabase_user_id: user.id })
-          .eq('id', byEmail.id)
-          .catch(() => {});
+        try {
+          await supabase.from('users')
+            .update({ supabase_user_id: user.id })
+            .eq('id', byEmail.id);
+        } catch { /* best-effort backfill */ }
       }
     }
   }

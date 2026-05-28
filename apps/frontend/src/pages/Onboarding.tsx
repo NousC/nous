@@ -321,7 +321,7 @@ function StepImport({
           onClick={onSkip}
           className="text-[13px] font-medium text-muted-foreground hover:text-foreground transition-colors"
         >
-          Skip — use demo data
+          Skip
         </button>
       </div>
     </div>

@@ -30,10 +30,11 @@ export async function ensureUserAndTeam(supabaseUser, skipTeamCreation = false) 
     if (byEmail) {
       existingUser = byEmail;
       if (!byEmail.supabase_user_id) {
-        await supabase.from('users')
-          .update({ supabase_user_id: supabaseUserId })
-          .eq('id', byEmail.id)
-          .catch(() => {});
+        try {
+          await supabase.from('users')
+            .update({ supabase_user_id: supabaseUserId })
+            .eq('id', byEmail.id);
+        } catch { /* best-effort backfill */ }
         existingUser = { ...byEmail, supabase_user_id: supabaseUserId };
       }
     }
@@ -44,8 +45,7 @@ export async function ensureUserAndTeam(supabaseUser, skipTeamCreation = false) 
 
   if (existingUser && !existingUser.profile_picture_url && avatarUrl) {
     supabase.from('users').update({ profile_picture_url: avatarUrl }).eq('id', existingUser.id)
-      .then(() => { existingUser.profile_picture_url = avatarUrl; })
-      .catch(() => {});
+      .then(({ error }) => { if (!error) existingUser.profile_picture_url = avatarUrl; });
   }
 
   if (!user && !skipTeamCreation) {
@@ -102,7 +102,7 @@ export async function ensureUserAndTeam(supabaseUser, skipTeamCreation = false) 
 
     if (createUserError) {
       if (createUserError.code === '23505') {
-        await supabase.from('teams').delete().eq('id', newTeam.id).catch(() => {});
+        try { await supabase.from('teams').delete().eq('id', newTeam.id); } catch { /* cleanup */ }
         const { data: eu } = await supabase.from('users').select('*, team:team_id(*)').eq('supabase_user_id', supabaseUserId).single();
         if (!eu) throw new Error('Error loading user after race condition');
         return { user: eu, team: eu.team };
@@ -112,9 +112,11 @@ export async function ensureUserAndTeam(supabaseUser, skipTeamCreation = false) 
 
     user = newUser;
 
-    await supabase.from('team_members').insert({ team_id: team.id, user_id: user.id, role: 'founder' }).catch(e =>
-      console.warn('[ensureUserAndTeam] Error adding founder to team_members:', e)
-    );
+    try {
+      await supabase.from('team_members').insert({ team_id: team.id, user_id: user.id, role: 'founder' });
+    } catch (e) {
+      console.warn('[ensureUserAndTeam] Error adding founder to team_members:', e?.message || e);
+    }
 
     const { data: newWorkspace } = await supabase
       .from('workspaces')
@@ -123,18 +125,24 @@ export async function ensureUserAndTeam(supabaseUser, skipTeamCreation = false) 
       .single();
 
     if (newWorkspace) {
-      await supabase.from('workspace_members').insert({ workspace_id: newWorkspace.id, user_id: user.id, role: 'owner' }).catch(() => {});
+      try {
+        await supabase.from('workspace_members').insert({ workspace_id: newWorkspace.id, user_id: user.id, role: 'owner' });
+      } catch { /* member may already exist via trigger */ }
     }
 
     // Every new team starts on Free (1k ops, 25 enrichments/mo). Upgrades to a
     // paid tier go through Stripe → stripeWebhook.mjs updates this row.
-    await supabase.from('subscriptions').insert({
-      team_id: team.id,
-      plan_id: 'free',
-      plan_name: 'free',
-      status: 'active',
-      current_period_start: new Date().toISOString(),
-    }).catch(e => console.warn('[ensureUserAndTeam] Error creating subscription:', e));
+    try {
+      await supabase.from('subscriptions').insert({
+        team_id: team.id,
+        plan_id: 'free',
+        plan_name: 'free',
+        status: 'active',
+        current_period_start: new Date().toISOString(),
+      });
+    } catch (e) {
+      console.warn('[ensureUserAndTeam] Error creating subscription:', e?.message || e);
+    }
   }
 
   return { user, team };

@@ -23,10 +23,11 @@ onboardingRouter.post('/step-1', verifySupabaseAuth, async (req, res) => {
     const workspaceId = match?.workspace_id || null;
 
     if (name?.trim()) {
-      await supabase.from('users')
-        .update({ name: name.trim() })
-        .eq('id', user.id)
-        .catch(() => {});
+      try {
+        await supabase.from('users')
+          .update({ name: name.trim() })
+          .eq('id', user.id);
+      } catch { /* best-effort */ }
     }
 
     if (workspaceId && company_name?.trim()) {
@@ -37,19 +38,23 @@ onboardingRouter.post('/step-1', verifySupabaseAuth, async (req, res) => {
 
     if (workspaceId) {
       if (website?.trim()) {
-        await saveNote(supabase, workspaceId, {
-          category: 'Company',
-          content: `Company website: ${website.trim()}`,
-          source: 'onboarding',
-        }).catch(() => {});
+        try {
+          await saveNote(supabase, workspaceId, {
+            category: 'Company',
+            content: `Company website: ${website.trim()}`,
+            source: 'onboarding',
+          });
+        } catch { /* best-effort */ }
       }
       // 'ICP' category seeds the Scorecard auto-build on the Intelligence page.
       if (icp_description?.trim()) {
-        await saveNote(supabase, workspaceId, {
-          category: 'ICP',
-          content: icp_description.trim(),
-          source: 'onboarding',
-        }).catch(() => {});
+        try {
+          await saveNote(supabase, workspaceId, {
+            category: 'ICP',
+            content: icp_description.trim(),
+            source: 'onboarding',
+          });
+        } catch { /* best-effort */ }
       }
     }
 
@@ -240,14 +245,17 @@ onboardingRouter.post('/complete', verifySupabaseAuth, async (req, res) => {
     // on first auth; this is the belt-and-suspenders if that ever missed.
     // ignoreDuplicates leaves an existing (potentially paid) row untouched.
     if (isFirstCompletion) {
-      await supabase.from('subscriptions').upsert({
-        team_id: team.id,
-        plan_id: 'free',
-        plan_name: 'free',
-        status: 'active',
-        current_period_start: new Date().toISOString(),
-      }, { onConflict: 'team_id', ignoreDuplicates: true })
-        .catch(e => console.warn('[onboarding/complete] free-plan upsert:', e?.message || e));
+      try {
+        await supabase.from('subscriptions').upsert({
+          team_id: team.id,
+          plan_id: 'free',
+          plan_name: 'free',
+          status: 'active',
+          current_period_start: new Date().toISOString(),
+        }, { onConflict: 'team_id', ignoreDuplicates: true });
+      } catch (e) {
+        console.warn('[onboarding/complete] free-plan upsert:', e?.message || e);
+      }
     }
 
     // Welcome email + dogfood the public API — only on first completion,

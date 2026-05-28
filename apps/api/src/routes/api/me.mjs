@@ -121,8 +121,7 @@ meRouter.get('/', verifySupabaseAuth, async (req, res) => {
             .from('workspaces')
             .update({ country })
             .eq('id', workspace.id)
-            .then(() => { workspace.country = country; })
-            .catch(() => { /* silent — column may not exist yet */ });
+            .then(({ error }) => { if (!error) workspace.country = country; });
         }
       }
     }

@@ -66,11 +66,11 @@ invitationsRouter.post('/:token/accept', verifySupabaseAuth, async (req, res) =>
     }
 
     if (user.team_id !== invitation.team_id) {
-      await supabase.from('users').update({ team_id: invitation.team_id }).eq('id', user.id).catch(() => {});
+      try { await supabase.from('users').update({ team_id: invitation.team_id }).eq('id', user.id); } catch { /* best-effort */ }
     }
 
     if (!user.onboarding_completed_at) {
-      await supabase.from('users').update({ onboarding_completed_at: new Date().toISOString() }).eq('id', user.id).catch(() => {});
+      try { await supabase.from('users').update({ onboarding_completed_at: new Date().toISOString() }).eq('id', user.id); } catch { /* best-effort */ }
     }
 
     await supabase.from('team_invitations').update({ status: 'accepted', accepted_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', invitation.id);
