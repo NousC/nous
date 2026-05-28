@@ -552,9 +552,8 @@ export default function Settings() {
               <div className="w-full lg:w-[460px] lg:ml-auto lg:flex-shrink-0">
                 <div className="rounded-3xl p-7 bg-indigo-50/70 dark:bg-indigo-950/30 border border-indigo-100/70 dark:border-indigo-900/40">
                   <div className="flex items-start gap-5 mb-5">
-                    {/* TODO: replace with <img src="/founder.jpg" alt="Bennet" className="h-full w-full object-cover" /> */}
-                    <div className="h-28 w-28 rounded-2xl bg-white/90 dark:bg-white/10 ring-2 ring-white dark:ring-white/20 flex items-center justify-center text-[10px] text-muted-foreground overflow-hidden flex-shrink-0">
-                      photo
+                    <div className="h-28 w-28 rounded-2xl bg-white/90 dark:bg-white/10 ring-2 ring-white dark:ring-white/20 overflow-hidden flex-shrink-0">
+                      <img src="/founder.jpg" alt="Bennet Glinder" className="h-full w-full object-cover" />
                     </div>
                     <div className="pt-1 min-w-0">
                       {/* TODO: founder name */}
