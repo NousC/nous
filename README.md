@@ -11,9 +11,9 @@
 </div>
 
 <div align="center">
-  <strong>GTM data infrastructure for agents.</strong><br/>
-  Unify Apollo, Salesforce, Smartlead, Gmail, and LinkedIn into one identity-resolved record per human.<br/>
-  Your agents query the full account context in a single MCP call.
+  <strong>Customer graph for GTM agents.</strong><br/>
+  Every person, conversation, and touchpoint across your GTM tool stack, in one place.<br/>
+  Everything happening inside your GTM, visible to your agents.
 </div>
 
 <br/>
@@ -31,37 +31,39 @@
 
 ## What Nous does
 
-Your GTM stack is fragmented — Apollo for prospecting, Salesforce for CRM, Smartlead for sequences, Gmail for email, LinkedIn for social. Each tool has part of the picture. None of them are queryable by an AI agent.
+Your GTM stack is fragmented. Apollo for prospecting, HubSpot for CRM, Smartlead for sequences, Gmail for email, LinkedIn for social. Each tool holds part of the picture, and none of them are queryable by an agent.
 
-Nous fixes that:
+Nous resolves the fragmentation into one customer graph your agents can query.
 
-- **Identity resolution** — Every contact across every tool merged into one clean record. No duplicates, no gaps.
-- **Complete timeline** — Every email, call, LinkedIn message, and CRM event in one place. Know exactly where a prospect stands before you act.
-- **Live sync** — Outbound tools, communication tools, and CRM stay perfectly in sync.
-- **Agent-ready** — Agents query the full account context in a single MCP call. No data wrangling.
-- **Revenue attribution** — Tie campaigns, channels, and actions directly to pipeline and closed deals.
+- **Identity resolution.** Every contact across every tool, merged into one clean record. No duplicates, no gaps.
+- **Complete timeline.** Every email, call, LinkedIn message, and CRM event in one place. Know exactly where a prospect stands before you act.
+- **Live sync.** Outbound tools, communication tools, and CRM stay in sync.
+- **Agent-ready.** Your agents query the full account in a single MCP call. No data wrangling.
+- **Revenue attribution.** Tie campaigns, channels, and actions directly to pipeline and closed deals.
 
 ## Features
 
 | Feature | What it does |
 |---|---|
-| **Person graph** | Full context and activity history per contact across all channels |
-| **MCP connector** | One call returns complete account context to any MCP-compatible agent |
-| **ICP scoring** | Automatically scores contacts against your ICP as signals arrive |
+| **Account record** | Full context and activity history per person across every channel |
+| **MCP connector** | One call returns the complete account record to any MCP-compatible agent |
+| **ICP scoring** | Scores contacts against your ICP as new signals arrive |
 | **Inbound enrichment** | Cleans and enriches inbound leads before they hit your CRM |
-| **Pattern analysis** | Reports on wins, losses, and what campaigns are actually driving pipeline |
-| **CRM sync** | Stays fully in sync with Salesforce, HubSpot, Pipedrive — enriches them, doesn't replace them |
+| **Pattern analysis** | Reports on wins, losses, and the campaigns actually driving pipeline |
+| **CRM sync** | Enriches Salesforce, HubSpot, and Pipedrive while keeping them in sync |
 
 ---
 
 ## Tech stack
 
-- **API** — Node.js (ESM), Express
-- **Frontend** — Vite, React, shadcn/ui
-- **Database** — Supabase (PostgreSQL + pgvector)
-- **MCP** — `@modelcontextprotocol/sdk`
-- **AI** — Anthropic Claude (memory synthesis, ICP scoring)
-- **Package manager** — pnpm workspaces
+| Layer | Stack |
+|---|---|
+| API | Node.js (ESM), Express |
+| Frontend | Vite, React, shadcn/ui |
+| Database | Supabase (PostgreSQL + pgvector) |
+| MCP | `@modelcontextprotocol/sdk` |
+| AI | Anthropic Claude |
+| Package manager | pnpm workspaces |
 
 ---
 
@@ -77,7 +79,7 @@ pnpm install
 pnpm dev
 ```
 
-For production: [docs.opennous.cloud/installation/docker](https://docs.opennous.cloud/installation/docker)
+For production, see [docs.opennous.cloud/installation/docker](https://docs.opennous.cloud/installation/docker).
 
 ---
 
