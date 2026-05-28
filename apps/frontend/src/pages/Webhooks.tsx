@@ -117,6 +117,39 @@ interface WebhookGuide {
 }
 
 const WEBHOOK_GUIDES: Record<string, WebhookGuide> = {
+  // ─── Auto-registered ──────────────────────────────────────────────────────
+
+  linkedin: {
+    mode: "auto",
+    modeNote: "Set up automatically through your LinkedIn (Unipile) connection. Nothing for you to do here.",
+    events: [
+      { source_event: "message_received", nous_activity: "linkedin_message_received" },
+      { source_event: "new_relation",     nous_activity: "linkedin_connection_accepted" },
+    ],
+    docsUrl: "https://docs.opennous.cloud/providers/linkedin",
+  },
+
+  calendly: {
+    mode: "auto",
+    modeNote: "Set up automatically when you connected. Nothing for you to do here.",
+    events: [
+      { source_event: "invitee.created",  nous_activity: "meeting_scheduled" },
+      { source_event: "invitee.canceled", nous_activity: "meeting_cancelled" },
+    ],
+    docsUrl: "https://docs.opennous.cloud/providers/calendly",
+  },
+
+  cal_com: {
+    mode: "auto",
+    modeNote: "Set up automatically when you connected. Nothing for you to do here.",
+    events: [
+      { source_event: "BOOKING_CREATED",     nous_activity: "meeting_scheduled" },
+      { source_event: "BOOKING_CANCELLED",   nous_activity: "meeting_cancelled" },
+      { source_event: "BOOKING_RESCHEDULED", nous_activity: "meeting_rescheduled" },
+    ],
+    docsUrl: "https://docs.opennous.cloud/providers/cal-com",
+  },
+
   heyreach: {
     mode: "auto",
     modeNote: "Set up automatically when you connected. Nothing for you to do here.",
@@ -130,23 +163,134 @@ const WEBHOOK_GUIDES: Record<string, WebhookGuide> = {
       { source_event: "CAMPAIGN_COMPLETED",      nous_activity: "campaign_completed" },
       { source_event: "LEAD_TAG_UPDATED",        nous_activity: "tag_updated" },
     ],
-    skipped: [
-      { event: "MESSAGE_REPLY_RECEIVED",        reason: "Native LinkedIn integration already logs this" },
-      { event: "CONNECTION_REQUEST_ACCEPTED",   reason: "Native LinkedIn integration already logs this" },
-      { event: "INMAIL_REPLY_RECEIVED",         reason: "Native LinkedIn integration already logs this" },
-      { event: "EVERY_MESSAGE_REPLY_RECEIVED",  reason: "Native LinkedIn integration already logs this" },
+    docsUrl: "https://docs.opennous.cloud/providers/heyreach",
+  },
+
+  // ─── Paste-required ───────────────────────────────────────────────────────
+
+  emailbison: {
+    mode: "paste",
+    modeNote: "EmailBison doesn't expose a webhook-registration API, so the URL below has to be pasted into EmailBison once.",
+    events: [
+      { source_event: "REPLY_RECEIVED",   nous_activity: "email_received" },
+      { source_event: "EMAIL_REPLIED",    nous_activity: "email_received" },
+      { source_event: "INTERESTED",       nous_activity: "email_received" },
+      { source_event: "EMAIL_SENT",       nous_activity: "email_sent" },
+      { source_event: "EMAIL_OPENED",     nous_activity: "email_opened" },
+      { source_event: "EMAIL_CLICKED",    nous_activity: "email_opened" },
+      { source_event: "EMAIL_BOUNCED",    nous_activity: "email_bounced" },
+      { source_event: "UNSUBSCRIBED",     nous_activity: "email_bounced" },
     ],
-    skippedExplainer: "These events fire when a reply or accept lands in your LinkedIn inbox. Our native LinkedIn integration (Unipile) is already the source of truth for them — if we subscribed via HeyReach too, every reply would be logged twice on the contact timeline.",
     manualConfig: {
-      intro: "If you don't have native LinkedIn connected, or want HeyReach to send the inbound events too, you can register additional webhooks by hand:",
+      intro: "Configure the webhook once in EmailBison and every event from then on flows automatically:",
       steps: [
-        "Open HeyReach → Settings → Integrations → Webhooks → New Webhook URL",
-        "Paste the webhook URL shown on this row",
-        "Pick the event type you want (e.g. MESSAGE_REPLY_RECEIVED)",
-        "Webhook name must be 25 characters or fewer (HeyReach limit)",
+        "Open EmailBison → Settings → Webhooks → New Webhook URL",
+        "Paste the webhook URL shown above",
+        "Select the events you want (recommended: all of them — see the table)",
+        "Save the webhook",
       ],
     },
-    docsUrl: "https://docs.opennous.cloud/providers/heyreach",
+    docsUrl: "https://docs.opennous.cloud/providers/emailbison",
+  },
+
+  smartlead: {
+    mode: "paste",
+    modeNote: "Smartlead webhooks are configured per campaign — you'll need to add the URL to each campaign you want signals from.",
+    events: [
+      { source_event: "EMAIL_REPLIED",      nous_activity: "email_received" },
+      { source_event: "EMAIL_SENT",         nous_activity: "email_sent" },
+      { source_event: "EMAIL_OPENED",       nous_activity: "email_opened" },
+      { source_event: "EMAIL_CLICKED",      nous_activity: "email_opened" },
+      { source_event: "EMAIL_BOUNCED",      nous_activity: "email_bounced" },
+      { source_event: "EMAIL_UNSUBSCRIBED", nous_activity: "email_bounced" },
+    ],
+    manualConfig: {
+      intro: "Smartlead scopes webhooks to a single campaign, so this step repeats per campaign you care about:",
+      steps: [
+        "Open the campaign you want to track",
+        "Go to Settings → Webhooks → Add Webhook",
+        "Paste the webhook URL shown above",
+        "Tick the events you want",
+        "Save, then repeat for every other campaign you want signals from",
+      ],
+    },
+    docsUrl: "https://docs.opennous.cloud/providers/smartlead",
+  },
+
+  instantly: {
+    mode: "paste",
+    modeNote: "Configure the webhook once in Instantly's settings and every event from then on flows automatically.",
+    events: [
+      { source_event: "reply_received", nous_activity: "email_received" },
+      { source_event: "email_replied",  nous_activity: "email_received" },
+      { source_event: "email_sent",     nous_activity: "email_sent" },
+      { source_event: "email_opened",   nous_activity: "email_opened" },
+      { source_event: "email_bounced",  nous_activity: "email_bounced" },
+      { source_event: "unsubscribed",   nous_activity: "email_bounced" },
+    ],
+    manualConfig: {
+      intro: "Add the webhook in Instantly's webhook settings:",
+      steps: [
+        "Open Instantly → Settings → Integrations → Webhooks",
+        "Click Add Webhook",
+        "Paste the webhook URL shown above",
+        "Select the events you want (recommended: all of them)",
+        "Save the webhook",
+      ],
+    },
+    docsUrl: "https://docs.opennous.cloud/providers/instantly",
+  },
+
+  fireflies: {
+    mode: "paste",
+    modeNote: "Fireflies pushes transcripts via webhook once a meeting finishes. Paste the URL below into your Fireflies notebook integrations.",
+    events: [
+      { source_event: "transcript_ready", nous_activity: "meeting_held" },
+    ],
+    manualConfig: {
+      intro: "Set up the webhook once in Fireflies and every recorded meeting flows in automatically:",
+      steps: [
+        "Open Fireflies → Settings → Developer Settings → Webhook",
+        "Paste the webhook URL shown above",
+        "Toggle the webhook on and save",
+      ],
+    },
+    docsUrl: "https://docs.opennous.cloud/providers/fireflies",
+  },
+
+  fathom: {
+    mode: "paste",
+    modeNote: "Fathom pushes recordings via webhook once the meeting summary is ready. Paste the URL below into Fathom's integrations.",
+    events: [
+      { source_event: "meeting_ready", nous_activity: "meeting_held" },
+    ],
+    manualConfig: {
+      intro: "Set up the webhook once in Fathom and every recorded meeting flows in automatically:",
+      steps: [
+        "Open Fathom → Settings → Integrations → Webhooks",
+        "Click Add Webhook",
+        "Paste the webhook URL shown above",
+        "Save",
+      ],
+    },
+    docsUrl: "https://docs.opennous.cloud/providers/fathom",
+  },
+
+  rb2b: {
+    mode: "paste",
+    modeNote: "RB2B pushes de-anonymised website visitors to a webhook. Paste the URL below into your RB2B destination settings.",
+    events: [
+      { source_event: "visitor_identified", nous_activity: "website_visit" },
+    ],
+    manualConfig: {
+      intro: "RB2B sends one event per identified visitor. Set it up once:",
+      steps: [
+        "Open RB2B → Destinations → Add Destination → Webhook",
+        "Paste the webhook URL shown above",
+        "Save",
+      ],
+    },
+    docsUrl: "https://docs.opennous.cloud/providers/rb2b",
   },
 };
 
