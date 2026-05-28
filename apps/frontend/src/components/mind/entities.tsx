@@ -100,6 +100,12 @@ export function ActivityIcon({ source, type }: { source: string | null; type: st
     <img src={src} alt="" className="w-3.5 h-3.5 rounded-sm object-contain flex-shrink-0"
       onError={e=>{(e.target as HTMLImageElement).style.display="none";}} />
   );
+  // Dogfood checks first — `welcome_email_sent` contains "email", so the generic
+  // email-icon check below would otherwise win and we'd render the Gmail logo.
+  // `nous-mark.svg` is the brand mark; pinning a versioned filename also forces
+  // a fresh download when the underlying svg gets updated.
+  if (t.includes("signed_up") || t.includes("welcome_email"))     return logo("/provider-logos/nous-mark.svg");
+  if (s === "stripe"          || t.includes("subscription"))      return logo("/provider-logos/stripe.svg");
   if (s === "linkedin"        || t.includes("linkedin"))          return <img src="/provider-logos/linkedin.png" alt="" className="w-3.5 h-3.5 rounded-sm object-contain flex-shrink-0" />;
   if (s === "gmail"           || s === "email" || s === "smtp" || t.includes("email")) return logo("/provider-logos/gmail.svg");
   if (s === "google_calendar" || s === "google-calendar"       || t.includes("calendar")) return logo("/provider-logos/google.svg");
@@ -111,10 +117,6 @@ export function ActivityIcon({ source, type }: { source: string | null; type: st
   if (s === "calendly"        || t.includes("calendly"))          return logo("/provider-logos/calendly.svg");
   if (s === "cal_com"         || s === "cal.com" || t.includes("cal.com")) return logo("/provider-logos/cal_com.svg");
   if (s === "apollo"          || t.includes("apollo"))            return logo("/provider-logos/apollo.svg");
-  // Dogfood: Stripe handles subscription_started/updated/canceled
-  if (s === "stripe"          || t.includes("subscription"))      return logo("/provider-logos/stripe.svg");
-  // Dogfood: our own signup + welcome-email events carry the Nous brand
-  if (t.includes("signed_up") || t.includes("welcome_email"))     return logo("/provider-logos/nous.svg");
   if (t.includes("meeting")   || t.includes("call"))              return <Phone className="w-3.5 h-3.5 text-muted-foreground/45 flex-shrink-0" />;
   if (t.includes("note")      || t.includes("manual"))            return <FileText className="w-3.5 h-3.5 text-muted-foreground/45 flex-shrink-0" />;
   return <MessageSquare className="w-3.5 h-3.5 text-muted-foreground/30 flex-shrink-0" />;

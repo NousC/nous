@@ -113,17 +113,18 @@ function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token:
                 : <div className="divide-y divide-border/60">
                     {tabItems.map((a: any) => {
                       const body = a.subtitle || a.raw_data?.text || a.raw_data?.body || null;
+                      const title = a.title || a.activity_type?.replace(/_/g," ").toLowerCase();
                       return (
                         <div key={a.id} className="py-3">
                           <div className="flex items-center gap-2.5 mb-1.5">
                             <ActivityIcon source={a.source} type={a.activity_type || ""} />
-                            <span className="text-[12px] text-muted-foreground flex-1 truncate">
-                              {a.activity_type?.replace(/_/g," ").toLowerCase()}
+                            <span className="text-[13px] font-medium text-foreground flex-1 truncate">
+                              {title}
                             </span>
                             <span className="text-[12px] text-muted-foreground/70 tabular-nums flex-shrink-0">{relTime(a.created_at || a.occurred_at)}</span>
                           </div>
                           {body && (
-                            <p className="text-[13px] text-foreground/80 leading-relaxed pl-[26px]">{body}</p>
+                            <p className="text-[13px] text-muted-foreground leading-relaxed pl-[26px]">{body}</p>
                           )}
                         </div>
                       );

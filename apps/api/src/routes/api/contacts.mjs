@@ -83,13 +83,34 @@ contactsApiRouter.get('/:id', verifySupabaseAuth, async (req, res) => {
       .eq('entity_id', id).eq('kind', 'event')
       .order('observed_at', { ascending: false }).limit(200);
 
+    // Human title for known event types. Falls back to the raw type for
+    // anything we don't recognize so unknown events still render readably.
+    const titleFor = (prop, value) => {
+      if (prop === 'interaction.signed_up') {
+        const parts = ['Signed up'];
+        if (value?.plan) parts.push(`for ${value.plan}`);
+        if (value?.company) parts.push(`from ${value.company}`);
+        return parts.join(' ');
+      }
+      if (prop === 'interaction.welcome_email_sent') return 'Welcome email delivered';
+      if (prop === 'interaction.subscription_started') {
+        const plan = value?.plan ? ` — ${value.plan}` : '';
+        const amt = value?.amount && value?.currency
+          ? ` ($${value.amount}/${value.billing_interval || 'mo'})` : '';
+        return `Paid via Stripe${plan}${amt}`;
+      }
+      if (prop === 'interaction.subscription_updated') return `Plan updated${value?.plan ? ` to ${value.plan}` : ''}`;
+      if (prop === 'interaction.subscription_canceled') return 'Canceled subscription';
+      return value?.description || (prop || '').replace(/^interaction\./, '').replace(/_/g, ' ') || 'Activity';
+    };
+
     const activities = (obsRows || [])
       .map(o => {
         const type = (o.property || '').replace(/^interaction\./, '');
         return {
           id:            o.id,
           activity_type: type,
-          title:         o.value?.description || type.replace(/_/g, ' ') || 'Activity',
+          title:         titleFor(o.property, o.value),
           subtitle:      o.value?.summary || o.value?.description || null,
           source:        o.source || 'nous',
           created_at:    o.observed_at,
