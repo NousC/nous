@@ -12,7 +12,7 @@
 
 import { Router } from 'express';
 import Anthropic from 'useleak';
-import { getSupabaseClient, listSignals, seedSignals, listNotes, scoreLead, getAttention } from '@nous/core';
+import { getSupabaseClient, listSignals, seedSignals, listNotes, scoreLead, getAttention, saveNote, deleteNote, getWorkspaceEntityId } from '@nous/core';
 
 export const mindRouter = Router();
 
@@ -447,6 +447,173 @@ mindRouter.post('/scorecard/seed', async (req, res) => {
     return res.status(201).json({ signals: created });
   } catch (err) {
     console.error('[POST /api/mind/scorecard/seed]', err);
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
+// ── The GTM Playbook — guided ICP setup ─────────────────────────────────────
+//
+// Octave's first-run move: read the customer's own site, draft a strategy back
+// to them, then walk segments → buyers → use cases with the answers already
+// filled in. The user confirms instead of typing into a blank box. The
+// confirmed answers become ICP/Market/Product memory facts, which seed the
+// Scorecard — so this feeds the exact same model Phase A renders.
+
+// Fetch a URL's homepage and reduce it to plain readable text. Plain fetch, no
+// dependency — good enough for most marketing sites; JS-only sites degrade to
+// whatever ships in the initial HTML, and Claude still has the company name.
+async function fetchSiteText(website) {
+  let url = String(website || '').trim();
+  if (!url) return '';
+  if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
+  try {
+    const res = await fetch(url, {
+      signal: controller.signal,
+      redirect: 'follow',
+      headers: { 'User-Agent': 'NousBot/1.0 (+https://opennous.cloud)' },
+    });
+    if (!res.ok) return '';
+    const html = await res.text();
+    return html
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<!--[\s\S]*?-->/g, ' ')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&[a-z]+;/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 6000);
+  } catch {
+    return '';
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// POST /api/mind/playbook/research — read the workspace's site, draft the
+// strategy doc + pre-filled answers for every step. Body: { workspaceId }.
+mindRouter.post('/playbook/research', async (req, res) => {
+  try {
+    const { workspaceId } = req.body;
+    if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
+    const supabase = getSupabaseClient();
+
+    const { data: ws } = await supabase
+      .from('workspaces')
+      .select('name, website')
+      .eq('id', workspaceId)
+      .maybeSingle();
+
+    const website = ws?.website || '';
+    const company = ws?.name || '';
+    const siteText = await fetchSiteText(website);
+
+    const context = [
+      company && `Company name: ${company}`,
+      website && `Website: ${website}`,
+      siteText
+        ? `Homepage text:\n"""${siteText}"""`
+        : `(Could not read the site — infer from the company name and your knowledge.)`,
+    ].filter(Boolean).join('\n\n');
+
+    const prompt =
+      `You are setting up a GTM Playbook for this company. Read what you can and ` +
+      `infer their go-to-market.\n\n${context}\n\n` +
+      `Return ONLY a JSON object, no prose, with this exact shape:\n` +
+      `{\n` +
+      `  "strategy": {\n` +
+      `    "sell": "<1-2 sentences: what they sell and what makes it distinct>",\n` +
+      `    "audience": "<1-2 sentences: who they sell to>",\n` +
+      `    "problems": "<1-2 sentences: the problems they solve>"\n` +
+      `  },\n` +
+      `  "segments": ["<4-6 specific market segments they target>"],\n` +
+      `  "buyers": ["<4-6 specific buyer titles/roles>"],\n` +
+      `  "use_cases": ["<4-6 specific use cases>"]\n` +
+      `}\n` +
+      `Be specific and concrete (e.g. "Series A-B B2B SaaS, 50-200 employees", ` +
+      `"VP RevOps", not "businesses" or "leaders"). The strategy fields should be ` +
+      `rich enough to brief a new rep — a full thought, not a fragment. Each array ` +
+      `item is a short phrase.`;
+
+    const msg = await anthropic.messages.create({
+      feature: 'playbook-research',
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 1500,
+      messages: [{ role: 'user', content: prompt }],
+    });
+    const raw = msg.content[0].text.trim();
+    const parsed = JSON.parse(raw.match(/\{[\s\S]*\}/)?.[0] || raw);
+
+    const cleanList = (v) =>
+      (Array.isArray(v) ? v : [])
+        .map(s => String(s || '').trim())
+        .filter(Boolean)
+        .slice(0, 6);
+
+    return res.json({
+      read_site: Boolean(siteText),
+      website,
+      strategy: {
+        sell: String(parsed?.strategy?.sell || '').trim(),
+        audience: String(parsed?.strategy?.audience || '').trim(),
+        problems: String(parsed?.strategy?.problems || '').trim(),
+      },
+      segments: cleanList(parsed?.segments),
+      buyers: cleanList(parsed?.buyers),
+      use_cases: cleanList(parsed?.use_cases),
+    });
+  } catch (err) {
+    console.error('[POST /api/mind/playbook/research]', err);
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
+// Categories that make up the workspace ICP context. The Scorecard seeds from
+// these, and the Playbook owns them — a rebuild replaces them wholesale.
+const ICP_FACT_CATEGORIES = ['ICP', 'Market', 'Product', 'Pricing', 'Competitors'];
+
+// POST /api/mind/playbook/confirm — persist the confirmed Playbook as workspace
+// memory facts, server-side. Clears the existing ICP-context facts first so a
+// rebuild is always a clean slate (no stale facts surviving), then writes the
+// new ones. Body: { workspaceId, strategy:{sell,audience,problems},
+// segments[], buyers[], use_cases[] }.
+mindRouter.post('/playbook/confirm', async (req, res) => {
+  try {
+    const { workspaceId, strategy = {}, segments = [], buyers = [], use_cases = [] } = req.body;
+    if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
+    const supabase = getSupabaseClient();
+
+    // 1. Clear existing ICP-context facts on the workspace entity.
+    const entityId = await getWorkspaceEntityId(supabase, workspaceId);
+    if (entityId) {
+      const existing = await listNotes(supabase, workspaceId, { entityId, limit: 200 });
+      const stale = existing.filter(n => ICP_FACT_CATEGORIES.includes(n.category));
+      for (const n of stale) {
+        try { await deleteNote(supabase, workspaceId, n.id); } catch { /* best-effort */ }
+      }
+    }
+
+    // 2. Write the confirmed Playbook as fresh facts. Use-cases included here —
+    //    so persistence never depends on client state.
+    const list = (v) => (Array.isArray(v) ? v.map(s => String(s || '').trim()).filter(Boolean) : []);
+    const facts = [
+      strategy.sell && { category: 'Product', content: String(strategy.sell).trim() },
+      strategy.problems && { category: 'Product', content: `Problems we solve: ${String(strategy.problems).trim()}` },
+      strategy.audience && { category: 'ICP', content: String(strategy.audience).trim() },
+      list(segments).length && { category: 'Market', content: `Target segments: ${list(segments).join('; ')}` },
+      list(buyers).length && { category: 'ICP', content: `Primary buyers: ${list(buyers).join('; ')}` },
+      list(use_cases).length && { category: 'Product', content: `Primary use cases: ${list(use_cases).join('; ')}` },
+    ].filter(Boolean);
+
+    for (const f of facts) {
+      await saveNote(supabase, workspaceId, { content: f.content, category: f.category, source: 'playbook' });
+    }
+
+    return res.status(201).json({ ok: true, saved: facts.length });
+  } catch (err) {
+    console.error('[POST /api/mind/playbook/confirm]', err);
     return res.status(500).json({ error: 'internal_error' });
   }
 });
