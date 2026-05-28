@@ -16,8 +16,6 @@ apps/
   worker/    — Background workers (CalendarPoller, signal ingestion, webhooks)
 packages/
   core/      — Shared DB logic, Supabase client, memory types, contact schema
-  sdk/       — TypeScript SDK (@opennous/sdk, published to npm)
-sdk-python/  — Python SDK (published to PyPI)
 ```
 
 ## Layer rules

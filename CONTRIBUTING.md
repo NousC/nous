@@ -41,7 +41,7 @@ pnpm dev
 ```
 feat: add stakeholder map to get_contact response
 fix: identity resolution waterfall missing email-prefix fallback
-docs: add MCP tool examples for Python SDK
+docs: add MCP tool examples for get_account
 ```
 
 Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`
