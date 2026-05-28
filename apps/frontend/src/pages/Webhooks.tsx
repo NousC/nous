@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Webhook, Copy, Check, Info, ArrowRight, ExternalLink } from "lucide-react";
+import { Webhook, Copy, Check, Info, ArrowRight, ExternalLink, ChevronDown } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader } from "@/components/ui/page-header";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
@@ -119,7 +119,7 @@ interface WebhookGuide {
 const WEBHOOK_GUIDES: Record<string, WebhookGuide> = {
   heyreach: {
     mode: "auto",
-    modeNote: "When you connect HeyReach, Nous calls HeyReach's webhook API and creates 8 webhooks pointing at your workspace URL. You don't have to touch HeyReach's webhook settings.",
+    modeNote: "Set up automatically when you connected. Nothing for you to do here.",
     events: [
       { source_event: "CONNECTION_REQUEST_SENT", nous_activity: "linkedin_connection_sent" },
       { source_event: "MESSAGE_SENT",            nous_activity: "linkedin_message_sent" },
@@ -165,6 +165,43 @@ function WebhookGuideSheet({
 }) {
   const guide = source ? WEBHOOK_GUIDES[source] : null;
   const niceSource = source ? source.replace(/_/g, " ") : "";
+  // Auto-registered providers default to the slim "you're done" view;
+  // expanding reveals URL + event mapping for the curious.
+  const [showDetails, setShowDetails] = useState(false);
+  useEffect(() => { setShowDetails(false); }, [source]);
+
+  const eventsTable = guide && (
+    <div>
+      <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 mb-2">
+        Events Nous listens for <span className="text-muted-foreground/50 font-normal">({guide.events.length})</span>
+      </div>
+      <div className="rounded-lg border border-border overflow-hidden">
+        {guide.events.map((e, i) => (
+          <div key={e.source_event}
+            className={`flex items-center gap-2 px-3 py-2 text-[12px] ${i > 0 ? "border-t border-border/60" : ""}`}>
+            <Check className="h-3 w-3 text-emerald-600 flex-shrink-0" />
+            <code className="font-mono text-foreground/80 flex-shrink-0">{e.source_event}</code>
+            <ArrowRight className="h-3 w-3 text-muted-foreground/50 mx-1 flex-shrink-0" />
+            <code className="font-mono text-muted-foreground/80 truncate">{e.nous_activity}</code>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  const webhookUrlBlock = (
+    <div>
+      <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 mb-1.5">Webhook URL</div>
+      <code className="block text-[11px] font-mono break-all px-3 py-2 rounded-lg border border-border bg-muted/30">{url}</code>
+    </div>
+  );
+
+  const docsLink = guide?.docsUrl && (
+    <a href={guide.docsUrl} target="_blank" rel="noreferrer"
+      className="inline-flex items-center gap-1.5 text-[12px] font-medium text-foreground/70 hover:text-foreground transition-colors">
+      Read full docs <ExternalLink className="h-3 w-3" />
+    </a>
+  );
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -176,7 +213,7 @@ function WebhookGuideSheet({
               <div>
                 <SheetTitle className="text-[16px] font-bold capitalize">{niceSource}</SheetTitle>
                 <SheetDescription className="text-[12px] text-muted-foreground/80">
-                  Webhook setup guide
+                  Webhook setup
                 </SheetDescription>
               </div>
             </div>
@@ -189,51 +226,49 @@ function WebhookGuideSheet({
               <div className="rounded-lg border border-dashed border-border p-4">
                 <p className="text-[13px] font-medium text-foreground/80 mb-1">Setup guide coming soon</p>
                 <p className="text-[12px] text-muted-foreground/70">
-                  We're still writing up the events and setup steps for this provider. For now, paste the URL below into the provider's webhook settings — Nous will route incoming events automatically.
+                  Paste the URL below into the provider's webhook settings — Nous will route incoming events automatically.
                 </p>
               </div>
-              <div>
-                <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 mb-1.5">Webhook URL</div>
-                <code className="block text-[11px] font-mono break-all px-3 py-2 rounded-lg border border-border bg-muted/30">{url}</code>
+              {webhookUrlBlock}
+            </>
+          ) : guide.mode === "auto" ? (
+            /* AUTO-REGISTERED — slim view: just confirmation. Details on demand. */
+            <>
+              <div className="rounded-lg border bg-emerald-50 border-emerald-200 p-4">
+                <div className="text-[13px] font-semibold mb-1 flex items-center gap-1.5 text-emerald-700">
+                  <Check className="h-4 w-4" /> Set up — nothing to do here
+                </div>
+                <p className="text-[12px] leading-relaxed text-emerald-800/90">{guide.modeNote}</p>
               </div>
+
+              <button onClick={() => setShowDetails(v => !v)}
+                className="inline-flex items-center gap-1 text-[12px] font-medium text-muted-foreground hover:text-foreground transition-colors">
+                <ChevronDown className={`h-3 w-3 transition-transform ${showDetails ? "rotate-180" : ""}`} />
+                {showDetails ? "Hide details" : "Show details"}
+              </button>
+
+              {showDetails && (
+                <div className="space-y-5 pt-1">
+                  {webhookUrlBlock}
+                  {eventsTable}
+                </div>
+              )}
+
+              {docsLink}
             </>
           ) : (
+            /* PASTE-REQUIRED — full guide: status, URL, events, skipped, manual steps. */
             <>
-              {/* Status callout */}
-              <div className={`rounded-lg border p-4 ${guide.mode === "auto" ? "bg-emerald-50 border-emerald-200" : "bg-amber-50 border-amber-200"}`}>
-                <div className={`text-[12px] font-semibold mb-1 flex items-center gap-1.5 ${guide.mode === "auto" ? "text-emerald-700" : "text-amber-700"}`}>
-                  {guide.mode === "auto" ? <><Check className="h-3.5 w-3.5" /> Auto-registered</> : <><Info className="h-3.5 w-3.5" /> Paste-required</>}
+              <div className="rounded-lg border bg-amber-50 border-amber-200 p-4">
+                <div className="text-[12px] font-semibold mb-1 flex items-center gap-1.5 text-amber-700">
+                  <Info className="h-3.5 w-3.5" /> Paste required
                 </div>
-                <p className={`text-[12px] leading-relaxed ${guide.mode === "auto" ? "text-emerald-800/90" : "text-amber-800/90"}`}>
-                  {guide.modeNote}
-                </p>
+                <p className="text-[12px] leading-relaxed text-amber-800/90">{guide.modeNote}</p>
               </div>
 
-              {/* Webhook URL — always shown, useful for debugging */}
-              <div>
-                <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 mb-1.5">Webhook URL</div>
-                <code className="block text-[11px] font-mono break-all px-3 py-2 rounded-lg border border-border bg-muted/30">{url}</code>
-              </div>
+              {webhookUrlBlock}
+              {eventsTable}
 
-              {/* Events we listen for */}
-              <div>
-                <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 mb-2">
-                  Events Nous listens for <span className="text-muted-foreground/50 font-normal">({guide.events.length})</span>
-                </div>
-                <div className="rounded-lg border border-border overflow-hidden">
-                  {guide.events.map((e, i) => (
-                    <div key={e.source_event}
-                      className={`flex items-center gap-2 px-3 py-2 text-[12px] ${i > 0 ? "border-t border-border/60" : ""}`}>
-                      <Check className="h-3 w-3 text-emerald-600 flex-shrink-0" />
-                      <code className="font-mono text-foreground/80 flex-shrink-0">{e.source_event}</code>
-                      <ArrowRight className="h-3 w-3 text-muted-foreground/50 mx-1 flex-shrink-0" />
-                      <code className="font-mono text-muted-foreground/80 truncate">{e.nous_activity}</code>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Events we skip + why */}
               {guide.skipped && guide.skipped.length > 0 && (
                 <div>
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 mb-2">
@@ -257,7 +292,6 @@ function WebhookGuideSheet({
                 </div>
               )}
 
-              {/* Manual config */}
               {guide.manualConfig && (
                 <div>
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 mb-2">
@@ -272,13 +306,7 @@ function WebhookGuideSheet({
                 </div>
               )}
 
-              {/* Docs link */}
-              {guide.docsUrl && (
-                <a href={guide.docsUrl} target="_blank" rel="noreferrer"
-                  className="inline-flex items-center gap-1.5 text-[12px] font-medium text-foreground/70 hover:text-foreground transition-colors">
-                  Read full docs <ExternalLink className="h-3 w-3" />
-                </a>
-              )}
+              {docsLink}
             </>
           )}
         </div>
