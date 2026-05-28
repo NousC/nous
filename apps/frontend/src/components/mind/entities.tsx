@@ -111,6 +111,10 @@ export function ActivityIcon({ source, type }: { source: string | null; type: st
   if (s === "calendly"        || t.includes("calendly"))          return logo("/provider-logos/calendly.svg");
   if (s === "cal_com"         || s === "cal.com" || t.includes("cal.com")) return logo("/provider-logos/cal_com.svg");
   if (s === "apollo"          || t.includes("apollo"))            return logo("/provider-logos/apollo.svg");
+  // Dogfood: Stripe handles subscription_started/updated/canceled
+  if (s === "stripe"          || t.includes("subscription"))      return logo("/provider-logos/stripe.svg");
+  // Dogfood: our own signup + welcome-email events carry the Nous brand
+  if (t.includes("signed_up") || t.includes("welcome_email"))     return logo("/provider-logos/nous.svg");
   if (t.includes("meeting")   || t.includes("call"))              return <Phone className="w-3.5 h-3.5 text-muted-foreground/45 flex-shrink-0" />;
   if (t.includes("note")      || t.includes("manual"))            return <FileText className="w-3.5 h-3.5 text-muted-foreground/45 flex-shrink-0" />;
   return <MessageSquare className="w-3.5 h-3.5 text-muted-foreground/30 flex-shrink-0" />;

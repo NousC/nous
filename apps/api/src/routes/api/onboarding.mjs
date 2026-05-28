@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { getSupabaseClient, saveNote, listNotes } from '@nous/core';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
 import { ensureUserAndTeam } from '../../lib/auth.mjs';
+import { sendWelcomeEmail } from '../../lib/welcomeEmail.mjs';
+import { upsertNousPerson, logNousObservation } from '../../lib/dogfood.mjs';
 
 export const onboardingRouter = Router();
 
@@ -54,6 +56,56 @@ onboardingRouter.post('/step-1', verifySupabaseAuth, async (req, res) => {
     return res.json({ ok: true });
   } catch (err) {
     console.error('[POST /api/onboarding/step-1]', err);
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
+// POST /api/onboarding/business-type — service vs software + plan model + signup-stage label.
+// Persisted on the workspace so the CRM picks the right buyer terminology (Client vs
+// Customer) and the right default label for brand-new signups (Free User, Trial, Lead, ...).
+onboardingRouter.post('/business-type', verifySupabaseAuth, async (req, res) => {
+  try {
+    const supabase = getSupabaseClient();
+    const { user, team } = await ensureUserAndTeam(req.user);
+    const { business_type, plan_model, default_signup_stage } = req.body || {};
+
+    if (business_type !== 'service' && business_type !== 'software') {
+      return res.status(400).json({ error: 'business_type must be "service" or "software"' });
+    }
+    if (business_type === 'software' && plan_model && !['free_plan','free_trial','both','paid_only'].includes(plan_model)) {
+      return res.status(400).json({ error: 'invalid plan_model' });
+    }
+
+    const stageLabel = (default_signup_stage || '').toString().trim()
+      || (business_type === 'service' ? 'Lead' : 'Free User');
+
+    const { data: wms } = await supabase
+      .from('workspace_members')
+      .select('workspace_id, workspaces:workspace_id(id, team_id)')
+      .eq('user_id', user.id);
+    const match = (wms || []).find(m => m.workspaces?.team_id === team.id);
+    const workspaceId = match?.workspace_id || null;
+    if (!workspaceId) return res.status(404).json({ error: 'no_workspace_for_team' });
+
+    const { data: updated, error } = await supabase
+      .from('workspaces')
+      .update({
+        business_type,
+        plan_model: business_type === 'software' ? (plan_model || null) : null,
+        default_signup_stage: stageLabel,
+      })
+      .eq('id', workspaceId)
+      .select('id, business_type, plan_model, default_signup_stage')
+      .single();
+
+    if (error) {
+      console.error('[POST /api/onboarding/business-type] update failed:', error);
+      return res.status(500).json({ error: 'internal_error' });
+    }
+
+    return res.json({ workspace: updated });
+  } catch (err) {
+    console.error('[POST /api/onboarding/business-type]', err);
     return res.status(500).json({ error: 'internal_error' });
   }
 });
@@ -159,22 +211,6 @@ onboardingRouter.get('/checklist', verifySupabaseAuth, async (req, res) => {
   }
 });
 
-// Fire-and-forget POST to ONBOARDING_WEBHOOK_URL when a user finishes onboarding.
-// Lets external systems (Slack, Zapier, n8n, CRM) react to new signups.
-async function fireOnboardingWebhook(payload) {
-  const url = process.env.ONBOARDING_WEBHOOK_URL;
-  if (!url) return;
-  try {
-    await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-  } catch (err) {
-    console.error('[onboarding webhook] failed:', err?.message || err);
-  }
-}
-
 // POST /api/onboarding/complete
 onboardingRouter.post('/complete', verifySupabaseAuth, async (req, res) => {
   try {
@@ -214,24 +250,61 @@ onboardingRouter.post('/complete', verifySupabaseAuth, async (req, res) => {
         .catch(e => console.warn('[onboarding/complete] free-plan upsert:', e?.message || e));
     }
 
-    // Outbound webhook — only on first completion, fire-and-forget.
+    // Welcome email + dogfood the public API — only on first completion,
+    // fire-and-forget so onboarding never blocks on external services.
     if (isFirstCompletion) {
-      fireOnboardingWebhook({
-        event: 'onboarding.completed',
-        timestamp: new Date().toISOString(),
-        user: {
-          id: user.id,
-          name: (typeof name === 'string' && name.trim()) || user.name || null,
-          email: user.email || null,
-        },
-        workspace: workspace ? { id: workspace.id, name: workspace.name } : null,
-        team: { id: team.id, name: team.name || null },
-        company: {
-          name: (typeof company_name === 'string' && company_name.trim()) || workspace?.name || null,
-          website: (typeof website === 'string' && website.trim()) || null,
-        },
-        icp_description: (typeof icp_description === 'string' && icp_description.trim()) || null,
-      });
+      const fullName = (typeof name === 'string' && name.trim()) || user.name || '';
+      const [firstName, ...rest] = fullName.split(/\s+/);
+      const lastName = rest.join(' ') || null;
+      const recipientEmail = user.email || null;
+      const finalCompany = (typeof company_name === 'string' && company_name.trim()) || workspace?.name || null;
+      const signupStage = workspace?.default_signup_stage
+        || (workspace?.business_type === 'service' ? 'Lead' : 'Free User');
+
+      (async () => {
+        // 1. Welcome email (idempotent — only send once per user)
+        if (recipientEmail && !user.welcome_email_sent_at) {
+          const result = await sendWelcomeEmail({ to: recipientEmail, firstName });
+          if (result.sent) {
+            await supabase.from('users')
+              .update({ welcome_email_sent_at: new Date().toISOString() })
+              .eq('id', user.id)
+              .then(({ error }) => {
+                if (error) console.error('[WELCOME_EMAIL] failed to set sent_at:', error.message);
+              });
+            await logNousObservation(recipientEmail, [
+              { kind: 'event', property: 'interaction.welcome_email_sent',
+                value: { at: new Date().toISOString() } },
+            ]);
+          }
+        }
+
+        // 2. Upsert this new user as a person in our own Nous workspace
+        if (recipientEmail) {
+          await upsertNousPerson({
+            email: recipientEmail,
+            first_name: firstName || null,
+            last_name: lastName,
+            company: finalCompany,
+            stage: signupStage,
+          });
+
+          // 3. Log signup on their timeline
+          await logNousObservation(recipientEmail, [
+            { kind: 'event', property: 'interaction.signed_up',
+              value: {
+                source: 'app.opennous.cloud',
+                plan: 'free',
+                business_type: workspace?.business_type || null,
+                website: (typeof website === 'string' && website.trim()) || null,
+                icp_description: (typeof icp_description === 'string' && icp_description.trim()) || null,
+                at: new Date().toISOString(),
+              } },
+            { kind: 'state', property: 'stage', value: signupStage },
+            ...(finalCompany ? [{ kind: 'state', property: 'company', value: finalCompany }] : []),
+          ]);
+        }
+      })().catch(err => console.error('[onboarding/complete] side effects error:', err.message));
     }
 
     return res.json({ success: true, workspace });

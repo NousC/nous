@@ -3,13 +3,23 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/components/ui/sonner";
 import {
-  Check, Copy, Eye, EyeOff, Key, RefreshCw, ArrowLeft, ArrowRight,
+  Briefcase, Check, Code2, Copy, Eye, EyeOff, Key, RefreshCw, ArrowLeft, ArrowRight,
 } from "lucide-react";
 import { PeopleImportPanel } from "@/components/contacts/PeopleImportModal";
 
-const TOTAL_STEPS = 3;
-const STORAGE_KEY = "nous_onboarding_v7";
+const TOTAL_STEPS = 4;
+const STORAGE_KEY = "nous_onboarding_v8";
 const API_URL    = import.meta.env.VITE_API_URL ?? "";
+
+type BusinessType = "service" | "software";
+type PlanModel = "free_plan" | "free_trial" | "both" | "paid_only";
+
+const PLAN_MODELS: { id: PlanModel; label: string; stage: string; desc: string }[] = [
+  { id: "free_plan",  label: "Free plan",  stage: "Free User", desc: 'Self-serve free tier. New signups labeled "Free User".' },
+  { id: "free_trial", label: "Free trial", stage: "Trial",     desc: 'Time-limited trial. New signups labeled "Trial".' },
+  { id: "both",       label: "Both",       stage: "Free User", desc: 'Free plan + trial. Defaults new signups to "Free User".' },
+  { id: "paid_only",  label: "Paid only",  stage: "Lead",      desc: 'Demo or sales-led. New signups labeled "Lead".' },
+];
 
 // ─── Shared button styles (theme-aware) ──────────────────────────────────────
 const BTN_PRIMARY =
@@ -141,7 +151,143 @@ function StepWelcome({
   );
 }
 
-// ─── Step 2: Import contacts (real column-mapping importer) ──────────────────
+// ─── Step 2: Business type + plan model ─────────────────────────────────────
+function StepBusinessType({
+  businessType, setBusinessType,
+  planModel, setPlanModel,
+  signupStage, setSignupStage,
+  onNext, onBack, isLoading,
+}: {
+  businessType: BusinessType | null;
+  setBusinessType: (v: BusinessType | null) => void;
+  planModel: PlanModel | null;
+  setPlanModel: (v: PlanModel | null) => void;
+  signupStage: string;
+  setSignupStage: (v: string) => void;
+  onNext: () => void;
+  onBack: () => void;
+  isLoading: boolean;
+}) {
+  const pickBiz = (b: BusinessType) => {
+    setBusinessType(b);
+    if (b === "service") { setPlanModel(null); setSignupStage("Lead"); }
+    else if (planModel) {
+      const m = PLAN_MODELS.find(p => p.id === planModel);
+      if (m) setSignupStage(m.stage);
+    }
+  };
+  const pickPlan = (m: PlanModel) => {
+    setPlanModel(m);
+    const meta = PLAN_MODELS.find(p => p.id === m);
+    if (meta) setSignupStage(meta.stage);
+  };
+
+  const canContinue =
+    !!businessType &&
+    (businessType === "service" || !!planModel) &&
+    !!signupStage.trim();
+
+  return (
+    <div className="space-y-6">
+      <StepTitle
+        title="What kind of business?"
+        desc="We tailor the CRM to how you actually talk about the people who buy from you."
+      />
+
+      <div className="grid grid-cols-2 gap-3">
+        <button
+          type="button"
+          onClick={() => pickBiz("service")}
+          className={
+            "rounded-xl border-2 p-4 text-left transition-colors " +
+            (businessType === "service"
+              ? "border-foreground bg-muted/40"
+              : "border-border hover:border-foreground/30 bg-background")
+          }
+        >
+          <Briefcase className="h-5 w-5 text-foreground mb-2" />
+          <p className="text-[14px] font-semibold text-foreground">Service</p>
+          <p className="text-[12px] text-muted-foreground mt-0.5">
+            Agency, consultancy, freelancer. Buyers are <strong>Clients</strong>.
+          </p>
+        </button>
+        <button
+          type="button"
+          onClick={() => pickBiz("software")}
+          className={
+            "rounded-xl border-2 p-4 text-left transition-colors " +
+            (businessType === "software"
+              ? "border-foreground bg-muted/40"
+              : "border-border hover:border-foreground/30 bg-background")
+          }
+        >
+          <Code2 className="h-5 w-5 text-foreground mb-2" />
+          <p className="text-[14px] font-semibold text-foreground">Software</p>
+          <p className="text-[12px] text-muted-foreground mt-0.5">
+            SaaS, app, product. Buyers are <strong>Customers</strong>.
+          </p>
+        </button>
+      </div>
+
+      {businessType === "software" && (
+        <div className="space-y-2">
+          <FieldLabel>How do new users sign up?</FieldLabel>
+          <div className="space-y-1.5">
+            {PLAN_MODELS.map(({ id, label, desc }) => {
+              const selected = planModel === id;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => pickPlan(id)}
+                  className={
+                    "w-full rounded-lg border-2 p-3 text-left transition-colors " +
+                    (selected
+                      ? "border-foreground bg-muted/40"
+                      : "border-border hover:border-foreground/30 bg-background")
+                  }
+                >
+                  <div className="flex items-center justify-between">
+                    <p className="text-[13px] font-medium text-foreground">{label}</p>
+                    {selected && <Check className="h-4 w-4 text-foreground" />}
+                  </div>
+                  <p className="text-[12px] text-muted-foreground mt-0.5">{desc}</p>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {businessType && (
+        <div>
+          <FieldLabel>Label for new signups</FieldLabel>
+          <TextInput
+            value={signupStage}
+            onChange={e => setSignupStage(e.target.value)}
+            placeholder={businessType === "service" ? "Lead" : "Free User"}
+          />
+          <p className="text-[12px] text-muted-foreground mt-1.5">
+            You can change this anytime in Settings.
+          </p>
+        </div>
+      )}
+
+      <div className="flex items-center justify-between pt-1">
+        <button onClick={onBack} className={BTN_SECONDARY}>
+          <ArrowLeft className="h-3.5 w-3.5" /> Back
+        </button>
+        <button onClick={onNext} disabled={!canContinue || isLoading} className={BTN_PRIMARY}>
+          {isLoading && <RefreshCw className="h-3.5 w-3.5 animate-spin" />}
+          Continue
+          {!isLoading && <ArrowRight className="h-3.5 w-3.5" />}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Step 3: Import contacts (real column-mapping importer) ──────────────────
 function StepImport({
   onAdvance, onBack, onSkip, session, workspaceId,
 }: {
@@ -312,7 +458,7 @@ function StepIndicator({ current, total }: { current: number; total: number }) {
 }
 
 // ─── Main ────────────────────────────────────────────────────────────────────
-type Phase = 1 | 2 | 3 | "finishing";
+type Phase = 1 | 2 | 3 | 4 | "finishing";
 
 export default function Onboarding() {
   const navigate = useNavigate();
@@ -325,6 +471,9 @@ export default function Onboarding() {
   const [companyName, setCompanyName] = useState("");
   const [website, setWebsite] = useState("");
   const [icpDescription, setIcpDescription] = useState("");
+  const [businessType, setBusinessType] = useState<BusinessType | null>(null);
+  const [planModel, setPlanModel] = useState<PlanModel | null>(null);
+  const [signupStage, setSignupStage] = useState("");
 
   // Pre-fill name from the signed-in user if we have it.
   useEffect(() => {
@@ -350,13 +499,19 @@ export default function Onboarding() {
       if (p.companyName)     setCompanyName(p.companyName);
       if (p.website)         setWebsite(p.website);
       if (p.icpDescription)  setIcpDescription(p.icpDescription);
+      if (p.businessType)    setBusinessType(p.businessType);
+      if (p.planModel)       setPlanModel(p.planModel);
+      if (p.signupStage)     setSignupStage(p.signupStage);
     } catch { /* ignore */ }
   }, []);
 
   useEffect(() => {
     if (phase === "finishing") return;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ phase, name, companyName, website, icpDescription }));
-  }, [phase, name, companyName, website, icpDescription]);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      phase, name, companyName, website, icpDescription,
+      businessType, planModel, signupStage,
+    }));
+  }, [phase, name, companyName, website, icpDescription, businessType, planModel, signupStage]);
 
   const auth = { Authorization: `Bearer ${session?.access_token}`, "Content-Type": "application/json" };
 
@@ -377,6 +532,24 @@ export default function Onboarding() {
     } catch { /* non-blocking */ }
     setStepLoading(false);
     setPhase(2);
+  };
+
+  const submitBusinessType = async () => {
+    if (!businessType) return;
+    setStepLoading(true);
+    try {
+      await fetch(`${API_URL}/api/onboarding/business-type`, {
+        method: "POST",
+        headers: auth,
+        body: JSON.stringify({
+          business_type: businessType,
+          plan_model: businessType === "software" ? planModel : null,
+          default_signup_stage: signupStage.trim() || (businessType === "service" ? "Lead" : "Free User"),
+        }),
+      });
+    } catch { /* non-blocking */ }
+    setStepLoading(false);
+    setPhase(3);
   };
 
   const generateApiKey = async (name: string) => {
@@ -421,8 +594,9 @@ export default function Onboarding() {
     navigate("/", { replace: true });
   };
 
-  const currentStep = phase === "finishing" ? 3 : phase;
-  const contentMaxWidth = phase === 2 ? 640 : 480;
+  const currentStep = phase === "finishing" ? TOTAL_STEPS : phase;
+  // Step 3 (Import) needs the wider layout; everything else stays compact.
+  const contentMaxWidth = phase === 3 ? 640 : 480;
 
   return (
     <div
@@ -450,21 +624,30 @@ export default function Onboarding() {
           />
         )}
         {phase === 2 && (
-          <StepImport
-            session={session}
-            workspaceId={userData?.workspace?.id}
-            onAdvance={() => setPhase(3)}
-            onBack={() => setPhase(1)}
-            onSkip={() => setPhase(3)}
+          <StepBusinessType
+            businessType={businessType} setBusinessType={setBusinessType}
+            planModel={planModel} setPlanModel={setPlanModel}
+            signupStage={signupStage} setSignupStage={setSignupStage}
+            onNext={submitBusinessType} onBack={() => setPhase(1)}
+            isLoading={stepLoading}
           />
         )}
         {phase === 3 && (
+          <StepImport
+            session={session}
+            workspaceId={userData?.workspace?.id}
+            onAdvance={() => setPhase(4)}
+            onBack={() => setPhase(2)}
+            onSkip={() => setPhase(4)}
+          />
+        )}
+        {phase === 4 && (
           <StepCreateKey
             apiKey={apiKey}
             generateKey={generateApiKey}
             generating={generatingKey}
             onFinish={finish}
-            onBack={() => setPhase(2)}
+            onBack={() => setPhase(3)}
           />
         )}
         {phase === "finishing" && <FinishingScreen />}
