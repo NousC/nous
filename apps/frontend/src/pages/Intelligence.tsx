@@ -147,6 +147,9 @@ export default function Intelligence() {
   // The saved-context card is collapsed by default once there's content to hide.
   const [contextOpen, setContextOpen] = useState(false);
 
+  // Inline editing of Scorecard signals (label / weight) + delete.
+  const [editSig, setEditSig] = useState<{ id: string; field: "label" | "weight" } | null>(null);
+
   const load = useCallback(() => {
     if (!workspaceId || !token) return;
     const h = { Authorization: `Bearer ${token}` };
@@ -275,6 +278,24 @@ export default function Intelligence() {
       setPbOpen(false);
       load();
     } finally { setPbBuilding(false); }
+  };
+
+  const patchSignal = async (id: string, body: { label?: string; weight?: number; active?: boolean }) => {
+    setEditSig(null);
+    await fetch(`${apiUrl}/api/mind/scorecard/signals/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ workspaceId, ...body }),
+    });
+    load();
+  };
+  const removeSignal = async (id: string) => {
+    await fetch(`${apiUrl}/api/mind/scorecard/signals/${id}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ workspaceId }),
+    });
+    load();
   };
 
   const active   = signals.filter(s => s.active);
@@ -549,14 +570,59 @@ export default function Intelligence() {
                       {rows.length === 0 ? (
                         <div className="px-4 py-4 text-[13px] text-muted-foreground/50">{empty}</div>
                       ) : (
-                        rows.map(s => (
-                          <div key={s.id} className="flex items-baseline gap-3 px-4 py-2.5 border-b border-border/60 last:border-0">
-                            <span className="text-[13px] flex-shrink-0 mt-0.5" style={{ color }}>
-                              {s.weight > 0 ? "▲" : "▼"}
-                            </span>
-                            <span className="text-[13px] text-foreground/85 leading-snug">{s.label}</span>
-                          </div>
-                        ))
+                        rows.map(s => {
+                          const editingW = editSig?.id === s.id && editSig.field === "weight";
+                          const editingL = editSig?.id === s.id && editSig.field === "label";
+                          return (
+                            <div key={s.id} className="flex items-baseline gap-3 px-4 py-2.5 border-b border-border/60 last:border-0 group">
+                              {editingW ? (
+                                <input
+                                  type="number" autoFocus defaultValue={s.weight} min={-10} max={10}
+                                  onBlur={e => patchSignal(s.id, { weight: Number(e.target.value) })}
+                                  onKeyDown={e => {
+                                    if (e.key === "Enter") patchSignal(s.id, { weight: Number((e.target as HTMLInputElement).value) });
+                                    if (e.key === "Escape") setEditSig(null);
+                                  }}
+                                  className="w-12 flex-shrink-0 rounded border border-border bg-background text-[12px] tabular-nums px-1 py-0.5 outline-none focus:border-foreground/40"
+                                />
+                              ) : (
+                                <button
+                                  onClick={() => setEditSig({ id: s.id, field: "weight" })}
+                                  title="Edit weight"
+                                  className="text-[12px] font-semibold tabular-nums w-8 flex-shrink-0 text-left hover:underline"
+                                  style={{ color }}
+                                >
+                                  {s.weight > 0 ? "+" : ""}{s.weight}
+                                </button>
+                              )}
+                              {editingL ? (
+                                <input
+                                  type="text" autoFocus defaultValue={s.label}
+                                  onBlur={e => patchSignal(s.id, { label: e.target.value })}
+                                  onKeyDown={e => {
+                                    if (e.key === "Enter") patchSignal(s.id, { label: (e.target as HTMLInputElement).value });
+                                    if (e.key === "Escape") setEditSig(null);
+                                  }}
+                                  className="flex-1 rounded border border-border bg-background text-[13px] px-1.5 py-0.5 outline-none focus:border-foreground/40"
+                                />
+                              ) : (
+                                <span
+                                  onClick={() => setEditSig({ id: s.id, field: "label" })}
+                                  className="text-[13px] text-foreground/85 leading-snug flex-1 cursor-pointer hover:text-foreground"
+                                >
+                                  {s.label}
+                                </span>
+                              )}
+                              <button
+                                onClick={() => removeSignal(s.id)}
+                                className="text-[13px] text-muted-foreground/40 hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                                aria-label="Delete signal"
+                              >
+                                ×
+                              </button>
+                            </div>
+                          );
+                        })
                       )}
                     </div>
                   ))}

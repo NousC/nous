@@ -325,6 +325,62 @@ mindRouter.get('/scorecard', async (req, res) => {
   }
 });
 
+const SIGNAL_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// PATCH /api/mind/scorecard/signals/:id — edit a signal's label / weight /
+// active flag. Body: { workspaceId, label?, weight?, active? }. Scoped to the
+// workspace so one tenant can't touch another's Scorecard.
+mindRouter.patch('/scorecard/signals/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { workspaceId, label, weight, active } = req.body;
+    if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
+    if (!SIGNAL_ID_RE.test(id)) return res.status(400).json({ error: 'invalid_id' });
+
+    const updates = {};
+    if (typeof label === 'string' && label.trim()) updates.label = label.trim().slice(0, 200);
+    if (weight !== undefined && Number.isFinite(Number(weight))) {
+      updates.weight = Math.max(-10, Math.min(10, Math.round(Number(weight))));
+    }
+    if (typeof active === 'boolean') updates.active = active;
+    if (Object.keys(updates).length === 0) return res.status(400).json({ error: 'nothing_to_update' });
+
+    const { data, error } = await getSupabaseClient()
+      .from('scorecard_signals')
+      .update(updates)
+      .eq('id', id)
+      .eq('workspace_id', workspaceId)
+      .select('id, key, label, weight, coverage, active')
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return res.status(404).json({ error: 'not_found' });
+    return res.json({ signal: data });
+  } catch (err) {
+    console.error('[PATCH /api/mind/scorecard/signals/:id]', err);
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
+// DELETE /api/mind/scorecard/signals/:id — remove a signal. Body: { workspaceId }.
+mindRouter.delete('/scorecard/signals/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { workspaceId } = req.body;
+    if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
+    if (!SIGNAL_ID_RE.test(id)) return res.status(400).json({ error: 'invalid_id' });
+    const { error } = await getSupabaseClient()
+      .from('scorecard_signals')
+      .delete()
+      .eq('id', id)
+      .eq('workspace_id', workspaceId);
+    if (error) throw error;
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error('[DELETE /api/mind/scorecard/signals/:id]', err);
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
 // GET /api/mind/worker-runs?workspaceId=…&limit=50 — surface the
 // compound-intelligence loop's run history on the Intelligence page.
 //
