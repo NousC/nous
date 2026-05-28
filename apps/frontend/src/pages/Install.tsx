@@ -122,7 +122,11 @@ const CLAUDE_CODE_INSTALL = `/plugin install nous@nous-plugins`;
 
 // Raw CLI alternative to the plugin — adds the stdio server directly.
 // Add -s user to make it available in every project.
-const CLAUDE_CODE_CLI = `claude mcp add nous -e NOUS_API_KEY=YOUR_API_KEY -- npx -y @opennous/mcp`;
+// The key lives on its own `export` line so the only hand-edit is far from the
+// fragile ` -- ` separator. Pasting a real key inline next to `--` was eating
+// the space, which made `claude mcp add` swallow `-y` as its own flag.
+const CLAUDE_CODE_CLI = `export NOUS_API_KEY=YOUR_API_KEY
+claude mcp add nous -e NOUS_API_KEY=$NOUS_API_KEY -- npx -y @opennous/mcp`;
 
 // Config-file clients paste a JSON `mcpServers` block. We offer two variants so
 // nobody clobbers an existing config: the full file (first MCP) or just the
@@ -314,7 +318,7 @@ function ClaudeInstall() {
 
       {method === "cli" && (
         <div className="space-y-3">
-          <CodeSnippet caption="Run this in your terminal to add the Nous MCP server to Claude Code" code={CLAUDE_CODE_CLI} />
+          <CodeSnippet caption="Replace YOUR_API_KEY on the first line, then run both lines in your terminal" code={CLAUDE_CODE_CLI} />
           <FootNote>Add <code className="bg-muted px-1 rounded text-[11px]">-s user</code> to install it for every project. Restart Claude Code.</FootNote>
         </div>
       )}
