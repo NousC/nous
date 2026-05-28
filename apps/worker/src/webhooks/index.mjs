@@ -165,25 +165,14 @@ webhookRouter.post(['/smartlead/:workspaceId', '/smartlead'], (req, res) => {
   });
 });
 
-// Lemlist — webhooks registered manually in Lemlist's UI. Lemlist's docs
-// say if you provided a `secret` at webhook-create time, it's echoed back
-// inside the JSON body (not as a header or query param) on every delivery.
-// So we check req.body.secret rather than req.query.secret.
+// Lemlist — webhook auto-registered on connect with a per-workspace secret.
+// Secret verification lives inside the handler because it needs DB access to
+// look up the right stored secret for this workspace. The legacy
+// LEMLIST_WEBHOOK_SECRET env var is honoured as a fallback for self-hosters
+// who set up webhooks manually instead of via auto-register.
 webhookRouter.post(['/lemlist/:workspaceId', '/lemlist'], (req, res) => {
   const workspaceId = req.params.workspaceId || req.query.workspace_id;
   if (!workspaceId) return res.status(400).json({ error: 'workspace_id_required' });
-
-  const expected = process.env.LEMLIST_WEBHOOK_SECRET;
-  if (expected) {
-    const got = (req.body?.secret || '').toString();
-    let ok = false;
-    try {
-      ok = got.length === expected.length &&
-        crypto.timingSafeEqual(Buffer.from(got), Buffer.from(expected));
-    } catch { /* length mismatch → false */ }
-    if (!ok) return res.status(401).json({ error: 'invalid_secret' });
-  }
-
   handleLemlist(req, res, workspaceId).catch(async err => {
     console.error('[WEBHOOK/lemlist] handler threw, queuing for retry:', err.message);
     await enqueueForRetry(getSupabaseClient(), { workspaceId, source: 'lemlist', req, err });

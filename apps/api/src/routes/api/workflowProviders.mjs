@@ -450,6 +450,12 @@ workflowProvidersRouter.delete('/connections/:id', verifySupabaseAuth, async (re
       }
     }
 
+    if (conn?.workflow_providers?.name === 'lemlist') {
+      const pat = decrypt(conn.encrypted_credentials?.api_key || '');
+      const wid = conn.encrypted_credentials?.webhook_id;
+      if (pat && wid) await unsubscribeLemlistWebhook(pat, wid);
+    }
+
     await supabase.from('workflow_provider_connections').delete().eq('id', id);
     return res.json({ ok: true });
   } catch (err) {
@@ -686,6 +692,56 @@ async function unsubscribeHeyReachWebhook(apiKey, webhookId) {
   }
 }
 
+// Lemlist — POST /api/hooks accepts an optional `type` field. Omitting it means
+// "send every event", so a single webhook covers all activity for a workspace
+// (no per-event-type fan-out like HeyReach). We generate a per-connection
+// secret and store it; Lemlist echoes it back in body.secret on every delivery
+// for the handler to verify.
+function lemlistBasicAuth(apiKey) {
+  return `Basic ${Buffer.from(`:${apiKey}`).toString('base64')}`;
+}
+
+async function subscribeLemlistWebhook(apiKey, workspaceId) {
+  const callbackUrl = `${workerBaseUrl()}/inbound/lemlist/${workspaceId}`;
+  const secret = crypto.randomBytes(32).toString('hex');
+  try {
+    const res = await fetch('https://api.lemlist.com/api/hooks', {
+      method:  'POST',
+      headers: {
+        Authorization:    lemlistBasicAuth(apiKey),
+        'Content-Type':   'application/json',
+      },
+      body: JSON.stringify({
+        targetUrl: callbackUrl,
+        secret,
+        // `type` omitted on purpose — Lemlist sends every event on this one webhook.
+      }),
+    });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      return { error: `lemlist_subscribe_failed_${res.status}`, detail };
+    }
+    const body = await res.json().catch(() => ({}));
+    const id = body?._id ?? body?.id ?? null;
+    if (!id) return { error: 'lemlist_webhook_id_missing', detail: body };
+    return { webhook_id: String(id), webhook_secret: secret };
+  } catch (err) {
+    return { error: 'lemlist_subscribe_exception', message: err.message };
+  }
+}
+
+async function unsubscribeLemlistWebhook(apiKey, hookId) {
+  if (!hookId) return;
+  try {
+    await fetch(`https://api.lemlist.com/api/hooks/${encodeURIComponent(hookId)}`, {
+      method:  'DELETE',
+      headers: { Authorization: lemlistBasicAuth(apiKey) },
+    });
+  } catch (err) {
+    console.warn('[LEMLIST_UNSUBSCRIBE]', err.message);
+  }
+}
+
 async function testNamedProvider(name, apiKey) {
   if (!apiKey) return { verified: false, message: 'API key is required' };
 
@@ -915,6 +971,21 @@ workflowProvidersRouter.post('/:name/connect', verifySupabaseAuth, async (req, r
         webhookNote = `Connected, but webhook subscription failed: ${sub.detail || sub.message || sub.error}`;
       } else {
         credentials.webhook_ids = sub.webhook_ids;   // JSON-serialized array on save below
+      }
+    }
+
+    // Lemlist — single webhook covers every event (Lemlist's `type` field is
+    // optional on POST /api/hooks). We generate a per-workspace secret and
+    // store it encrypted; Lemlist echoes it back in body.secret on every
+    // delivery for the worker to verify.
+    if (name === 'lemlist') {
+      const sub = await subscribeLemlistWebhook(api_key, workspace_id);
+      if (sub.error) {
+        console.error('[LEMLIST_CONNECT] subscribe failed:', sub.error, sub.detail || sub.message);
+        webhookNote = `Connected, but webhook subscription failed: ${sub.detail || sub.message || sub.error}`;
+      } else {
+        credentials.webhook_id     = sub.webhook_id;
+        credentials.webhook_secret = encryptValue(sub.webhook_secret);
       }
     }
 

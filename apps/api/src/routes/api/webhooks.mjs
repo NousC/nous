@@ -141,6 +141,7 @@ webhooksRouter.get('/urls', async (req, res) => {
       if (name === 'heyreach' && Array.isArray(creds.webhook_ids) && creds.webhook_ids.length) {
         proven.add('heyreach');
       }
+      if (name === 'lemlist'  && creds.webhook_id)                proven.add('lemlist');
     }
   } catch { /* fall through */ }
 
