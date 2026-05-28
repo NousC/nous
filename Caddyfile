@@ -9,6 +9,10 @@
     reverse_proxy api:3000
 }
 
+{$MCP_DOMAIN} {
+    reverse_proxy mcp:3002
+}
+
 # Legacy goproply.com → opennous.cloud (parallel-run cutover, 2026-05-18)
 app.goproply.com {
     redir https://app.opennous.cloud{uri} 308

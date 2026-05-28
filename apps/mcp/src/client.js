@@ -1,7 +1,14 @@
 /**
  * Nous API Client
  * Thin HTTP wrapper that handles auth, workspace context, and error handling.
+ *
+ * The API key is resolved per request: in the hosted HTTP server each request
+ * carries its own Bearer key (scoped via AsyncLocalStorage); in the stdio bin
+ * there is one key from the env. currentApiKey() checks the ALS store first,
+ * then falls back to NOUS_API_KEY, so tool handlers stay key-agnostic.
  */
+
+import { AsyncLocalStorage } from "node:async_hooks";
 
 // Resolve an env var defensively — Claude Code plugins use ${user_config.X}
 // substitution; when an optional userConfig field is left blank, the literal
@@ -15,10 +22,23 @@ function resolvedEnv(name) {
 }
 
 const API_URL = resolvedEnv("NOUS_API_URL") || "https://api.opennous.cloud";
-const API_KEY = resolvedEnv("NOUS_API_KEY");
 
+// Per-request key context for the hosted HTTP server. Empty in stdio mode.
+export const apiKeyStore = new AsyncLocalStorage();
+
+// Run `fn` with `apiKey` bound for the duration of its async execution, so any
+// request() call inside it uses that key.
+export function runWithApiKey(apiKey, fn) {
+  return apiKeyStore.run({ apiKey }, fn);
+}
+
+function currentApiKey() {
+  return apiKeyStore.getStore()?.apiKey ?? resolvedEnv("NOUS_API_KEY");
+}
+
+// stdio-only preflight: the env key must be present at startup.
 export function validateConfig() {
-  if (!API_KEY) {
+  if (!resolvedEnv("NOUS_API_KEY")) {
     throw new Error(
       "NOUS_API_KEY is required. Get yours at opennous.cloud → Settings → API Keys"
     );
@@ -26,6 +46,11 @@ export function validateConfig() {
 }
 
 async function request(method, path, { body, query } = {}) {
+  const apiKey = currentApiKey();
+  if (!apiKey) {
+    throw new Error("Missing Nous API key. Pass it as an Authorization: Bearer header.");
+  }
+
   const url = new URL(path, API_URL);
 
   if (query) {
@@ -37,7 +62,7 @@ async function request(method, path, { body, query } = {}) {
   }
 
   const headers = {
-    Authorization: `Bearer ${API_KEY}`,
+    Authorization: `Bearer ${apiKey}`,
     "Content-Type": "application/json",
     "X-Nous-Client": "mcp",
   };

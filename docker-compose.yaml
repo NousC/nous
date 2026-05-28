@@ -13,6 +13,25 @@ services:
     depends_on:
       - redis
 
+  # ── Hosted MCP server (Streamable HTTP, multi-tenant) ─────────────────────────
+  # Lets cloud clients that cannot run a local process (n8n cloud, etc.) connect
+  # to Nous over HTTPS. Each request authenticates with its own workspace API key
+  # (Authorization: Bearer pk_...), forwarded to the API over the internal network.
+  mcp:
+    build:
+      context: .
+      dockerfile: apps/mcp/Dockerfile
+    image: nous-mcp:local
+    restart: unless-stopped
+    env_file:
+      - ./nous.env
+    environment:
+      NODE_ENV: production
+      PORT: 3002
+      NOUS_API_URL: http://api:3000
+    depends_on:
+      - api
+
   # ── Background worker ────────────────────────────────────────────────────────
   worker:
     build:
@@ -71,9 +90,11 @@ services:
     environment:
       APP_DOMAIN: ${APP_DOMAIN}
       API_DOMAIN: ${API_DOMAIN}
+      MCP_DOMAIN: ${MCP_DOMAIN}
     depends_on:
       - frontend
       - api
+      - mcp
 
 volumes:
   redis_data:

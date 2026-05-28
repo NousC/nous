@@ -1,6 +1,6 @@
 {
   "name": "@opennous/mcp",
-  "version": "0.10.1",
+  "version": "0.11.0",
   "description": "Nous MCP Server — GTM data infrastructure for agents.",
   "type": "module",
   "bin": {
@@ -11,6 +11,8 @@
   "scripts": {
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
+    "dev:http": "node --watch src/http.js",
+    "start:http": "node src/http.js",
     "typecheck": "echo 'no ts in mcp — skipping'"
   },
   "keywords": ["mcp", "nous", "memory", "crm", "gtm", "agents"],
