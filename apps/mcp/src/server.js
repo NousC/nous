@@ -11,13 +11,13 @@
  * "updates" — it records observations; Nous derives.
  *
  * Tools:
- *   get_context          — engineered context for a task (draft_email, follow_up, ...)
- *   get_account          — the full account record: every claim + the timeline
+ *   get_context          — engineered context for a task (draft_email, follow_up, ...) + ICP fit score
+ *   get_account          — the full account record: every claim + the timeline + ICP fit score
  *   record               — record what happened / what you learned (observe, never update)
  *   query                — retrieve + summarise a corpus of activity across many people
  *   attention            — what needs your attention (accounts gone quiet, facts decayed)
  *   verify               — re-check a fact before acting on it
- *   get_workspace_facts  — workspace-level facts (ICP, market, pricing, product, competitors)
+ *   get_gtm_profile      — the user's GTM profile (ICP, market, pricing, product, competitors)
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -66,7 +66,8 @@ export function createServer() {
     "Get engineered context for a specific task about a person or company. Pass their email (or " +
     "entity id) and the intent. Returns a focused, ranked context block: the facts that matter for " +
     "that task — each with a confidence and a freshness — plus the recent timeline, the buying-group " +
-    "stakeholders, and open predictions. Call this before drafting outreach, preparing for a meeting, " +
+    "stakeholders, open predictions, and the account's ICP fit score (0-100 + why). Call this before " +
+    "drafting outreach, preparing for a meeting, " +
     "or making any decision about a person. A fact's freshness tells you whether to trust it: 'fresh' " +
     "act on it, 'suspect'/'expired' verify first.",
     {
@@ -89,6 +90,11 @@ export function createServer() {
 
       const lines = [ctx.summary, ""];
 
+      if (ctx.icp) {
+        const label = ctx.icp.score >= 70 ? "strong fit" : ctx.icp.score >= 40 ? "moderate fit" : "weak fit";
+        lines.push(`ICP FIT: ${ctx.icp.score}/100 — ${label}${ctx.icp.reason ? `  (${ctx.icp.reason})` : ""}`);
+        lines.push("");
+      }
       if (ctx.claims?.length) {
         lines.push(`FACTS (${ctx.meta?.claims_returned ?? ctx.claims.length}):`);
         for (const c of ctx.claims) {
@@ -140,6 +146,11 @@ export function createServer() {
       const rec = await get(`/v2/accounts/${encodeURIComponent(id)}`);
       const lines = [`${rec.type} · ${rec.entity_id}`, ""];
 
+      if (rec.icp) {
+        const label = rec.icp.score >= 70 ? "strong fit" : rec.icp.score >= 40 ? "moderate fit" : "weak fit";
+        lines.push(`ICP FIT: ${rec.icp.score}/100 — ${label}${rec.icp.reason ? `  (${rec.icp.reason})` : ""}`);
+        lines.push("");
+      }
       const claims = Object.values(rec.claims ?? {});
       if (claims.length) {
         lines.push(`FACTS (${claims.length}):`);
@@ -307,43 +318,45 @@ export function createServer() {
   );
 
   // ===========================================================================
-  // TOOL: get_workspace_facts  —  GET /v2/workspace/facts
-  // The user's OWN playbook: ICP, market, product, pricing, competitors.
+  // TOOL: get_gtm_profile  —  GET /v2/workspace/facts
+  // The user's OWN GTM profile: ICP, market, product, pricing, competitors.
   // Use this for any question about the user's business — NOT get_account.
+  // Registered also under the legacy name get_workspace_facts for back-compat.
   // ===========================================================================
-  server.tool(
-    "get_workspace_facts",
-    "Get workspace-level facts the user has recorded about THEIR OWN business — ICP, target market, " +
-    "product, pricing, competitors, playbooks. These are NOT facts about people or companies; they " +
-    "are the user's own playbook. Use this for any question about the user's ICP, target buyer, " +
-    "pricing, market, or differentiators. ALWAYS prefer this over query/get_account when the " +
-    "question is about the user's business.",
-    {
-      categories: z.array(z.string()).optional()
-        .describe("Optional category filter, e.g. ['ICP'] or ['Pricing','Competitors']. Omit for all."),
-      limit: z.number().min(1).max(500).optional()
-        .describe("Max facts to return (default 50)"),
-    },
-    async ({ categories, limit }) => {
-      const params = {};
-      if (categories?.length) params.categories = categories.join(",");
-      if (limit != null) params.limit = limit;
-      const r = await get("/v2/workspace/facts", params);
-      if (!r.facts?.length) {
-        return { content: [{ type: "text", text:
-          "No workspace facts recorded yet. The user can add them in the Intelligence tab." }] };
-      }
-      const groups = {};
-      for (const f of r.facts) (groups[f.category] ??= []).push(f);
-      const lines = [];
-      for (const [cat, facts] of Object.entries(groups)) {
-        lines.push(`${cat.toUpperCase()} (${facts.length}):`);
-        for (const f of facts) lines.push(`  ${f.content}  [${relAge(f.recorded_at)}]`);
-        lines.push("");
-      }
-      return { content: [{ type: "text", text: lines.join("\n").trim() }] };
+  const gtmProfileDescription =
+    "Get the user's OWN GTM profile — their ICP, target market, product, pricing, " +
+    "competitors, and positioning. These are NOT facts about a person or company; they are " +
+    "the user's own business profile. Use this for any question about the user's ICP, target " +
+    "buyer, pricing, market, or differentiators. ALWAYS prefer this over query/get_account " +
+    "when the question is about the user's business.";
+  const gtmProfileSchema = {
+    categories: z.array(z.string()).optional()
+      .describe("Optional category filter, e.g. ['ICP'] or ['Pricing','Competitors']. Omit for all."),
+    limit: z.number().min(1).max(500).optional()
+      .describe("Max facts to return (default 50)"),
+  };
+  const gtmProfileHandler = async ({ categories, limit }) => {
+    const params = {};
+    if (categories?.length) params.categories = categories.join(",");
+    if (limit != null) params.limit = limit;
+    const r = await get("/v2/workspace/facts", params);
+    if (!r.facts?.length) {
+      return { content: [{ type: "text", text:
+        "No GTM profile recorded yet. The user can set it up in the GTM Context tab." }] };
     }
-  );
+    const groups = {};
+    for (const f of r.facts) (groups[f.category] ??= []).push(f);
+    const lines = [];
+    for (const [cat, facts] of Object.entries(groups)) {
+      lines.push(`${cat.toUpperCase()} (${facts.length}):`);
+      for (const f of facts) lines.push(`  ${f.content}  [${relAge(f.recorded_at)}]`);
+      lines.push("");
+    }
+    return { content: [{ type: "text", text: lines.join("\n").trim() }] };
+  };
+  server.tool("get_gtm_profile", gtmProfileDescription, gtmProfileSchema, gtmProfileHandler);
+  // Legacy alias — keeps existing integrations calling get_workspace_facts working.
+  server.tool("get_workspace_facts", gtmProfileDescription, gtmProfileSchema, gtmProfileHandler);
 
   return server;
 }

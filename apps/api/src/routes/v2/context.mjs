@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { getSupabaseClient, assembleContext, resolveFocus, CONTEXT_INTENTS } from '@nous/core';
+import { icpFit } from '../../lib/icpFit.mjs';
 
 export const contextV2Router = Router();
 
@@ -31,7 +32,8 @@ contextV2Router.post('/', async (req, res) => {
 
     const context = await assembleContext(supabase, workspaceId, resolution.entity_id, intent, budget_tokens);
     if (!context) return res.status(404).json({ error: 'entity_not_found' });
-    return res.json(context);
+    const icp = await icpFit(supabase, workspaceId, resolution.entity_id);
+    return res.json(icp ? { ...context, icp } : context);
   } catch (err) {
     console.error('[POST /v2/context]', err);
     return res.status(500).json({ error: 'internal_error' });
