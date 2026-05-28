@@ -5,7 +5,7 @@
 <div align="center">
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
-[![npm](https://img.shields.io/npm/v/@opennous/sdk)](https://www.npmjs.com/package/@opennous/sdk)
+[![npm](https://img.shields.io/npm/v/@opennous/mcp)](https://www.npmjs.com/package/@opennous/mcp)
 [![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/npa59RTgs)
 
 </div>
@@ -22,8 +22,6 @@
   <a href="https://docs.opennous.cloud">Docs</a> ·
   <a href="https://docs.opennous.cloud/public-api/introduction">Public API</a> ·
   <a href="https://docs.opennous.cloud/mcp/introduction">MCP Server</a> ·
-  <a href="https://www.npmjs.com/package/@opennous/sdk">Node.js SDK</a> ·
-  <a href="https://pypi.org/project/opennous/">Python SDK</a> ·
   <a href="https://discord.gg/npa59RTgs">Discord</a>
 </div>
 
