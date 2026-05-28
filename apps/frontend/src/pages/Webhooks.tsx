@@ -195,26 +195,70 @@ const WEBHOOK_GUIDES: Record<string, WebhookGuide> = {
 
   smartlead: {
     mode: "paste",
-    modeNote: "Smartlead webhooks are configured per campaign — you'll need to add the URL to each campaign you want signals from.",
+    modeNote: "Smartlead webhooks can be set up globally for your workspace or scoped to a single campaign. Pick whichever fits your setup.",
     events: [
-      { source_event: "EMAIL_REPLIED",      nous_activity: "email_received" },
-      { source_event: "EMAIL_SENT",         nous_activity: "email_sent" },
-      { source_event: "EMAIL_OPENED",       nous_activity: "email_opened" },
-      { source_event: "EMAIL_CLICKED",      nous_activity: "email_opened" },
-      { source_event: "EMAIL_BOUNCED",      nous_activity: "email_bounced" },
-      { source_event: "EMAIL_UNSUBSCRIBED", nous_activity: "email_bounced" },
+      { source_event: "EMAIL_REPLIED",         nous_activity: "email_received" },
+      { source_event: "EMAIL_SENT",            nous_activity: "email_sent" },
+      { source_event: "EMAIL_OPENED",          nous_activity: "email_opened" },
+      { source_event: "EMAIL_CLICKED",         nous_activity: "email_opened" },
+      { source_event: "EMAIL_BOUNCED",         nous_activity: "email_bounced" },
+      { source_event: "LEAD_UNSUBSCRIBED",     nous_activity: "email_bounced" },
+      { source_event: "LEAD_CATEGORY_UPDATED", nous_activity: "lead_category_updated" },
     ],
     manualConfig: {
-      intro: "Smartlead scopes webhooks to a single campaign, so this step repeats per campaign you care about:",
+      intro: "The simplest setup is to add one webhook per campaign — Smartlead also supports a workspace-wide webhook if you'd rather:",
       steps: [
-        "Open the campaign you want to track",
+        "Open the campaign you want to track in Smartlead",
         "Go to Settings → Webhooks → Add Webhook",
         "Paste the webhook URL shown above",
-        "Tick the events you want",
+        "Tick the events you want (recommended: all of them)",
         "Save, then repeat for every other campaign you want signals from",
       ],
     },
     docsUrl: "https://docs.opennous.cloud/providers/smartlead",
+  },
+
+  lemlist: {
+    mode: "paste",
+    modeNote: "Lemlist's webhook setup is API-only — add it once in your Lemlist team settings and every campaign you run flows in automatically.",
+    events: [
+      // Email
+      { source_event: "emailsSent",         nous_activity: "email_sent" },
+      { source_event: "emailsOpened",       nous_activity: "email_opened" },
+      { source_event: "emailsClicked",      nous_activity: "email_opened" },
+      { source_event: "emailsReplied",      nous_activity: "email_received" },
+      { source_event: "emailsInterested",   nous_activity: "email_received" },
+      { source_event: "emailsBounced",      nous_activity: "email_bounced" },
+      { source_event: "emailsFailed",       nous_activity: "email_bounced" },
+      { source_event: "emailsUnsubscribed", nous_activity: "email_bounced" },
+      // LinkedIn (outbound only)
+      { source_event: "linkedinSent",             nous_activity: "linkedin_message_sent" },
+      { source_event: "linkedinOpened",           nous_activity: "linkedin_message_opened" },
+      { source_event: "linkedinInviteDone",       nous_activity: "linkedin_connection_sent" },
+      { source_event: "linkedinFollowDone",       nous_activity: "linkedin_follow_sent" },
+      { source_event: "linkedinVisitDone",        nous_activity: "linkedin_profile_view" },
+      { source_event: "linkedinLikeLastPostDone", nous_activity: "linkedin_like" },
+      { source_event: "linkedinVoiceNoteDone",    nous_activity: "linkedin_message_sent" },
+      // Lifecycle
+      { source_event: "campaignComplete",         nous_activity: "campaign_completed" },
+    ],
+    skipped: [
+      { event: "linkedinReplied",        reason: "Native LinkedIn integration already logs this" },
+      { event: "linkedinInviteAccepted", reason: "Native LinkedIn integration already logs this" },
+    ],
+    skippedExplainer: "These events fire when a reply or accept lands in your LinkedIn inbox. Native LinkedIn (Unipile) is already the source of truth for them — subscribing via Lemlist too would log every reply twice on the contact timeline.",
+    manualConfig: {
+      intro: "Set up the webhook once in Lemlist and every event flows in automatically:",
+      steps: [
+        "Open Lemlist → Settings → Integrations → Webhooks",
+        "Click Add Webhook",
+        "Paste the webhook URL shown above into Target URL",
+        "Select the events you want (recommended: the email and LinkedIn outbound events)",
+        "Optionally set a secret — Lemlist will echo it back in every delivery for verification",
+        "Save",
+      ],
+    },
+    docsUrl: "https://docs.opennous.cloud/providers/lemlist",
   },
 
   instantly: {

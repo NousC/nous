@@ -18,6 +18,7 @@ import { reprocessInstantly } from '../webhooks/handlers/instantly.mjs';
 import { reprocessEmailBison } from '../webhooks/handlers/emailbison.mjs';
 import { reprocessHeyReach } from '../webhooks/handlers/heyreach.mjs';
 import { reprocessSmartlead } from '../webhooks/handlers/smartlead.mjs';
+import { reprocessLemlist }   from '../webhooks/handlers/lemlist.mjs';
 import { reprocessLinkedIn }  from '../webhooks/handlers/linkedin.mjs';
 import { reprocessRB2B }      from '../webhooks/handlers/rb2b.mjs';
 import { reprocessStripe }    from '../webhooks/handlers/stripe.mjs';
@@ -31,6 +32,7 @@ const HANDLERS = {
   emailbison: reprocessEmailBison,
   heyreach: reprocessHeyReach,
   smartlead: reprocessSmartlead,
+  lemlist:   reprocessLemlist,
   linkedin:  reprocessLinkedIn,
   rb2b:      reprocessRB2B,
   stripe:    reprocessStripe,

@@ -168,7 +168,8 @@ async function testProviderCredentials(provider, credentials) {
     }
     if (p === 'emailbison') {
       if (!token) return { verified: false, message: 'No credentials provided' };
-      const r = await fetch('https://dedi.emailbison.com/api/campaigns?per_page=1', {
+      // /api/users is what the EmailBison docs call out as the sample connectivity test
+      const r = await fetch('https://dedi.emailbison.com/api/users', {
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       });
       if (r.ok) return { verified: true, message: 'Connected to EmailBison' };
@@ -707,7 +708,8 @@ async function testNamedProvider(name, apiKey) {
   }
 
   if (name === 'emailbison') {
-    const r = await fetch('https://dedi.emailbison.com/api/campaigns?per_page=1', {
+    // /api/users is what the EmailBison docs call out as the sample connectivity test
+    const r = await fetch('https://dedi.emailbison.com/api/users', {
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
     });
     if (r.ok) return { verified: true, message: 'Connected to EmailBison' };

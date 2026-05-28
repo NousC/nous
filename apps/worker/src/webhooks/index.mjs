@@ -13,6 +13,7 @@ import { handleInstantly } from './handlers/instantly.mjs';
 import { handleEmailBison } from './handlers/emailbison.mjs';
 import { handleHeyReach } from './handlers/heyreach.mjs';
 import { handleSmartlead } from './handlers/smartlead.mjs';
+import { handleLemlist } from './handlers/lemlist.mjs';
 import { handleCalendly } from './handlers/calendly.mjs';
 import { handleCalCom } from './handlers/calcom.mjs';
 import { handleStripe } from './handlers/stripe.mjs';
@@ -160,6 +161,32 @@ webhookRouter.post(['/smartlead/:workspaceId', '/smartlead'], (req, res) => {
   handleSmartlead(req, res, workspaceId).catch(async err => {
     console.error('[WEBHOOK/smartlead] handler threw, queuing for retry:', err.message);
     await enqueueForRetry(getSupabaseClient(), { workspaceId, source: 'smartlead', req, err });
+    if (!res.headersSent) res.status(200).json({ ok: true, queued: true });
+  });
+});
+
+// Lemlist — webhooks registered manually in Lemlist's UI. Lemlist's docs
+// say if you provided a `secret` at webhook-create time, it's echoed back
+// inside the JSON body (not as a header or query param) on every delivery.
+// So we check req.body.secret rather than req.query.secret.
+webhookRouter.post(['/lemlist/:workspaceId', '/lemlist'], (req, res) => {
+  const workspaceId = req.params.workspaceId || req.query.workspace_id;
+  if (!workspaceId) return res.status(400).json({ error: 'workspace_id_required' });
+
+  const expected = process.env.LEMLIST_WEBHOOK_SECRET;
+  if (expected) {
+    const got = (req.body?.secret || '').toString();
+    let ok = false;
+    try {
+      ok = got.length === expected.length &&
+        crypto.timingSafeEqual(Buffer.from(got), Buffer.from(expected));
+    } catch { /* length mismatch → false */ }
+    if (!ok) return res.status(401).json({ error: 'invalid_secret' });
+  }
+
+  handleLemlist(req, res, workspaceId).catch(async err => {
+    console.error('[WEBHOOK/lemlist] handler threw, queuing for retry:', err.message);
+    await enqueueForRetry(getSupabaseClient(), { workspaceId, source: 'lemlist', req, err });
     if (!res.headersSent) res.status(200).json({ ok: true, queued: true });
   });
 });
