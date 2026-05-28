@@ -81,17 +81,38 @@ export default function Settings() {
   const [workspaceName, setWorkspaceName] = useState(userData?.team?.name ?? "");
   const [wsNameSaving, setWsNameSaving] = useState(false);
 
-  // Company (used to auto-pull a favicon for the Friends gallery later)
-  const [companyName, setCompanyName] = useState("");
-  const [companyUrl, setCompanyUrl] = useState("");
+  // Company name + website are stored on the workspace row so they round-trip
+  // cleanly between onboarding (which writes them) and Settings (which edits).
+  const [companyName, setCompanyName] = useState(userData?.workspace?.name ?? "");
+  const [companyUrl, setCompanyUrl] = useState(userData?.workspace?.website ?? "");
   const [companySaving, setCompanySaving] = useState(false);
   const saveCompany = async () => {
+    if (!token || !workspaceId) {
+      toast.error("Workspace not ready yet — try again in a moment.");
+      return;
+    }
     setCompanySaving(true);
-    // TODO: wire to backend. For now stub so the UI is testable.
-    setTimeout(() => {
-      toast.success("Saved — we'll persist this to the backend next.");
+    try {
+      const res = await fetch(`${apiUrl}/api/workspaces/${workspaceId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          name: companyName.trim() || undefined,
+          website: companyUrl.trim(),
+        }),
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.error || `HTTP ${res.status}`);
+      }
+      toast.success("Company saved.");
+      refreshUserData();
+    } catch (err: any) {
+      console.error("saveCompany failed:", err);
+      toast.error(err?.message || "Couldn't save right now.");
+    } finally {
       setCompanySaving(false);
-    }, 250);
+    }
   };
 
   // Agora
@@ -148,6 +169,8 @@ export default function Settings() {
   useEffect(() => {
     setName(userData?.user?.name ?? "");
     setWorkspaceName(userData?.team?.name ?? "");
+    setCompanyName(userData?.workspace?.name ?? "");
+    setCompanyUrl(userData?.workspace?.website ?? "");
   }, [userData]);
 
   const loadTeam = async () => {

@@ -190,6 +190,28 @@ export async function ensureUserAndTeam(supabaseUser, skipTeamCreation = false) 
             console.warn('[ensureUserAndTeam] Heal: workspace_members insert failed:', e?.message || e);
           }
         }
+
+        // Ensure the workspace entity exists. Every workspace has exactly one
+        // entity of type='workspace' — it's what notes/claims get attached to
+        // when there's no other natural focus (ICP, company website, etc).
+        // Without it, saveNote() throws "workspace entity not found" and
+        // onboarding's ICP + website never get stored.
+        const { data: existingWsEntity } = await supabase
+          .from('entities')
+          .select('id')
+          .eq('workspace_id', workspaceId)
+          .eq('type', 'workspace')
+          .maybeSingle();
+        if (!existingWsEntity) {
+          try {
+            await supabase
+              .from('entities')
+              .insert({ workspace_id: workspaceId, type: 'workspace', status: 'active' });
+            console.log(`[ensureUserAndTeam] Heal: created missing workspace entity for ${workspaceId}`);
+          } catch (e) {
+            console.warn('[ensureUserAndTeam] Heal: workspace entity insert failed:', e?.message || e);
+          }
+        }
       }
 
       // Same belt-and-suspenders for the Free subscription row.
