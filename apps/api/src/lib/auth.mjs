@@ -145,6 +145,76 @@ export async function ensureUserAndTeam(supabaseUser, skipTeamCreation = false) 
     }
   }
 
+  // Self-heal: users created during the broken .catch() era may have a user
+  // row + team but no workspace (or no workspace_members entry). Repair here
+  // so every call site downstream can rely on the user having a workspace.
+  if (user && team) {
+    try {
+      const { data: existingWs } = await supabase
+        .from('workspaces')
+        .select('id')
+        .eq('team_id', team.id)
+        .limit(1);
+
+      let workspaceId = existingWs?.[0]?.id || null;
+
+      if (!workspaceId) {
+        const { data: createdWs, error: wsErr } = await supabase
+          .from('workspaces')
+          .insert({ team_id: team.id, name: name || user.name || 'My Workspace', icon: null })
+          .select('id')
+          .single();
+        if (wsErr) {
+          console.warn('[ensureUserAndTeam] Heal: failed to create missing workspace:', wsErr.message);
+        } else {
+          workspaceId = createdWs?.id || null;
+          console.log(`[ensureUserAndTeam] Heal: created missing workspace ${workspaceId} for team ${team.id}`);
+        }
+      }
+
+      if (workspaceId) {
+        const { data: existingMember } = await supabase
+          .from('workspace_members')
+          .select('workspace_id')
+          .eq('workspace_id', workspaceId)
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+        if (!existingMember) {
+          try {
+            await supabase
+              .from('workspace_members')
+              .insert({ workspace_id: workspaceId, user_id: user.id, role: 'owner' });
+            console.log(`[ensureUserAndTeam] Heal: added user ${user.id} as owner of workspace ${workspaceId}`);
+          } catch (e) {
+            console.warn('[ensureUserAndTeam] Heal: workspace_members insert failed:', e?.message || e);
+          }
+        }
+      }
+
+      // Same belt-and-suspenders for the Free subscription row.
+      const { data: existingSub } = await supabase
+        .from('subscriptions')
+        .select('team_id')
+        .eq('team_id', team.id)
+        .maybeSingle();
+      if (!existingSub) {
+        try {
+          await supabase.from('subscriptions').insert({
+            team_id: team.id,
+            plan_id: 'free',
+            plan_name: 'free',
+            status: 'active',
+            current_period_start: new Date().toISOString(),
+          });
+          console.log(`[ensureUserAndTeam] Heal: created missing free subscription for team ${team.id}`);
+        } catch { /* duplicate is fine */ }
+      }
+    } catch (healErr) {
+      console.warn('[ensureUserAndTeam] Heal: unexpected error:', healErr?.message || healErr);
+    }
+  }
+
   return { user, team };
 }
 
