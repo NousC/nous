@@ -4,7 +4,7 @@ services:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
-    image: ghcr.io/opennous/nous:latest
+    image: nous-api:local
     restart: unless-stopped
     env_file:
       - ./nous.env
@@ -18,7 +18,7 @@ services:
     build:
       context: .
       dockerfile: apps/worker/Dockerfile
-    image: ghcr.io/opennous/nous-worker:latest
+    image: nous-worker:local
     restart: unless-stopped
     env_file:
       - ./nous.env
@@ -43,7 +43,7 @@ services:
         VITE_POSTHOG_KEY: ${VITE_POSTHOG_KEY:-}
         VITE_GOOGLE_ANALYTICS_ID: ${VITE_GOOGLE_ANALYTICS_ID:-}
         VITE_DOCS_URL: ${VITE_DOCS_URL:-}
-    image: ghcr.io/opennous/nous-frontend:latest
+    image: nous-frontend:local
     restart: unless-stopped
     depends_on:
       - api
