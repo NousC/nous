@@ -117,6 +117,7 @@ export function ActivityIcon({ source, type }: { source: string | null; type: st
   if (s === "calendly"        || t.includes("calendly"))          return logo("/provider-logos/calendly.svg");
   if (s === "cal_com"         || s === "cal.com" || t.includes("cal.com")) return logo("/provider-logos/cal_com.svg");
   if (s === "apollo"          || t.includes("apollo"))            return logo("/provider-logos/apollo.svg");
+  if (s === "prospeo"         || t.includes("prospeo"))           return logo("/provider-logos/prospeo.svg");
   if (t.includes("meeting")   || t.includes("call"))              return <Phone className="w-3.5 h-3.5 text-muted-foreground/45 flex-shrink-0" />;
   if (t.includes("note")      || t.includes("manual"))            return <FileText className="w-3.5 h-3.5 text-muted-foreground/45 flex-shrink-0" />;
   return <MessageSquare className="w-3.5 h-3.5 text-muted-foreground/30 flex-shrink-0" />;

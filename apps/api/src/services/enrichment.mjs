@@ -681,15 +681,8 @@ export async function scoreICP(supabase, workspaceId, contact) {
     // outcome job resolves it. (Was: a mind_episodes insert here.)
 
     const fitLabel = score >= 75 ? 'Strong fit' : score >= 50 ? 'Potential fit' : 'Weak fit';
-    await logActivity(supabase, {
-      workspaceId, contactId: contact.id,
-      companyId: contact.company_id || null,
-      type: 'icp_scored', source: 'system',
-      externalId: `icp_${contact.id}_${new Date().toISOString().slice(0,10)}`,
-      occurredAt: new Date().toISOString(),
-      description: `ICP score: ${score}/100 — ${fitLabel}`,
-      summary: reasoning || null,
-    }).catch(() => {});
+    // ICP scoring is not a timeline-worthy event — it's shown in the contact's
+    // Record Details, not the activity feed. Keep the internal sys-event only.
     logSysEvent(supabase, workspaceId, 'system', 'icp_scored',
       `ICP score ${score}/100 — ${fitLabel}: ${(reasoning || '').slice(0, 120)}`,
       contact.id, { score, fit, fit_label: fitLabel, scorer: model }
