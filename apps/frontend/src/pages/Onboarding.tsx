@@ -8,7 +8,10 @@ import {
 import { PeopleImportPanel } from "@/components/contacts/PeopleImportModal";
 
 const TOTAL_STEPS = 4;
-const STORAGE_KEY = "nous_onboarding_v8";
+// Scope the onboarding state by user id so a stale phase=4 from a previous
+// account doesn't get restored when somebody else signs up in the same browser.
+const STORAGE_KEY_PREFIX = "nous_onboarding_v9_";
+const LEGACY_STORAGE_KEYS = ["nous_onboarding_v7", "nous_onboarding_v8"];
 const API_URL    = import.meta.env.VITE_API_URL ?? "";
 
 type BusinessType = "service" | "software";
@@ -483,15 +486,23 @@ export default function Onboarding() {
   const [apiKey, setApiKey] = useState<string | null>(null);
   const [generatingKey, setGeneratingKey] = useState(false);
 
+  // Per-user storage key so a stale phase from another account never bleeds across.
+  const userId = userData?.id || session?.user?.id || null;
+  const storageKey = userId ? `${STORAGE_KEY_PREFIX}${userId}` : null;
+
   useEffect(() => {
     if (userData?.onboarding_completed) {
       navigate("/", { replace: true });
     }
   }, [userData?.onboarding_completed, navigate]);
 
+  // Once we know the user, restore (or migrate) their state. Anything stored
+  // under a legacy un-scoped key gets wiped so it can't leak to another login.
   useEffect(() => {
+    if (!storageKey) return;
     try {
-      const saved = localStorage.getItem(STORAGE_KEY);
+      LEGACY_STORAGE_KEYS.forEach(k => localStorage.removeItem(k));
+      const saved = localStorage.getItem(storageKey);
       if (!saved) return;
       const p = JSON.parse(saved);
       if (p.phase && p.phase !== "finishing") setPhase(p.phase);
@@ -503,15 +514,15 @@ export default function Onboarding() {
       if (p.planModel)       setPlanModel(p.planModel);
       if (p.signupStage)     setSignupStage(p.signupStage);
     } catch { /* ignore */ }
-  }, []);
+  }, [storageKey]);
 
   useEffect(() => {
-    if (phase === "finishing") return;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+    if (!storageKey || phase === "finishing") return;
+    localStorage.setItem(storageKey, JSON.stringify({
       phase, name, companyName, website, icpDescription,
       businessType, planModel, signupStage,
     }));
-  }, [phase, name, companyName, website, icpDescription, businessType, planModel, signupStage]);
+  }, [storageKey, phase, name, companyName, website, icpDescription, businessType, planModel, signupStage]);
 
   const auth = { Authorization: `Bearer ${session?.access_token}`, "Content-Type": "application/json" };
 
@@ -585,7 +596,7 @@ export default function Onboarding() {
           icp_description: icpDescription.trim() || undefined,
         }),
       });
-      localStorage.removeItem(STORAGE_KEY);
+      if (storageKey) localStorage.removeItem(storageKey);
       localStorage.setItem("nous_just_onboarded", "true");
       localStorage.setItem("nous_onboarding_company_name", companyName.trim());
       refreshUserData().catch(console.error);

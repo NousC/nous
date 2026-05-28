@@ -141,11 +141,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         ? `${apiUrl}/me?workspace_id=${selectedWorkspaceId}`
         : `${apiUrl}/me`;
 
-      const response = await fetch(url, {
+      let response = await fetch(url, {
         headers: {
           'Authorization': `Bearer ${accessToken}`,
         },
       });
+
+      // Stale selectedWorkspaceId (leftover from a previous user in this browser)
+      // gives a 403. Drop it and retry with the bare /me so the server picks
+      // a workspace this user actually belongs to.
+      if (response.status === 403 && selectedWorkspaceId) {
+        console.warn('[AUTH] Stored selectedWorkspaceId 403d — clearing and retrying');
+        localStorage.removeItem('selectedWorkspaceId');
+        response = await fetch(`${apiUrl}/me`, {
+          headers: { 'Authorization': `Bearer ${accessToken}` },
+        });
+      }
 
       if (response.ok) {
         const data = await response.json();
@@ -283,6 +294,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = async () => {
     await supabase.auth.signOut();
+    // Wipe per-user browser state so the next person signing in on this
+    // browser doesn't inherit a stale workspace pointer or onboarding phase.
+    try {
+      localStorage.removeItem('selectedWorkspaceId');
+      localStorage.removeItem('nous_just_onboarded');
+      localStorage.removeItem('nous_onboarding_company_name');
+      Object.keys(localStorage)
+        .filter(k => k.startsWith('nous_onboarding_v'))
+        .forEach(k => localStorage.removeItem(k));
+    } catch { /* sandbox / private mode */ }
     setUserData(null);
     setOnboardingCompleted(false);
     setUserDataLoading(false);
