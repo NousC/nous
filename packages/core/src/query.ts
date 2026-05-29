@@ -40,6 +40,10 @@ export interface QueryItem {
   source: string;
   summary: string | null;
   similarity?: number;      // present in semantic mode
+  // Outbound attribution from the observation's raw — which email earned this
+  // event (campaign / step / variant / subject). Present on email events;
+  // absent in semantic mode. Lets the agent group replies by the email sent.
+  attribution?: Record<string, unknown> | null;
 }
 
 export interface EntityItem {
@@ -51,6 +55,8 @@ export interface EntityItem {
   most_recent_source: string;
   most_recent_summary: string | null;
   most_recent_value?: unknown;              // present for state observations
+  most_recent_attribution?: Record<string, unknown> | null;  // campaign/variant of the latest match
+  firmographics?: Record<string, unknown> | null;            // industry/company_size/title for grouping
 }
 
 export interface QueryResult {
@@ -73,6 +79,25 @@ export interface QueryResult {
 const DAY = 86_400_000;
 const ENTITY_FETCH_CAP = 1_000;             // when computing return='entities' or without-set
 
+// Claim properties fetched alongside names so the agent can group results by
+// firmographics (e.g. "reply rate by industry") without a call per entity.
+const NAME_PROPS = ['name', 'first_name', 'last_name'];
+const FIRMO_PROPS = ['job_title', 'seniority', 'department', 'industry', 'employee_count', 'company'];
+
+// The outbound attribution the webhook handlers stash on observation.raw.
+const ATTRIB_KEYS = ['campaign_id', 'campaign_name', 'step', 'variant', 'subject'];
+
+function pickAttribution(raw: unknown): Record<string, unknown> | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const k of ATTRIB_KEYS) {
+    if (r[k] != null && r[k] !== '') out[k] = r[k];
+  }
+  if (r.is_outbound != null) out.is_outbound = r.is_outbound;
+  return Object.keys(out).length ? out : null;
+}
+
 // Internal: pull observations matching a scope. Used both for the primary
 // scope and (without LIMIT) for the without-scope's entity-id set.
 async function fetchScopeObservations(
@@ -87,7 +112,7 @@ async function fetchScopeObservations(
 
   let q = supabase
     .from('observations')
-    .select('id, entity_id, kind, property, value, source, observed_at')
+    .select('id, entity_id, kind, property, value, source, observed_at, raw')
     .eq('workspace_id', workspaceId)
     .order('observed_at', { ascending: false })
     .limit(hardLimit);
@@ -153,21 +178,28 @@ export async function runQuery(
     matched = rows.length;
   }
 
-  // ── 3. Resolve entity names (one batched claims query) ───────────────────
+  // ── 3. Resolve entity names + firmographics (one batched claims query) ────
   const entityIds = [...new Set(rows.map(o => o.entity_id))];
   const nameByEntity = new Map<string, string>();
+  const firmoByEntity = new Map<string, Record<string, unknown>>();
   if (entityIds.length) {
-    const { data: nameClaims } = await supabase
+    const { data: claimRows } = await supabase
       .from('claims')
       .select('entity_id, property, value')
       .eq('workspace_id', workspaceId)
       .in('entity_id', entityIds)
-      .in('property', ['name', 'first_name', 'last_name']);
+      .in('property', [...NAME_PROPS, ...FIRMO_PROPS]);
     const parts = new Map<string, Record<string, unknown>>();
-    for (const c of (nameClaims as any[]) ?? []) {
-      const m = parts.get(c.entity_id) ?? {};
-      m[c.property] = c.value;
-      parts.set(c.entity_id, m);
+    for (const c of (claimRows as any[]) ?? []) {
+      if (NAME_PROPS.includes(c.property)) {
+        const m = parts.get(c.entity_id) ?? {};
+        m[c.property] = c.value;
+        parts.set(c.entity_id, m);
+      } else {
+        const f = firmoByEntity.get(c.entity_id) ?? {};
+        if (c.value != null && c.value !== '') f[c.property] = c.value;
+        firmoByEntity.set(c.entity_id, f);
+      }
     }
     for (const [id, m] of parts) {
       const name = m.name
@@ -209,6 +241,10 @@ export async function runQuery(
       // For state observations, surface the value so funnel-style consumers
       // can see "stage = evaluating" without a second call.
       if (latest.kind === 'state') item.most_recent_value = latest.value;
+      const attribution = pickAttribution(latest.raw);
+      if (attribution) item.most_recent_attribution = attribution;
+      const firmo = firmoByEntity.get(eid);
+      if (firmo && Object.keys(firmo).length) item.firmographics = firmo;
       entities.push(item);
     }
     // Most-recently-active first, then trim to limit.
@@ -227,6 +263,8 @@ export async function runQuery(
         summary: v?.summary || v?.description || null,
       };
       if (o.similarity != null) item.similarity = o.similarity;
+      const attribution = pickAttribution(o.raw);
+      if (attribution) item.attribution = attribution;
       return item;
     });
   }

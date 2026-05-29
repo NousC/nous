@@ -24,7 +24,7 @@
 // specific events we already handle, so we skip those too.
 
 import crypto from 'crypto';
-import { getSupabaseClient } from '@nous/core';
+import { getSupabaseClient, upsertCampaignMessage } from '@nous/core';
 import { decrypt } from '../../utils/encryption.mjs';
 import { logActivity } from '../../utils/activity.mjs';
 import { resolveContact } from '../../utils/resolveContact.mjs';
@@ -127,6 +127,11 @@ export async function reprocessLemlist(supabase, workspaceId, body) {
   const subject      = body.subject || null;
   const preview      = body.text || body.replyText || body.body || null;
   const messageId    = body.messageId || body._id || null;
+  // Variant attribution — Lemlist's unit is (campaignId, sequenceStep).
+  const sequenceStep = body.sequenceStep ?? null;
+  const sequenceId   = body.sequenceId ?? null;
+  const variant      = body.variant ?? null;
+  const sentBody     = body.html ?? body.emailBody ?? body.bodyHtml ?? null;
 
   console.log(`[LEMLIST_WEBHOOK] event=${eventType} email=${leadEmail}`);
 
@@ -145,6 +150,7 @@ export async function reprocessLemlist(supabase, workspaceId, body) {
   if (!leadEmail) throw new Error('lead_email_required');
 
   const isReply = activityType === 'email_received';
+  const isSent  = activityType === 'email_sent';
 
   const { contact } = await resolveContact(supabase, workspaceId, {
     email:      leadEmail,
@@ -170,9 +176,23 @@ export async function reprocessLemlist(supabase, workspaceId, body) {
     description: campaignName
       ? `${activityType.replace(/_/g, ' ')}: ${campaignName}`
       : activityType.replace(/_/g, ' '),
-    summary:     isReply && preview ? String(preview).slice(0, 500) : (subject || null),
-    rawData:     { event_type: eventType, campaign_id: campaignId, campaign_name: campaignName },
+    summary:     isReply && preview ? String(preview).slice(0, 500)
+                 : isSent ? ((sentBody || subject || '').slice(0, 2000) || null)
+                 : (subject || null),
+    rawData:     {
+      event_type: eventType, campaign_id: campaignId, campaign_name: campaignName,
+      step: sequenceStep, sequence_id: sequenceId, variant, subject,
+      ...(isSent ? { is_outbound: true } : {}),
+    },
   });
+
+  // Stash the sent copy per (campaign, step, variant).
+  if (isSent && campaignId && (subject || sentBody)) {
+    upsertCampaignMessage(supabase, workspaceId, {
+      provider: 'lemlist', campaignId, campaignName, step: sequenceStep, variant,
+      subject, body: sentBody, source: 'webhook',
+    }).catch(() => {});
+  }
 
   await logSysEvent(supabase, {
     workspaceId, source: 'lemlist', eventType: 'webhook_received',
