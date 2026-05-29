@@ -70,21 +70,70 @@ export async function recordObservation(
   return data as Observation;
 }
 
-/** Append many observations at once. Duplicates (by external_id) are skipped. */
+/** Append many observations at once. Rows WITH an external_id dedup via the partial
+ *  unique index (observations_dedup, WHERE external_id IS NOT NULL); rows WITHOUT one
+ *  fall outside that index, so they're plain-inserted (append-only by design — e.g.
+ *  enrichment state snapshots that carry no source event id). */
 export async function recordObservations(
   supabase: SupabaseClient,
   inputs: ObservationInput[],
 ): Promise<number> {
   if (inputs.length === 0) return 0;
-  const { data, error } = await supabase
-    .from('observations')
-    .upsert(inputs.map(toRow), {
-      onConflict: 'workspace_id,source,external_id',
-      ignoreDuplicates: true,
-    })
-    .select('id');
-  if (error) throw new Error(`failed to record observations: ${error.message}`);
-  return data?.length ?? 0;
+  const withExt = inputs.filter((i) => i.externalId != null && i.externalId !== '');
+  const noExt = inputs.filter((i) => i.externalId == null || i.externalId === '');
+  let count = 0;
+  if (withExt.length) {
+    const { data, error } = await supabase
+      .from('observations')
+      .upsert(withExt.map(toRow), {
+        onConflict: 'workspace_id,source,external_id',
+        ignoreDuplicates: true,
+      })
+      .select('id');
+    if (error) throw new Error(`failed to record observations: ${error.message}`);
+    count += data?.length ?? 0;
+  }
+  if (noExt.length) {
+    const { data, error } = await supabase
+      .from('observations')
+      .insert(noExt.map(toRow))
+      .select('id');
+    if (error) throw new Error(`failed to record observations: ${error.message}`);
+    count += data?.length ?? 0;
+  }
+  return count;
+}
+
+// Person/account attribute fields an enrichment provider can assert. These are
+// written as state observations tagged with the TRUE provider source
+// (apollo / prospeo / linkedin) so the claim engine and the CRM-hygiene
+// provenance gate can distinguish enrichment-origin values from CRM-origin ones.
+//
+// Why this helper exists: writes routed through the v1 `contacts` view inherit
+// the *record's* origin source (the view's single `source` column), so an
+// Apollo-provided job_title on a HubSpot-pulled contact would be mis-tagged
+// `hubspot` and look like the CRM's own data. Enrichment must therefore write
+// these fields as observations directly, with its real source, and omit them
+// from the `contacts` update so the view trigger doesn't emit a mis-tagged
+// duplicate. See docs/crm-hygiene-phase-1b-spec.md, Task 0.
+export const ENRICHMENT_ATTRIBUTES = [
+  'job_title', 'seniority', 'department', 'company', 'phone', 'city', 'country', 'linkedin_url',
+] as const;
+
+export async function recordEnrichmentObservations(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  entityId: string,
+  source: string,
+  facts: Record<string, unknown>,
+): Promise<number> {
+  const inputs: ObservationInput[] = [];
+  for (const property of ENRICHMENT_ATTRIBUTES) {
+    const value = facts[property];
+    if (value == null || value === '') continue;
+    inputs.push({ workspaceId, entityId, kind: 'state', property, value, source, method: 'enrichment' });
+  }
+  return recordObservations(supabase, inputs);
 }
 
 /** Observations for an entity, newest first — the account timeline. */

@@ -9,6 +9,9 @@ import {
 } from '@nous/core';
 import { logActivity } from '../../utils/activity.mjs';
 import { enqueueForRetry } from '../../utils/webhookInbox.mjs';
+import { applyLinkedInProfile } from '../../utils/enrichContact.mjs';
+import { fetchLinkedInProfile } from '../../utils/linkedinProfile.mjs';
+import { discoverEmailForContact } from '../../utils/discoverEmail.mjs';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -50,7 +53,7 @@ async function matchContactByLinkedInUrl(supabase, workspaceId, rawUrl) {
 // Always patches linkedin_member_id + linkedin_url back so future calls hit step 1/2.
 // Returns { contact, created } — created=true means it was just inserted for the first time.
 async function resolveLinkedInContact(supabase, workspaceId, { linkedinUrl, fullName, memberId }) {
-  const SELECT = 'id, company_id, linkedin_url, linkedin_member_id, email, channels, first_name, last_name';
+  const SELECT = 'id, company_id, linkedin_url, linkedin_member_id, email, channels, first_name, last_name, job_title, company, photo_url';
 
   // Step 1: v2 entity_identifiers fast path — exact match by member_id / URL.
   for (const ident of [
@@ -253,6 +256,39 @@ async function backfillLinkedInMessages(supabase, workspaceId, contactId, { link
   }
 }
 
+// Resolve the workspace's Unipile account id (needed for any profile/chat fetch).
+async function getUnipileAccountId(supabase, workspaceId) {
+  const { data } = await supabase
+    .from('workspace_linkedin_connections')
+    .select('unipile_account_id')
+    .eq('workspace_id', workspaceId)
+    .single();
+  return data?.unipile_account_id || null;
+}
+
+// On a freshly-created LinkedIn contact: pull title + company from Unipile (free),
+// write them, and score ICP. Fire-and-forget — never blocks the webhook.
+async function enrichNewLinkedInContact(supabase, workspaceId, contact, { memberId } = {}) {
+  try {
+    const accountId = await getUnipileAccountId(supabase, workspaceId);
+    const fields = await fetchLinkedInProfile(accountId, memberId || contact.linkedin_member_id);
+    if (fields) {
+      await applyLinkedInProfile(supabase, contact, {
+        jobTitle: fields.jobTitle, company: fields.company,
+        companyDomain: fields.companyDomain, photoUrl: fields.photoUrl,
+        headline: fields.headline,
+      });
+    }
+    // No email yet → look them up in the workspace's own Gmail / inbox by name.
+    if (!contact.email) {
+      const r = await discoverEmailForContact(supabase, workspaceId, contact);
+      if (r.found) console.log(`[DISCOVER_EMAIL] ${contact.id}: ${r.email} via ${r.source} (${r.hits} hit/s)`);
+    }
+  } catch (e) {
+    console.warn('[LINKEDIN_PROFILE] enrich failed (non-fatal):', e.message);
+  }
+}
+
 // ── Main handler ──────────────────────────────────────────────────────────────
 
 // Non-actionable Unipile events — carry message_id/chat_id but have no content to log.
@@ -291,8 +327,13 @@ export async function handleLinkedIn(req, res, workspaceId) {
     const identifier  = body.user_public_identifier || body.user_provider_id || null;
     if (!linkedinUrl && !fullName) return res.json({ ok: true, skipped: 'no identity' });
 
-    const { contact } = await resolveLinkedInContact(supabase, workspaceId, { linkedinUrl, fullName, memberId: identifier });
+    const { contact, created } = await resolveLinkedInContact(supabase, workspaceId, { linkedinUrl, fullName, memberId: identifier });
     if (!contact) return res.json({ ok: true, skipped: 'could not resolve contact' });
+
+    // New connection → pull title/company from Unipile (free) and score ICP.
+    if (created) {
+      enrichNewLinkedInContact(supabase, workspaceId, contact, { memberId: identifier }).catch(() => {});
+    }
 
     // Deduplicate — Unipile re-fires new_relation on re-auth
     const alreadyConnected = await countActivities(supabase, {
@@ -450,6 +491,8 @@ export async function handleLinkedIn(req, res, workspaceId) {
     const chatId = body.chat_id || body.provider_chat_id || null;
     if (created) {
       backfillLinkedInMessages(supabase, workspaceId, contact.id, { linkedinUrl, chatId }).catch(() => {});
+      // First time we see this person → capture title/company from Unipile + score ICP (free).
+      enrichNewLinkedInContact(supabase, workspaceId, contact, { memberId }).catch(() => {});
     } else {
       const priorMsgCount = await countActivities(supabase, {
         contactId: contact.id, types: ['linkedin_message'], source: 'linkedin',
