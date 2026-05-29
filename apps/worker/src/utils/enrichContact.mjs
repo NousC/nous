@@ -3,12 +3,19 @@
 // scoreICP runs after every successful enrichment.
 
 import Anthropic, { setUser } from 'useleak';
-import { listNotes } from '@nous/core';
+import { listNotes, recordEnrichmentObservations } from '@nous/core';
 import { logActivity } from './activity.mjs';
 import { upsertCompany } from './resolveContact.mjs';
 import { decrypt } from './encryption.mjs';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+// Attribute fields we write as observations with the TRUE enrichment source
+// (recordEnrichmentObservations) and therefore STRIP from the contacts-view
+// update — otherwise the view trigger re-emits them tagged with the record's
+// origin source and erases provenance. linkedin_url is kept on the update so the
+// trigger still attaches it as an identifier. See docs/crm-hygiene-phase-1b-spec.md Task 0.
+const ENRICH_STRIP = ['job_title', 'seniority', 'department', 'company', 'phone', 'city', 'country'];
 
 async function logSysEvent(supabase, workspaceId, source, eventType, summary, contactId, metadata) {
   try {
@@ -103,6 +110,73 @@ function normalizeDepartment(raw) {
   return raw;
 }
 
+// ── Free LinkedIn-sourced enrichment ───────────────────────────────────────────
+
+// LinkedIn headlines rarely fit a clean "Role @ Company" regex (e.g. "Fractional
+// CMO / Head of Growth / GTM Advisor | +12y exp | SaaS"). When the cheap parse
+// misses, Haiku pulls the primary current role out of the free text. We already
+// pay for a Haiku call to score ICP, so this adds no new vendor and no $ for email.
+async function extractRoleFromHeadline(workspaceId, headline) {
+  setUser({ id: String(workspaceId) });
+  try {
+    const msg = await anthropic.messages.create({
+      feature: 'linkedin-headline-extract',
+      model: 'claude-haiku-4-5-20251001', max_tokens: 150,
+      messages: [{ role: 'user', content: `Extract the person's CURRENT primary job title and employer from this LinkedIn headline. Headlines often mix taglines, services, and multiple roles — pick the single current role and company. Use null for anything not clearly stated; never invent a company.\n\nHeadline: "${headline}"\n\nJSON only: {"job_title":<string|null>,"company":<string|null>,"seniority":<"c_suite"|"vp"|"director"|"manager"|"ic"|null>,"department":<string|null>}` }],
+    });
+    const j = JSON.parse(msg.content[0].text.trim().match(/\{[\s\S]*\}/)?.[0] || '{}');
+    return { job_title: j.job_title || null, company: j.company || null, seniority: j.seniority || null, department: j.department || null };
+  } catch (e) {
+    console.warn('[LI_HEADLINE_EXTRACT] failed:', e.message);
+    return { job_title: null, company: null, seniority: null, department: null };
+  }
+}
+
+// Populates structured fields from a Unipile profile (no paid provider) and scores
+// ICP. job_title alone clears scoreICP's gate, so a LinkedIn-only contact becomes
+// scoreable without ever spending on email enrichment. Only fills empty fields —
+// never overwrites data a paid provider or the user already set.
+export async function applyLinkedInProfile(supabase, contact, { jobTitle, company, companyDomain, photoUrl, headline } = {}) {
+  if (!contact?.id || !contact?.workspace_id) return;
+  const workspaceId = contact.workspace_id;
+  const updates = {};
+
+  let seniority = jobTitle ? normalizeSeniority(jobTitle) : null;
+  let department = null;
+  // Fall back to LLM extraction when the regex parse left title/company empty.
+  if ((!jobTitle || !company) && headline) {
+    const ext = await extractRoleFromHeadline(workspaceId, headline);
+    if (!jobTitle && ext.job_title) { jobTitle = ext.job_title; seniority = ext.seniority || normalizeSeniority(ext.job_title); }
+    if (!company && ext.company) company = ext.company;
+    if (ext.department) department = normalizeDepartment(ext.department);
+  }
+
+  if (jobTitle && !contact.job_title) {
+    updates.job_title = jobTitle;
+    updates.seniority = seniority;
+    if (department) updates.department = department;
+  }
+  if (company && !contact.company) {
+    const co = await upsertCompany(supabase, workspaceId, { name: company, domain: companyDomain || null });
+    if (co?.id) updates.company_id = co.id;
+    updates.company = company;
+  }
+  if (photoUrl && !contact.photo_url) updates.photo_url = photoUrl;
+
+  if (!Object.keys(updates).length) return;
+
+  await recordEnrichmentObservations(supabase, workspaceId, contact.id, 'linkedin', updates);
+  const viewUpdate = { ...updates };
+  for (const f of ENRICH_STRIP) delete viewUpdate[f];
+  if (Object.keys(viewUpdate).length) await supabase.from('contacts').update(viewUpdate).eq('id', contact.id);
+  logSysEvent(supabase, workspaceId, 'linkedin', 'enrichment_run',
+    `Captured from LinkedIn: ${[updates.job_title, updates.company].filter(Boolean).join(' · ')}`,
+    contact.id, { status: 'success', source: 'linkedin_profile', free: true }).catch(() => {});
+
+  // Score with what we now know — title/company is enough; no paid call.
+  await scoreICP(supabase, workspaceId, { ...contact, ...updates });
+}
+
 // ── Apollo path ───────────────────────────────────────────────────────────────
 
 async function enrichViaApollo(supabase, contact, apolloKey) {
@@ -138,7 +212,10 @@ async function enrichViaApollo(supabase, contact, apolloKey) {
       if (co) { updates.company_id = co.id; updates.company = org.name; }
     }
 
-    await supabase.from('contacts').update(updates).eq('id', contact.id);
+    await recordEnrichmentObservations(supabase, workspaceId, contact.id, 'apollo', updates);
+    const viewUpdate = { ...updates };
+    for (const f of ENRICH_STRIP) delete viewUpdate[f];
+    if (Object.keys(viewUpdate).length) await supabase.from('contacts').update(viewUpdate).eq('id', contact.id);
     await logActivity(supabase, {
       workspaceId, contactId: contact.id, companyId: updates.company_id || contact.company_id || null,
       type: 'enrichment_run', source: 'apollo',
@@ -223,7 +300,10 @@ async function enrichViaProspeo(supabase, contact, prospeoKey) {
       if (company) { updates.company_id = company.id; updates.company = co.name; }
     }
 
-    await supabase.from('contacts').update(updates).eq('id', contact.id);
+    await recordEnrichmentObservations(supabase, workspaceId, contact.id, 'prospeo', updates);
+    const viewUpdate = { ...updates };
+    for (const f of ENRICH_STRIP) delete viewUpdate[f];
+    if (Object.keys(viewUpdate).length) await supabase.from('contacts').update(viewUpdate).eq('id', contact.id);
     await logActivity(supabase, {
       workspaceId, contactId: contact.id, companyId: updates.company_id || contact.company_id || null,
       type: 'enrichment_run', source: 'prospeo',
