@@ -269,7 +269,7 @@ export default function People() {
   const [q, setQ] = useState("");
   const [stage, setStage] = useState("");
   const [page, setPage] = useState(0);
-  const [sortCol, setSortCol] = useState<"lastActivity"|"deal"|null>(null);
+  const [sortCol, setSortCol] = useState<"lastActivity"|"deal"|"icp"|null>(null);
   const [sortDir, setSortDir] = useState<"asc"|"desc">("asc");
   const [showImport, setShowImport] = useState(false);
   const [enriching, setEnriching] = useState<Set<string>>(new Set());
@@ -313,9 +313,11 @@ export default function People() {
     finally { setEnriching(prev => { const s = new Set(prev); s.delete(c.id); return s; }); }
   };
 
-  const cycleSort = (col: "lastActivity"|"deal") => {
-    if (sortCol !== col) { setSortCol(col); setSortDir("asc"); }
-    else if (sortDir === "asc") setSortDir("desc");
+  // firstDir = the direction the first click applies. Cycle: off → firstDir →
+  // opposite → off. ICP passes "desc" so the first click puts the best fits on top.
+  const cycleSort = (col: "lastActivity"|"deal"|"icp", firstDir: "asc"|"desc" = "asc") => {
+    if (sortCol !== col) { setSortCol(col); setSortDir(firstDir); }
+    else if (sortDir === firstDir) setSortDir(firstDir === "asc" ? "desc" : "asc");
     else { setSortCol(null); setPage(0); }
   };
 
@@ -332,6 +334,11 @@ export default function People() {
     if (sortCol === "deal") {
       const cmp = (a.dealStage??"").localeCompare(b.dealStage??"");
       return sortDir === "asc" ? cmp : -cmp;
+    }
+    if (sortCol === "icp") {
+      // Unscored contacts sort to the bottom in either direction.
+      const av = a.icpScore ?? -1, bv = b.icpScore ?? -1;
+      return sortDir === "asc" ? av - bv : bv - av;
     }
     return (b.lastActivityAt??"").localeCompare(a.lastActivityAt??"");
   });
@@ -356,8 +363,8 @@ export default function People() {
     URL.revokeObjectURL(url);
   };
 
-  const SortBtn = ({ col, label, w }: { col:"lastActivity"|"deal"; label:string; w:number }) => (
-    <button onClick={() => { cycleSort(col); setPage(0); }}
+  const SortBtn = ({ col, label, w, firstDir = "asc" }: { col:"lastActivity"|"deal"|"icp"; label:string; w:number; firstDir?:"asc"|"desc" }) => (
+    <button onClick={() => { cycleSort(col, firstDir); setPage(0); }}
       className="text-[11px] font-semibold uppercase tracking-wide flex items-center gap-0.5 flex-shrink-0 group"
       style={{width:w}}>
       <span className={sortCol===col ? "text-foreground/80" : "text-muted-foreground/70 group-hover:text-foreground/80 transition-colors"}>{label}</span>
@@ -421,7 +428,7 @@ export default function People() {
             <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-shrink-0" style={{width:100}}>Domain</span>
             <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-shrink-0" style={{width:40}}>LI</span>
             <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-shrink-0" style={{width:88}}>Stage</span>
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-shrink-0" style={{width:42}}>ICP</span>
+            <SortBtn col="icp" label="ICP" w={42} firstDir="desc" />
             <SortBtn col="deal" label="Deal" w={88} />
             <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-shrink-0" style={{width:72}}>Segment</span>
             <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-shrink-0" style={{width:60}}>Health</span>
