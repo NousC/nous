@@ -455,9 +455,10 @@ mindRouter.post('/scorecard/seed', async (req, res) => {
     }
 
     // The ICP lives in Memory — the ICP / Market / Product / Pricing /
-    // Competitors notes the user has added. Translate them into the Scorecard.
+    // Competitors / Positioning notes the user has added. Translate them into
+    // the Scorecard.
     const mems = await listNotes(supabase, workspaceId, {
-      categories: ['ICP', 'Market', 'Product', 'Pricing', 'Competitors'],
+      categories: ['ICP', 'Market', 'Product', 'Pricing', 'Competitors', 'Positioning'],
       limit: 80,
     });
     const icpText = mems.map(m => `[${m.category}] ${m.content}`).join('\n').trim();
@@ -582,16 +583,21 @@ mindRouter.post('/playbook/research', async (req, res) => {
       `  "strategy": {\n` +
       `    "sell": "<1-2 sentences: what they sell and what makes it distinct>",\n` +
       `    "audience": "<1-2 sentences: who they sell to>",\n` +
-      `    "problems": "<1-2 sentences: the problems they solve>"\n` +
+      `    "problems": "<1-2 sentences: the problems they solve>",\n` +
+      `    "pricing": "<1-2 sentences: how they price — model, tiers, or rough range; infer if not stated>",\n` +
+      `    "positioning": "<1-2 sentences: how they position against alternatives — the wedge, the why-us>"\n` +
       `  },\n` +
       `  "segments": ["<4-6 specific market segments they target>"],\n` +
       `  "buyers": ["<4-6 specific buyer titles/roles>"],\n` +
-      `  "use_cases": ["<4-6 specific use cases>"]\n` +
+      `  "use_cases": ["<4-6 specific use cases>"],\n` +
+      `  "competitors": ["<3-6 named competitors or alternatives they displace>"]\n` +
       `}\n` +
       `Be specific and concrete (e.g. "Series A-B B2B SaaS, 50-200 employees", ` +
       `"VP RevOps", not "businesses" or "leaders"). The strategy fields should be ` +
       `rich enough to brief a new rep — a full thought, not a fragment. Each array ` +
-      `item is a short phrase.`;
+      `item is a short phrase. When the site is silent on pricing or competitors, ` +
+      `infer a sensible best guess from the category and the company — do not leave ` +
+      `them blank — the user will confirm or correct.`;
 
     const msg = await anthropic.messages.create({
       feature: 'playbook-research',
@@ -615,10 +621,13 @@ mindRouter.post('/playbook/research', async (req, res) => {
         sell: String(parsed?.strategy?.sell || '').trim(),
         audience: String(parsed?.strategy?.audience || '').trim(),
         problems: String(parsed?.strategy?.problems || '').trim(),
+        pricing: String(parsed?.strategy?.pricing || '').trim(),
+        positioning: String(parsed?.strategy?.positioning || '').trim(),
       },
       segments: cleanList(parsed?.segments),
       buyers: cleanList(parsed?.buyers),
       use_cases: cleanList(parsed?.use_cases),
+      competitors: cleanList(parsed?.competitors),
     });
   } catch (err) {
     console.error('[POST /api/mind/playbook/research]', err);
@@ -628,7 +637,7 @@ mindRouter.post('/playbook/research', async (req, res) => {
 
 // Categories that make up the workspace ICP context. The Scorecard seeds from
 // these, and the Playbook owns them — a rebuild replaces them wholesale.
-const ICP_FACT_CATEGORIES = ['ICP', 'Market', 'Product', 'Pricing', 'Competitors'];
+const ICP_FACT_CATEGORIES = ['ICP', 'Market', 'Product', 'Pricing', 'Competitors', 'Positioning'];
 
 // POST /api/mind/playbook/confirm — persist the confirmed Playbook as workspace
 // memory facts, server-side. Clears the existing ICP-context facts first so a
@@ -637,7 +646,7 @@ const ICP_FACT_CATEGORIES = ['ICP', 'Market', 'Product', 'Pricing', 'Competitors
 // segments[], buyers[], use_cases[] }.
 mindRouter.post('/playbook/confirm', async (req, res) => {
   try {
-    const { workspaceId, strategy = {}, segments = [], buyers = [], use_cases = [] } = req.body;
+    const { workspaceId, strategy = {}, segments = [], buyers = [], use_cases = [], competitors = [] } = req.body;
     if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
     const supabase = getSupabaseClient();
 
@@ -658,9 +667,12 @@ mindRouter.post('/playbook/confirm', async (req, res) => {
       strategy.sell && { category: 'Product', content: String(strategy.sell).trim() },
       strategy.problems && { category: 'Product', content: `Problems we solve: ${String(strategy.problems).trim()}` },
       strategy.audience && { category: 'ICP', content: String(strategy.audience).trim() },
+      strategy.pricing && { category: 'Pricing', content: String(strategy.pricing).trim() },
+      strategy.positioning && { category: 'Positioning', content: String(strategy.positioning).trim() },
       list(segments).length && { category: 'Market', content: `Target segments: ${list(segments).join('; ')}` },
       list(buyers).length && { category: 'ICP', content: `Primary buyers: ${list(buyers).join('; ')}` },
       list(use_cases).length && { category: 'Product', content: `Primary use cases: ${list(use_cases).join('; ')}` },
+      list(competitors).length && { category: 'Competitors', content: `Competitors / alternatives: ${list(competitors).join('; ')}` },
     ].filter(Boolean);
 
     for (const f of facts) {
