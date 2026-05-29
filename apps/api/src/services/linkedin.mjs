@@ -86,22 +86,39 @@ async function ensureWebhookRegistered(accountId) {
   }
 }
 
-// Fetch a LinkedIn member's full profile from Unipile — returns photo_url or null.
-// Silently fails so a missing profile never blocks the sync.
-async function fetchLinkedInPhoto(accountId, memberId) {
-  if (!memberId) return null;
+// Parse "Co-Founder @ Prospect Engine | ..." → { job_title, company }. LinkedIn
+// headlines overwhelmingly follow a "Role @ Company" / "Role at Company" convention;
+// we only extract when that pattern is present (high precision) so we never write a
+// guessed title that would pollute the ICP score.
+function parseHeadline(headline) {
+  if (!headline || typeof headline !== 'string') return { job_title: null, company: null };
+  for (const seg of headline.split(/[|·•–—\n]+/).map(s => s.trim()).filter(Boolean)) {
+    const m = seg.match(/^(.{2,60}?)\s+(?:@|at)\s+(.{2,80})$/i);
+    if (m) {
+      const job_title = m[1].trim().replace(/[,;:]+$/, '');
+      const company   = m[2].trim().replace(/[,;:.]+$/, '');
+      if (job_title && company) return { job_title, company };
+    }
+  }
+  return { job_title: null, company: null };
+}
+
+// Fetch a LinkedIn member's profile from Unipile — returns { photo_url, job_title,
+// company }, any of which may be null. Silently fails so a missing profile never
+// blocks the sync. The /users/{id} response has no structured work history, so title
+// + company come from the headline; the photo is free in the same call.
+async function fetchLinkedInProfile(accountId, memberId) {
+  if (!memberId) return { photo_url: null, job_title: null, company: null };
   try {
-    const url = new URL(`${BASE()}/linkedin/profiles`);
-    url.searchParams.set('account_id', accountId);
-    url.searchParams.set('provider_id', memberId);
-    const res = await fetch(url.toString(), { headers: headers() });
-    if (!res.ok) return null;
-    const data = await res.json();
-    // Unipile may return the photo under different keys depending on API version
-    return data.profile_picture_url || data.photo_url || data.picture_url
-      || data.profile?.profile_picture_url || data.profile?.photo_url || null;
+    const url = `${BASE()}/users/${encodeURIComponent(memberId)}?account_id=${encodeURIComponent(accountId)}`;
+    const res = await fetch(url, { headers: headers() });
+    if (!res.ok) return { photo_url: null, job_title: null, company: null };
+    const d = await res.json();
+    const photo_url = d.profile_picture_url || d.profile_picture_url_large || null;
+    const { job_title, company } = parseHeadline(d.headline);
+    return { photo_url, job_title, company };
   } catch {
-    return null;
+    return { photo_url: null, job_title: null, company: null };
   }
 }
 
@@ -226,19 +243,29 @@ async function syncConnections(supabase, workspaceId, accountId) {
     });
     if (!contactId) continue;
 
-    // Patch linkedin_url and photo_url onto contact if missing
+    // Patch linkedin_url, photo, title + company onto contact if missing
     const { data: contactSnap } = await supabase
       .from('contacts')
-      .select('linkedin_url, photo_url')
+      .select('linkedin_url, photo_url, job_title, company')
       .eq('id', contactId)
       .single();
 
     const contactUpdates = {};
     if (profileUrl && !contactSnap?.linkedin_url)
       contactUpdates.linkedin_url = normaliseLinkedInUrl(profileUrl);
-    if (!contactSnap?.photo_url) {
-      const photo = await fetchLinkedInPhoto(accountId, rel.member_id);
-      if (photo) contactUpdates.photo_url = photo;
+    // One profile fetch fills any of photo / title / company that's still empty.
+    if (!contactSnap?.photo_url || !contactSnap?.job_title || !contactSnap?.company) {
+      const profile = await fetchLinkedInProfile(accountId, rel.member_id);
+      if (profile.photo_url && !contactSnap?.photo_url) contactUpdates.photo_url = profile.photo_url;
+      if (profile.job_title && !contactSnap?.job_title) contactUpdates.job_title = profile.job_title;
+      if (profile.company   && !contactSnap?.company)   contactUpdates.company   = profile.company;
+      // Fallback to the relation's own headline when the profile call yields no title.
+      if (!contactUpdates.job_title && !contactSnap?.job_title && rel.headline) {
+        const fromRel = parseHeadline(rel.headline);
+        if (fromRel.job_title) contactUpdates.job_title = fromRel.job_title;
+        if (fromRel.company && !contactUpdates.company && !contactSnap?.company)
+          contactUpdates.company = fromRel.company;
+      }
     }
     if (Object.keys(contactUpdates).length)
       await supabase.from('contacts').update(contactUpdates).eq('id', contactId);
