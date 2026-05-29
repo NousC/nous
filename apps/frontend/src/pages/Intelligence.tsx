@@ -63,7 +63,7 @@ interface ScorecardRun {
   note: string | null;
   created_at: string;
 }
-const ICP_CATEGORIES = ["ICP", "Market", "Product", "Pricing", "Competitors"];
+const ICP_CATEGORIES = ["ICP", "Market", "Product", "Pricing", "Competitors", "Positioning"];
 
 const fmtGap = (g: number | null | undefined) =>
   g == null ? "—" : `${g > 0 ? "+" : ""}${g.toFixed(2)}`;
@@ -135,12 +135,13 @@ export default function Intelligence() {
   const [pbBuilding, setPbBuilding] = useState(false);
   const [pbStep, setPbStep] = useState(0);
   const [pbReadSite, setPbReadSite] = useState(true);
-  const [pbStrategy, setPbStrategy] = useState({ sell: "", audience: "", problems: "" });
+  const [pbStrategy, setPbStrategy] = useState({ sell: "", audience: "", problems: "", pricing: "", positioning: "" });
   const [pbSegments, setPbSegments] = useState<string[]>([]);
   const [pbBuyers, setPbBuyers] = useState<string[]>([]);
   const [pbUseCases, setPbUseCases] = useState<string[]>([]);
-  const [pbSel, setPbSel] = useState<{ segments: string[]; buyers: string[]; use_cases: string[] }>(
-    { segments: [], buyers: [], use_cases: [] });
+  const [pbCompetitors, setPbCompetitors] = useState<string[]>([]);
+  const [pbSel, setPbSel] = useState<{ segments: string[]; buyers: string[]; use_cases: string[]; competitors: string[] }>(
+    { segments: [], buyers: [], use_cases: [], competitors: [] });
   const [pbManual, setPbManual] = useState(false);
   const [pbInput, setPbInput] = useState("");
 
@@ -227,11 +228,15 @@ export default function Intelligence() {
       });
       const d = await r.json();
       setPbReadSite(Boolean(d.read_site));
-      setPbStrategy({ sell: d.strategy?.sell ?? "", audience: d.strategy?.audience ?? "", problems: d.strategy?.problems ?? "" });
+      setPbStrategy({
+        sell: d.strategy?.sell ?? "", audience: d.strategy?.audience ?? "", problems: d.strategy?.problems ?? "",
+        pricing: d.strategy?.pricing ?? "", positioning: d.strategy?.positioning ?? "",
+      });
       setPbSegments(d.segments ?? []);
       setPbBuyers(d.buyers ?? []);
       setPbUseCases(d.use_cases ?? []);
-      setPbSel({ segments: d.segments ?? [], buyers: d.buyers ?? [], use_cases: d.use_cases ?? [] });
+      setPbCompetitors(d.competitors ?? []);
+      setPbSel({ segments: d.segments ?? [], buyers: d.buyers ?? [], use_cases: d.use_cases ?? [], competitors: d.competitors ?? [] });
     } catch { /* user can still type */ }
     finally { setPbLoading(false); }
   };
@@ -240,10 +245,11 @@ export default function Intelligence() {
     segments: [pbSegments, setPbSegments],
     buyers: [pbBuyers, setPbBuyers],
     use_cases: [pbUseCases, setPbUseCases],
+    competitors: [pbCompetitors, setPbCompetitors],
   };
-  const toggleSel = (group: "segments" | "buyers" | "use_cases", v: string) =>
+  const toggleSel = (group: "segments" | "buyers" | "use_cases" | "competitors", v: string) =>
     setPbSel(s => ({ ...s, [group]: s[group].includes(v) ? s[group].filter(x => x !== v) : [...s[group], v] }));
-  const addOption = (group: "segments" | "buyers" | "use_cases", raw: string) => {
+  const addOption = (group: "segments" | "buyers" | "use_cases" | "competitors", raw: string) => {
     const v = raw.trim();
     if (!v) return;
     const [, setter] = pbOptions[group];
@@ -267,6 +273,7 @@ export default function Intelligence() {
           segments: pbSel.segments,
           buyers: pbSel.buyers,
           use_cases: pbSel.use_cases,
+          competitors: pbSel.competitors,
         }),
       });
       // Rebuild the Scorecard from the fresh facts.
@@ -769,7 +776,7 @@ export default function Intelligence() {
             <div className="px-6 py-4 border-b border-border flex items-center justify-between">
               <div>
                 <div className="text-[15px] font-semibold text-foreground">Set up your GTM Playbook</div>
-                {!pbLoading && <div className="text-[12px] text-muted-foreground/70 mt-0.5">Step {pbStep + 1} of 4</div>}
+                {!pbLoading && <div className="text-[12px] text-muted-foreground/70 mt-0.5">Step {pbStep + 1} of 5</div>}
               </div>
               <button
                 onClick={() => !pbBuilding && setPbOpen(false)}
@@ -793,7 +800,7 @@ export default function Intelligence() {
                       ? "Here's what we found about you. Edit anything that's off."
                       : "We couldn't read your site, so here's our best guess — edit freely."}
                   </p>
-                  {([["sell", "What you sell"], ["audience", "Who you sell to"], ["problems", "Problems you solve"]] as const).map(([k, label]) => (
+                  {([["sell", "What you sell"], ["audience", "Who you sell to"], ["problems", "Problems you solve"], ["pricing", "How you price"], ["positioning", "How you position"]] as const).map(([k, label]) => (
                     <div key={k}>
                       <label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">{label}</label>
                       <textarea
@@ -807,11 +814,12 @@ export default function Intelligence() {
                 </div>
               ) : (
                 (() => {
-                  const group = (pbStep === 1 ? "segments" : pbStep === 2 ? "buyers" : "use_cases") as "segments" | "buyers" | "use_cases";
+                  const group = (pbStep === 1 ? "segments" : pbStep === 2 ? "buyers" : pbStep === 3 ? "use_cases" : "competitors") as "segments" | "buyers" | "use_cases" | "competitors";
                   const meta = {
                     segments: { q: "Which market segments do you target?", sub: "Tap to keep the ones that fit, or add your own." },
                     buyers: { q: "Who are the primary buyers?", sub: "The roles you sell to." },
                     use_cases: { q: "What are the primary use cases?", sub: "The jobs they hire you for." },
+                    competitors: { q: "Who do you compete with?", sub: "Named rivals or the alternatives you displace." },
                   }[group];
                   const [opts] = pbOptions[group];
                   const sel = pbSel[group];
@@ -870,7 +878,7 @@ export default function Intelligence() {
                 >
                   Back
                 </button>
-                {pbStep < 3 ? (
+                {pbStep < 4 ? (
                   <button
                     onClick={() => { setPbStep(s => s + 1); setPbInput(""); }}
                     className="h-9 px-5 rounded-lg bg-primary text-primary-foreground text-[13px] font-semibold hover:bg-primary/90 transition-colors"
