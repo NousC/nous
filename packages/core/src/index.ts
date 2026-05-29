@@ -12,6 +12,7 @@ export * from './attention.js';
 export * from './embed.js';
 export * from './db/contacts.js';
 export * from './db/leads.js';
+export * from './db/campaignMessages.js';
 export * from './db/scorecard.js';
 export * from './db/workerRuns.js';
 export * from './db/companies.js';

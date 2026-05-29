@@ -7,7 +7,7 @@
 // association_type in the body (per-campaign). We keep registration manual in the
 // Smartlead UI since both modes need user input on which campaigns + which events.
 
-import { getSupabaseClient } from '@nous/core';
+import { getSupabaseClient, upsertCampaignMessage } from '@nous/core';
 import { logActivity } from '../../utils/activity.mjs';
 import { resolveContact } from '../../utils/resolveContact.mjs';
 import { enqueueForRetry } from '../../utils/webhookInbox.mjs';
@@ -41,6 +41,12 @@ export async function reprocessSmartlead(supabase, workspaceId, body) {
   const campaignName = body.campaign_name || body.campaignName || null;
   const replyText   = body.reply?.text || body.reply?.body || body.reply_text || body.body || null;
   const messageId   = body.message_id   || body.email_id    || body.id || null;
+  // Variant attribution — which email earned this event. Lands on the
+  // observation via rawData for the People timeline + lead-list analysis.
+  const step        = body.sequence_number ?? body.sequence_step ?? null;
+  const variant     = body.email_seq_variant ?? body.variant ?? null;
+  const subject     = body.subject ?? body.email_subject ?? null;
+  const sentBody    = body.email_body ?? body.sent_message_body ?? body.email_message ?? null;
 
   console.log(`[SMARTLEAD_WEBHOOK] event=${eventType} email=${leadEmail}`);
 
@@ -57,6 +63,7 @@ export async function reprocessSmartlead(supabase, workspaceId, body) {
   if (!leadEmail) throw new Error('lead_email_required');
 
   const isReply = activityType === 'email_received';
+  const isSent  = activityType === 'email_sent';
 
   const { contact } = await resolveContact(supabase, workspaceId, {
     email:      leadEmail,
@@ -83,9 +90,23 @@ export async function reprocessSmartlead(supabase, workspaceId, body) {
     description: campaignName
       ? `${activityType.replace('_', ' ')}: ${campaignName}`
       : activityType.replace('_', ' '),
-    summary:     isReply && replyText ? String(replyText).slice(0, 500) : null,
-    rawData:     { event_type: eventType, campaign_id: campaignId, campaign_name: campaignName },
+    summary:     isReply && replyText ? String(replyText).slice(0, 500)
+                 : isSent ? ((sentBody || subject || '').slice(0, 2000) || null)
+                 : null,
+    rawData:     {
+      event_type: eventType, campaign_id: campaignId, campaign_name: campaignName,
+      step, variant, subject,
+      ...(isSent ? { is_outbound: true } : {}),
+    },
   });
+
+  // Stash the sent copy per (campaign, step, variant).
+  if (isSent && campaignId && (subject || sentBody)) {
+    upsertCampaignMessage(supabase, workspaceId, {
+      provider: 'smartlead', campaignId, campaignName, step, variant,
+      subject, body: sentBody, source: 'webhook',
+    }).catch(() => {});
+  }
 
   await logSysEvent(supabase, {
     workspaceId, source: 'smartlead', eventType: 'webhook_received',
