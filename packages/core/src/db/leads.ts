@@ -75,18 +75,26 @@ export async function listLeadLists(
   supabase: SupabaseClient,
   workspaceId: string,
 ): Promise<LeadList[]> {
+  // `lead_lists` and `leads` are v2 VIEWs (Phase 5), so PostgREST can't embed
+  // `leads(count)` across them — there's no FK between two views. Fetch the
+  // lists, then count each list's leads with a separate head+count query.
   const { data, error } = await supabase
     .from('lead_lists')
-    .select(`${LEAD_LIST_COLUMNS}, leads(count)`)
+    .select(LEAD_LIST_COLUMNS)
     .eq('workspace_id', workspaceId)
     .order('created_at', { ascending: false });
   if (error) throw error;
-  return (data || []).map(row => {
-    const { leads, ...rest } = row as Record<string, unknown> & {
-      leads?: { count: number }[];
-    };
-    return { ...(rest as unknown as LeadList), lead_count: leads?.[0]?.count ?? 0 };
-  });
+  const lists = (data || []) as unknown as LeadList[];
+  return Promise.all(
+    lists.map(async list => {
+      const { count } = await supabase
+        .from('leads')
+        .select('*', { count: 'exact', head: true })
+        .eq('workspace_id', workspaceId)
+        .eq('lead_list_id', (list as unknown as { id: string }).id);
+      return { ...list, lead_count: count ?? 0 };
+    }),
+  );
 }
 
 export async function getLeadList(
