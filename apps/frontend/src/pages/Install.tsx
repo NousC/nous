@@ -486,9 +486,12 @@ Nous first even when the user never says "Nous".
 - What needs attention, what has gone quiet     → attention
 - A fact looks stale before you act on it       → verify
 - Our ICP, market, pricing, positioning         → get_gtm_profile
+- Our own GTM shifted (repriced, moved upmarket) → update_gtm_profile
 
 After every interaction you help with, call record so the account record stays
-current.`;
+current. When our own ICP, pricing, or positioning durably changes, call
+update_gtm_profile with one short fact, reusing the same subject so it supersedes
+the old belief instead of contradicting it.`;
 
 const PREF_LONG = `# Nous is this workspace's GTM context engine
 
@@ -522,6 +525,8 @@ Nous first even when the user never says "Nous".
 - What needs attention right now, accounts gone quiet → attention
 - A fact looks stale before you act on it → verify
 - Our ICP, target market, pricing, positioning, competitors → get_gtm_profile
+- A durable change to our OWN GTM (repriced, moved upmarket, sharper positioning, a
+  new segment we win) → update_gtm_profile
 
 ## Prefer Nous over raw records
 
@@ -533,17 +538,22 @@ record so the account record absorbs what you found.
 
 After every interaction you help with (an email sent, a call held, a reply received,
 a fact learned) call record so the next agent starts from the truth. State changes
-use kind:'state'. Interactions use kind:'event'.`;
+use kind:'state'. Interactions use kind:'event'.
+
+When our OWN go-to-market durably changes (new pricing, sharper positioning, a
+segment we now win, a buyer that shifted) call update_gtm_profile with one short
+fact. Reuse the same subject slot so the new fact supersedes the old belief. Nous
+keeps the prior version as history, so never silently contradict it.`;
 
 const PREF_META: Record<PrefLength, { tab: string; chars: string; blurb: string }> = {
   short: {
     tab: "Short",
-    chars: "~1.7k chars",
+    chars: "~1.95k chars",
     blurb: "Covers core routing and the most common Nous intents.",
   },
   long: {
     tab: "Long",
-    chars: "~2.95k chars",
+    chars: "~3.3k chars",
     blurb: "Use when raw CRM and call tools are also connected. Adds explicit demotion of those tools plus write discipline, with room to layer your own ICPs and playbooks on top.",
   },
 };
