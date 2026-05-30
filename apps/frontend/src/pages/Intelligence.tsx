@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { RefreshCw, ChevronRight } from "lucide-react";
+import { RefreshCw, ChevronRight, Trash2 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { PageHeader } from "@/components/ui/page-header";
 
@@ -507,10 +507,11 @@ export default function Intelligence() {
                               <span className="text-[13px] text-foreground/85 leading-snug flex-1">{f.content}</span>
                               <button
                                 onClick={() => removeIcpFact(f.id)}
-                                className="text-[13px] text-muted-foreground/40 hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
-                                aria-label="Remove fact"
+                                className="flex-shrink-0 h-5 w-5 grid place-items-center rounded text-muted-foreground/50 hover:text-red-500 hover:bg-red-500/10 transition-colors"
+                                aria-label="Delete fact"
+                                title="Delete this fact"
                               >
-                                ×
+                                <Trash2 className="h-3.5 w-3.5" />
                               </button>
                             </div>
                           ))}
