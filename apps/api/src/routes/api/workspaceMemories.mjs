@@ -64,6 +64,29 @@ workspaceMemoriesRouter.get('/', verifySupabaseAuth, async (req, res) => {
   }
 });
 
+// GET /api/workspace/memories/history?workspaceId&subject — the supersession
+// timeline for one subject slot (active + superseded), newest first. Registered
+// before /:id so "history" isn't parsed as an id.
+workspaceMemoriesRouter.get('/history', verifySupabaseAuth, async (req, res) => {
+  try {
+    const { workspaceId, subject } = req.query;
+    if (!workspaceId || !subject) {
+      return res.status(400).json({ error: 'workspaceId and subject required' });
+    }
+    const supabase = getSupabaseClient();
+    const entityId = await getWorkspaceEntityId(supabase, workspaceId);
+    const history = entityId
+      ? await listNotes(supabase, workspaceId, {
+          entityId, subject: String(subject), includeInactive: true, limit: 50,
+        })
+      : [];
+    return res.json({ history });
+  } catch (err) {
+    console.error('[GET /api/workspace/memories/history]', err);
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
 workspaceMemoriesRouter.get('/:id', verifySupabaseAuth, async (req, res) => {
   try {
     const { id } = req.params;

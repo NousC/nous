@@ -17,6 +17,13 @@ export interface Note {
   content: string;
   source: string;
   metadata: Record<string, unknown>;
+  /** Confidence in this fact, 0–1. 1 = user-asserted; <1 = inferred/drafted. */
+  confidence: number;
+  /** Stable slot a fact belongs to (e.g. 'playbook.pricing'); lets a new fact
+   *  supersede the previous one for the same belief instead of duplicating. */
+  subject: string | null;
+  /** When superseded, the id of the fact that replaced this one. */
+  superseded_by: string | null;
   created_at: string;
   updated_at: string;
   is_active: boolean;
@@ -28,6 +35,7 @@ const COLUMNS =
 
 function noteFromClaim(c: Record<string, unknown>): Note {
   const v = (c.value as Record<string, unknown> | null) ?? {};
+  const meta = (v.metadata as Record<string, unknown>) ?? {};
   return {
     id: c.id as string,
     workspace_id: c.workspace_id as string,
@@ -35,7 +43,10 @@ function noteFromClaim(c: Record<string, unknown>): Note {
     category: (v.category as string) ?? 'General',
     content: (v.content as string) ?? '',
     source: (v.source as string) ?? 'manual',
-    metadata: (v.metadata as Record<string, unknown>) ?? {},
+    metadata: meta,
+    confidence: typeof c.confidence === 'number' ? (c.confidence as number) : 1,
+    subject: (meta.subject as string) ?? null,
+    superseded_by: (meta.superseded_by as string) ?? null,
     created_at: (c.valid_from as string) ?? (c.computed_at as string),
     updated_at: c.computed_at as string,
     is_active: c.invalid_at == null,
@@ -61,6 +72,8 @@ export interface ListNotesOpts {
   entityId?: string;
   entityIds?: string[];
   categories?: string[];
+  /** Restrict to one subject slot — used to read a fact's supersession history. */
+  subject?: string;
   limit?: number;
   offset?: number;
   includeInactive?: boolean;
@@ -95,6 +108,9 @@ export async function listNotes(
     const set = new Set(opts.categories);
     notes = notes.filter(n => set.has(n.category));
   }
+  if (opts.subject) {
+    notes = notes.filter(n => n.subject === opts.subject);
+  }
   return notes;
 }
 
@@ -105,6 +121,10 @@ export interface SaveNoteParams {
   content: string;
   source?: string;
   metadata?: Record<string, unknown>;
+  /** Stable slot this fact belongs to, so it can be superseded later. */
+  subject?: string;
+  /** 0–1. Defaults to 1 (user-asserted). Lower it for inferred/drafted facts. */
+  confidence?: number;
 }
 
 export async function saveNote(
@@ -119,11 +139,13 @@ export async function saveNote(
     entityId = fallback;
   }
   const now = new Date().toISOString();
+  const metadata: Record<string, unknown> = { ...(params.metadata ?? {}) };
+  if (params.subject) metadata.subject = params.subject;
   const value = {
     category: params.category ?? 'General',
     content: params.content,
     source: params.source ?? 'manual',
-    metadata: params.metadata ?? {},
+    metadata,
   };
   const { data, error } = await supabase
     .from('claims')
@@ -132,7 +154,7 @@ export async function saveNote(
       entity_id: entityId,
       property: `note.${randomUUID()}`,
       value,
-      confidence: 1.0,
+      confidence: params.confidence ?? 1.0,
       epistemic_class: 'asserted',
       freshness: 'fresh',
       valid_from: now,
@@ -142,6 +164,46 @@ export async function saveNote(
     .single();
   if (error) throw error;
   return data ? noteFromClaim(data as unknown as Record<string, unknown>) : null;
+}
+
+/**
+ * Evolve a fact: insert a new note that replaces `oldId`, then invalidate the
+ * old one — keeping it as history rather than deleting it. The new note records
+ * `metadata.supersedes`; the old one records `metadata.superseded_by`, so the
+ * full timeline for a subject stays reconstructable. This is the v2 "evolve,
+ * never delete" rule applied to the GTM context.
+ */
+export async function supersedeNote(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  oldId: string,
+  params: SaveNoteParams,
+): Promise<Note | null> {
+  const fresh = await saveNote(supabase, workspaceId, {
+    ...params,
+    metadata: { ...(params.metadata ?? {}), supersedes: oldId },
+  });
+
+  // Read the old note's value so we can merge the back-link without clobbering
+  // its category/content, then invalidate it in the same update.
+  const { data: cur } = await supabase
+    .from('claims')
+    .select('value')
+    .eq('id', oldId)
+    .eq('workspace_id', workspaceId)
+    .maybeSingle();
+  const curVal = ((cur as { value?: Record<string, unknown> } | null)?.value) ?? {};
+  const curMeta = (curVal.metadata as Record<string, unknown>) ?? {};
+  await supabase
+    .from('claims')
+    .update({
+      invalid_at: new Date().toISOString(),
+      value: { ...curVal, metadata: { ...curMeta, superseded_by: fresh?.id ?? null } },
+    })
+    .eq('id', oldId)
+    .eq('workspace_id', workspaceId);
+
+  return fresh;
 }
 
 export async function updateNote(

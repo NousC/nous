@@ -349,7 +349,12 @@ export function createServer() {
     const lines = [];
     for (const [cat, facts] of Object.entries(groups)) {
       lines.push(`${cat.toUpperCase()} (${facts.length}):`);
-      for (const f of facts) lines.push(`  ${f.content}  [${relAge(f.recorded_at)}]`);
+      for (const f of facts) {
+        // Flag AI-drafted facts (confidence < 1) so the agent treats them as
+        // provisional and prefers user-confirmed ones when they conflict.
+        const tag = typeof f.confidence === "number" && f.confidence < 1 ? " (inferred)" : "";
+        lines.push(`  ${f.content}${tag}  [${relAge(f.recorded_at)}]`);
+      }
       lines.push("");
     }
     return { content: [{ type: "text", text: lines.join("\n").trim() }] };

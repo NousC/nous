@@ -12,7 +12,7 @@
 
 import { Router } from 'express';
 import Anthropic from 'useleak';
-import { getSupabaseClient, listSignals, seedSignals, listNotes, scoreLead, getAttention, saveNote, deleteNote, getWorkspaceEntityId } from '@nous/core';
+import { getSupabaseClient, listSignals, seedSignals, listNotes, scoreLead, getAttention, saveNote, deleteNote, supersedeNote, getWorkspaceEntityId } from '@nous/core';
 
 export const mindRouter = Router();
 
@@ -659,51 +659,78 @@ mindRouter.post('/playbook/research', async (req, res) => {
   }
 });
 
-// Categories that make up the workspace ICP context. The Scorecard seeds from
-// these, and the Playbook owns them — a rebuild replaces them wholesale.
-const ICP_FACT_CATEGORIES = ['ICP', 'Market', 'Product', 'Pricing', 'Competitors', 'Positioning'];
+// AI-drafted then user-confirmed in the wizard, so confident but not as certain
+// as a fact the user typed by hand (which stays at 1.0).
+const PLAYBOOK_CONFIDENCE = 0.8;
 
 // POST /api/mind/playbook/confirm — persist the confirmed Playbook as workspace
-// memory facts, server-side. Clears the existing ICP-context facts first so a
-// rebuild is always a clean slate (no stale facts surviving), then writes the
-// new ones. Body: { workspaceId, strategy:{sell,audience,problems},
-// segments[], buyers[], use_cases[] }.
+// memory facts, server-side. Each answer owns a stable `subject` slot, so a
+// rebuild EVOLVES the slot's previous fact (supersede + keep as history) rather
+// than wiping everything — the GTM context grows over time instead of resetting,
+// and manually-added facts are never touched. Body: { workspaceId,
+// strategy:{sell,audience,problems,pricing,positioning}, segments[], buyers[],
+// use_cases[], competitors[] }.
 mindRouter.post('/playbook/confirm', async (req, res) => {
   try {
     const { workspaceId, strategy = {}, segments = [], buyers = [], use_cases = [], competitors = [] } = req.body;
     if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
     const supabase = getSupabaseClient();
-
-    // 1. Clear existing ICP-context facts on the workspace entity.
     const entityId = await getWorkspaceEntityId(supabase, workspaceId);
-    if (entityId) {
-      const existing = await listNotes(supabase, workspaceId, { entityId, limit: 200 });
-      const stale = existing.filter(n => ICP_FACT_CATEGORIES.includes(n.category));
-      for (const n of stale) {
+
+    const list = (v) => (Array.isArray(v) ? v.map(s => String(s || '').trim()).filter(Boolean) : []);
+    // Each desired fact carries the subject slot it owns, so rebuilds target the
+    // same belief. Use-cases included here so persistence never depends on client
+    // state.
+    const desired = [
+      strategy.sell && { subject: 'playbook.sell', category: 'Product', content: String(strategy.sell).trim() },
+      strategy.problems && { subject: 'playbook.problems', category: 'Product', content: `Problems we solve: ${String(strategy.problems).trim()}` },
+      strategy.audience && { subject: 'playbook.audience', category: 'ICP', content: String(strategy.audience).trim() },
+      strategy.pricing && { subject: 'playbook.pricing', category: 'Pricing', content: String(strategy.pricing).trim() },
+      strategy.positioning && { subject: 'playbook.positioning', category: 'Positioning', content: String(strategy.positioning).trim() },
+      list(segments).length && { subject: 'playbook.segments', category: 'Market', content: `Target segments: ${list(segments).join('; ')}` },
+      list(buyers).length && { subject: 'playbook.buyers', category: 'ICP', content: `Primary buyers: ${list(buyers).join('; ')}` },
+      list(use_cases).length && { subject: 'playbook.use_cases', category: 'Product', content: `Primary use cases: ${list(use_cases).join('; ')}` },
+      list(competitors).length && { subject: 'playbook.competitors', category: 'Competitors', content: `Competitors / alternatives: ${list(competitors).join('; ')}` },
+    ].filter(Boolean);
+
+    // Existing active notes the Playbook owns: subject playbook.* (new) OR legacy
+    // source='playbook' facts written before subjects existed. Manual facts have
+    // neither, so they're never swept here.
+    const existing = entityId ? await listNotes(supabase, workspaceId, { entityId, limit: 200 }) : [];
+    const playbookActives = existing.filter(
+      n => (typeof n.subject === 'string' && n.subject.startsWith('playbook.')) || n.source === 'playbook',
+    );
+    const bySubject = new Map();
+    for (const n of playbookActives) if (n.subject) bySubject.set(n.subject, n);
+
+    const keptIds = new Set();
+    for (const d of desired) {
+      const prev = bySubject.get(d.subject);
+      const params = {
+        entityId, category: d.category, content: d.content,
+        source: 'playbook', subject: d.subject, confidence: PLAYBOOK_CONFIDENCE,
+      };
+      if (!prev) {
+        await saveNote(supabase, workspaceId, params);          // brand-new slot
+      } else if (prev.content === d.content) {
+        keptIds.add(prev.id);                                   // unchanged — leave it
+      } else {
+        await supersedeNote(supabase, workspaceId, prev.id, params); // evolved — keep history
+        keptIds.add(prev.id);
+      }
+    }
+
+    // Retire playbook-owned facts with no matching answer this round (a cleared
+    // slot, or legacy untagged facts now replaced). Soft-delete only — invalid_at
+    // preserves them as history.
+    for (const n of playbookActives) {
+      const stillDesired = n.subject && desired.some(d => d.subject === n.subject);
+      if (!stillDesired && !keptIds.has(n.id)) {
         try { await deleteNote(supabase, workspaceId, n.id); } catch { /* best-effort */ }
       }
     }
 
-    // 2. Write the confirmed Playbook as fresh facts. Use-cases included here —
-    //    so persistence never depends on client state.
-    const list = (v) => (Array.isArray(v) ? v.map(s => String(s || '').trim()).filter(Boolean) : []);
-    const facts = [
-      strategy.sell && { category: 'Product', content: String(strategy.sell).trim() },
-      strategy.problems && { category: 'Product', content: `Problems we solve: ${String(strategy.problems).trim()}` },
-      strategy.audience && { category: 'ICP', content: String(strategy.audience).trim() },
-      strategy.pricing && { category: 'Pricing', content: String(strategy.pricing).trim() },
-      strategy.positioning && { category: 'Positioning', content: String(strategy.positioning).trim() },
-      list(segments).length && { category: 'Market', content: `Target segments: ${list(segments).join('; ')}` },
-      list(buyers).length && { category: 'ICP', content: `Primary buyers: ${list(buyers).join('; ')}` },
-      list(use_cases).length && { category: 'Product', content: `Primary use cases: ${list(use_cases).join('; ')}` },
-      list(competitors).length && { category: 'Competitors', content: `Competitors / alternatives: ${list(competitors).join('; ')}` },
-    ].filter(Boolean);
-
-    for (const f of facts) {
-      await saveNote(supabase, workspaceId, { content: f.content, category: f.category, source: 'playbook' });
-    }
-
-    return res.status(201).json({ ok: true, saved: facts.length });
+    return res.status(201).json({ ok: true, saved: desired.length });
   } catch (err) {
     console.error('[POST /api/mind/playbook/confirm]', err);
     return res.status(500).json({ error: 'internal_error' });
