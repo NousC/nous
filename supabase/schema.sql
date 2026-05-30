@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS workspaces (
   slug        TEXT        UNIQUE,
   industry    TEXT,
   icp_text    TEXT,        -- plain-English ICP; the Scorecard seed (see docs/adaptive-lead-scoring.md)
+  playbook_rebuild_count INTEGER NOT NULL DEFAULT 0,  -- lifetime "Rebuild from your site" count, capped at 3 (see 2026_05_30 migration)
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
