@@ -5,6 +5,7 @@ import {
   getSupabaseClient,
   saveNote,
   supersedeNote,
+  updateNote,
   listNotes,
   getNote,
 } from '@nous/core';
@@ -114,4 +115,23 @@ run('Phase 2 — an agent write-back evolves the matching belief, not a duplicat
   const seedAfter = await getNote(supabase, workspaceId, seed.id);
   assert.equal(seedAfter.is_active, false, 'old belief invalidated, not deleted');
   assert.equal(seedAfter.superseded_by, updated.id, 'old belief links to the write-back');
+});
+
+run('Phase 3 — confirming a fact raises confidence to 1 and resets staleness', async () => {
+  const supabase = getSupabaseClient();
+
+  // An AI-drafted, unconfirmed fact (would show "inferred" + appear in revisit list).
+  const f = await saveNote(supabase, workspaceId, {
+    entityId, category: 'Market', source: 'playbook', subject: 'playbook.segments',
+    content: 'Series A-B B2B SaaS', confidence: 0.8,
+  });
+  assert.equal(f.confidence, 0.8, 'starts inferred');
+  assert.equal(f.reaffirmed_at, null, 'not yet reaffirmed');
+
+  // Confirm it — the page's Confirm button posts exactly this patch.
+  const confirmed = await updateNote(supabase, workspaceId, f.id, { confidence: 1, reaffirm: true });
+  assert.equal(confirmed.confidence, 1, 'confidence raised to 1');
+  assert.ok(confirmed.reaffirmed_at, 'reaffirmed_at stamped — staleness reset');
+  assert.equal(confirmed.is_active, true, 'still active');
+  assert.equal(confirmed.content, 'Series A-B B2B SaaS', 'content unchanged');
 });

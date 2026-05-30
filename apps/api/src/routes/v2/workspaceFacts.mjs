@@ -69,7 +69,9 @@ workspaceFactsV2Router.get('/', async (req, res) => {
       content: n.content,
       source: n.source,
       confidence: n.confidence,
-      recorded_at: n.created_at,
+      // Reflect the last confirmation so "age" is honest — a reaffirmed fact is
+      // fresh again even if it was first recorded long ago.
+      recorded_at: n.reaffirmed_at || n.created_at,
     }));
     const by_category = {};
     for (const f of facts) by_category[f.category] = (by_category[f.category] || 0) + 1;
