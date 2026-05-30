@@ -1,4 +1,4 @@
-import { test, after } from 'node:test';
+import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { hasSupabase } from './helpers.mjs';
 import {
@@ -8,53 +8,43 @@ import {
   listNotes,
   getNote,
 } from '@nous/core';
+import { findSupersedable } from '../src/routes/v2/workspaceFacts.mjs';
 
-// End-to-end check of the GTM-context evolution keystone (Phase 1): facts carry
-// a subject slot + confidence, and a rebuild SUPERSEDES the slot's prior fact
-// (kept as history) instead of deleting it. Runs against the real DB, fully
-// isolated in a throwaway workspace that cascade-deletes on cleanup.
+// End-to-end check of the GTM-context evolution work (Phases 1 + 2): facts carry
+// a subject slot + confidence, a rebuild SUPERSEDES the slot's prior fact (kept
+// as history) instead of deleting it, and an agent write-back evolves the matching
+// belief. Runs against the real DB, fully isolated in a throwaway team/workspace
+// that cascade-deletes on cleanup.
 
 const run = hasSupabase ? test : (n, _f) => test(n, { skip: 'no SUPABASE env' }, () => {});
 
 let workspaceId = null;
 let teamId = null;
+let entityId = null;
+
+before(async () => {
+  if (!hasSupabase) return;
+  const supabase = getSupabaseClient();
+  const { data: team } = await supabase
+    .from('teams').insert({ name: `zz-gtm-evolution-test-${Date.now()}` }).select('id').single();
+  teamId = team.id;
+  const { data: ws } = await supabase
+    .from('workspaces').insert({ name: `zz-gtm-evolution-test-${Date.now()}`, team_id: teamId }).select('id').single();
+  workspaceId = ws.id;
+  const { data: ent } = await supabase
+    .from('entities').insert({ workspace_id: workspaceId, type: 'workspace' }).select('id').single();
+  entityId = ent.id;
+});
 
 after(async () => {
   const supabase = getSupabaseClient();
-  // Deleting the workspace cascades to its entity + claims (ON DELETE CASCADE);
-  // then drop the parent team so the fixture leaves nothing behind.
+  // Deleting the workspace cascades to its entity + claims; then drop the team.
   if (workspaceId) await supabase.from('workspaces').delete().eq('id', workspaceId);
   if (teamId) await supabase.from('teams').delete().eq('id', teamId);
 });
 
-run('a fact evolves by subject: supersede keeps history, active reads the latest', async () => {
+run('Phase 1 — a fact evolves by subject: supersede keeps history, active reads the latest', async () => {
   const supabase = getSupabaseClient();
-
-  // ── isolated fixture: a temp team → workspace → workspace entity ──
-  const { data: team, error: tErr } = await supabase
-    .from('teams')
-    .insert({ name: `zz-gtm-evolution-test-${Date.now()}` })
-    .select('id')
-    .single();
-  assert.equal(tErr, null, `team insert: ${tErr?.message}`);
-  teamId = team.id;
-
-  const { data: ws, error: wErr } = await supabase
-    .from('workspaces')
-    .insert({ name: `zz-gtm-evolution-test-${Date.now()}`, team_id: teamId })
-    .select('id')
-    .single();
-  assert.equal(wErr, null, `workspace insert: ${wErr?.message}`);
-  workspaceId = ws.id;
-
-  const { data: ent, error: eErr } = await supabase
-    .from('entities')
-    .insert({ workspace_id: workspaceId, type: 'workspace' })
-    .select('id')
-    .single();
-  assert.equal(eErr, null, `entity insert: ${eErr?.message}`);
-  const entityId = ent.id;
-
   const slot = { entityId, category: 'Pricing', source: 'playbook', subject: 'playbook.pricing' };
 
   // 1. First fact in the slot — AI-drafted, confidence < 1, with a subject.
@@ -88,4 +78,40 @@ run('a fact evolves by subject: supersede keeps history, active reads the latest
   assert.equal(history.length, 2, 'history has both versions');
   assert.equal(history.filter(n => n.is_active).length, 1, 'one current in history');
   assert.equal(history.filter(n => !n.is_active).length, 1, 'one superseded in history');
+});
+
+run('Phase 2 — an agent write-back evolves the matching belief, not a duplicate', async () => {
+  const supabase = getSupabaseClient();
+
+  // A playbook-created belief on the positioning slot.
+  const seed = await saveNote(supabase, workspaceId, {
+    entityId, category: 'Positioning', source: 'playbook', subject: 'playbook.positioning',
+    content: 'We win on speed of setup', confidence: 0.8,
+  });
+
+  // The agent writes back with the bare slot name "positioning". findSupersedable
+  // (the real endpoint helper) must match the playbook.positioning fact so the
+  // write-back EVOLVES it rather than adding a second positioning fact.
+  const active = await listNotes(supabase, workspaceId, { entityId, limit: 200 });
+  const target = findSupersedable(active, 'positioning');
+  assert.ok(target, 'write-back matched the existing belief by bare subject');
+  assert.equal(target.id, seed.id, 'matched the right fact');
+
+  const updated = await supersedeNote(supabase, workspaceId, target.id, {
+    entityId, category: 'Positioning', source: 'agent', subject: 'positioning',
+    content: 'We win on depth of GTM context, not just speed', confidence: 0.9,
+  });
+  assert.equal(updated.source, 'agent', 'write-back recorded as agent source');
+
+  // Exactly one active positioning fact, and it is the agent's version.
+  const afterActive = await listNotes(supabase, workspaceId, { entityId });
+  const positioning = afterActive.filter(n => n.category === 'Positioning');
+  assert.equal(positioning.length, 1, 'no duplicate positioning fact');
+  assert.equal(positioning[0].content, 'We win on depth of GTM context, not just speed', 'active is the write-back');
+  assert.equal(positioning[0].source, 'agent', 'active is agent-sourced');
+
+  // The superseded playbook belief is kept as history.
+  const seedAfter = await getNote(supabase, workspaceId, seed.id);
+  assert.equal(seedAfter.is_active, false, 'old belief invalidated, not deleted');
+  assert.equal(seedAfter.superseded_by, updated.id, 'old belief links to the write-back');
 });

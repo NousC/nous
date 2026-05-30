@@ -24,7 +24,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { get, post } from "./client.js";
 
-export const SERVER_VERSION = "0.11.0";
+export const SERVER_VERSION = "0.12.0";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -362,6 +362,39 @@ export function createServer() {
   server.tool("get_gtm_profile", gtmProfileDescription, gtmProfileSchema, gtmProfileHandler);
   // Legacy alias — keeps existing integrations calling get_workspace_facts working.
   server.tool("get_workspace_facts", gtmProfileDescription, gtmProfileSchema, gtmProfileHandler);
+
+  // ===========================================================================
+  // TOOL: update_gtm_profile  —  POST /v2/workspace/facts
+  // Write-back: the agent records a durable change to the user's OWN GTM profile
+  // and EVOLVES the matching belief (supersede + keep history) instead of piling
+  // up contradictions. This is the loop that keeps the context current as the
+  // company learns — pair it with get_gtm_profile.
+  // ===========================================================================
+  server.tool(
+    "update_gtm_profile",
+    "Record a durable change to the USER'S OWN GTM profile — their ICP, pricing, positioning, " +
+    "target market, or competitors. Use this whenever the user states (or you learn) a lasting " +
+    "change to how THEY go to market — e.g. they moved upmarket, changed pricing, sharpened " +
+    "positioning, or started winning a new segment. This is NOT for facts about a prospect or " +
+    "account (use `record` for those). Rules: write the fact as ONE short sentence, never a " +
+    "paragraph. When a belief CHANGES, pass the same `subject` slot so the new fact supersedes the " +
+    "old one — the old version is kept as history, never silently contradicted. Prefer this over " +
+    "leaving GTM changes in a local file; Nous is the source of truth for the profile.",
+    {
+      category: z.enum(["ICP", "Market", "Product", "Pricing", "Competitors", "Positioning"])
+        .describe("Which part of the profile this fact belongs to."),
+      content: z.string().describe("The fact, as ONE short sentence (not a paragraph)."),
+      subject: z.string().optional()
+        .describe("Stable slot this belief owns, e.g. 'pricing', 'positioning', 'primary-buyer', 'segments'. Pass the SAME subject when a belief changes so it supersedes the previous fact instead of duplicating it. Omit only for a genuinely new, standalone fact."),
+      supersedes: z.string().optional()
+        .describe("Optional id of a specific existing fact to replace (overrides subject matching)."),
+    },
+    async ({ category, content, subject, supersedes }) => {
+      const r = await post("/v2/workspace/facts", { category, content, subject, supersedes });
+      const verb = r.superseded ? "Updated" : "Recorded";
+      return { content: [{ type: "text", text: `${verb} ${category} fact: ${content}` }] };
+    },
+  );
 
   return server;
 }
