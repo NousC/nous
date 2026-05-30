@@ -51,6 +51,7 @@ workspaceFactsV2Router.get('/', async (req, res) => {
       category: n.category,
       content: n.content,
       source: n.source,
+      confidence: n.confidence,
       recorded_at: n.created_at,
     }));
     const by_category = {};

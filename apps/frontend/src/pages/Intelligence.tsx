@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { RefreshCw, ChevronRight, Trash2 } from "lucide-react";
+import { RefreshCw, ChevronRight, Trash2, History } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { PageHeader } from "@/components/ui/page-header";
 
@@ -52,6 +52,7 @@ interface Signal {
 }
 interface IcpFact {
   id: string; category: string; content: string; created_at?: string | null;
+  confidence?: number; subject?: string | null;
 }
 interface ScorecardRun {
   id: string;
@@ -151,6 +152,11 @@ export default function Intelligence() {
   // The saved-context card is collapsed by default once there's content to hide.
   const [contextOpen, setContextOpen] = useState(false);
 
+  // Per-fact supersession history — which fact's timeline is expanded, + its rows.
+  const [historyOpen, setHistoryOpen] = useState<string | null>(null);
+  const [historyItems, setHistoryItems] = useState<{ id: string; content: string; created_at?: string | null; is_active?: boolean }[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
   // Inline editing of Scorecard signals (label / weight) + delete.
   const [editSig, setEditSig] = useState<{ id: string; field: "label" | "weight" } | null>(null);
 
@@ -170,7 +176,7 @@ export default function Intelligence() {
         if (mem) {
           const facts: IcpFact[] = (mem.memories ?? [])
             .filter((m: any) => ICP_CATEGORIES.includes(m.category))
-            .map((m: any) => ({ id: m.id, category: m.category, content: m.content, created_at: m.created_at }));
+            .map((m: any) => ({ id: m.id, category: m.category, content: m.content, created_at: m.created_at, confidence: m.confidence, subject: m.subject }));
           setIcpFacts(facts);
         }
         if (scruns) setRuns(scruns.runs ?? []);
@@ -203,6 +209,24 @@ export default function Intelligence() {
       });
       load();
     } catch { /* ignore */ }
+  };
+
+  // Expand/collapse a fact's supersession timeline (active + superseded versions).
+  const toggleHistory = async (fact: IcpFact) => {
+    if (historyOpen === fact.id) { setHistoryOpen(null); return; }
+    if (!fact.subject) return;
+    setHistoryOpen(fact.id);
+    setHistoryItems([]);
+    setHistoryLoading(true);
+    try {
+      const r = await fetch(
+        `${apiUrl}/api/workspace/memories/history?workspaceId=${workspaceId}&subject=${encodeURIComponent(fact.subject)}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      const d = await r.json();
+      setHistoryItems((d.history ?? []).map((m: any) => ({ id: m.id, content: m.content, created_at: m.created_at, is_active: m.is_active })));
+    } catch { /* ignore */ }
+    finally { setHistoryLoading(false); }
   };
 
   const buildScorecard = async () => {
@@ -520,19 +544,62 @@ export default function Intelligence() {
                       <div key={cat}>
                         <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60 mb-1">{cat}</div>
                         <div className="space-y-1">
-                          {icpFacts.filter(f => f.category === cat).map(f => (
-                            <div key={f.id} className="flex items-start gap-2 group">
-                              <span className="text-[13px] text-foreground/85 leading-snug flex-1">{f.content}</span>
-                              <button
-                                onClick={() => removeIcpFact(f.id)}
-                                className="flex-shrink-0 h-5 w-5 grid place-items-center rounded text-muted-foreground/50 hover:text-red-500 hover:bg-red-500/10 transition-colors"
-                                aria-label="Delete fact"
-                                title="Delete this fact"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </button>
+                          {icpFacts.filter(f => f.category === cat).map(f => {
+                            const inferred = typeof f.confidence === "number" && f.confidence < 1;
+                            return (
+                            <div key={f.id}>
+                              <div className="flex items-start gap-2 group">
+                                <span className="text-[13px] text-foreground/85 leading-snug flex-1">
+                                  {f.content}
+                                  {inferred && (
+                                    <span
+                                      title="AI-drafted from your site — confirm or edit to make it yours"
+                                      className="ml-1.5 align-middle text-[9px] font-semibold uppercase tracking-wide text-amber-700/80 bg-amber-500/10 rounded px-1 py-[1px]"
+                                    >
+                                      inferred
+                                    </span>
+                                  )}
+                                </span>
+                                {f.subject && (
+                                  <button
+                                    onClick={() => toggleHistory(f)}
+                                    className="flex-shrink-0 h-5 w-5 grid place-items-center rounded text-muted-foreground/40 hover:text-foreground hover:bg-muted transition-colors"
+                                    aria-label="Fact history"
+                                    title="See how this changed over time"
+                                  >
+                                    <History className="h-3.5 w-3.5" />
+                                  </button>
+                                )}
+                                <button
+                                  onClick={() => removeIcpFact(f.id)}
+                                  className="flex-shrink-0 h-5 w-5 grid place-items-center rounded text-muted-foreground/50 hover:text-red-500 hover:bg-red-500/10 transition-colors"
+                                  aria-label="Delete fact"
+                                  title="Delete this fact"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                              {historyOpen === f.id && (
+                                <div className="mt-1 ml-1 pl-3 border-l-2 border-border/60 space-y-1">
+                                  {historyLoading ? (
+                                    <div className="text-[11px] text-muted-foreground/60 py-1">Loading history…</div>
+                                  ) : historyItems.length <= 1 ? (
+                                    <div className="text-[11px] text-muted-foreground/60 py-1">No earlier versions yet — this is the first.</div>
+                                  ) : (
+                                    historyItems.map(h => (
+                                      <div key={h.id} className="text-[12px] leading-snug">
+                                        <span className={h.is_active ? "text-foreground/80" : "text-muted-foreground/50 line-through"}>{h.content}</span>
+                                        <span className="ml-1.5 text-[10px] text-muted-foreground/50">
+                                          {h.is_active ? "current" : "superseded"}{h.created_at ? ` · ${new Date(h.created_at).toLocaleDateString()}` : ""}
+                                        </span>
+                                      </div>
+                                    ))
+                                  )}
+                                </div>
+                              )}
                             </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     ))}
