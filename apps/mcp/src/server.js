@@ -350,9 +350,14 @@ export function createServer() {
     for (const [cat, facts] of Object.entries(groups)) {
       lines.push(`${cat.toUpperCase()} (${facts.length}):`);
       for (const f of facts) {
-        // Flag AI-drafted facts (confidence < 1) so the agent treats them as
-        // provisional and prefers user-confirmed ones when they conflict.
-        const tag = typeof f.confidence === "number" && f.confidence < 1 ? " (inferred)" : "";
+        // Flag AI-drafted facts (confidence < 1) and ones not confirmed in a long
+        // time, so the agent treats them as provisional and prefers fresh,
+        // user-confirmed facts when they conflict.
+        const ageDays = f.recorded_at ? Math.floor((Date.now() - new Date(f.recorded_at).getTime()) / 86400000) : 0;
+        const tags = [];
+        if (typeof f.confidence === "number" && f.confidence < 1) tags.push("inferred");
+        if (ageDays >= 90) tags.push("stale");
+        const tag = tags.length ? ` (${tags.join(", ")})` : "";
         lines.push(`  ${f.content}${tag}  [${relAge(f.recorded_at)}]`);
       }
       lines.push("");

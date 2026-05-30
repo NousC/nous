@@ -52,7 +52,21 @@ interface Signal {
 }
 interface IcpFact {
   id: string; category: string; content: string; created_at?: string | null;
-  confidence?: number; subject?: string | null;
+  confidence?: number; subject?: string | null; reaffirmed_at?: string | null;
+}
+
+// A fact is worth revisiting if it was AI-drafted and never confirmed
+// (confidence < 1), or if it has gone untouched for a while. Confirming resets
+// the clock (reaffirmed_at) and raises confidence to 1.
+const STALE_DAYS = 90;
+function reviewReason(f: IcpFact): string | null {
+  if (typeof f.confidence === "number" && f.confidence < 1) return "AI-drafted, not confirmed";
+  const stamp = f.reaffirmed_at || f.created_at;
+  if (stamp) {
+    const days = Math.floor((Date.now() - new Date(stamp).getTime()) / 86400000);
+    if (days >= STALE_DAYS) return `${days} days since last confirmed`;
+  }
+  return null;
 }
 interface ScorecardRun {
   id: string;
@@ -176,7 +190,7 @@ export default function Intelligence() {
         if (mem) {
           const facts: IcpFact[] = (mem.memories ?? [])
             .filter((m: any) => ICP_CATEGORIES.includes(m.category))
-            .map((m: any) => ({ id: m.id, category: m.category, content: m.content, created_at: m.created_at, confidence: m.confidence, subject: m.subject }));
+            .map((m: any) => ({ id: m.id, category: m.category, content: m.content, created_at: m.created_at, confidence: m.confidence, subject: m.subject, reaffirmed_at: m.reaffirmed_at }));
           setIcpFacts(facts);
         }
         if (scruns) setRuns(scruns.runs ?? []);
@@ -209,6 +223,20 @@ export default function Intelligence() {
       });
       load();
     } catch { /* ignore */ }
+  };
+
+  // Confirm a fact — raise confidence to 1 and reset its staleness clock.
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const confirmFact = async (id: string) => {
+    setConfirmingId(id);
+    try {
+      await fetch(`${apiUrl}/api/workspace/memories/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ workspaceId, confidence: 1, reaffirm: true }),
+      });
+      await load();
+    } finally { setConfirmingId(null); }
   };
 
   // Expand/collapse a fact's supersession timeline (active + superseded versions).
@@ -538,6 +566,41 @@ export default function Intelligence() {
             ) : (
               /* Saved context — the source of truth, grouped + editable. */
               <div className="px-4 py-4 space-y-4">
+                {(() => {
+                  const review = icpFacts
+                    .map(f => ({ f, reason: reviewReason(f) }))
+                    .filter((x): x is { f: IcpFact; reason: string } => x.reason !== null);
+                  if (review.length === 0) return null;
+                  return (
+                    <div className="rounded-lg border border-amber-500/30 bg-amber-500/[0.06] p-3 space-y-2">
+                      <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-amber-700/90">
+                        <RefreshCw className="h-3 w-3" />
+                        Worth revisiting · {review.length}
+                      </div>
+                      <p className="text-[11.5px] text-muted-foreground/80 leading-relaxed">
+                        These facts are AI-drafted or have gone a while without a check. Confirm the ones still true so your context stays trustworthy.
+                      </p>
+                      <div className="space-y-1.5">
+                        {review.map(({ f, reason }) => (
+                          <div key={f.id} className="flex items-start gap-2">
+                            <span className="text-[12px] text-foreground/80 leading-snug flex-1">
+                              <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/50 mr-1.5">{f.category}</span>
+                              {f.content}
+                              <span className="ml-1.5 text-[10px] text-amber-700/70">· {reason}</span>
+                            </span>
+                            <button
+                              onClick={() => confirmFact(f.id)}
+                              disabled={confirmingId === f.id}
+                              className="flex-shrink-0 h-6 px-2 rounded-md border border-amber-600/30 text-[11px] font-semibold text-amber-800 hover:bg-amber-500/15 transition-colors disabled:opacity-40"
+                            >
+                              {confirmingId === f.id ? "…" : "Confirm"}
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
                 {icpFacts.length > 0 ? (
                   <div className="space-y-3">
                     {ICP_CATEGORIES.filter(cat => icpFacts.some(f => f.category === cat)).map(cat => (

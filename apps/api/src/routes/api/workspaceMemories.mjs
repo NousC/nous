@@ -104,11 +104,11 @@ workspaceMemoriesRouter.get('/:id', verifySupabaseAuth, async (req, res) => {
 workspaceMemoriesRouter.patch('/:id', verifySupabaseAuth, async (req, res) => {
   try {
     const { id } = req.params;
-    const { workspaceId, content, category, is_active } = req.body;
+    const { workspaceId, content, category, is_active, confidence, reaffirm } = req.body;
     if (!UUID.test(id)) return res.status(400).json({ error: 'invalid_id' });
     if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
     const memory = await updateNote(getSupabaseClient(), workspaceId, id, {
-      content, category, is_active,
+      content, category, is_active, confidence, reaffirm,
     });
     if (!memory) return res.status(404).json({ error: 'not_found' });
     return res.json({ memory });

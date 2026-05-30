@@ -24,6 +24,9 @@ export interface Note {
   subject: string | null;
   /** When superseded, the id of the fact that replaced this one. */
   superseded_by: string | null;
+  /** Last time the user re-confirmed this fact; resets staleness without losing
+   *  the original created_at. Null if never reaffirmed. */
+  reaffirmed_at: string | null;
   created_at: string;
   updated_at: string;
   is_active: boolean;
@@ -47,6 +50,7 @@ function noteFromClaim(c: Record<string, unknown>): Note {
     confidence: typeof c.confidence === 'number' ? (c.confidence as number) : 1,
     subject: (meta.subject as string) ?? null,
     superseded_by: (meta.superseded_by as string) ?? null,
+    reaffirmed_at: (meta.reaffirmed_at as string) ?? null,
     created_at: (c.valid_from as string) ?? (c.computed_at as string),
     updated_at: c.computed_at as string,
     is_active: c.invalid_at == null,
@@ -210,7 +214,7 @@ export async function updateNote(
   supabase: SupabaseClient,
   workspaceId: string,
   id: string,
-  patch: { content?: string; category?: string; is_active?: boolean },
+  patch: { content?: string; category?: string; is_active?: boolean; confidence?: number; reaffirm?: boolean },
 ): Promise<Note | null> {
   const { data: current, error: e1 } = await supabase
     .from('claims')
@@ -226,11 +230,17 @@ export async function updateNote(
   const nextValue: Record<string, unknown> = { ...v };
   if (patch.content !== undefined) nextValue.content = patch.content;
   if (patch.category !== undefined) nextValue.category = patch.category;
+  // Reaffirming stamps metadata.reaffirmed_at so staleness resets while the
+  // original created_at (valid_from) is preserved.
+  if (patch.reaffirm) {
+    nextValue.metadata = { ...((v.metadata as Record<string, unknown>) ?? {}), reaffirmed_at: new Date().toISOString() };
+  }
 
   const updates: Record<string, unknown> = {
     value: nextValue,
     computed_at: new Date().toISOString(),
   };
+  if (patch.confidence !== undefined) updates.confidence = Math.min(Math.max(patch.confidence, 0), 1);
   if (patch.is_active === false) updates.invalid_at = new Date().toISOString();
   if (patch.is_active === true) updates.invalid_at = null;
 
