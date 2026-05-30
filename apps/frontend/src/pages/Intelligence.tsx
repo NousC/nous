@@ -144,6 +144,9 @@ export default function Intelligence() {
     { segments: [], buyers: [], use_cases: [], competitors: [] });
   const [pbManual, setPbManual] = useState(false);
   const [pbInput, setPbInput] = useState("");
+  // Lifetime cap on "Rebuild from your site" — each rebuild runs an AI draft, so
+  // it's capped server-side at 3 per workspace. null until the server tells us.
+  const [pbRebuilds, setPbRebuilds] = useState<{ used: number; limit: number } | null>(null);
 
   // The saved-context card is collapsed by default once there's content to hide.
   const [contextOpen, setContextOpen] = useState(false);
@@ -226,7 +229,15 @@ export default function Intelligence() {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ workspaceId }),
       });
+      // 429 = the lifetime rebuild cap is hit. Record it so the button disables.
+      if (r.status === 429) {
+        const e = await r.json().catch(() => ({}));
+        setPbRebuilds({ used: e.used ?? 3, limit: e.limit ?? 3 });
+        setPbOpen(false);
+        return;
+      }
       const d = await r.json();
+      if (d.rebuilds_limit != null) setPbRebuilds({ used: d.rebuilds_used ?? 0, limit: d.rebuilds_limit });
       setPbReadSite(Boolean(d.read_site));
       setPbStrategy({
         sell: d.strategy?.sell ?? "", audience: d.strategy?.audience ?? "", problems: d.strategy?.problems ?? "",
@@ -236,7 +247,9 @@ export default function Intelligence() {
       setPbBuyers(d.buyers ?? []);
       setPbUseCases(d.use_cases ?? []);
       setPbCompetitors(d.competitors ?? []);
-      setPbSel({ segments: d.segments ?? [], buyers: d.buyers ?? [], use_cases: d.use_cases ?? [], competitors: d.competitors ?? [] });
+      // Suggestions start UNSELECTED — the user taps the ones that fit, and any
+      // option they add themselves is auto-selected by addOption.
+      setPbSel({ segments: [], buyers: [], use_cases: [], competitors: [] });
     } catch { /* user can still type */ }
     finally { setPbLoading(false); }
   };
@@ -377,14 +390,19 @@ export default function Intelligence() {
                   <span className="text-muted-foreground/50 normal-case font-normal ml-1 tabular-nums">· {icpFacts.length} fact{icpFacts.length === 1 ? "" : "s"}</span>
                 </button>
               )}
-              {(hasModel || icpFacts.length > 0) && (
-                <button
-                  onClick={openPlaybook}
-                  className="text-[12px] font-semibold text-foreground/70 hover:text-foreground transition-colors"
-                >
-                  Rebuild from your site
-                </button>
-              )}
+              {(hasModel || icpFacts.length > 0) && (() => {
+                const exhausted = pbRebuilds != null && pbRebuilds.used >= pbRebuilds.limit;
+                return (
+                  <button
+                    onClick={openPlaybook}
+                    disabled={exhausted}
+                    title={pbRebuilds ? `${pbRebuilds.used}/${pbRebuilds.limit} site rebuilds used` : "Reads your site and re-drafts your playbook (3 rebuilds max)"}
+                    className="text-[12px] font-semibold text-foreground/70 hover:text-foreground transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {exhausted ? "Site rebuilds used up" : "Rebuild from your site"}
+                  </button>
+                );
+              })()}
             </div>
             {((icpFacts.length === 0 && !hasModel) || contextOpen) && (
             <>
@@ -808,7 +826,7 @@ export default function Intelligence() {
                         value={pbStrategy[k]}
                         onChange={e => setPbStrategy(s => ({ ...s, [k]: e.target.value }))}
                         rows={2}
-                        className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-[13px] text-foreground outline-none focus:border-foreground/40 resize-none"
+                        className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-[13px] text-foreground outline-none focus:border-foreground/40 resize-y min-h-[3rem]"
                       />
                     </div>
                   ))}
@@ -817,7 +835,7 @@ export default function Intelligence() {
                 (() => {
                   const group = (pbStep === 1 ? "segments" : pbStep === 2 ? "buyers" : pbStep === 3 ? "use_cases" : "competitors") as "segments" | "buyers" | "use_cases" | "competitors";
                   const meta = {
-                    segments: { q: "Which market segments do you target?", sub: "Tap to keep the ones that fit, or add your own." },
+                    segments: { q: "Which market segments do you target?", sub: "Tap the ones that fit to add them, or add your own." },
                     buyers: { q: "Who are the primary buyers?", sub: "The roles you sell to." },
                     use_cases: { q: "What are the primary use cases?", sub: "The jobs they hire you for." },
                     competitors: { q: "Who do you compete with?", sub: "Named rivals or the alternatives you displace." },
@@ -837,10 +855,11 @@ export default function Intelligence() {
                             <button
                               key={o}
                               onClick={() => toggleSel(group, o)}
-                              className={`px-3 py-1.5 rounded-full text-[13px] border transition-colors ${on
+                              className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-[13px] border transition-colors ${on
                                 ? "bg-primary text-primary-foreground border-primary"
                                 : "bg-background text-foreground/80 border-border hover:border-foreground/40"}`}
                             >
+                              <span className="text-[11px] leading-none opacity-80">{on ? "✓" : "+"}</span>
                               {o}
                             </button>
                           );

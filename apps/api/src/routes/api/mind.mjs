@@ -563,6 +563,21 @@ mindRouter.post('/playbook/research', async (req, res) => {
       .eq('id', workspaceId)
       .maybeSingle();
 
+    // Hard lifetime cap: each rebuild reads the site + runs an AI draft, so cap
+    // it at 3 per workspace. Enforced here so the limit holds across devices and
+    // sessions. Queried separately so that if the column hasn't been migrated in
+    // yet, the draft above still works — the cap just stays inactive until then.
+    const PLAYBOOK_REBUILD_LIMIT = 3;
+    const { data: cnt } = await supabase
+      .from('workspaces')
+      .select('playbook_rebuild_count')
+      .eq('id', workspaceId)
+      .maybeSingle();
+    const rebuildsUsed = cnt?.playbook_rebuild_count ?? 0;
+    if (rebuildsUsed >= PLAYBOOK_REBUILD_LIMIT) {
+      return res.status(429).json({ error: 'rebuild_limit', limit: PLAYBOOK_REBUILD_LIMIT, used: rebuildsUsed });
+    }
+
     const website = ws?.website || '';
     const company = ws?.name || '';
     const siteText = await fetchSiteText(website);
@@ -614,9 +629,18 @@ mindRouter.post('/playbook/research', async (req, res) => {
         .filter(Boolean)
         .slice(0, 6);
 
+    // Count this rebuild only once the draft succeeded — a failed AI call above
+    // throws to the catch and never reaches here, so errors don't burn a try.
+    await supabase
+      .from('workspaces')
+      .update({ playbook_rebuild_count: rebuildsUsed + 1 })
+      .eq('id', workspaceId);
+
     return res.json({
       read_site: Boolean(siteText),
       website,
+      rebuilds_used: rebuildsUsed + 1,
+      rebuilds_limit: PLAYBOOK_REBUILD_LIMIT,
       strategy: {
         sell: String(parsed?.strategy?.sell || '').trim(),
         audience: String(parsed?.strategy?.audience || '').trim(),
