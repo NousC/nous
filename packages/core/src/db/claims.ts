@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Observation } from './observations.js';
 import { getObservations } from './observations.js';
+import { fireClaimTransitionTriggers } from './triggers.js';
 
 // Claims are the derived layer — the current best belief about
 // (entity, property), with calibrated confidence, provenance, and decay.
@@ -118,15 +119,17 @@ export async function recomputeClaim(
 ): Promise<void> {
   // Asserted claims are sticky. A user (or a workflow PATCH) declared this
   // fact as ground truth; derivation from observations must not overwrite it.
+  // We also read the current value so we can detect a state transition below.
   const { data: existing } = await supabase
     .from('claims')
-    .select('epistemic_class')
+    .select('epistemic_class, value')
     .eq('workspace_id', workspaceId)
     .eq('entity_id', entityId)
     .eq('property', property)
     .is('invalid_at', null)
     .maybeSingle();
   if ((existing as { epistemic_class?: string } | null)?.epistemic_class === 'asserted') return;
+  const beforeValue = (existing as { value?: unknown } | null)?.value;
 
   const observations = await getObservations(supabase, workspaceId, entityId, { property });
   const derived = deriveClaim(observations);
@@ -151,6 +154,21 @@ export async function recomputeClaim(
     { onConflict: 'workspace_id,entity_id,property' },
   );
   if (error) throw new Error(`failed to upsert claim: ${error.message}`);
+
+  // Fire any outbound triggers implied by this value change (e.g. a LinkedIn
+  // connection accept the moment channels.linkedin.state becomes 'connected').
+  // Side effect of the state change — catches every writer, not just the ones
+  // that also log an activity. Best-effort: errors are swallowed inside.
+  const newestObs = observations.find(o => o.id === derived.supporting_observation_ids[0]);
+  await fireClaimTransitionTriggers(supabase, {
+    workspaceId,
+    entityId,
+    property,
+    before: beforeValue,
+    after: derived.value,
+    source: newestObs?.source ?? 'system',
+    occurredAt: derived.last_observed_at ?? new Date().toISOString(),
+  });
 }
 
 export async function getClaims(

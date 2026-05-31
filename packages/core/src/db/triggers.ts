@@ -26,6 +26,10 @@ const TRIGGERED_ACTIVITY_TYPES: Record<string, TriggerEvent> = {
   email_received:                'interaction.email_received',
   email_bounced:                 'interaction.email_bounced',
   linkedin_connection_accepted:  'interaction.linkedin_connection_accepted',
+  // Every accept-detection path (new_relation webhook, message-inferred,
+  // invite-poll + full sync) logs the activity type `linkedin_connected` — so
+  // that is the type that must map to the accept event, not the catalog name.
+  linkedin_connected:            'interaction.linkedin_connection_accepted',
   linkedin_message_received:     'interaction.linkedin_message_received',
   linkedin_message:              'interaction.linkedin_message_received',
   meeting_scheduled:             'interaction.meeting_scheduled',
@@ -205,6 +209,16 @@ export interface EnqueueEventParams {
   eventType: TriggerEvent;
   payload: Record<string, unknown>;
   occurredAt?: string;
+  /**
+   * Deterministic dedup key for the OUTBOUND fire (distinct from the
+   * observation/activity external_id inside the payload). When set, at most one
+   * row per (workspace, subscription, externalId) is ever enqueued — so a
+   * re-sync, a Unipile re-fire, or the two firing paths (activity + claim
+   * transition) all collapse to a single delivery. Omit to keep the
+   * insert-always behaviour (every event a new row), which is correct for
+   * genuine per-event triggers like email_received.
+   */
+  externalId?: string;
 }
 
 /**
@@ -233,7 +247,7 @@ export async function enqueueOutboundEvent(
     if (!subs || subs.length === 0) return 0;
 
     const now = params.occurredAt ?? new Date().toISOString();
-    const rows = subs.map(s => ({
+    const base = subs.map(s => ({
       workspace_id:    params.workspaceId,
       subscription_id: (s as { id: string }).id,
       entity_id:       params.entityId,
@@ -241,15 +255,203 @@ export async function enqueueOutboundEvent(
       payload:         params.payload,
       occurred_at:     now,
     }));
-    const { error: insErr } = await supabase.from('outbound_events').insert(rows);
+    // With a dedup key: stamp external_id and upsert-ignore so a repeat fire
+    // (re-sync / both firing paths) is a server-side no-op. Without one: plain
+    // insert with no reference to the external_id column at all — so the
+    // unchanged event types keep working even if the dedup migration lags.
+    const { error: insErr } = params.externalId
+      ? await supabase
+          .from('outbound_events')
+          .upsert(base.map(r => ({ ...r, external_id: params.externalId })),
+                  { onConflict: 'workspace_id,subscription_id,external_id', ignoreDuplicates: true })
+      : await supabase.from('outbound_events').insert(base);
     if (insErr) {
       console.warn('[triggers] enqueue insert failed:', insErr.message);
       return 0;
     }
-    return rows.length;
+    return base.length;
   } catch (err) {
     console.warn('[triggers] enqueue threw:', (err as Error).message);
     return 0;
+  }
+}
+
+// ── Standard interaction payload (shared by both firing paths) ───────────────
+// The connector-activity path and the claim state-transition path both emit the
+// SAME payload shape so subscribers see one contract regardless of how the event
+// was detected. Builders live here, the trigger module, and are reused from
+// activities.ts (logActivity) and claims.ts (recomputeClaim).
+
+export interface PersonSnapshot {
+  entity_id: string;
+  email: string | null;
+  linkedin_url: string | null;
+  name: string | null;
+  job_title: unknown;
+  company: unknown;
+}
+
+/** Minimal person snapshot — just enough that a subscriber knows WHO an event
+ *  is about without an immediate re-fetch. One identifiers read + one claims read. */
+export async function buildPersonSnapshot(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  entityId: string,
+): Promise<PersonSnapshot> {
+  const [{ data: identifiers }, { data: claims }] = await Promise.all([
+    supabase.from('entity_identifiers')
+      .select('kind, value')
+      .eq('workspace_id', workspaceId)
+      .eq('entity_id', entityId)
+      .eq('status', 'active')
+      .in('kind', ['email', 'linkedin_url']),
+    supabase.from('claims')
+      .select('property, value')
+      .eq('workspace_id', workspaceId)
+      .eq('entity_id', entityId)
+      .is('invalid_at', null)
+      .in('property', ['first_name', 'last_name', 'name', 'job_title', 'company']),
+  ]);
+
+  const idMap = new Map<string, string>();
+  for (const i of (identifiers ?? []) as { kind: string; value: string }[]) idMap.set(i.kind, i.value);
+  const claimMap = new Map<string, unknown>();
+  for (const c of (claims ?? []) as { property: string; value: unknown }[]) claimMap.set(c.property, c.value);
+
+  const name = claimMap.get('name')
+    ?? [claimMap.get('first_name'), claimMap.get('last_name')].filter(Boolean).join(' ')
+    ?? null;
+
+  return {
+    entity_id:    entityId,
+    email:        idMap.get('email') ?? null,
+    linkedin_url: idMap.get('linkedin_url') ?? null,
+    name:         (name && String(name).trim()) || null,
+    job_title:    claimMap.get('job_title') ?? null,
+    company:      claimMap.get('company') ?? null,
+  };
+}
+
+export interface InteractionPayloadParams {
+  workspaceId: string;
+  entityId: string;
+  eventType: TriggerEvent;
+  occurredAt: string;
+  source: string;
+  summary?: string | null;
+  description?: string | null;
+  /** The source observation/activity external_id, passed through to consumers. */
+  externalId?: string | null;
+  /** How the state was discovered: 'realtime' | 'unipile_sync' | 'state_transition' | … */
+  detectedVia?: string | null;
+  person: PersonSnapshot;
+}
+
+/** The canonical outbound payload object. */
+export function buildInteractionPayload(p: InteractionPayloadParams): Record<string, unknown> {
+  return {
+    event_id:     crypto.randomUUID(),
+    event_type:   p.eventType,
+    occurred_at:  p.occurredAt,
+    workspace_id: p.workspaceId,
+    entity_id:    p.entityId,
+    person:       p.person,
+    event_data: {
+      source:       p.source,
+      summary:      p.summary ?? null,
+      description:  p.description ?? null,
+      external_id:  p.externalId ?? null,
+      detected_via: p.detectedVia ?? null,
+    },
+  };
+}
+
+// ── Claim state-transition triggers ──────────────────────────────────────────
+// Some interaction events are really STATE transitions, not discrete events: a
+// connection is "accepted" the moment channels.linkedin.state becomes
+// 'connected', however that state was written. Firing here — as a side effect of
+// the claim recompute — catches EVERY writer (real-time webhook, periodic sync,
+// manual/API import), not just the ones that also log an activity. The
+// per-entity dedup key (li-accept:<entity>) means this never double-fires with
+// the activity path: whichever path lands first wins, the other is a no-op.
+
+export interface ClaimTransition {
+  eventType: TriggerEvent;
+  /** Deterministic per-entity dedup key for the outbound fire. */
+  externalId: string;
+}
+
+function linkedinState(channels: unknown): string | null {
+  const li = (channels as { linkedin?: { state?: unknown } } | null | undefined)?.linkedin;
+  return typeof li?.state === 'string' ? li.state : null;
+}
+
+/**
+ * Which trigger events a (property, before→after) change should fire. Extensible
+ * by design; today only the LinkedIn connection accept on the `channels` claim is
+ * wired — `linkedin_message_received` and `email_bounced` already fire correctly
+ * from the activity path, so adding them here would only duplicate deliveries.
+ */
+export function detectClaimTransitions(
+  property: string,
+  before: unknown,
+  after: unknown,
+  entityId: string,
+): ClaimTransition[] {
+  const out: ClaimTransition[] = [];
+  if (property === 'channels') {
+    // Only a transition INTO 'connected' fires. A reverse (connected → other)
+    // intentionally fires nothing — there is no accept to report.
+    if (linkedinState(before) !== 'connected' && linkedinState(after) === 'connected') {
+      out.push({ eventType: 'interaction.linkedin_connection_accepted', externalId: `li-accept:${entityId}` });
+    }
+  }
+  return out;
+}
+
+export interface FireClaimTransitionParams {
+  workspaceId: string;
+  entityId: string;
+  property: string;
+  before: unknown;
+  after: unknown;
+  /** Source of the observation that drove the change, for attribution. */
+  source: string;
+  occurredAt: string;
+}
+
+/** Fire any outbound triggers implied by a claim value change. Best-effort —
+ *  the claim recompute must never fail because the trigger system is unhealthy. */
+export async function fireClaimTransitionTriggers(
+  supabase: SupabaseClient,
+  p: FireClaimTransitionParams,
+): Promise<void> {
+  try {
+    const transitions = detectClaimTransitions(p.property, p.before, p.after, p.entityId);
+    if (!transitions.length) return;
+
+    const person = await buildPersonSnapshot(supabase, p.workspaceId, p.entityId);
+    for (const t of transitions) {
+      await enqueueOutboundEvent(supabase, {
+        workspaceId: p.workspaceId,
+        entityId:    p.entityId,
+        eventType:   t.eventType,
+        occurredAt:  p.occurredAt,
+        externalId:  t.externalId,
+        payload: buildInteractionPayload({
+          workspaceId: p.workspaceId,
+          entityId:    p.entityId,
+          eventType:   t.eventType,
+          occurredAt:  p.occurredAt,
+          source:      p.source,
+          detectedVia: 'state_transition',
+          externalId:  t.externalId,
+          person,
+        }),
+      });
+    }
+  } catch {
+    // swallow — derivation must not fail on a trigger error
   }
 }
 
