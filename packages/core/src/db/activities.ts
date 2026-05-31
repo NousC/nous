@@ -1,6 +1,8 @@
-import * as crypto from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { triggerEventForActivity, enqueueOutboundEvent } from './triggers.js';
+import {
+  triggerEventForActivity, enqueueOutboundEvent,
+  buildPersonSnapshot, buildInteractionPayload,
+} from './triggers.js';
 
 // Activities — the v2 connector ingestion path.
 //
@@ -190,58 +192,36 @@ async function maybeEnqueueTrigger(supabase: SupabaseClient, p: EmitParams): Pro
     // inbound-only and never hits this branch.
     if (p.activityType === 'linkedin_message' && p.rawData?.is_outbound === true) return;
 
-    // Minimal person snapshot — just enough that the receiver knows WHO this
-    // is about without a re-fetch. Subscribers wanting more call /v2/context.
-    const [{ data: identifiers }, { data: claims }] = await Promise.all([
-      supabase.from('entity_identifiers')
-        .select('kind, value')
-        .eq('workspace_id', p.workspaceId)
-        .eq('entity_id', p.entityId)
-        .eq('status', 'active')
-        .in('kind', ['email', 'linkedin_url']),
-      supabase.from('claims')
-        .select('property, value')
-        .eq('workspace_id', p.workspaceId)
-        .eq('entity_id', p.entityId)
-        .is('invalid_at', null)
-        .in('property', ['first_name', 'last_name', 'name', 'job_title', 'company']),
-    ]);
+    const person = await buildPersonSnapshot(supabase, p.workspaceId, p.entityId);
 
-    const idMap = new Map<string, string>();
-    for (const i of (identifiers ?? []) as { kind: string; value: string }[]) idMap.set(i.kind, i.value);
-    const claimMap = new Map<string, unknown>();
-    for (const c of (claims ?? []) as { property: string; value: unknown }[]) claimMap.set(c.property, c.value);
-
-    const name = claimMap.get('name')
-      ?? [claimMap.get('first_name'), claimMap.get('last_name')].filter(Boolean).join(' ')
-      ?? null;
+    // Connection-accepted is a state transition, not a discrete event. Give it a
+    // per-entity dedup key so this activity-path fire and the claim-transition
+    // fire (recomputeClaim → fireClaimTransitionTriggers) collapse to a single
+    // delivery. detected_via surfaces realtime-vs-sync attribution for operators.
+    const isAccept = eventType === 'interaction.linkedin_connection_accepted';
+    const dedupExternalId = isAccept ? `li-accept:${p.entityId}` : undefined;
+    const detectedVia = isAccept
+      ? (typeof p.rawData?.detected_by === 'string' ? p.rawData.detected_by : 'realtime')
+      : null;
 
     await enqueueOutboundEvent(supabase, {
       workspaceId: p.workspaceId,
       entityId:    p.entityId,
       eventType,
       occurredAt:  p.occurredAt,
-      payload: {
-        event_id:    crypto.randomUUID(),
-        event_type:  eventType,
-        occurred_at: p.occurredAt,
-        workspace_id: p.workspaceId,
-        entity_id:   p.entityId,
-        person: {
-          entity_id:    p.entityId,
-          email:        idMap.get('email') ?? null,
-          linkedin_url: idMap.get('linkedin_url') ?? null,
-          name:         (name && String(name).trim()) || null,
-          job_title:    claimMap.get('job_title') ?? null,
-          company:      claimMap.get('company') ?? null,
-        },
-        event_data: {
-          source:       p.source,
-          summary:      p.summary ?? null,
-          description:  p.description ?? null,
-          external_id:  p.externalId,
-        },
-      },
+      externalId:  dedupExternalId,
+      payload: buildInteractionPayload({
+        workspaceId: p.workspaceId,
+        entityId:    p.entityId,
+        eventType,
+        occurredAt:  p.occurredAt,
+        source:      p.source,
+        summary:     p.summary,
+        description: p.description,
+        externalId:  p.externalId,
+        detectedVia,
+        person,
+      }),
     });
   } catch {
     // never fail the activity write because the trigger system is unhealthy
