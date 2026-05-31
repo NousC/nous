@@ -192,6 +192,13 @@ async function scanGmail(supabase, workspaceId, contact, gmailConn) {
     console.log(`[ENRICH_GMAIL] ${contact.email}: ${logged} logged`);
     return logged;
   } catch (e) {
+    // Revoked/expired grant — flag the connection so the UI shows "Needs auth"
+    // and the user reconnects, instead of failing silently on every enrichment.
+    if (e?.code === 'google_token_revoked') {
+      await supabase.from('workflow_provider_connections')
+        .update({ is_verified: false }).eq('id', gmailConn.id);
+      console.warn(`[ENRICH_GMAIL] connection=${gmailConn.id} revoked — flagged for re-auth`);
+    }
     console.error(`[ENRICH_GMAIL] ${contact.email}:`, e.message);
     return 0;
   }

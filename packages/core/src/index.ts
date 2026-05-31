@@ -22,6 +22,7 @@ export * from './db/triggers.js';
 export * from './utils/identity.js';
 export * from './utils/linkedin.js';
 export * from './utils/encryption.js';
+export * from './utils/googleAuth.js';
 export * from './services/crmPush.js';
 export * from './services/crmHygiene.js';
 export * from './services/crmProvenance.js';

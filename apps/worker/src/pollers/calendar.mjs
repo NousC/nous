@@ -7,6 +7,7 @@ import { google } from 'googleapis';
 import { getSupabaseClient, listActivities } from '@nous/core';
 import { logActivity } from '../utils/activity.mjs';
 import { refreshGoogleToken } from '../utils/googleOAuth.mjs';
+import { isTokenRevoked, markGoogleConnectionRevoked } from '../utils/connectionHealth.mjs';
 
 const LOOKBACK_DAYS  = 7;
 const LOOKAHEAD_DAYS = 30;
@@ -222,7 +223,10 @@ export async function pollAllWorkspaces() {
   let total = 0;
   for (const conn of connections) {
     try { total += await pollWorkspace(supabase, conn); }
-    catch (e) { console.error(`[CAL_POLL] workspace=${conn.workspace_id}:`, e.message); }
+    catch (e) {
+      if (isTokenRevoked(e)) await markGoogleConnectionRevoked(supabase, conn, 'gmail');
+      console.error(`[CAL_POLL] workspace=${conn.workspace_id}:`, e.message);
+    }
   }
 
   console.log(`[CAL_POLL] Done — ${total} total activities logged`);
