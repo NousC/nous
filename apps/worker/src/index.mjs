@@ -21,6 +21,7 @@ import { processClaimJobs } from './workers/claimEngine.mjs';
 import { scoreEntities } from './workers/scoreEntities.mjs';
 import { processEmbeddings } from './workers/embeddings.mjs';
 import { runCrmAutoSync } from './workers/crmSync.mjs';
+import { runCrmHygieneSweep } from './workers/crmHygiene.mjs';
 import { runStageDerivation } from './workers/stageDerivation.mjs';
 
 // Wire webhook-driven activity logging → CRM push at module load.
@@ -213,6 +214,14 @@ console.log('[WORKER] Embedding worker — every 2 minutes');
 // See workers/crmSync.mjs.
 cron.schedule('0 2 * * *', runCrmAutoSync, { timezone: 'UTC' });
 console.log('[WORKER] CRM auto-sync — daily at 02:00 UTC');
+
+// ── CRM hygiene — daily tick at 08:00 UTC, runs configs due per their cadence ─
+// Propose-only reconciliation: enriches + scores net-new CRM records and queues
+// ICP write-backs as proposals for human approval. Per-workspace weekly/monthly
+// cadence is enforced inside the sweep (hygiene_last_run_at). Runs after the
+// 02:00 pull so it sees fresh CRM state. See workers/crmHygiene.mjs.
+cron.schedule('0 8 * * *', runCrmHygieneSweep, { timezone: 'UTC' });
+console.log('[WORKER] CRM hygiene — daily tick at 08:00 UTC (per-workspace cadence)');
 
 // ── Pipeline-stage derivation — hourly at :15 ────────────────────────────────
 // Walks active person entities and advances pipeline_stage based on observed

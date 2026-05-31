@@ -136,6 +136,24 @@ export async function recordEnrichmentObservations(
   return recordObservations(supabase, inputs);
 }
 
+/** Load observations by id (workspace-scoped) — used to resolve a claim's
+ *  supporting_observation_ids to their sources/values for the CRM-hygiene
+ *  provenance gate and proof payload. */
+export async function getObservationsByIds(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  ids: string[],
+): Promise<Observation[]> {
+  if (!ids.length) return [];
+  const { data, error } = await supabase
+    .from('observations')
+    .select(COLUMNS)
+    .eq('workspace_id', workspaceId)
+    .in('id', ids);
+  if (error) throw new Error(`failed to load observations by id: ${error.message}`);
+  return (data as Observation[]) ?? [];
+}
+
 /** Observations for an entity, newest first — the account timeline. */
 export async function getObservations(
   supabase: SupabaseClient,

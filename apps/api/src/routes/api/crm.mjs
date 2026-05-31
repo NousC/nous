@@ -1,7 +1,11 @@
 import { Router } from 'express';
-import { getSupabaseClient, logActivity, syncCrmProvider } from '@nous/core';
+import {
+  getSupabaseClient, logActivity, syncCrmProvider,
+  runHygieneForConfig, listHygieneProposals, countHygieneProposals, updateHygieneProposalStatus,
+} from '@nous/core';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
 import { requireFeature } from '../../lib/access.mjs';
+import { enrichContact } from '../../services/enrichment.mjs';
 import crypto from 'crypto';
 
 export const crmRouter = Router();
@@ -261,12 +265,17 @@ crmRouter.get('/sync-config', verifySupabaseAuth, async (req, res) => {
 crmRouter.post('/sync-config', verifySupabaseAuth, requireCrmSync, async (req, res) => {
   try {
     const supabase = getSupabaseClient();
-    const { workspaceId, connectionId, provider, autoSync, pushActivities } = req.body;
+    const { workspaceId, connectionId, provider, autoSync, pushActivities,
+            createInCrm, createTrigger, createRequireIcpFit, createIcpThreshold,
+            hygieneEnabled, hygieneCadence } = req.body;
     if (!workspaceId || !connectionId || !provider) return res.status(400).json({ error: 'missing fields' });
+
+    const CREATE_TRIGGERS = ['any_reply_or_meeting', 'positive_reply_or_meeting', 'meeting_only', 'interested_stage'];
+    const HYGIENE_CADENCES = ['weekly', 'monthly'];
 
     // Fetch existing so we only overwrite fields that were actually sent
     const { data: existing } = await supabase.from('crm_sync_configs')
-      .select('auto_sync, push_activities')
+      .select('auto_sync, push_activities, create_in_crm, create_trigger, create_require_icp_fit, create_icp_threshold, hygiene_enabled, hygiene_cadence')
       .eq('workspace_id', workspaceId).eq('provider', provider).maybeSingle();
 
     const payload = {
@@ -275,6 +284,13 @@ crmRouter.post('/sync-config', verifySupabaseAuth, requireCrmSync, async (req, r
       provider,
       auto_sync:       typeof autoSync       === 'boolean' ? autoSync       : (existing?.auto_sync       ?? false),
       push_activities: typeof pushActivities === 'boolean' ? pushActivities : (existing?.push_activities ?? true),
+      // Create policy — only overwrite fields that were actually sent.
+      create_in_crm:          typeof createInCrm          === 'boolean' ? createInCrm          : (existing?.create_in_crm          ?? true),
+      create_trigger:         CREATE_TRIGGERS.includes(createTrigger)   ? createTrigger        : (existing?.create_trigger         ?? 'positive_reply_or_meeting'),
+      create_require_icp_fit: typeof createRequireIcpFit  === 'boolean' ? createRequireIcpFit  : (existing?.create_require_icp_fit ?? true),
+      create_icp_threshold:   Number.isFinite(createIcpThreshold)       ? Math.max(0, Math.min(100, Math.round(createIcpThreshold))) : (existing?.create_icp_threshold ?? 70),
+      hygiene_enabled: typeof hygieneEnabled === 'boolean' ? hygieneEnabled : (existing?.hygiene_enabled ?? true),
+      hygiene_cadence: HYGIENE_CADENCES.includes(hygieneCadence) ? hygieneCadence : (existing?.hygiene_cadence ?? 'weekly'),
       updated_at:      new Date().toISOString(),
     };
 
@@ -283,6 +299,78 @@ crmRouter.post('/sync-config', verifySupabaseAuth, requireCrmSync, async (req, r
     }).select().single();
     if (error) throw error;
     return res.json({ ok: true, config: data });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ── CRM hygiene (propose-only) ───────────────────────────────────────────────
+
+// POST /api/crm/hygiene/run — run hygiene now for one CRM, on demand. Same
+// orchestrator the worker's daily tick uses; bypasses the cadence check.
+crmRouter.post('/hygiene/run', verifySupabaseAuth, requireCrmSync, async (req, res) => {
+  try {
+    const supabase = getSupabaseClient();
+    const { workspaceId, provider } = req.body;
+    if (!workspaceId || !provider) return res.status(400).json({ error: 'workspaceId and provider required' });
+
+    const { data: cfg } = await supabase.from('crm_sync_configs')
+      .select('id, workspace_id, provider, connection_id, hygiene_cadence, hygiene_last_run_at')
+      .eq('workspace_id', workspaceId).eq('provider', provider).maybeSingle();
+    if (!cfg) return res.status(404).json({ error: 'no sync config for this provider' });
+
+    // Resolve a read-only CRM token so the reconcile pass can read current field
+    // values. Best-effort — without it, net-new + ICP still run.
+    let crmToken = null;
+    if (cfg.connection_id) {
+      const { data: conn } = await supabase.from('workflow_provider_connections')
+        .select('encrypted_credentials').eq('id', cfg.connection_id).maybeSingle();
+      if (conn?.encrypted_credentials) {
+        const creds = {};
+        for (const [k, v] of Object.entries(conn.encrypted_credentials)) creds[k] = decryptCred(v);
+        const firstCred = Object.values(creds).find(Boolean);
+        crmToken = provider === 'hubspot' ? (creds.access_token || creds.api_key || firstCred)
+          : provider === 'pipedrive' ? (creds.api_token || creds.api_key || firstCred)
+          : (creds.api_key || creds.access_token || firstCred);
+      }
+    }
+
+    const result = await runHygieneForConfig(supabase, cfg, { enrich: enrichContact, crmToken });
+    return res.json({ ok: true, ...result });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/crm/hygiene/proposals — the hygiene report.
+crmRouter.get('/hygiene/proposals', verifySupabaseAuth, async (req, res) => {
+  try {
+    const supabase = getSupabaseClient();
+    const { workspaceId, status, provider, limit } = req.query;
+    if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
+    const proposals = await listHygieneProposals(supabase, workspaceId, {
+      status: status || undefined,
+      provider: provider || undefined,
+      limit: limit ? Math.min(Number(limit), 200) : 100,
+    });
+    const openCount = await countHygieneProposals(supabase, workspaceId, 'proposed');
+    return res.json({ proposals, openCount });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/crm/hygiene/proposals/:id — approve or dismiss a proposal. v1 records
+// the decision only; applying approved proposals to the CRM is Phase 2.
+crmRouter.post('/hygiene/proposals/:id', verifySupabaseAuth, requireCrmSync, async (req, res) => {
+  try {
+    const supabase = getSupabaseClient();
+    const { workspaceId, status } = req.body;
+    if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
+    if (!['approved', 'dismissed'].includes(status)) return res.status(400).json({ error: 'status must be approved or dismissed' });
+    const row = await updateHygieneProposalStatus(supabase, workspaceId, req.params.id, status);
+    if (!row) return res.status(404).json({ error: 'proposal not found' });
+    return res.json({ ok: true, proposal: row });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }

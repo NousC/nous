@@ -23,4 +23,7 @@ export * from './utils/identity.js';
 export * from './utils/linkedin.js';
 export * from './utils/encryption.js';
 export * from './services/crmPush.js';
+export * from './services/crmHygiene.js';
+export * from './services/crmProvenance.js';
+export * from './services/crmReconcile.js';
 export * from './integrations/crm/index.js';

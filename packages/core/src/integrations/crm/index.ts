@@ -281,6 +281,60 @@ export const attio = {
   })),
 };
 
+// ─── Single-record field read (CRM hygiene reconcile) ────────────────────────
+// Read ONE record's reconcilable free-text fields by id. Read-only. Only the
+// fields a provider exposes as STANDARD attributes are returned (a key present
+// = reconcilable on this provider); enum/custom/relationship fields are omitted
+// so reconcile simply doesn't touch them. See docs/crm-hygiene-phase-1b-spec.md.
+
+export interface CrmRecordFields {
+  job_title?: string | null;
+  company?: string | null;
+  phone?: string | null;
+}
+
+export async function fetchCrmRecordFields(
+  provider: CrmProvider,
+  token: string,
+  recordId: string,
+): Promise<CrmRecordFields | null> {
+  if (provider === 'hubspot') {
+    const res = await fetch(
+      `https://api.hubapi.com/crm/v3/objects/contacts/${encodeURIComponent(recordId)}?properties=jobtitle,company,phone`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error(`HubSpot get contact ${res.status} — ${await res.text().catch(() => '')}`);
+    const p = (await res.json()).properties || {};
+    return { job_title: p.jobtitle ?? null, company: p.company ?? null, phone: p.phone ?? null };
+  }
+  if (provider === 'pipedrive') {
+    const res = await fetch(
+      `https://api.pipedrive.com/v1/persons/${encodeURIComponent(recordId)}?api_token=${encodeURIComponent(token)}`,
+    );
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error(`Pipedrive get person ${res.status}`);
+    const r = (await res.json()).data || {};
+    // job_title is not a standard Pipedrive person field (custom) — omit it.
+    return { company: r.org_name ?? r.organization?.name ?? null, phone: r.phone?.[0]?.value ?? null };
+  }
+  if (provider === 'attio') {
+    const res = await fetch(
+      `https://api.attio.com/v2/objects/people/records/${encodeURIComponent(recordId)}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error(`Attio get record ${res.status} — ${await res.text().catch(() => '')}`);
+    const v = (await res.json()).data?.values || {};
+    // company is a linked relationship in Attio — omit (not a free-text field).
+    return {
+      job_title: v.job_title?.[0]?.value ?? null,
+      phone:     v.phone_numbers?.[0]?.phone_number ?? null,
+    };
+  }
+  return null;
+}
+
 // ─── Upsert into the v2 substrate ────────────────────────────────────────────
 // Contacts + companies go through the v1-shape views — the INSTEAD OF triggers
 // translate writes into entity / identifier / observation rows. Deals go

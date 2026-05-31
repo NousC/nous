@@ -8,8 +8,16 @@ import {
   logActivity, listSignals, scoreLead,
   listNotes, listActivities,
   resolveEntity, getOrCreateEntity, identifiersFromContactData,
+  recordEnrichmentObservations,
 } from '@nous/core';
 import { decrypt } from '../utils/encryption.js';
+
+// Attribute fields written as observations with the TRUE enrichment source, and
+// therefore stripped from the contacts-view update so the view trigger doesn't
+// re-emit them tagged with the record's origin source (provenance erasure).
+// linkedin_url stays on the update for identifier attachment.
+// See docs/crm-hygiene-phase-1b-spec.md Task 0.
+const ENRICH_STRIP = ['job_title', 'seniority', 'department', 'company', 'phone', 'city', 'country'];
 
 async function logSysEvent(supabase, workspaceId, source, eventType, summary, contactId, metadata) {
   try {
@@ -303,9 +311,13 @@ async function enrichContactViaApollo(supabase, contact, apolloKey) {
       if (company) updates.company_id = company.id;
     }
 
-    // The `contacts` view's INSTEAD OF trigger writes state observations
-    // for every changed field, so this single UPDATE flows all the way to v2.
-    await supabase.from('contacts').update(updates).eq('id', contact.id);
+    // Write enriched attributes as observations with the true source (apollo),
+    // then strip them from the view update so the trigger doesn't re-tag them
+    // with the record's origin source. Other columns still flow via the view.
+    await recordEnrichmentObservations(supabase, contact.workspace_id, contact.id, 'apollo', updates);
+    const viewUpdate = { ...updates };
+    for (const f of ENRICH_STRIP) delete viewUpdate[f];
+    if (Object.keys(viewUpdate).length) await supabase.from('contacts').update(viewUpdate).eq('id', contact.id);
 
     await logActivity(supabase, {
       workspaceId: contact.workspace_id, contactId: contact.id,
@@ -452,7 +464,10 @@ async function enrichContactViaProspeo(supabase, contact, prospeoKey) {
       }
     }
 
-    await supabase.from('contacts').update(updates).eq('id', contact.id);
+    await recordEnrichmentObservations(supabase, contact.workspace_id, contact.id, 'prospeo', updates);
+    const viewUpdate = { ...updates };
+    for (const f of ENRICH_STRIP) delete viewUpdate[f];
+    if (Object.keys(viewUpdate).length) await supabase.from('contacts').update(viewUpdate).eq('id', contact.id);
 
     await logActivity(supabase, {
       workspaceId: contact.workspace_id, contactId: contact.id,
