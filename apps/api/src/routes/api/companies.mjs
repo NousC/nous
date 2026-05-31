@@ -1,7 +1,11 @@
 import { Router } from 'express';
-import { getSupabaseClient, listNotes, listActivities } from '@nous/core';
+import {
+  getSupabaseClient, listNotes, listActivities,
+  getAccountRecord, fetchEntityOverlays, applyCompanyOverlay,
+} from '@nous/core';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
 import { enrichCompany } from '../../services/enrichment.mjs';
+import { icpFit } from '../../lib/icpFit.mjs';
 
 export const companiesApiRouter = Router();
 
@@ -156,6 +160,107 @@ companiesApiRouter.get('/:id/graph', verifySupabaseAuth, async (req, res) => {
 
     return res.json({ company, contacts: contacts || [], signals, memories });
   } catch (err) {
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
+// GET /api/companies/:id/detail — the account-record briefing for the company
+// detail page. One call returns everything the page renders, so the frontend
+// stops fetching contacts one-by-one:
+//   company   — the v1 row with the v2 substrate overlaid (tech_stack, claims)
+//   icp       — the latest ICP fit prediction for the account
+//   stakeholders — contacts ranked by deal health, each with seniority, stage,
+//                  ICP fit, and a recent-signal count (the stakeholder map)
+//   edges     — workspace_graph_edges touching those contacts (how they relate)
+//   activity  — the merged recent activity feed across all the company's contacts
+//   facts     — the entity's claims with their epistemics (confidence, freshness,
+//               observation_count, last_observed_at). companies.id IS the entity
+//               id, so this is the same record get_account returns to an agent.
+companiesApiRouter.get('/:id/detail', verifySupabaseAuth, async (req, res) => {
+  try {
+    const supabase = getSupabaseClient();
+    const { id } = req.params;
+    const { workspaceId } = req.query;
+    if (!UUID.test(id) || !workspaceId) return res.status(400).json({ error: 'invalid params' });
+
+    const { data: companyRow } = await supabase
+      .from('companies')
+      .select('*')
+      .eq('id', id)
+      .eq('workspace_id', workspaceId)
+      .single();
+    if (!companyRow) return res.status(404).json({ error: 'not_found' });
+
+    const { data: contactRows } = await supabase
+      .from('contacts')
+      .select('id, first_name, last_name, email, job_title, seniority, department, pipeline_stage, deal_health_score, last_activity_at')
+      .eq('workspace_id', workspaceId)
+      .eq('company_id', id)
+      .order('deal_health_score', { ascending: false, nullsLast: true });
+    const contacts = contactRows || [];
+    const contactIds = contacts.map(c => c.id);
+
+    // Overlays carry the v2 substrate: the company's claims/tech_stack and each
+    // contact's latest ICP-fit prediction. One batched call for the whole set.
+    const overlays = await fetchEntityOverlays(supabase, [id, ...contactIds]);
+    const company = applyCompanyOverlay(companyRow, overlays.get(id));
+
+    // Recent activity across every contact + a per-contact signal count (90d) so
+    // the stakeholder map can flag who's engaged and who's gone quiet.
+    let activity = [];
+    const signalCount = {};
+    if (contactIds.length) {
+      const cutoff = new Date(Date.now() - 90 * 86400000).toISOString();
+      activity = await listActivities(supabase, { contactIds, since: cutoff, limit: 100 });
+      const nameById = Object.fromEntries(
+        contacts.map(c => [c.id, [c.first_name, c.last_name].filter(Boolean).join(' ') || c.email]),
+      );
+      for (const a of activity) {
+        signalCount[a.contact_id] = (signalCount[a.contact_id] || 0) + 1;
+        a.contactName = nameById[a.contact_id] || null;
+      }
+    }
+
+    // Relationships between the company's people — how they relate to each other.
+    let edges = [];
+    if (contactIds.length) {
+      const { data } = await supabase
+        .from('workspace_graph_edges')
+        .select('subject_type, subject_id, subject_label, relationship, object_type, object_id, object_label, confidence')
+        .eq('workspace_id', workspaceId)
+        .in('subject_id', contactIds);
+      edges = data || [];
+    }
+
+    const stakeholders = contacts.map(c => ({
+      id: c.id,
+      name: [c.first_name, c.last_name].filter(Boolean).join(' ') || c.email,
+      title: c.job_title || null,
+      seniority: c.seniority || null,
+      department: c.department || null,
+      pipeline_stage: c.pipeline_stage || 'identified',
+      deal_health_score: c.deal_health_score ?? null,
+      icp_score: overlays.get(c.id)?.prediction?.score ?? null,
+      last_activity_at: c.last_activity_at || null,
+      signal_count: signalCount[c.id] || 0,
+    }));
+
+    const [account, icp] = await Promise.all([
+      getAccountRecord(supabase, workspaceId, id),
+      icpFit(supabase, workspaceId, id),
+    ]);
+
+    return res.json({
+      company,
+      icp: icp || null,
+      stakeholders,
+      edges,
+      activity,
+      facts: account ? Object.values(account.claims) : [],
+      recent_observations: account?.recent_observations ?? [],
+    });
+  } catch (err) {
+    console.error('[GET /api/companies/:id/detail]', err);
     return res.status(500).json({ error: 'internal_error' });
   }
 });

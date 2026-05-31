@@ -12,6 +12,49 @@ const PAGE_SIZE = 50;
 type CoTab = "overview" | "activity" | "facts";
 type CoSort = { col: string; dir: "asc"|"desc" };
 
+type Stakeholder = {
+  id: string; name: string; title: string|null; seniority: string|null;
+  department: string|null; pipeline_stage: string; deal_health_score: number|null;
+  icp_score: number|null; last_activity_at: string|null; signal_count: number;
+};
+type GraphEdge = {
+  subject_id: string; subject_label: string|null; relationship: string;
+  object_id: string; object_label: string|null; confidence: number|null;
+};
+type Claim = {
+  property: string; value: unknown; confidence: number; epistemic_class: string;
+  freshness: string; observation_count: number; last_observed_at: string|null;
+};
+type IcpFit = { score: number; fit: boolean|null; reason: string|null; scored_at: string; outcome_score: number|null };
+type CompanyDetail = {
+  company: Record<string, any>;
+  icp: IcpFit | null;
+  stakeholders: Stakeholder[];
+  edges: GraphEdge[];
+  activity: any[];
+  facts: Claim[];
+};
+
+// Freshness is the Mind's "how stale is this belief" axis — green when fresh,
+// warming toward red as a claim ages past its decay window.
+const freshColor = (f: string) =>
+  f === "fresh" ? "#4ade80" : f === "aging" ? "#facc15" : f === "suspect" ? "#fb923c" : "#f87171";
+
+// Same thresholds and colors as the People page ICP block, so the score reads
+// identically wherever it appears.
+const icpLabel = (s: number) => (s >= 75 ? "Strong fit" : s >= 50 ? "Potential fit" : "Weak fit");
+const icpColor = (s: number) => (s >= 75 ? "#15803d" : s >= 50 ? "#b45309" : "#6b7280");
+
+const prettyProp = (p: string) => p.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+
+const claimValue = (v: unknown): string => {
+  if (v == null) return "—";
+  if (typeof v === "boolean") return v ? "Yes" : "No";
+  if (Array.isArray(v)) return v.map(claimValue).join(", ");
+  if (typeof v === "object") return Object.values(v as Record<string, unknown>).map(claimValue).join(", ");
+  return String(v);
+};
+
 export default function Companies() {
   const { session, userData } = useAuth();
   const token = session?.access_token ?? "";
@@ -47,8 +90,7 @@ export default function Companies() {
   );
   const setDetail = (c: Company | null) => navigate(c ? `/companies/${c.id}` : "/companies");
   const [coTab, setCoTab] = useState<CoTab>("overview");
-  const [coActs, setCoActs] = useState<any[]>([]);
-  const [coMems, setCoMems] = useState<any[]>([]);
+  const [cd, setCd] = useState<CompanyDetail | null>(null);
   const [coLoading, setCoLoading] = useState(false);
   const [coEditField, setCoEditField] = useState<string | null>(null);
   const [coEditValue, setCoEditValue] = useState("");
@@ -66,26 +108,16 @@ export default function Companies() {
   };
 
   useEffect(() => {
-    if (!detail) return;
-    setCoActs([]); setCoMems([]); setCoLoading(true); setCoLocalOverrides({});
-    const headers = { Authorization: `Bearer ${token}` };
-    Promise.all([
-      Promise.all(detail.contacts.slice(0,5).map(c =>
-        fetch(`${apiUrl}/api/contacts/${c.id}`, { headers })
-          .then(r => r.ok ? r.json() : null)
-          .then(d => (d?.activities ?? []).map((a: any) => ({ ...a, contactName: c.name })))
-          .catch(() => [])
-      )).then(results => results.flat().sort((a:any,b:any) =>
-        new Date(b.created_at||b.occurred_at||0).getTime() - new Date(a.created_at||a.occurred_at||0).getTime()
-      )),
-      fetch(`${apiUrl}/api/workspace/memories?workspaceId=${workspaceId}&company_id=${detail.id}&limit=50`, { headers })
-        .then(r => r.ok ? r.json() : {})
-        .then(d => d.memories ?? [])
-        .catch(() => []),
-    ]).then(([acts, mems]) => {
-      setCoActs(acts); setCoMems(mems); setCoLoading(false);
-    });
-  }, [detail?.id]);
+    if (!id) return;
+    setCd(null); setCoLoading(true); setCoLocalOverrides({});
+    fetch(`${apiUrl}/api/companies/${id}/detail?workspaceId=${workspaceId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => setCd(d))
+      .catch(() => setCd(null))
+      .finally(() => setCoLoading(false));
+  }, [id, workspaceId, token]);
 
   const patchCompany = async (key: string, value: string) => {
     if (!detail) return;
@@ -138,17 +170,18 @@ export default function Companies() {
 
   if (detail) {
     const CO_TABS: { id: CoTab; label: string; count?: number }[] = [
-      { id:"overview",  label:"Overview"                    },
-      { id:"activity",  label:"Activity",  count:coActs.length },
-      { id:"facts",     label:"Facts",     count:coMems.length },
+      { id:"overview",  label:"Overview"                          },
+      { id:"activity",  label:"Activity",  count:cd?.activity.length ?? 0 },
+      { id:"facts",     label:"Facts",     count:cd?.facts.length ?? 0    },
     ];
+    // who-relates-to-whom, keyed by the person the edge starts from
+    const relsBySubject: Record<string, GraphEdge[]> = {};
+    for (const e of cd?.edges ?? []) (relsBySubject[e.subject_id] ??= []).push(e);
     return (
-      <div className="h-full bg-background">
-        <div className="flex h-full">
-          {/* Main area */}
-          <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-            <div className="flex-shrink-0 px-8 pt-7 pb-0">
-              <div className="flex items-center gap-3 mb-3">
+      <div className="flex flex-col h-full bg-background">
+        {/* Header — full width, so the sidebar starts below it (matches People) */}
+        <div className="flex-shrink-0 px-8 pt-7 pb-0">
+          <div className="flex items-center gap-3 mb-3">
                 <button onClick={() => { setDetail(null); setCoTab("overview"); }}
                   className="inline-flex items-center justify-center h-8 w-8 rounded-lg border border-border text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors">
                   <ArrowLeft className="h-4 w-4" />
@@ -168,36 +201,92 @@ export default function Companies() {
                 ))}
               </div>
             </div>
+        {/* Row: scrollable content + sidebar, both starting below the header */}
+        <div className="flex flex-1 min-h-0 overflow-hidden">
             <div className="flex-1 overflow-y-auto px-8 py-5">
               {coLoading ? (
                 <div className="text-[13px] text-muted-foreground/70 text-center py-12">Loading…</div>
               ) : coTab === "overview" ? (
-                <div>
-                  {detail.contacts.length > 0 && (
-                    <>
-                      <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 mb-3">Contacts ({detail.contacts.length})</div>
-                      <div className="rounded-xl border border-border overflow-hidden">
-                        {detail.contacts.map(c => (
-                          <div key={c.id} className="flex items-center gap-4 px-4 py-3 border-b border-border/60 last:border-0">
-                            <div className="flex-1 min-w-0">
-                              <div className="text-[13px] font-medium text-foreground">{c.name}</div>
-                              {c.title && <div className="text-[12px] text-muted-foreground/70">{c.title}</div>}
-                            </div>
-                            <span className="text-[12px] flex-shrink-0" style={{color:stageColor(c.pipelineStage)}}>{c.pipelineStage}</span>
-                            {c.icpScore!=null && <span className="text-[12px] text-muted-foreground/70 tabular-nums">{c.icpScore}</span>}
-                            {c.lastActivityAt && <span className="text-[12px] text-muted-foreground/70 flex-shrink-0">{relTime(c.lastActivityAt)}</span>}
-                          </div>
-                        ))}
+                <div className="space-y-6">
+                  {/* Account signal strip — the headline read on the account */}
+                  <div className="grid grid-cols-4 gap-3">
+                    {[
+                      { label:"Deal Health", node:
+                        <span className="text-[18px] font-semibold tabular-nums" style={{color: detail.dealHealthScore!=null?healthColor(detail.dealHealthScore):"inherit"}}>
+                          {detail.dealHealthScore!=null?detail.dealHealthScore:"—"}
+                        </span> },
+                      { label:"ICP Fit", node:
+                        cd?.icp?.score!=null
+                          ? <span className="text-[18px] font-semibold tabular-nums" style={{color:icpColor(cd.icp.score)}}>{cd.icp.score}<span className="text-[12px] font-normal text-muted-foreground/70">/100</span></span>
+                          : <span className="text-[18px] font-semibold text-muted-foreground/50">—</span> },
+                      { label:"Contacts", node:
+                        <span className="text-[18px] font-semibold tabular-nums text-foreground">{cd?.stakeholders.length ?? detail.contactCount}</span> },
+                      { label:"Last Activity", node:
+                        <span className="text-[13px] font-medium text-foreground/80">{detail.lastActivityAt?relTime(detail.lastActivityAt):"—"}</span> },
+                    ].map(s => (
+                      <div key={s.label} className="rounded-xl border border-border px-3.5 py-3">
+                        <div className="text-[11px] font-medium text-muted-foreground/70 mb-1.5">{s.label}</div>
+                        {s.node}
                       </div>
-                    </>
+                    ))}
+                  </div>
+                  {cd?.icp?.score!=null && (
+                    <div className="text-[12px] text-muted-foreground/80 -mt-3">
+                      <span style={{color:icpColor(cd.icp.score)}}>{icpLabel(cd.icp.score)}</span>
+                      {cd.icp.reason && <span className="text-muted-foreground/70"> · {cd.icp.reason}</span>}
+                    </div>
                   )}
-                  {detail.contacts.length === 0 && <p className="text-[13px] text-muted-foreground/70 text-center py-12">No contacts yet</p>}
+
+                  {/* Stakeholder map — every person at the account, ranked by deal
+                      health, with how they relate to each other */}
+                  <div>
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 mb-3">
+                      Stakeholders ({cd?.stakeholders.length ?? 0})
+                    </div>
+                    {(cd?.stakeholders.length ?? 0) === 0 ? (
+                      <p className="text-[13px] text-muted-foreground/70 text-center py-12">No contacts yet</p>
+                    ) : (
+                      <div className="rounded-xl border border-border overflow-hidden">
+                        {cd!.stakeholders.map(c => {
+                          const rels = relsBySubject[c.id] ?? [];
+                          return (
+                            <div key={c.id} className="px-4 py-3 border-b border-border/60 last:border-0 hover:bg-muted/40 transition-colors cursor-pointer"
+                              onClick={() => navigate(`/people/${c.id}`)}>
+                              <div className="flex items-center gap-3">
+                                <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{backgroundColor:healthColor(c.deal_health_score)}} />
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-[13px] font-medium text-foreground truncate">{c.name}</div>
+                                  {c.title && <div className="text-[12px] text-muted-foreground/70 truncate">{c.title}</div>}
+                                </div>
+                                {c.seniority && <span className="text-[11px] text-muted-foreground/60 flex-shrink-0 capitalize">{c.seniority.replace(/_/g," ")}</span>}
+                                <span className="text-[12px] flex-shrink-0 w-20 text-right" style={{color:stageColor(c.pipeline_stage)}}>{c.pipeline_stage}</span>
+                                {c.icp_score!=null
+                                  ? <span className="text-[12px] tabular-nums flex-shrink-0 w-9 text-right" style={{color:icpColor(c.icp_score)}}>{c.icp_score}</span>
+                                  : <span className="w-9 flex-shrink-0" />}
+                                <span className="text-[12px] text-muted-foreground/60 flex-shrink-0 w-20 text-right tabular-nums">{c.signal_count} signals</span>
+                                <span className="text-[12px] text-muted-foreground/70 flex-shrink-0 w-16 text-right">{c.last_activity_at?relTime(c.last_activity_at):"—"}</span>
+                              </div>
+                              {rels.length > 0 && (
+                                <div className="mt-1.5 pl-[18px] flex flex-wrap gap-x-3 gap-y-0.5">
+                                  {rels.map((e,i) => (
+                                    <span key={i} className="text-[11px] text-muted-foreground/60">
+                                      {e.relationship.replace(/_/g," ")} <span className="text-foreground/70">{e.object_label ?? "—"}</span>
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
                 </div>
               ) : coTab === "activity" ? (
-                coActs.length === 0
+                (cd?.activity.length ?? 0) === 0
                   ? <p className="text-[13px] text-muted-foreground/70 text-center py-12">No activity yet</p>
                   : <div className="divide-y divide-border/60">
-                      {coActs.slice(0,50).map((a:any, i:number) => {
+                      {cd!.activity.slice(0,50).map((a:any, i:number) => {
                         const body = a.subtitle || a.raw_data?.text || a.raw_data?.body || null;
                         return (
                           <div key={a.id ?? i} className="py-3">
@@ -213,28 +302,53 @@ export default function Companies() {
                       })}
                     </div>
               ) : (
-                coMems.length === 0
+                (cd?.facts.length ?? 0) === 0
                   ? <p className="text-[13px] text-muted-foreground/70 text-center py-12">No facts yet</p>
                   : <div className="divide-y divide-border/60">
-                      {coMems.map((m:any) => (
-                        <div key={m.id} className="py-3">
+                      {cd!.facts.map((f, i) => (
+                        <div key={f.property ?? i} className="py-3">
                           <div className="flex items-baseline gap-2 mb-1">
-                            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 capitalize">{m.category?.toLowerCase()}</span>
-                            <span className="text-[12px] text-muted-foreground/70 ml-auto">{relTime(m.created_at)}</span>
+                            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">{prettyProp(f.property)}</span>
+                            <span className="inline-flex items-center gap-1 ml-auto flex-shrink-0">
+                              <span className="w-1.5 h-1.5 rounded-full" style={{backgroundColor:freshColor(f.freshness)}} />
+                              <span className="text-[11px] text-muted-foreground/60 capitalize">{f.freshness}</span>
+                            </span>
                           </div>
-                          <p className="text-[13px] text-foreground/80 leading-relaxed">{m.content}</p>
+                          <p className="text-[13px] text-foreground/90 leading-relaxed">{claimValue(f.value)}</p>
+                          <div className="mt-1 flex flex-wrap items-center gap-x-3 text-[11px] text-muted-foreground/55">
+                            <span>{Math.round((f.confidence ?? 0)*100)}% confidence</span>
+                            <span className="capitalize">{f.epistemic_class}</span>
+                            {f.observation_count > 0 && <span>seen {f.observation_count}×</span>}
+                            {f.last_observed_at && <span>last {relTime(f.last_observed_at)}</span>}
+                          </div>
                         </div>
                       ))}
                     </div>
               )}
             </div>
-          </div>
-          {/* Right sidebar — editable */}
-          <div className="w-64 flex-shrink-0 border-l border-border px-5 py-5 overflow-y-auto">
+            {/* Right sidebar — editable */}
+            <div className="w-64 flex-shrink-0 border-l border-border px-5 py-5 overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
               <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">Record Details</span>
               {coSaving && <span className="text-[11px] text-muted-foreground/70">saving…</span>}
             </div>
+            {/* ICP score — read-only, computed by the Scorecard (matches People) */}
+            {(() => {
+              const sc = cd?.icp?.score ?? null;
+              return (
+                <div className="mb-4 pb-3.5 border-b border-border/60">
+                  <div className="text-[11px] font-medium text-muted-foreground/70 mb-1">ICP Score</div>
+                  {sc == null ? (
+                    <div className="text-[13px] text-muted-foreground/50 italic">Not scored yet</div>
+                  ) : (
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-[22px] font-semibold tabular-nums leading-none" style={{ color: icpColor(sc) }}>{sc}</span>
+                      <span className="text-[12px] text-muted-foreground/70">/ 100 · {icpLabel(sc)}</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
             <div className="space-y-3.5">
               {([
                 { label:"Name",          key:"name",           val: getCoVal("name", detail.name) },
@@ -243,8 +357,9 @@ export default function Companies() {
                 { label:"Employees",     key:"employee_count", val: getCoVal("employee_count", detail.employeeCount!=null?String(detail.employeeCount):null), type:"number" },
                 { label:"Location",      key:"location",       val: getCoVal("location", detail.location) },
                 { label:"Revenue Range", key:"revenue_range",  val: getCoVal("revenue_range", detail.revenueRange) },
+                { label:"Tech Stack",    key:"_ro_tech",       val: cd?.company?.tech_stack ? claimValue(cd.company.tech_stack) : null },
                 { label:"Deal Health",   key:"_ro_health",     val: detail.dealHealthScore!=null?`${detail.dealHealthScore}/100`:null },
-                { label:"Contacts",      key:"_ro_contacts",   val: String(detail.contactCount) },
+                { label:"Contacts",      key:"_ro_contacts",   val: String(cd?.stakeholders.length ?? detail.contactCount) },
                 { label:"Last Activity", key:"_ro_last",       val: detail.lastActivityAt?relTime(detail.lastActivityAt):null },
               ] as { label:string; key:string; val:string|null; type?:string }[]).map(({ label, key, val, type }) => {
                 const isReadOnly = key.startsWith("_ro_");
