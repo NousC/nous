@@ -42,9 +42,15 @@ export interface Company {
   contactCount: number;
   contacts: ContactInfo[];
   dealHealthScore: number | null;
+  icpScore: number | null;
+  stage: string | null;          // furthest pipeline stage across the account's contacts
   lastActivityAt: string | null;
   employeeCount: number | null;
 }
+
+// Pipeline order, lowest to highest — used to pick an account's furthest stage
+// and to sort the companies table by it.
+export const STAGE_ORDER = ["identified", "aware", "interested", "evaluating", "client"];
 
 export interface IntegrationConn {
   id: string;
@@ -226,6 +232,11 @@ export function buildCompanies(rawCompanies: any[], contacts: ContactInfo[]): Co
       if (!best || c.lastActivityAt > best) return c.lastActivityAt;
       return best;
     }, null);
+    const stage = coContacts.reduce<string | null>((best, c) => {
+      const r = STAGE_ORDER.indexOf(c.pipelineStage);
+      if (r < 0) return best;
+      return best === null || r > STAGE_ORDER.indexOf(best) ? c.pipelineStage : best;
+    }, null);
     return {
       id: co.id,
       name: co.name,
@@ -236,6 +247,8 @@ export function buildCompanies(rawCompanies: any[], contacts: ContactInfo[]): Co
       contactCount: coContacts.length,
       contacts: coContacts,
       dealHealthScore: co.deal_health_score ?? null,
+      icpScore: co.icp_score ?? null,
+      stage,
       lastActivityAt,
       employeeCount: co.employee_count ?? co.employees ?? null,
     };

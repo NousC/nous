@@ -3,14 +3,14 @@ import { useParams, useNavigate } from "react-router-dom";
 import { ArrowLeft, ChevronLeft, ChevronRight, Trash2, Search } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { relTime } from "@/components/mind/shared";
-import { Company, healthColor, stageColor, ActivityIcon, mapContact, buildCompanies } from "@/components/mind/entities";
+import { Company, healthColor, stageColor, ActivityIcon, mapContact, buildCompanies, STAGE_ORDER } from "@/components/mind/entities";
 import { PageHeader } from "@/components/ui/page-header";
 
 const apiUrl = import.meta.env.VITE_API_URL ?? "";
 const PAGE_SIZE = 50;
 
 type CoTab = "overview" | "activity" | "facts";
-type CoSort = { col: string; dir: "asc"|"desc" };
+type CoSort = { col: string | null; dir: "asc"|"desc" };
 
 type Stakeholder = {
   id: string; name: string; title: string|null; seniority: string|null;
@@ -136,9 +136,14 @@ export default function Companies() {
   const getCoVal = (key: string, fallback: string|null|undefined) =>
     key in coLocalOverrides ? coLocalOverrides[key] : (fallback ?? null);
 
-  const toggleSort = (col: string) => {
+  // Three-state cycle, same as the People table: off → firstDir → opposite → off.
+  const cycleSort = (col: string, firstDir: "asc"|"desc" = "asc") => {
     setPage(0);
-    setCoSort(prev => prev.col===col ? { col, dir:prev.dir==="asc"?"desc":"asc" } : { col, dir:"desc" });
+    setCoSort(prev => {
+      if (prev.col !== col) return { col, dir: firstDir };
+      if (prev.dir === firstDir) return { col, dir: firstDir === "asc" ? "desc" : "asc" };
+      return { col: null, dir: "asc" };
+    });
   };
 
   const filtered = [...companies].filter(co =>
@@ -146,13 +151,17 @@ export default function Companies() {
     (co.domain??"").toLowerCase().includes(q.toLowerCase()) ||
     (co.industry??"").toLowerCase().includes(q.toLowerCase())
   );
-  const sortedList = [...filtered].sort((a,b) => {
+  const stageRank = (s: string|null) => (s ? STAGE_ORDER.indexOf(s) : -1);
+  const sortedList = coSort.col === null ? filtered : [...filtered].sort((a,b) => {
     let av: any, bv: any;
     if (coSort.col==="name")            { av=a.name; bv=b.name; }
     else if (coSort.col==="lastActivity"){ av=a.lastActivityAt??""; bv=b.lastActivityAt??""; }
     else if (coSort.col==="industry")   { av=a.industry??""; bv=b.industry??""; }
+    else if (coSort.col==="location")   { av=a.location??""; bv=b.location??""; }
     else if (coSort.col==="employees")  { av=a.employeeCount??-1; bv=b.employeeCount??-1; }
     else if (coSort.col==="contacts")   { av=a.contactCount; bv=b.contactCount; }
+    else if (coSort.col==="icp")        { av=a.icpScore??-1; bv=b.icpScore??-1; }
+    else if (coSort.col==="stage")      { av=stageRank(a.stage); bv=stageRank(b.stage); }
     else                                 { av=a.dealHealthScore??-1; bv=b.dealHealthScore??-1; }
     if (av<bv) return coSort.dir==="asc"?-1:1;
     if (av>bv) return coSort.dir==="asc"?1:-1;
@@ -161,8 +170,8 @@ export default function Companies() {
   const totalPages = Math.ceil(sortedList.length / PAGE_SIZE);
   const pageRows = sortedList.slice(page*PAGE_SIZE, (page+1)*PAGE_SIZE);
 
-  const SortHdr = ({ col, label, style, className }: { col:string; label:string; style?:React.CSSProperties; className?:string }) => (
-    <button onClick={()=>toggleSort(col)} style={style}
+  const SortHdr = ({ col, label, style, className, firstDir="asc" }: { col:string; label:string; style?:React.CSSProperties; className?:string; firstDir?:"asc"|"desc" }) => (
+    <button onClick={()=>cycleSort(col, firstDir)} style={style}
       className={`text-[11px] font-semibold uppercase tracking-wide flex-shrink-0 flex items-center gap-0.5 hover:text-foreground/80 transition-colors ${coSort.col===col?"text-foreground/80":"text-muted-foreground/70"} ${className??""}`}>
       {label}{coSort.col===col&&<span className="text-[8px]">{coSort.dir==="asc"?"▲":"▼"}</span>}
     </button>
@@ -410,14 +419,17 @@ export default function Companies() {
         <div className="rounded-xl border border-border overflow-hidden">
           {/* Table header */}
           <div className="flex items-center px-4 py-2.5 bg-muted/50 border-b border-border">
-            <SortHdr col="name"         label="Company"   style={{width:170}} />
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-shrink-0" style={{width:110}}>Domain</span>
+            <SortHdr col="name"         label="Company"   style={{width:160}} />
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-shrink-0" style={{width:100}}>Domain</span>
             <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-1 min-w-0">Top Contacts</span>
-            <SortHdr col="lastActivity" label="Last Act." style={{width:92}} />
-            <SortHdr col="industry"     label="Industry"  style={{width:92}} />
-            <SortHdr col="employees"    label="Emp."      style={{width:70}} className="justify-end" />
-            <SortHdr col="contacts"     label="Contacts"  style={{width:62}} className="justify-end" />
-            <SortHdr col="dealHealthScore" label="Health" style={{width:70}} className="justify-end" />
+            <SortHdr col="industry"     label="Industry"  style={{width:84}} />
+            <SortHdr col="location"     label="Location"  style={{width:104}} />
+            <SortHdr col="lastActivity" label="Last Act." style={{width:78}} firstDir="desc" />
+            <SortHdr col="employees"    label="Emp."      style={{width:52}} className="justify-end" firstDir="desc" />
+            <SortHdr col="contacts"     label="Contacts"  style={{width:56}} className="justify-end" firstDir="desc" />
+            <SortHdr col="stage"        label="Stage"     style={{width:92}} firstDir="desc" />
+            <SortHdr col="icp"          label="ICP"       style={{width:44}} className="justify-end" firstDir="desc" />
+            <SortHdr col="dealHealthScore" label="Health" style={{width:54}} className="justify-end" firstDir="desc" />
             <span className="flex-shrink-0" style={{width:28}} />
           </div>
           {/* Rows */}
@@ -426,17 +438,22 @@ export default function Companies() {
             const topContacts = co.contacts.slice(0,3).map(c=>c.name.split(" ")[0]).join(", ");
             return (
             <div key={co.id} className="flex items-center px-4 py-3 border-b border-border/60 last:border-0 hover:bg-muted/50 transition-colors group">
-              <button onClick={() => setDetail(co)} className="flex items-center gap-2 flex-shrink-0 text-left" style={{width:170}}>
+              <button onClick={() => setDetail(co)} className="flex items-center gap-2 flex-shrink-0 text-left" style={{width:160}}>
                 <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{backgroundColor:healthColor(co.dealHealthScore)}} />
                 <span className="text-[13px] font-medium text-foreground truncate">{co.name}</span>
               </button>
-              <span className="text-[13px] text-muted-foreground flex-shrink-0 truncate pr-2" style={{width:110}}>{co.domain??"—"}</span>
+              <span className="text-[13px] text-muted-foreground flex-shrink-0 truncate pr-2" style={{width:100}}>{co.domain??"—"}</span>
               <button onClick={()=>setDetail(co)} className="text-[13px] text-muted-foreground flex-1 min-w-0 truncate pr-2 text-left">{topContacts||"—"}</button>
-              <span className="text-[13px] text-muted-foreground flex-shrink-0 pr-2" style={{width:92}}>{relTime(co.lastActivityAt)}</span>
-              <span className="text-[13px] text-muted-foreground flex-shrink-0 truncate pr-2" style={{width:92}}>{co.industry??"—"}</span>
-              <span className="text-[13px] text-muted-foreground flex-shrink-0 text-right tabular-nums" style={{width:70}}>{co.employeeCount!=null?co.employeeCount.toLocaleString():"—"}</span>
-              <span className="text-[13px] text-foreground/80 flex-shrink-0 text-right tabular-nums" style={{width:62}}>{co.contactCount}</span>
-              <span className="text-[13px] flex-shrink-0 text-right tabular-nums" style={{width:70,color:co.dealHealthScore!=null?healthColor(co.dealHealthScore):""}}>
+              <span className="text-[13px] text-muted-foreground flex-shrink-0 truncate pr-2" style={{width:84}}>{co.industry??"—"}</span>
+              <span className="text-[13px] text-muted-foreground flex-shrink-0 truncate pr-2" style={{width:104}}>{co.location??"—"}</span>
+              <span className="text-[13px] text-muted-foreground flex-shrink-0 pr-2" style={{width:78}}>{relTime(co.lastActivityAt)}</span>
+              <span className="text-[13px] text-muted-foreground flex-shrink-0 text-right tabular-nums" style={{width:52}}>{co.employeeCount!=null?co.employeeCount.toLocaleString():"—"}</span>
+              <span className="text-[13px] text-foreground/80 flex-shrink-0 text-right tabular-nums" style={{width:56}}>{co.contactCount}</span>
+              <span className="text-[13px] flex-shrink-0 truncate pr-2" style={{width:92,color:co.stage?stageColor(co.stage):""}}>{co.stage??"—"}</span>
+              <span className="text-[13px] flex-shrink-0 text-right tabular-nums" style={{width:44,color:co.icpScore!=null?icpColor(co.icpScore):""}}>
+                {co.icpScore!=null?co.icpScore:"—"}
+              </span>
+              <span className="text-[13px] flex-shrink-0 text-right tabular-nums" style={{width:54,color:co.dealHealthScore!=null?healthColor(co.dealHealthScore):""}}>
                 {co.dealHealthScore!=null?`${co.dealHealthScore}`:"—"}
               </span>
               <button onClick={e=>deleteCompany(co.id,e)}
