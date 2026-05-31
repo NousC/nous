@@ -129,9 +129,12 @@ export function systemLogOpName(
     if (e === "activity_push_failed")  return { name: `${s}.activity.failed`,   color: "pink" };
     if (e === "contact_resolved")      return { name: `${s}.contact.resolved`,  color };
     if (e === "contact_created_in_crm")return { name: `${s}.contact.created`,   color };
+    if (e === "creation_skipped")      return { name: `${s}.create.skipped`,    color: "gray" };
     if (e === "identity_failed")       return { name: `${s}.identity.failed`,   color: "pink" };
     if (e === "sync_complete")         return { name: `${s}.sync.complete`,     color };
     if (e === "sync_failed")           return { name: `${s}.sync.failed`,       color: "pink" };
+    if (e === "hygiene_complete")      return { name: `${s}.hygiene.run`,       color };
+    if (e === "hygiene_failed")        return { name: `${s}.hygiene.failed`,    color: "pink" };
     if (e === "webhook_received")      return { name: `${s}.webhook.ingest`,    color };
   }
 

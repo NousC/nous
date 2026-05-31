@@ -32,7 +32,7 @@ export interface LogActivityParams {
 // Activity types that advance pipeline stage
 const CLIENT_TYPES     = new Set(['proposal_signed', 'deal_won', 'payment_received']);
 const EVALUATING_TYPES = new Set(['meeting_held', 'pricing_page_visit', 'proposal_sent', 'proposal_viewed', 'trial_started', 'meeting_scheduled']);
-const INTERESTED_TYPES = new Set(['email_reply', 'linkedin_message', 'linkedin_connected', 'slack_message', 'content_download', 'website_revisit']);
+const INTERESTED_TYPES = new Set(['email_reply', 'email_received', 'linkedin_message', 'linkedin_connected', 'slack_message', 'content_download', 'website_revisit']);
 const AWARE_TYPES      = new Set(['website_visit', 'email_opened', 'linkedin_view', 'social_engagement']);
 
 const STAGE_ORDER: Record<string, number> = { identified: 0, aware: 1, interested: 2, evaluating: 3, client: 4 };

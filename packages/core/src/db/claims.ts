@@ -31,6 +31,43 @@ export interface AccountRecord {
   recent_observations: Observation[];
 }
 
+// Reconcile needs the provenance chain (supporting_observation_ids) that the
+// general getClaims SELECT omits — so it has a dedicated read. CRM hygiene uses
+// it to run the loop-prevention gate (crmProvenance) and build the proof payload.
+export interface ReconcileClaim {
+  property: string;
+  value: unknown;
+  confidence: number;
+  epistemic_class: EpistemicClass;
+  freshness: Freshness;
+  observation_count: number;
+  last_observed_at: string | null;
+  supporting_observation_ids: string[];
+}
+
+const RECONCILE_CLAIM_COLUMNS =
+  'property, value, confidence, epistemic_class, freshness, observation_count, last_observed_at, supporting_observation_ids';
+
+/** Current (valid) claims for specific properties on one entity, including the
+ *  supporting_observation_ids provenance chain. */
+export async function getClaimsForReconcile(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  entityId: string,
+  properties: string[],
+): Promise<ReconcileClaim[]> {
+  if (!properties.length) return [];
+  const { data, error } = await supabase
+    .from('claims')
+    .select(RECONCILE_CLAIM_COLUMNS)
+    .eq('workspace_id', workspaceId)
+    .eq('entity_id', entityId)
+    .in('property', properties)
+    .is('invalid_at', null);
+  if (error) throw new Error(`failed to load reconcile claims: ${error.message}`);
+  return (data as ReconcileClaim[]) ?? [];
+}
+
 // ── derivation ──────────────────────────────────────────────────────────────
 // v1 policy: recency picks the value; corroboration and freshness set the
 // confidence. Truth-discovery, calibration, and survival-based decay are

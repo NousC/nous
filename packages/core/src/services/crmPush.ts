@@ -80,6 +80,7 @@ export interface CrmPushEvent {
 // High-signal only. Easy to widen later via per-workspace config in crm_sync_configs.
 const PUSHABLE_TYPES = new Set([
   'email_reply',
+  'email_received',   // inbound reply (what the email-tool webhooks actually log)
   'linkedin_message',
   'linkedin_connected',
   'meeting_held',
@@ -105,10 +106,70 @@ interface ContactRow {
   first_name: string | null;
   last_name: string | null;
   company: string | null;
+  pipeline_stage: string | null;
+  icp_score: number | null;
+  icp_fit: boolean | null;
   hubspot_id: string | null;
   pipedrive_id: string | null;
   attio_id: string | null;
   [k: string]: any;
+}
+
+// ─── Create-gate: WHEN a prospect earns a brand-new CRM record ────────────────
+// A contact already in the CRM (cached id or found by search) always gets the
+// activity logged. This gate only decides whether to CREATE a record that
+// doesn't exist yet, so the CRM fills with earned hand-raises, not cold misses.
+
+interface CreatePolicy {
+  create_in_crm?: boolean;
+  create_trigger?: string;
+  create_require_icp_fit?: boolean;
+  create_icp_threshold?: number;
+}
+
+const REPLY_INTENT_TYPES   = new Set(['email_received', 'email_reply', 'linkedin_message', 'linkedin_replied']);
+const MEETING_INTENT_TYPES = new Set(['meeting_scheduled', 'meeting_held']);
+// Sales events that earn a record on their own, regardless of the chosen trigger —
+// you never want to drop a signed proposal because the trigger was "meeting only".
+const STRONG_INTENT_TYPES  = new Set(['proposal_sent', 'proposal_viewed', 'proposal_signed', 'deal_won', 'deal_created', 'trial_started']);
+
+const GATE_STAGE_ORDER: Record<string, number> = { identified: 0, aware: 1, interested: 2, evaluating: 3, client: 4 };
+
+function evaluateCreateGate(policy: CreatePolicy, evt: CrmPushEvent, contact: ContactRow): { allow: boolean; reason: string } {
+  if (policy.create_in_crm === false) return { allow: false, reason: 'record creation is off for this CRM' };
+
+  const type = evt.activityType;
+  const trigger = policy.create_trigger || 'positive_reply_or_meeting';
+  const sentiment = (evt.rawData as { sentiment?: string } | null | undefined)?.sentiment;
+
+  let intentOk: boolean;
+  if (STRONG_INTENT_TYPES.has(type)) {
+    intentOk = true;
+  } else if (trigger === 'meeting_only') {
+    intentOk = MEETING_INTENT_TYPES.has(type);
+  } else if (trigger === 'interested_stage') {
+    intentOk = (GATE_STAGE_ORDER[contact.pipeline_stage || 'identified'] ?? 0) >= GATE_STAGE_ORDER.interested;
+  } else if (trigger === 'any_reply_or_meeting') {
+    intentOk = REPLY_INTENT_TYPES.has(type) || MEETING_INTENT_TYPES.has(type);
+  } else { // positive_reply_or_meeting (default)
+    intentOk = MEETING_INTENT_TYPES.has(type) || (REPLY_INTENT_TYPES.has(type) && sentiment === 'positive');
+  }
+
+  if (!intentOk) {
+    const reason = REPLY_INTENT_TYPES.has(type) && trigger === 'positive_reply_or_meeting'
+      ? `reply not positive (${sentiment || 'unclassified'})`
+      : `${activityTitle(evt)} does not meet trigger '${trigger}'`;
+    return { allow: false, reason };
+  }
+
+  if (policy.create_require_icp_fit) {
+    const threshold = policy.create_icp_threshold ?? 70;
+    const score = typeof contact.icp_score === 'number' ? contact.icp_score : null;
+    if (score == null)        return { allow: false, reason: `ICP not scored yet (need ≥ ${threshold})` };
+    if (score < threshold)    return { allow: false, reason: `ICP fit ${score} < ${threshold}` };
+  }
+
+  return { allow: true, reason: 'ok' };
 }
 
 export async function pushActivityToAllCrms(evt: CrmPushEvent): Promise<void> {
@@ -117,7 +178,7 @@ export async function pushActivityToAllCrms(evt: CrmPushEvent): Promise<void> {
 
   const { data: configs } = await supabase
     .from('crm_sync_configs')
-    .select('provider, connection_id, push_activities')
+    .select('provider, connection_id, push_activities, create_in_crm, create_trigger, create_require_icp_fit, create_icp_threshold')
     .eq('workspace_id', evt.workspaceId);
 
   const enabled = (configs || []).filter((c: any) =>
@@ -127,7 +188,7 @@ export async function pushActivityToAllCrms(evt: CrmPushEvent): Promise<void> {
 
   const { data: contact } = await supabase
     .from('contacts')
-    .select('id, email, first_name, last_name, company, hubspot_id, pipedrive_id, attio_id, salesforce_id')
+    .select('id, email, first_name, last_name, company, pipeline_stage, icp_score, icp_fit, hubspot_id, pipedrive_id, attio_id, salesforce_id')
     .eq('id', evt.contactId)
     .single();
   if (!contact?.email) return;
@@ -153,7 +214,7 @@ export async function pushActivityToAllCrms(evt: CrmPushEvent): Promise<void> {
 }
 
 async function pushOne(
-  cfg: { provider: string; connection_id: string },
+  cfg: { provider: string; connection_id: string } & CreatePolicy,
   contact: ContactRow,
   evt: CrmPushEvent,
   alreadyPushedEngagementId?: string,
@@ -180,15 +241,40 @@ async function pushOne(
     creds[k] = decrypt(v as string);
   }
 
+  // Resolve the CRM record in three steps so the create-gate only governs NEW
+  // records: (1) use the cached id, (2) search the CRM for an existing match —
+  // always logged onto, no gate — (3) if still none, apply the create-gate.
   const cachedId = contact[ID_COLUMN[provider]] as string | null;
-  let crmId: string | null;
-  try {
-    crmId = cachedId || await resolveCrmContact(provider, creds, contact);
-  } catch (err: any) {
-    await logCrmOp(supabase, evt, provider, 'identity_failed',
-      `${providerLabel}: identity lookup failed for ${contact.email} — ${err?.message || err}`);
-    return;
+  let crmId: string | null = cachedId;
+
+  if (!crmId) {
+    try {
+      crmId = await findCrmContact(provider, creds, contact);
+    } catch (err: any) {
+      await logCrmOp(supabase, evt, provider, 'identity_failed',
+        `${providerLabel}: lookup failed for ${contact.email} — ${err?.message || err}`);
+      return;
+    }
   }
+
+  let justCreated = false;
+  if (!crmId) {
+    const gate = evaluateCreateGate(cfg, evt, contact);
+    if (!gate.allow) {
+      await logCrmOp(supabase, evt, provider, 'creation_skipped',
+        `${providerLabel}: did not create ${contact.email} — ${gate.reason}`, { reason: gate.reason });
+      return;
+    }
+    try {
+      crmId = await createCrmContact(provider, creds, contact);
+    } catch (err: any) {
+      await logCrmOp(supabase, evt, provider, 'identity_failed',
+        `${providerLabel}: create failed for ${contact.email} — ${err?.message || err}`);
+      return;
+    }
+    justCreated = true;
+  }
+
   if (!crmId) {
     await logCrmOp(supabase, evt, provider, 'identity_failed',
       `${providerLabel}: no contact match for ${contact.email}`);
@@ -197,8 +283,8 @@ async function pushOne(
 
   if (!cachedId) {
     await supabase.from('contacts').update({ [ID_COLUMN[provider]]: crmId }).eq('id', contact.id);
-    await logCrmOp(supabase, evt, provider, 'contact_resolved',
-      `${providerLabel}: linked ${contact.email} → ${crmId}`, { crm_id: crmId });
+    await logCrmOp(supabase, evt, provider, justCreated ? 'contact_created_in_crm' : 'contact_resolved',
+      `${providerLabel}: ${justCreated ? 'created' : 'linked'} ${contact.email} → ${crmId}`, { crm_id: crmId });
   }
 
   try {
@@ -264,18 +350,27 @@ async function logCrmOp(
 
 // ─── Identity resolution ──────────────────────────────────────────────────────
 
-async function resolveCrmContact(provider: string, creds: Record<string, string | null>, contact: ContactRow): Promise<string | null> {
-  if (provider === 'hubspot')   return resolveHubSpot(creds, contact);
-  if (provider === 'pipedrive') return resolvePipedrive(creds, contact);
-  if (provider === 'attio')     return resolveAttio(creds, contact);
+// Find an existing CRM record by email. Search only — never creates. Returns
+// the CRM id, or null if there's no match (the create-gate decides what next).
+async function findCrmContact(provider: string, creds: Record<string, string | null>, contact: ContactRow): Promise<string | null> {
+  if (provider === 'hubspot')   return findHubSpot(creds, contact);
+  if (provider === 'pipedrive') return findPipedrive(creds, contact);
+  if (provider === 'attio')     return findAttio(creds, contact);
   return null;
 }
 
-async function resolveHubSpot(creds: Record<string, string | null>, contact: ContactRow): Promise<string | null> {
+// Create a new CRM record. Only called once the create-gate has allowed it.
+async function createCrmContact(provider: string, creds: Record<string, string | null>, contact: ContactRow): Promise<string | null> {
+  if (provider === 'hubspot')   return createHubSpot(creds, contact);
+  if (provider === 'pipedrive') return createPipedrive(creds, contact);
+  if (provider === 'attio')     return createAttio(creds, contact);
+  return null;
+}
+
+async function findHubSpot(creds: Record<string, string | null>, contact: ContactRow): Promise<string | null> {
   const token = creds.access_token || creds.api_key;
   if (!token) return null;
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
-
   const sr = await crmFetch('https://api.hubapi.com/crm/v3/objects/contacts/search', {
     method: 'POST', headers,
     body: JSON.stringify({
@@ -287,7 +382,13 @@ async function resolveHubSpot(creds: Record<string, string | null>, contact: Con
     const d: any = await sr.json();
     if (d.results?.[0]?.id) return d.results[0].id;
   }
+  return null;
+}
 
+async function createHubSpot(creds: Record<string, string | null>, contact: ContactRow): Promise<string | null> {
+  const token = creds.access_token || creds.api_key;
+  if (!token) return null;
+  const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
   const cr = await crmFetch('https://api.hubapi.com/crm/v3/objects/contacts', {
     method: 'POST', headers,
     body: JSON.stringify({ properties: {
@@ -298,24 +399,14 @@ async function resolveHubSpot(creds: Record<string, string | null>, contact: Con
     }}),
   }, 'HubSpot create');
   if (cr.ok) { const d: any = await cr.json(); return d.id || null; }
-  // 409 = email already exists (race condition) — fall back to a second search
-  if (cr.status === 409) {
-    const retry = await crmFetch('https://api.hubapi.com/crm/v3/objects/contacts/search', {
-      method: 'POST', headers,
-      body: JSON.stringify({
-        filterGroups: [{ filters: [{ propertyName: 'email', operator: 'EQ', value: contact.email }] }],
-        properties: ['email'], limit: 1,
-      }),
-    }, 'HubSpot search (after 409)');
-    if (retry.ok) { const d: any = await retry.json(); return d.results?.[0]?.id || null; }
-  }
+  // 409 = email already exists (race condition) — fall back to a search
+  if (cr.status === 409) return findHubSpot(creds, contact);
   return null;
 }
 
-async function resolvePipedrive(creds: Record<string, string | null>, contact: ContactRow): Promise<string | null> {
+async function findPipedrive(creds: Record<string, string | null>, contact: ContactRow): Promise<string | null> {
   const token = creds.api_token || creds.api_key;
   if (!token) return null;
-
   const sr = await crmFetch(
     `https://api.pipedrive.com/v1/persons/search?term=${encodeURIComponent(contact.email)}&fields=email&exact_match=true&api_token=${encodeURIComponent(token)}`,
     {}, 'Pipedrive search',
@@ -325,7 +416,12 @@ async function resolvePipedrive(creds: Record<string, string | null>, contact: C
     const hit = d.data?.items?.[0]?.item;
     if (hit?.id) return String(hit.id);
   }
+  return null;
+}
 
+async function createPipedrive(creds: Record<string, string | null>, contact: ContactRow): Promise<string | null> {
+  const token = creds.api_token || creds.api_key;
+  if (!token) return null;
   const name = [contact.first_name, contact.last_name].filter(Boolean).join(' ') || contact.email;
   const cr = await crmFetch(`https://api.pipedrive.com/v1/persons?api_token=${encodeURIComponent(token)}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -335,11 +431,10 @@ async function resolvePipedrive(creds: Record<string, string | null>, contact: C
   return null;
 }
 
-async function resolveAttio(creds: Record<string, string | null>, contact: ContactRow): Promise<string | null> {
+async function findAttio(creds: Record<string, string | null>, contact: ContactRow): Promise<string | null> {
   const token = creds.api_key || creds.access_token;
   if (!token) return null;
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
-
   const sr = await crmFetch('https://api.attio.com/v2/objects/people/records/query', {
     method: 'POST', headers,
     body: JSON.stringify({ filter: { email_addresses: contact.email }, limit: 1 }),
@@ -349,11 +444,19 @@ async function resolveAttio(creds: Record<string, string | null>, contact: Conta
     const id = d.data?.[0]?.id?.record_id;
     if (id) return id;
   }
+  return null;
+}
 
+async function createAttio(creds: Record<string, string | null>, contact: ContactRow): Promise<string | null> {
+  const token = creds.api_key || creds.access_token;
+  if (!token) return null;
+  const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
   const first = contact.first_name || '';
   const last = contact.last_name || '';
   const full = [first, last].filter(Boolean).join(' ') || contact.email;
 
+  // PUT with matching_attribute is an upsert — safe against a race where the
+  // record appeared between our find() and now.
   const cr = await crmFetch('https://api.attio.com/v2/objects/people/records?matching_attribute=email_addresses', {
     method: 'PUT', headers,
     body: JSON.stringify({ data: { values: {
@@ -441,6 +544,11 @@ async function pushAttioNote(creds: Record<string, string | null>, crmId: string
   lines.push('');
   lines.push(`— Logged by Nous on ${new Date(evt.occurredAt || Date.now()).toLocaleString()}`);
 
+  // Attio requires a valid RFC-3339 created_at and rejects future dates, so
+  // normalize occurredAt through Date and clamp to now (a "meeting scheduled"
+  // event can carry the meeting's future time).
+  const createdAt = new Date(Math.min(Date.parse(evt.occurredAt || '') || Date.now(), Date.now())).toISOString();
+
   const cr = await crmFetch('https://api.attio.com/v2/notes', {
     method: 'POST', headers,
     body: JSON.stringify({ data: {
@@ -449,7 +557,7 @@ async function pushAttioNote(creds: Record<string, string | null>, crmId: string
       title:            `[Nous] ${activityTitle(evt)}`,
       format:           'markdown',
       content:          lines.join('\n'),
-      created_at:       evt.occurredAt || new Date().toISOString(),
+      created_at:       createdAt,
     }}),
   }, 'Attio push note');
   if (!cr.ok) {
@@ -463,6 +571,7 @@ async function pushAttioNote(creds: Record<string, string | null>, crmId: string
 function activityTitle(evt: CrmPushEvent): string {
   const map: Record<string, string> = {
     email_reply:        'Email reply',
+    email_received:     'Email reply',
     linkedin_message:   'LinkedIn message',
     linkedin_connected: 'LinkedIn connection accepted',
     meeting_held:       'Meeting held',

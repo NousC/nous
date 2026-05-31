@@ -503,6 +503,17 @@ CREATE TABLE crm_sync_configs (
   provider        TEXT NOT NULL,
   auto_sync       BOOLEAN DEFAULT false,
   push_activities BOOLEAN DEFAULT true,
+  -- Create policy: WHEN a prospect earns a brand-new record in the CRM.
+  create_in_crm          BOOLEAN NOT NULL DEFAULT true,
+  create_trigger         TEXT    NOT NULL DEFAULT 'positive_reply_or_meeting'
+                         CHECK (create_trigger IN ('any_reply_or_meeting', 'positive_reply_or_meeting', 'meeting_only', 'interested_stage')),
+  create_require_icp_fit BOOLEAN NOT NULL DEFAULT true,
+  create_icp_threshold   INTEGER NOT NULL DEFAULT 70,
+  -- Hygiene: a scheduled routine reconciling the CRM with the customer graph.
+  hygiene_enabled     BOOLEAN     NOT NULL DEFAULT true,
+  hygiene_cadence     TEXT        NOT NULL DEFAULT 'weekly' CHECK (hygiene_cadence IN ('weekly', 'monthly')),
+  hygiene_last_run_at TIMESTAMPTZ,
+  hygiene_auto_apply  TEXT        NOT NULL DEFAULT 'off' CHECK (hygiene_auto_apply IN ('off', 'safe', 'all')),
   last_synced_at  TIMESTAMPTZ,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -510,6 +521,33 @@ CREATE TABLE crm_sync_configs (
 );
 ALTER TABLE crm_sync_configs ENABLE ROW LEVEL SECURITY;
 CREATE POLICY csc_all ON crm_sync_configs FOR ALL USING (is_workspace_member(workspace_id));
+
+-- One proposed hygiene change per row. v1 is propose-only; approving applies (Phase 2).
+CREATE TABLE crm_hygiene_proposals (
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  workspace_id   UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  run_id         UUID,
+  provider       TEXT NOT NULL,
+  entity_id      UUID,
+  crm_record_id  TEXT,
+  kind           TEXT NOT NULL CHECK (kind IN ('field_fill', 'field_update', 'conflict', 'net_new', 'icp_rescore', 'milestone_sync')),
+  field          TEXT,
+  current_value  JSONB,
+  proposed_value JSONB,
+  evidence       JSONB,
+  confidence     NUMERIC,
+  reason         TEXT,
+  status         TEXT NOT NULL DEFAULT 'proposed' CHECK (status IN ('proposed', 'approved', 'applied', 'dismissed', 'failed')),
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  applied_at     TIMESTAMPTZ,
+  updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX crm_hygiene_proposals_ws_status_idx ON crm_hygiene_proposals (workspace_id, status, created_at DESC);
+CREATE INDEX crm_hygiene_proposals_run_idx       ON crm_hygiene_proposals (run_id);
+ALTER TABLE crm_hygiene_proposals ENABLE ROW LEVEL SECURITY;
+CREATE POLICY chp_all ON crm_hygiene_proposals FOR ALL USING (is_workspace_member(workspace_id));
+CREATE TRIGGER touch_crm_hygiene_proposals BEFORE UPDATE ON crm_hygiene_proposals
+  FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
 
 CREATE TABLE workspace_webhook_subscriptions (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
