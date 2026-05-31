@@ -19,7 +19,7 @@ companiesApiRouter.get('/list', verifySupabaseAuth, async (req, res) => {
     if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
     const { data: companies, error } = await supabase
       .from('companies')
-      .select('id, name, domain, industry, employee_count, location, revenue_range, enrichment_status, deal_health_score')
+      .select('id, name, domain, industry, employee_count, location, revenue_range, enrichment_status, deal_health_score, icp_score')
       .eq('workspace_id', workspaceId)
       .order('name');
     if (error) throw error;
