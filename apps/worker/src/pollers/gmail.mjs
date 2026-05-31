@@ -7,6 +7,7 @@ import { google } from 'googleapis';
 import { getSupabaseClient } from '@nous/core';
 import { logActivity } from '../utils/activity.mjs';
 import { refreshGoogleToken } from '../utils/googleOAuth.mjs';
+import { isTokenRevoked, markGoogleConnectionRevoked } from '../utils/connectionHealth.mjs';
 
 const LOOKBACK_MS = 65 * 60 * 1000; // 65 min (slightly past hourly cron to avoid gaps; dedup via externalId)
 
@@ -200,7 +201,10 @@ export async function pollAllGmailWorkspaces() {
   let total = 0;
   for (const conn of connections) {
     try { total += await pollWorkspace(supabase, conn); }
-    catch (e) { console.error(`[GMAIL_POLL] workspace=${conn.workspace_id}:`, e.message); }
+    catch (e) {
+      if (isTokenRevoked(e)) await markGoogleConnectionRevoked(supabase, conn, 'gmail');
+      console.error(`[GMAIL_POLL] workspace=${conn.workspace_id}:`, e.message);
+    }
   }
   console.log(`[GMAIL_POLL] Done — ${total} total activities logged`);
   return total;
