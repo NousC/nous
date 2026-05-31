@@ -5,7 +5,7 @@ Thanks for your interest in contributing! Before you start, please read this.
 ## Before submitting a PR
 
 - For changes **under 3 lines** — submit directly.
-- For changes **over 3 lines** — open an issue or discuss in [Discord](https://discord.gg/npa59RTgs) first. This prevents wasted effort if the approach doesn't fit.
+- For changes **over 3 lines** — open an issue or discuss in [Discord](https://discord.gg/2Ph4ZYXw) first. This prevents wasted effort if the approach doesn't fit.
 - Installation/setup questions belong in Discord, not GitHub issues.
 
 ## Development setup
@@ -48,4 +48,4 @@ Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`
 
 ## Questions?
 
-[Discord](https://discord.gg/npa59RTgs) is the fastest way to get help.
+[Discord](https://discord.gg/2Ph4ZYXw) is the fastest way to get help.

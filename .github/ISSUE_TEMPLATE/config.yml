@@ -1,7 +1,7 @@
 blank_issues_enabled: false
 contact_links:
   - name: Installation & setup help
-    url: https://discord.gg/npa59RTgs
+    url: https://discord.gg/2Ph4ZYXw
     about: For setup questions, Docker issues, and configuration help — use Discord.
   - name: Security vulnerability
     url: https://github.com/bennetglinder1/nous/security/advisories/new
