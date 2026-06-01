@@ -25,7 +25,7 @@ interface Substrate {
   observations: { total: number; last_7d: number; by_source: { source: string; count: number }[] };
   claims: { total: number; freshness: Record<string, number>; epistemic: Record<string, number> };
   recompute: { pending: number };
-  predictions: { total: number; open: number; resolved: number; by_kind: Record<string, number> };
+  predictions: { total: number; open: number; resolved: number; won?: number; lost?: number; by_kind: Record<string, number> };
   calibration: {
     resolved: number;
     gap: number | null;
@@ -526,7 +526,7 @@ export default function Intelligence() {
   const openPreds = substrate?.predictions.open ?? 0;
   const needs: string[] = [];
   if (!hasModel && icpFacts.length > 0) needs.push("build your scoring model");
-  if (openPreds > 0) needs.push(`${openPreds} prediction${openPreds === 1 ? "" : "s"} waiting on outcomes`);
+  if (openPreds > 0) needs.push(`${openPreds} scored account${openPreds === 1 ? "" : "s"} waiting on an outcome`);
   if (staleCount > 0) needs.push(`confirm ${staleCount} belief${staleCount === 1 ? "" : "s"}`);
 
   // "Learning for N days" — a streak from the oldest fact still in the context.
@@ -609,7 +609,7 @@ export default function Intelligence() {
     <div className="h-full overflow-y-auto bg-background">
       <div className="px-8 py-7 max-w-[1240px] mx-auto">
         <PageHeader
-          title="GTM Context"
+          title="Context"
           subtitle="What your agents know about your business."
           actions={
             <button
@@ -620,6 +620,23 @@ export default function Intelligence() {
             </button>
           }
         />
+
+        {hasModel && (
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-px bg-border/50 rounded-xl overflow-hidden border border-border mb-4">
+            {[
+              { label: "Accounts analyzed", value: predictionsMade, color: undefined as string | undefined },
+              { label: "Closed-won", value: substrate?.predictions.won ?? 0, color: "#15803d" },
+              { label: "Closed-lost", value: substrate?.predictions.lost ?? 0, color: "#b45309" },
+              { label: "Signals", value: active.length, color: undefined },
+              { label: "Context facts", value: icpFacts.length, color: undefined },
+            ].map(m => (
+              <div key={m.label} className="bg-background px-4 py-3.5">
+                <div className="text-[22px] font-semibold tabular-nums leading-none" style={m.color ? { color: m.color } : undefined}>{m.value}</div>
+                <div className="text-[10.5px] font-medium text-muted-foreground/60 uppercase tracking-wide mt-1.5">{m.label}</div>
+              </div>
+            ))}
+          </div>
+        )}
 
         <div className="space-y-4">
 
@@ -993,19 +1010,17 @@ export default function Intelligence() {
                   </div>
                 ) : (
                   <p className="text-[14px] text-foreground/80 leading-relaxed">
-                    Your model is learning. It's made {predictionsMade} prediction{predictionsMade === 1 ? "" : "s"} across your accounts — as they reply and close, it sharpens which signals predict a real fit, and you'll watch exactly what it learns below.
+                    Your model is learning. It's scored {predictionsMade} account{predictionsMade === 1 ? "" : "s"} so far — as they reply and close, it sharpens which signals predict a real fit, and you'll watch exactly what it learns below.
                   </p>
                 )}
 
-                {/* Growth strip — concrete proof of substance, even early. */}
-                <div className="flex flex-wrap gap-x-5 gap-y-1 text-[12px] text-muted-foreground/70 tabular-nums border-t border-border/50 pt-3">
-                  <span><span className="font-semibold text-foreground/80">{icpFacts.length}</span> facts in context</span>
-                  {hasModel && <span><span className="font-semibold text-foreground/80">{active.length}</span> signals learned</span>}
-                  {predictionsMade > 0 && <span><span className="font-semibold text-foreground/80">{predictionsMade}</span> predictions</span>}
-                  {hits.length > 0 && <span className="text-[#b45309]">called it right <span className="font-semibold">{hits.length}</span>×</span>}
-                  {resolved > 0 && <span><span className="font-semibold text-foreground/80">{resolved}</span> outcomes in</span>}
-                  {sharpenedCount > 0 && <span>sharpened <span className="font-semibold text-foreground/80">{sharpenedCount}</span>×</span>}
-                </div>
+                {/* The unique trust signals — the headline counts live in the top bar. */}
+                {(hits.length > 0 || sharpenedCount > 0) && (
+                  <div className="flex flex-wrap gap-x-5 gap-y-1 text-[12px] text-muted-foreground/70 tabular-nums border-t border-border/50 pt-3">
+                    {hits.length > 0 && <span className="text-[#b45309]">called it right <span className="font-semibold">{hits.length}</span>×</span>}
+                    {sharpenedCount > 0 && <span>sharpened <span className="font-semibold text-foreground/80">{sharpenedCount}</span>×</span>}
+                  </div>
+                )}
 
                 {/* What it's learned — the timeline. The heart of the page. */}
                 <div>

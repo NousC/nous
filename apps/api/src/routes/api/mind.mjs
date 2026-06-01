@@ -127,13 +127,16 @@ mindRouter.get('/substrate', async (req, res) => {
     // is large and positive.
     const preds = predSampleRes.data || [];
     const byKind = {};
-    let open = 0, resolved = 0;
+    let open = 0, resolved = 0, won = 0, lost = 0;
     const high = [], low = [];
     const byWeek = new Map();
     for (const p of preds) {
       byKind[p.kind] = (byKind[p.kind] || 0) + 1;
       if (!p.resolved_at) { open++; continue; }
       resolved++;
+      const disp = p.outcome_value?.disposition;
+      if (disp === 'won') won++;
+      else if (disp === 'lost') lost++;
       const ps = Number(p.predicted_value?.score);
       const os = Number(p.outcome_value?.score);
       if (!Number.isFinite(ps) || !Number.isFinite(os)) continue;
@@ -295,7 +298,7 @@ mindRouter.get('/substrate', async (req, res) => {
       },
       claims: { total: claimsTotal, freshness, epistemic },
       recompute: { pending: jobsRes.count ?? 0 },
-      predictions: { total: predictionsTotal, open, resolved, by_kind: byKind },
+      predictions: { total: predictionsTotal, open, resolved, won, lost, by_kind: byKind },
       calibration: {
         resolved: high.length + low.length,
         gap,

@@ -43,7 +43,7 @@ const mainNavItems: NavItem[] = [
   { title: "Integrations", url: "/integrations", icon: Plug      },
   { title: "Webhooks",     url: "/webhooks",     icon: Webhook   },
   { title: "Triggers",     url: "/triggers",     icon: Zap       },
-  { title: "GTM Context", url: "/intelligence", icon: Brain     },
+  { title: "Context", url: "/intelligence", icon: Brain     },
 ];
 
 // ENTERPRISE — Scale / Enterprise plans only
