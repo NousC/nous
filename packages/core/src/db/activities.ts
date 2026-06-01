@@ -3,6 +3,7 @@ import {
   triggerEventForActivity, enqueueOutboundEvent,
   buildPersonSnapshot, buildInteractionPayload,
 } from './triggers.js';
+import { resolveEntityPredictions, OUTCOME_RESOLVING_TYPES } from '../services/outcomes.js';
 
 // Activities — the v2 connector ingestion path.
 //
@@ -132,6 +133,16 @@ export async function logActivity(
   // Advance pipeline stage based on signal type (best-effort, contact-only).
   if (contactId) {
     await advancePipelineStage(supabase, workspaceId, contactId, type).catch(() => {});
+  }
+
+  // Event-driven outcome resolution: the moment a won/lost activity lands,
+  // resolve this entity's open ICP prediction(s) instead of waiting for the
+  // nightly poll. Fire-and-forget; the deal_won/deal_lost observation is already
+  // written above, so deriveSignals sees it. Gated to outcome-resolving types
+  // so ordinary activity (opens, visits) doesn't trigger a needless scan.
+  if (OUTCOME_RESOLVING_TYPES.has(type)) {
+    void resolveEntityPredictions(supabase, { workspaceId, entityId })
+      .catch(err => console.warn('[ACTIVITY] outcome resolution failed:', err?.message || err));
   }
 
   // Fire-and-forget: push this activity to every enabled CRM connection.
