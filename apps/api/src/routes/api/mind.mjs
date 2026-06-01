@@ -265,6 +265,7 @@ mindRouter.get('/substrate', async (req, res) => {
         predicted_at: p.predicted_at,
         resolved_at: p.resolved_at,
         outcome_score: p.outcome_value?.score ?? null,
+        disposition: p.outcome_value?.disposition ?? null,
         replied: p.outcome_value?.replied ?? null,
         fired,
       };
