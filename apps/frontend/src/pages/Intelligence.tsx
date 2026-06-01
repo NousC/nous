@@ -191,9 +191,6 @@ export default function Intelligence() {
 
   // Inline editing of Scorecard signals (label / weight) + delete.
   const [editSig, setEditSig] = useState<{ id: string; field: "label" | "weight" } | null>(null);
-  // The scoring model (signals, calibration, learned-changes) is tucked behind
-  // a "see the model" disclosure so the page leads with the profile, not stats.
-  const [modelOpen, setModelOpen] = useState(false);
 
   const load = useCallback(() => {
     if (!workspaceId || !token) return;
@@ -945,22 +942,12 @@ export default function Intelligence() {
                     <span className="normal-case font-normal text-muted-foreground/45 ml-1.5">· learning for {learningDays}d</span>
                   )}
                 </span>
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => setLegendOpen(o => !o)}
-                    className="text-[12px] font-semibold text-muted-foreground/70 hover:text-foreground transition-colors"
-                  >
-                    What's this?
-                  </button>
-                  {hasModel && (
-                    <button
-                      onClick={() => setModelOpen(o => !o)}
-                      className="text-[12px] font-semibold text-muted-foreground/70 hover:text-foreground transition-colors"
-                    >
-                      {modelOpen ? "Hide the scoring model" : "See the scoring model"}
-                    </button>
-                  )}
-                </div>
+                <button
+                  onClick={() => setLegendOpen(o => !o)}
+                  className="text-[12px] font-semibold text-muted-foreground/70 hover:text-foreground transition-colors"
+                >
+                  What's this?
+                </button>
               </div>
 
               {legendOpen && (
@@ -985,8 +972,8 @@ export default function Intelligence() {
                 </div>
               )}
 
-              <div className="px-4 py-4 space-y-4">
-                {/* Headline — the improvement when there's data, else the loop's promise. */}
+              <div className="px-4 py-4 space-y-5">
+                {/* Headline — the improvement, or the loop's promise. */}
                 {!hasModel ? (
                   <div className="flex items-center gap-3 flex-wrap">
                     <button
@@ -998,36 +985,66 @@ export default function Intelligence() {
                     </button>
                     <span className="text-[12px] text-muted-foreground/70">Turn your context into a model that scores fit — then watch it sharpen from every outcome.</span>
                   </div>
-                ) : resolved > 0 ? (
+                ) : (
                   <div className="flex items-end gap-3">
-                    <p className="text-[15px] leading-relaxed flex-1 font-medium" style={{ color: confColor }}>{confidence.line}</p>
-                    {trendValues.length >= 2 && (
+                    <div className="flex-1">
+                      {resolved > 0 ? (
+                        <p className="text-[15px] leading-relaxed font-medium" style={{ color: confColor }}>{confidence.line}</p>
+                      ) : (
+                        <p className="text-[14px] text-foreground/80 leading-relaxed">
+                          Your model is learning. It's scored {predictionsMade} account{predictionsMade === 1 ? "" : "s"} so far — as they reply and close, you'll see exactly which signals predict a real fit.
+                        </p>
+                      )}
+                      {(hits.length > 0 || sharpenedCount > 0) && (
+                        <div className="flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-muted-foreground/70 tabular-nums mt-1.5">
+                          {hits.length > 0 && <span className="text-[#b45309]">called it right <span className="font-semibold">{hits.length}</span>×</span>}
+                          {sharpenedCount > 0 && <span>sharpened <span className="font-semibold text-foreground/80">{sharpenedCount}</span>×</span>}
+                        </div>
+                      )}
+                    </div>
+                    {resolved > 0 && trendValues.length >= 2 && (
                       <div className="flex-shrink-0 text-right">
                         <Sparkline values={trendValues} width={84} height={26} />
                         <div className="text-[10px] text-muted-foreground/50 mt-0.5">getting sharper</div>
                       </div>
                     )}
                   </div>
-                ) : (
-                  <p className="text-[14px] text-foreground/80 leading-relaxed">
-                    Your model is learning. It's scored {predictionsMade} account{predictionsMade === 1 ? "" : "s"} so far — as they reply and close, it sharpens which signals predict a real fit, and you'll watch exactly what it learns below.
-                  </p>
                 )}
 
-                {/* The unique trust signals — the headline counts live in the top bar. */}
-                {(hits.length > 0 || sharpenedCount > 0) && (
-                  <div className="flex flex-wrap gap-x-5 gap-y-1 text-[12px] text-muted-foreground/70 tabular-nums border-t border-border/50 pt-3">
-                    {hits.length > 0 && <span className="text-[#b45309]">called it right <span className="font-semibold">{hits.length}</span>×</span>}
-                    {sharpenedCount > 0 && <span>sharpened <span className="font-semibold text-foreground/80">{sharpenedCount}</span>×</span>}
+                {/* The model — what it scores on. Always visible: this IS the engine. */}
+                {hasModel && (
+                  <div className="pt-4 border-t border-border/50">
+                    <div className="flex items-baseline justify-between mb-2">
+                      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60">The model — what it scores on</span>
+                      <span className="text-[10px] text-muted-foreground/45 tabular-nums">{active.length} signal{active.length === 1 ? "" : "s"} · click to edit</span>
+                    </div>
+                    {fitSummary && <p className="text-[13px] text-foreground/80 leading-relaxed mb-2.5">{fitSummary}</p>}
+                    <div className="text-[10px] font-semibold uppercase tracking-wide mb-0.5" style={{ color: "#15803d" }}>Predicts a fit</div>
+                    <div>
+                      {positive.length
+                        ? positive.map(s => renderSignal(s, "#15803d"))
+                        : <div className="text-[12px] text-muted-foreground/50 py-1">none yet</div>}
+                    </div>
+                    {negative.length > 0 && (
+                      <>
+                        <div className="text-[10px] font-semibold uppercase tracking-wide mt-3 mb-0.5" style={{ color: "#b91c1c" }}>Predicts a miss</div>
+                        <div>{negative.map(s => renderSignal(s, "#b91c1c"))}</div>
+                      </>
+                    )}
+                    <div className="flex flex-wrap items-center gap-x-3 text-[11px] text-muted-foreground/50 tabular-nums mt-2.5 pt-2 border-t border-border/40">
+                      <span>calibrated on {resolved} outcome{resolved === 1 ? "" : "s"}</span>
+                      {gap != null && <span>· gap {fmtGap(gap)}</span>}
+                      {(substrate?.predictions.open ?? 0) > 0 && <span>· {substrate?.predictions.open} pending</span>}
+                    </div>
                   </div>
                 )}
 
-                {/* What it's learned — the timeline. The heart of the page. */}
-                <div>
+                {/* What it's learned — the timeline. */}
+                <div className="pt-4 border-t border-border/50">
                   <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60 mb-1.5">What it's learned</div>
                   {learnings.length === 0 ? (
                     <p className="text-[12.5px] text-muted-foreground/65 leading-relaxed">
-                      Nothing learned yet. This fills in as your workspace sharpens — when Claude updates your context from your work, when you refine a belief, or when a prediction resolves. It's the record of getting smarter, not a copy of your context.
+                      Nothing learned yet. This fills in as your workspace sharpens — when Claude updates your context from your work, when you refine a belief, or when an account's outcome resolves.
                     </p>
                   ) : (
                     <div className="space-y-2">
@@ -1065,30 +1082,6 @@ export default function Intelligence() {
                     </div>
                   )}
                 </div>
-
-                {/* The scoring model itself — transparency on demand. */}
-                {hasModel && modelOpen && (
-                  <div className="pt-3 border-t border-border/60 space-y-3">
-                    {fitSummary && <p className="text-[13px] text-foreground/80 leading-relaxed">{fitSummary}</p>}
-                    <div>
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60 mb-1">
-                        Signals · {active.length}
-                        <span className="normal-case font-normal text-muted-foreground/50"> — click a weight or label to edit</span>
-                      </div>
-                      <div>{positive.map(s => renderSignal(s, "#15803d"))}</div>
-                      {negative.length > 0 && (
-                        <>
-                          <div className="text-[10px] font-semibold uppercase tracking-wide mt-3 mb-1" style={{ color: "#b91c1c" }}>Predicts a miss</div>
-                          <div>{negative.map(s => renderSignal(s, "#b91c1c"))}</div>
-                        </>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-3 text-[11px] text-muted-foreground/55 tabular-nums pt-2 border-t border-border/40">
-                      <span>{resolved} resolved · {substrate?.predictions.open ?? 0} open</span>
-                      {gap != null && <span>· calibration gap {fmtGap(gap)}</span>}
-                    </div>
-                  </div>
-                )}
               </div>
             </div>
           )}
