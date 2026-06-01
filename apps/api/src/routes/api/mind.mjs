@@ -23,7 +23,14 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const FEATURE_VOCAB =
   'job_title (string), seniority (one of: c_suite, vp, director, manager, ic), ' +
   'department (string), industry (string), employee_count (number), ' +
-  'country (string), company (string)';
+  'country (string), company (string). ' +
+  // Website-derived signals (from the signal extractor) — niche, differentiated:
+  'signal.target_market (b2b|b2c|b2b2c|developer|enterprise|smb), ' +
+  'signal.pricing_model (usage_based|seat_based|flat|freemium|enterprise_contact), ' +
+  'signal.has_api / signal.has_sandbox / signal.self_serve_signup / signal.free_trial / signal.recently_funded (boolean), ' +
+  'signal.tech.<tool> (boolean, e.g. signal.tech.stripe), ' +
+  'signal.hiring.<role> (boolean, e.g. signal.hiring.revops), ' +
+  'signal.compliance.<term> (boolean, e.g. signal.compliance.soc2)';
 
 // Monday-of-week key (UTC) — buckets episodes for the weekly trend.
 function weekKey(iso) {
