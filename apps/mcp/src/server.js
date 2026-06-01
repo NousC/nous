@@ -24,7 +24,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { get, post } from "./client.js";
 
-export const SERVER_VERSION = "0.12.0";
+export const SERVER_VERSION = "0.13.0";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -377,27 +377,30 @@ export function createServer() {
   // ===========================================================================
   server.tool(
     "update_gtm_profile",
-    "Record a durable change to the USER'S OWN GTM profile — their ICP, pricing, positioning, " +
-    "target market, or competitors. Use this whenever the user states (or you learn) a lasting " +
-    "change to how THEY go to market — e.g. they moved upmarket, changed pricing, sharpened " +
-    "positioning, or started winning a new segment. This is NOT for facts about a prospect or " +
-    "account (use `record` for those). Rules: write the fact as ONE short sentence, never a " +
-    "paragraph. When a belief CHANGES, pass the same `subject` slot so the new fact supersedes the " +
-    "old one — the old version is kept as history, never silently contradicted. Prefer this over " +
-    "leaving GTM changes in a local file; Nous is the source of truth for the profile.",
+    "Keep a SECTION of the user's OWN GTM context current. Each section is a living file: ICP, " +
+    "Market, Product, Pricing, Competitors, Positioning (these feed the ICP scoring model), plus " +
+    "'GTM Motion' (how they sell — motion, RevOps, process) and 'Notes' (a running log for anything " +
+    "else durable about their GTM that doesn't fit the others). Use this whenever the user states or " +
+    "you learn a lasting change to how THEY go to market — repriced, moved upmarket, sharpened " +
+    "positioning, changed their motion, won a new segment, or a useful note about how they operate. " +
+    "This is NOT for facts about a prospect or account (use `record` for those). " +
+    "Rules: keep content short and current — a sentence or two, not an essay. In the default 'replace' " +
+    "mode the section EVOLVES (the old version is kept as history, never silently contradicted), so " +
+    "just write the section's current state. Use 'append' mode to log a Notes entry without replacing. " +
+    "Nous is the source of truth for the GTM context — write back here instead of keeping a local file.",
     {
-      category: z.enum(["ICP", "Market", "Product", "Pricing", "Competitors", "Positioning"])
-        .describe("Which part of the profile this fact belongs to."),
-      content: z.string().describe("The fact, as ONE short sentence (not a paragraph)."),
-      subject: z.string().optional()
-        .describe("Stable slot this belief owns, e.g. 'pricing', 'positioning', 'primary-buyer', 'segments'. Pass the SAME subject when a belief changes so it supersedes the previous fact instead of duplicating it. Omit only for a genuinely new, standalone fact."),
+      section: z.enum(["ICP", "Market", "Product", "Pricing", "Competitors", "Positioning", "GTM Motion", "Notes"])
+        .describe("Which section of the GTM context this updates."),
+      content: z.string().describe("The section's current content — short and current, not an essay."),
+      mode: z.enum(["replace", "append"]).optional()
+        .describe("'replace' (default) evolves the section and keeps the prior version as history. 'append' logs a new entry without replacing — the default for Notes."),
       supersedes: z.string().optional()
-        .describe("Optional id of a specific existing fact to replace (overrides subject matching)."),
+        .describe("Optional id of a specific existing fact to replace (overrides section matching)."),
     },
-    async ({ category, content, subject, supersedes }) => {
-      const r = await post("/v2/workspace/facts", { category, content, subject, supersedes });
-      const verb = r.superseded ? "Updated" : "Recorded";
-      return { content: [{ type: "text", text: `${verb} ${category} fact: ${content}` }] };
+    async ({ section, content, mode, supersedes }) => {
+      const r = await post("/v2/workspace/facts", { section, content, mode, supersedes });
+      const verb = r.mode === "append" ? "Logged to" : r.superseded ? "Updated" : "Recorded";
+      return { content: [{ type: "text", text: `${verb} ${section}: ${content}` }] };
     },
   );
 

@@ -15,7 +15,7 @@ const LOGO_N8N         = "/provider-logos/n8n.svg";         // n8n
 // The canonical org-preferences prompt also lives in the repo so the "view
 // source" link below resolves to a real file. Keep the two in sync.
 const ORG_PREFS_SOURCE =
-  "https://github.com/bennetglinder1/nous/blob/main/docs/claude-org-preferences.md";
+  "https://github.com/NousC/nous/blob/main/docs/claude-org-preferences.md";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -117,7 +117,7 @@ function ApiKeyHint() {
 
 // ─── Step 1 — per-client install ───────────────────────────────────────────────
 
-const CLAUDE_CODE_MARKETPLACE = `/plugin marketplace add bennetglinder1/nous`;
+const CLAUDE_CODE_MARKETPLACE = `/plugin marketplace add NousC/nous`;
 const CLAUDE_CODE_INSTALL = `/plugin install nous@nous-plugins`;
 
 // Raw CLI alternative to the plugin — adds the stdio server directly.
@@ -207,7 +207,7 @@ const CLIENTS: Record<Client, {
     heading: "",
     steps: [],
     note: null,
-    source: { href: "https://github.com/bennetglinder1/nous", label: "View source ↗" },
+    source: { href: "https://github.com/NousC/nous", label: "View source ↗" },
   },
   "codex": {
     label: "Codex",
@@ -300,7 +300,7 @@ function ClaudeInstall() {
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
         <p className="text-[13px] font-semibold text-foreground">Add Nous to Claude in one of three ways</p>
-        <a href="https://github.com/bennetglinder1/nous" target="_blank" rel="noopener noreferrer"
+        <a href="https://github.com/NousC/nous" target="_blank" rel="noopener noreferrer"
           className="text-[12px] text-muted-foreground/70 hover:text-foreground/80 transition-colors whitespace-nowrap">
           View source ↗
         </a>
@@ -486,12 +486,16 @@ Nous first even when the user never says "Nous".
 - What needs attention, what has gone quiet     → attention
 - A fact looks stale before you act on it       → verify
 - Our ICP, market, pricing, positioning         → get_gtm_profile
-- Our own GTM shifted (repriced, moved upmarket) → update_gtm_profile
+- Our own GTM shifted (repriced, motion, a note) → update_gtm_profile
 
+Read get_gtm_profile at the start of GTM work, and write back what changed at the
+end — that is what keeps our context from going stale. When you learn something
+durable about OUR OWN go-to-market, call update_gtm_profile with the section and
+its current state: ICP, Market, Product, Pricing, Competitors, Positioning, GTM
+Motion (how we sell), or Notes (anything else worth keeping). It evolves the
+section and keeps the old version as history; use Notes for running observations.
 After every interaction you help with, call record so the account record stays
-current. When our own ICP, pricing, or positioning durably changes, call
-update_gtm_profile with one short fact, reusing the same subject so it supersedes
-the old belief instead of contradicting it.`;
+current.`;
 
 const PREF_LONG = `# Nous is this workspace's GTM context engine
 
@@ -526,7 +530,7 @@ Nous first even when the user never says "Nous".
 - A fact looks stale before you act on it → verify
 - Our ICP, target market, pricing, positioning, competitors → get_gtm_profile
 - A durable change to our OWN GTM (repriced, moved upmarket, sharper positioning, a
-  new segment we win) → update_gtm_profile
+  new segment we win, a shift in how we sell, a note worth keeping) → update_gtm_profile
 
 ## Prefer Nous over raw records
 
@@ -540,20 +544,24 @@ After every interaction you help with (an email sent, a call held, a reply recei
 a fact learned) call record so the next agent starts from the truth. State changes
 use kind:'state'. Interactions use kind:'event'.
 
-When our OWN go-to-market durably changes (new pricing, sharper positioning, a
-segment we now win, a buyer that shifted) call update_gtm_profile with one short
-fact. Reuse the same subject slot so the new fact supersedes the old belief. Nous
-keeps the prior version as history, so never silently contradict it.`;
+Read get_gtm_profile at the start of GTM work and write back what changed at the
+end — that is what keeps the context current instead of static. When our OWN
+go-to-market durably changes, call update_gtm_profile with the SECTION and its
+current state: ICP, Market, Product, Pricing, Competitors, Positioning, GTM Motion
+(how we sell — motion, RevOps, process), or Notes (anything else durable that does
+not fit a section). The default 'replace' mode evolves the section and keeps the
+prior version as history, so never silently contradict it; use 'append' to log a
+Notes entry.`;
 
 const PREF_META: Record<PrefLength, { tab: string; chars: string; blurb: string }> = {
   short: {
     tab: "Short",
-    chars: "~1.95k chars",
+    chars: "~2.3k chars",
     blurb: "Covers core routing and the most common Nous intents.",
   },
   long: {
     tab: "Long",
-    chars: "~3.3k chars",
+    chars: "~3.6k chars",
     blurb: "Use when raw CRM and call tools are also connected. Adds explicit demotion of those tools plus write discipline, with room to layer your own ICPs and playbooks on top.",
   },
 };
