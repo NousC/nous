@@ -20,13 +20,14 @@
  *   get_gtm_profile      — the user's GTM profile (ICP, market, pricing, product, competitors)
  *   update_gtm_profile   — write back a change to a GTM context section (evolve, keep history)
  *   save_note            — attach a note/document (meeting brief, transcript, prep) to a contact
+ *   search_notes         — semantic search over saved notes & documents
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { get, post } from "./client.js";
 
-export const SERVER_VERSION = "0.15.0";
+export const SERVER_VERSION = "0.16.0";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -118,9 +119,9 @@ export function createServer() {
         lines.push("");
       }
       if (ctx.documents?.length) {
-        // Meeting briefs / notes / transcripts kept on the contact. Snippets only —
-        // call get_account for a full body, or to compare across meetings.
-        lines.push("DOCUMENTS (notes & meeting records — get_account for full text):");
+        // Meeting briefs / notes / transcripts kept on the contact — an overview
+        // (snippets only). To pull relevant content, use search_notes (semantic).
+        lines.push("DOCUMENTS (notes & meeting records — use search_notes to search their content):");
         for (const d of ctx.documents) {
           const when = d.date ? `  [${relAge(d.date)}]` : "";
           lines.push(`  ${d.type.replace(/_/g, " ")}${d.title ? ` · ${d.title}` : ""}${when}`);
@@ -447,6 +448,40 @@ export function createServer() {
       const r = await post("/v2/notes", { focus, content, type, title, date });
       const label = title || (r.doc_type || "note").replace(/_/g, " ");
       return { content: [{ type: "text", text: `Saved ${label} to ${focus}.` }] };
+    },
+  );
+
+  // ===========================================================================
+  // TOOL: search_notes  —  POST /v2/notes/search
+  // Semantic search over saved notes & documents (briefs, transcripts, notes).
+  // The retrieval counterpart to save_note — pull relevant document content
+  // instead of dumping whole documents into context.
+  // ===========================================================================
+  server.tool(
+    "search_notes",
+    "Semantically search the saved notes & documents (meeting briefs, transcripts, meeting notes) " +
+    "kept on contacts. Use this to pull relevant content from the record — e.g. 'what did we discuss " +
+    "about pricing', 'objections raised in past meetings', or to compare across a contact's meetings. " +
+    "Pass `focus` to restrict to one person/company, or omit it to search across everyone. Returns the " +
+    "matching documents (type, title, date, similarity, snippet); get the full body with get_account.",
+    {
+      question: z.string().describe("Natural-language query to match against document content."),
+      focus: z.string().optional().describe("Optional — restrict to one person/company (email, LinkedIn URL, domain, or entity UUID)."),
+      limit: z.number().optional().describe("Max documents to return (default 8)."),
+    },
+    async ({ question, focus, limit }) => {
+      const r = await post("/v2/notes/search", { question, focus, limit });
+      if (!r.documents?.length) {
+        return { content: [{ type: "text", text: `No saved documents matched "${question}".` }] };
+      }
+      const lines = [`Documents matching "${question}":`, ""];
+      for (const d of r.documents) {
+        const when = d.date ? `  [${relAge(d.date)}]` : "";
+        lines.push(`  ${d.type.replace(/_/g, " ")}${d.title ? ` · ${d.title}` : ""}  (${pct(d.similarity)})${when}`);
+        if (d.snippet) lines.push(`    ${d.snippet}`);
+        lines.push(`    (entity_id: ${d.entity_id})`);
+      }
+      return { content: [{ type: "text", text: lines.join("\n").trim() }] };
     },
   );
 
