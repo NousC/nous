@@ -12,6 +12,7 @@ build/
 .env.local
 .env.*.local
 nous.env
+nous.env.bak*
 
 # Logs
 *.log

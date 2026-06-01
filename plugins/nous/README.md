@@ -6,7 +6,7 @@ Give Claude one MCP call to the full identity-resolved GTM account record — ev
 
 ```bash
 # In Claude Code:
-/plugin marketplace add bennetglinder1/nous
+/plugin marketplace add NousC/nous
 /plugin install nous@nous-plugins
 ```
 
@@ -36,4 +36,4 @@ Identifiers are universal — pass an email, domain, LinkedIn URL, entity UUID, 
 
 ## Self-host
 
-The whole stack is open source — `git clone https://github.com/bennetglinder1/nous`, `docker compose up`. Then point `api_url` at your instance. AGPL-3.0.
+The whole stack is open source — `git clone https://github.com/NousC/nous`, `docker compose up`. Then point `api_url` at your instance. AGPL-3.0.

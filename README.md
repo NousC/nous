@@ -70,7 +70,7 @@ Nous resolves the fragmentation into one customer graph your agents can query.
 → [Full setup guide](https://docs.opennous.cloud/getting-started/quickstart)
 
 ```bash
-git clone https://github.com/bennetglinder1/nous.git
+git clone https://github.com/NousC/nous.git
 cd nous
 cp .env.example .env   # fill in Supabase + Anthropic keys
 pnpm install

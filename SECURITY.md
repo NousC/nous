@@ -4,7 +4,7 @@
 
 **Do not open a public GitHub issue for security vulnerabilities.**
 
-Report security issues via [GitHub Security Advisories](https://github.com/bennetglinder1/nous/security/advisories/new) or email security@opennous.cloud.
+Report security issues via [GitHub Security Advisories](https://github.com/NousC/nous/security/advisories/new) or email security@opennous.cloud.
 
 We will acknowledge your report within 72 hours and aim to ship a fix within 14 days for critical issues.
 

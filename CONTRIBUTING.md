@@ -14,7 +14,7 @@ See the [developer guide](https://docs.opennous.cloud/developer-guide) for full 
 
 **Short version:**
 ```bash
-git clone https://github.com/bennetglinder1/nous.git
+git clone https://github.com/NousC/nous.git
 cd nous
 cp nous.env.example nous.env
 pnpm install

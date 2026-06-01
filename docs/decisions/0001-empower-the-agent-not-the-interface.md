@@ -64,7 +64,7 @@ git. We never run workflow code for the user.
 
 Concretely:
 
-- **Skills** live in the [`gtm-skills`](https://github.com/bennetglinder1/gtm-skills)
+- **Skills** live in the [`gtm-skills`](https://github.com/NousC/gtm-skills)
   repo. Layout follows the Zevenue pattern: `.claude/skills/<name>/SKILL.md`.
   Users install one with a `curl` one-liner, or clone the repo into a project
   so Claude Code auto-discovers every skill.
@@ -157,5 +157,5 @@ To be deliberate about the trade-off:
   was checked against.
 - Claude Code routines documentation:
   https://code.claude.com/docs/en/routines
-- The [`gtm-skills`](https://github.com/bennetglinder1/gtm-skills) repo —
+- The [`gtm-skills`](https://github.com/NousC/gtm-skills) repo —
   where skills and routine recipes live.

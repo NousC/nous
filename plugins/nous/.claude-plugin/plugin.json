@@ -8,7 +8,7 @@
     "url": "https://opennous.cloud"
   },
   "homepage": "https://opennous.cloud",
-  "repository": "https://github.com/bennetglinder1/nous",
+  "repository": "https://github.com/NousC/nous",
   "license": "AGPL-3.0",
   "keywords": ["mcp", "gtm", "crm", "memory", "agents", "context"],
   "userConfig": {
