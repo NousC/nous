@@ -135,3 +135,23 @@ run('Phase 3 — confirming a fact raises confidence to 1 and resets staleness',
   assert.equal(confirmed.is_active, true, 'still active');
   assert.equal(confirmed.content, 'Series A-B B2B SaaS', 'content unchanged');
 });
+
+run('context-changes feed pairs a superseded fact to its replacement (the "what it learned" timeline)', async () => {
+  const supabase = getSupabaseClient();
+  await saveNote(supabase, workspaceId, {
+    entityId, category: 'Market', source: 'playbook', subject: 'playbook.market', content: 'SMB', confidence: 0.8,
+  }).then(v1 => supersedeNote(supabase, workspaceId, v1.id, {
+    entityId, category: 'Market', source: 'agent', subject: 'playbook.market', content: 'Mid-market', confidence: 0.9,
+  }));
+
+  // Replicates the GET /api/mind/context-changes derivation exactly.
+  const all = await listNotes(supabase, workspaceId, { entityId, includeInactive: true, limit: 300 });
+  const byId = new Map(all.map(n => [n.id, n]));
+  const changes = all
+    .filter(n => !n.is_active && n.superseded_by && byId.has(n.superseded_by))
+    .map(n => ({ from: n.content, to: byId.get(n.superseded_by).content }));
+
+  const pair = changes.find(c => c.to === 'Mid-market');
+  assert.ok(pair, 'the change shows up in the feed');
+  assert.equal(pair.from, 'SMB', 'feed pairs new content with the old it replaced');
+});
