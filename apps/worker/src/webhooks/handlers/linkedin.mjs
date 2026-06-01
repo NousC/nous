@@ -280,12 +280,15 @@ async function enrichNewLinkedInContact(supabase, workspaceId, contact, { member
       const accountId = await getUnipileAccountId(supabase, workspaceId);
       const fields = await fetchLinkedInProfile(accountId, memberId || contact.linkedin_member_id);
       if (fields) {
-        console.log(`[LINKEDIN_PROFILE] ${contact.id}: title="${fields.jobTitle || '-'}" company="${fields.company || '-'}"`);
+        console.log(`[LINKEDIN_PROFILE] ${contact.id}: fetched title="${fields.jobTitle || '-'}" company="${fields.company || '-'}" — applying…`);
         await applyLinkedInProfile(supabase, contact, {
           jobTitle: fields.jobTitle, company: fields.company,
           companyDomain: fields.companyDomain, photoUrl: fields.photoUrl,
           headline: fields.headline,
         });
+        console.log(`[LINKEDIN_PROFILE] ${contact.id}: applyLinkedInProfile returned OK`);
+      } else {
+        console.log(`[LINKEDIN_PROFILE] ${contact.id}: Unipile profile fetch returned null`);
       }
     }
     // No email yet → look them up in the workspace's own Gmail / inbox by name.
@@ -294,7 +297,7 @@ async function enrichNewLinkedInContact(supabase, workspaceId, contact, { member
       if (r.found) console.log(`[DISCOVER_EMAIL] ${contact.id}: ${r.email} via ${r.source} (${r.hits} hit/s)`);
     }
   } catch (e) {
-    console.warn('[LINKEDIN_PROFILE] enrich failed (non-fatal):', e.message);
+    console.error(`[LINKEDIN_PROFILE] ${contact?.id} enrich failed:`, e.message, e.stack);
   }
 }
 

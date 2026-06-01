@@ -166,6 +166,7 @@ export async function applyLinkedInProfile(supabase, contact, { jobTitle, compan
   if (!Object.keys(updates).length) return;
 
   await recordEnrichmentObservations(supabase, workspaceId, contact.id, 'linkedin', updates);
+  console.log(`[APPLY_LI] ${contact.id}: observations recorded (${Object.keys(updates).join(',')})`);
   const viewUpdate = { ...updates };
   for (const f of ENRICH_STRIP) delete viewUpdate[f];
   if (Object.keys(viewUpdate).length) await supabase.from('contacts').update(viewUpdate).eq('id', contact.id);
