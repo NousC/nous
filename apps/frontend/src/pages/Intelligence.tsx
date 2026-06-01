@@ -168,8 +168,11 @@ export default function Intelligence() {
   // it's capped server-side at 3 per workspace. null until the server tells us.
   const [pbRebuilds, setPbRebuilds] = useState<{ used: number; limit: number } | null>(null);
 
-  // The profile is the hero of the page, so it's expanded by default.
-  const [contextOpen, setContextOpen] = useState(true);
+  // Collapsed by default — the page leads with the "getting smarter" story;
+  // the full profile is one click away.
+  const [contextOpen, setContextOpen] = useState(false);
+  // The legend that explains predictions + the timeline chips.
+  const [legendOpen, setLegendOpen] = useState(false);
 
   // Per-fact supersession history — which fact's timeline is expanded, + its rows.
   const [historyOpen, setHistoryOpen] = useState<string | null>(null);
@@ -430,11 +433,12 @@ export default function Intelligence() {
   // this from your work", which is the whole write-back loop made visible.
   const sourceWho = (s: string) => (s === "agent" ? "Claude" : s === "playbook" ? "site" : "you");
 
-  // Capturing a fact IS the workspace getting smarter — so the timeline shows
-  // the acquisition of knowledge (day one), not only later refinements. A fact
-  // that was refined shows as the refinement (below), so skip its capture.
+  // The timeline is for things the workspace LEARNED, not a copy of the context.
+  // So we don't echo the static site/you facts here — only Claude's write-backs
+  // (the system updating itself from your work) count as a "captured" learning.
+  // Refinements, model changes, and outcomes are events regardless of source.
   const refinedContents = new Set(contextChanges.map(c => c.to));
-  const captures = icpFacts.filter(f => f.created_at && !refinedContents.has(f.content));
+  const captures = icpFacts.filter(f => f.source === "agent" && f.created_at && !refinedContents.has(f.content));
 
   // The "what it's learned" timeline — the page's heart. Knowledge captured,
   // then refined (you/Claude/site), the model sharpening, and predictions it
@@ -853,15 +857,45 @@ export default function Intelligence() {
                     <span className="normal-case font-normal text-muted-foreground/45 ml-1.5">· learning for {learningDays}d</span>
                   )}
                 </span>
-                {hasModel && (
+                <div className="flex items-center gap-3">
                   <button
-                    onClick={() => setModelOpen(o => !o)}
+                    onClick={() => setLegendOpen(o => !o)}
                     className="text-[12px] font-semibold text-muted-foreground/70 hover:text-foreground transition-colors"
                   >
-                    {modelOpen ? "Hide the scoring model" : "See the scoring model"}
+                    What's this?
                   </button>
-                )}
+                  {hasModel && (
+                    <button
+                      onClick={() => setModelOpen(o => !o)}
+                      className="text-[12px] font-semibold text-muted-foreground/70 hover:text-foreground transition-colors"
+                    >
+                      {modelOpen ? "Hide the scoring model" : "See the scoring model"}
+                    </button>
+                  )}
+                </div>
               </div>
+
+              {legendOpen && (
+                <div className="px-4 py-3 bg-muted/30 border-b border-border/60 text-[12px] text-muted-foreground/80 space-y-2.5">
+                  <p className="leading-relaxed">
+                    <span className="font-semibold text-foreground/75">Prediction:</span> when Nous scores an account's fit (0–100), it stakes a bet that the strong-fit ones will convert. As accounts reply or close, each prediction resolves — and the model learns which signals were actually predictive.
+                  </p>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+                    {[
+                      { label: "Claude", color: "#6d28d9", bg: "rgba(109,40,217,0.08)", desc: "Claude updated your context from your work" },
+                      { label: "you", color: "#475569", bg: "rgba(71,85,105,0.08)", desc: "you edited it" },
+                      { label: "site", color: "#a16207", bg: "rgba(161,98,7,0.08)", desc: "drafted from your website" },
+                      { label: "model", color: "#15803d", bg: "rgba(21,128,61,0.08)", desc: "the scoring model adjusted itself" },
+                      { label: "✓ called it", color: "#b45309", bg: "rgba(180,83,9,0.10)", desc: "a strong-fit prediction that converted" },
+                    ].map(it => (
+                      <span key={it.label} className="inline-flex items-center gap-1.5">
+                        <span className="text-[9px] font-semibold uppercase tracking-wide px-1.5 py-[1px] rounded whitespace-nowrap" style={{ color: it.color, background: it.bg }}>{it.label}</span>
+                        <span className="text-muted-foreground/65">{it.desc}</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div className="px-4 py-4 space-y-4">
                 {/* Headline — the improvement when there's data, else the loop's promise. */}
@@ -907,7 +941,7 @@ export default function Intelligence() {
                   <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60 mb-1.5">What it's learned</div>
                   {learnings.length === 0 ? (
                     <p className="text-[12.5px] text-muted-foreground/65 leading-relaxed">
-                      Nothing logged yet. Every time you refine your context or an account's outcome resolves, the change lands here — the running record of your workspace getting smarter.
+                      Nothing learned yet. This fills in as your workspace sharpens — when Claude updates your context from your work, when you refine a belief, or when a prediction resolves. It's the record of getting smarter, not a copy of your context.
                     </p>
                   ) : (
                     <div className="space-y-2">
