@@ -12,9 +12,19 @@ import { getSupabaseClient, embedBatch, logWorkerRun } from '@nous/core';
 const BATCH = 96;
 
 function rowText(r) {
-  let v = r.value;
-  if (v && typeof v === 'object') v = JSON.stringify(v);
-  return `${r.property}: ${v ?? ''}`.slice(0, 2000);
+  const v = r.value;
+  // Notes & documents (asserted `note.*` claims) embed their HUMAN content, not
+  // the JSON envelope — and documents (briefs / transcripts / meeting notes) get
+  // a larger budget so semantic search can actually find what's inside them.
+  if (typeof r.property === 'string' && r.property.startsWith('note.') && v && typeof v === 'object') {
+    const meta = v.metadata || {};
+    const head = meta.title || v.category || 'note';
+    const cap = meta.doc_type ? 8000 : 2000;
+    return `${head}\n${v.content ?? ''}`.slice(0, cap);
+  }
+  let s = v;
+  if (s && typeof s === 'object') s = JSON.stringify(s);
+  return `${r.property}: ${s ?? ''}`.slice(0, 2000);
 }
 
 async function sweep(supabase, table) {
