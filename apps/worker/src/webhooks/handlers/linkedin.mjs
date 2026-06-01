@@ -266,18 +266,27 @@ async function getUnipileAccountId(supabase, workspaceId) {
   return data?.unipile_account_id || null;
 }
 
-// On a freshly-created LinkedIn contact: pull title + company from Unipile (free),
-// write them, and score ICP. Fire-and-forget — never blocks the webhook.
+// Pull title + company from Unipile (free), write them, score ICP, and discover an
+// email from connected mailboxes. SELF-GUARDING and idempotent, so it is safe to
+// call on EVERY LinkedIn webhook (accept or message), not only on first creation —
+// a contact created by another path (full sync, invite-poll) still gets enriched.
+// Skips the Unipile fetch once a title exists and skips discovery once an email
+// exists, so repeated webhooks never re-hit Unipile. Fire-and-forget.
 async function enrichNewLinkedInContact(supabase, workspaceId, contact, { memberId } = {}) {
   try {
-    const accountId = await getUnipileAccountId(supabase, workspaceId);
-    const fields = await fetchLinkedInProfile(accountId, memberId || contact.linkedin_member_id);
-    if (fields) {
-      await applyLinkedInProfile(supabase, contact, {
-        jobTitle: fields.jobTitle, company: fields.company,
-        companyDomain: fields.companyDomain, photoUrl: fields.photoUrl,
-        headline: fields.headline,
-      });
+    if (contact.job_title && contact.email) return;   // nothing left to fill
+
+    if (!contact.job_title) {
+      const accountId = await getUnipileAccountId(supabase, workspaceId);
+      const fields = await fetchLinkedInProfile(accountId, memberId || contact.linkedin_member_id);
+      if (fields) {
+        console.log(`[LINKEDIN_PROFILE] ${contact.id}: title="${fields.jobTitle || '-'}" company="${fields.company || '-'}"`);
+        await applyLinkedInProfile(supabase, contact, {
+          jobTitle: fields.jobTitle, company: fields.company,
+          companyDomain: fields.companyDomain, photoUrl: fields.photoUrl,
+          headline: fields.headline,
+        });
+      }
     }
     // No email yet → look them up in the workspace's own Gmail / inbox by name.
     if (!contact.email) {
@@ -330,10 +339,10 @@ export async function handleLinkedIn(req, res, workspaceId) {
     const { contact, created } = await resolveLinkedInContact(supabase, workspaceId, { linkedinUrl, fullName, memberId: identifier });
     if (!contact) return res.json({ ok: true, skipped: 'could not resolve contact' });
 
-    // New connection → pull title/company from Unipile (free) and score ICP.
-    if (created) {
-      enrichNewLinkedInContact(supabase, workspaceId, contact, { memberId: identifier }).catch(() => {});
-    }
+    // Pull title/company from Unipile (free) + score ICP. Runs on every accept
+    // webhook, not only first creation — the contact may have been created by
+    // another path (sync/invite-poll). enrichNewLinkedInContact self-guards.
+    enrichNewLinkedInContact(supabase, workspaceId, contact, { memberId: identifier }).catch(() => {});
 
     // Deduplicate — Unipile re-fires new_relation on re-auth
     const alreadyConnected = await countActivities(supabase, {
@@ -488,11 +497,13 @@ export async function handleLinkedIn(req, res, workspaceId) {
     // New contact → backfill their full conversation history.
     // Also backfill existing contacts that have no prior linkedin_message activities —
     // catches contacts imported before the webhook was set up (e.g. old connections).
+    // Capture title/company + score ICP + discover email. Self-guarding, so it's
+    // safe on every message (not just the first) and across creation paths.
+    enrichNewLinkedInContact(supabase, workspaceId, contact, { memberId }).catch(() => {});
+
     const chatId = body.chat_id || body.provider_chat_id || null;
     if (created) {
       backfillLinkedInMessages(supabase, workspaceId, contact.id, { linkedinUrl, chatId }).catch(() => {});
-      // First time we see this person → capture title/company from Unipile + score ICP (free).
-      enrichNewLinkedInContact(supabase, workspaceId, contact, { memberId }).catch(() => {});
     } else {
       const priorMsgCount = await countActivities(supabase, {
         contactId: contact.id, types: ['linkedin_message'], source: 'linkedin',
