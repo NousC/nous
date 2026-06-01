@@ -3,23 +3,10 @@ import {
   getSupabaseClient,
   getOrCreateEntity,
   detectIdentifier,
-  saveNote,
+  saveDocument,
 } from '@nous/core';
 
 export const notesV2Router = Router();
-
-// Document types an agent can attach to a contact. A category label is derived
-// for display; the full text lives in the note content (read by get_context /
-// get_account). Append-only — each note is a dated entry, so a contact builds a
-// record over time (last meeting vs this meeting), never an overwrite.
-const DOC_CATEGORY = {
-  note:          'Note',
-  meeting_brief: 'Meeting Brief',
-  transcript:    'Transcript',
-  meeting_notes: 'Meeting Notes',
-  pre_meeting:   'Pre-Meeting',
-  research:      'Research',
-};
 
 // POST /v2/notes — attach a note or document to a person or company.
 // Body: {
@@ -59,20 +46,11 @@ notesV2Router.post('/', async (req, res) => {
       entityId = await getOrCreateEntity(supabase, workspaceId, 'person', [{ kind: ident.kind, value: ident.value }]);
     }
 
-    const docType = DOC_CATEGORY[type] ? type : 'note';
-    const metadata = { doc_type: docType };
-    if (title) metadata.title = String(title).slice(0, 200);
-    if (date) metadata.date = String(date);
-
-    const note = await saveNote(supabase, workspaceId, {
-      entityId,
-      category: DOC_CATEGORY[docType],
-      content: String(content).trim(),
-      source: 'agent',
-      metadata,
+    const note = await saveDocument(supabase, workspaceId, {
+      entityId, type, title, date, content, source: 'agent',
     });
 
-    return res.status(201).json({ note, entity_id: entityId, doc_type: docType });
+    return res.status(201).json({ note, entity_id: entityId, doc_type: note?.metadata?.doc_type ?? 'note' });
   } catch (err) {
     console.error('[POST /v2/notes]', err);
     return res.status(500).json({ error: 'internal_error' });

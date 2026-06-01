@@ -3,7 +3,7 @@
 // Update-only — never creates new contacts from meeting invitees.
 
 import { createHmac } from 'crypto';
-import { getSupabaseClient } from '@nous/core';
+import { getSupabaseClient, saveDocument } from '@nous/core';
 import { logActivity } from '../../utils/activity.mjs';
 import { resolveContact } from '../../utils/resolveContact.mjs';
 import { enqueueForRetry } from '../../utils/webhookInbox.mjs';
@@ -51,7 +51,7 @@ export async function reprocessFathom(supabase, workspaceId, payload) {
 
     const externalId = `fathom_${payload.id || title}_${occurredAt.slice(0, 10)}_${contact.id}`;
 
-    await logActivity(supabase, {
+    const result = await logActivity(supabase, {
       workspaceId,
       contactId:  contact.id,
       companyId:  contact.company_id || null,
@@ -63,7 +63,23 @@ export async function reprocessFathom(supabase, workspaceId, payload) {
       summary:    summary ? summary.slice(0, 500) : null,
       rawData:    { title, url: meetingUrl, invitees: invitees.map(i => i.email) },
     });
-    logged++;
+    if (result) {
+      logged++;
+      // Keep the FULL notes as a document on the contact — the activity summary
+      // is truncated to 500 chars. Gated on `result` so retries (which dedup the
+      // activity) don't duplicate the document.
+      if (summary) {
+        await saveDocument(supabase, workspaceId, {
+          entityId: contact.id,
+          type:     'meeting_notes',
+          title:    `Meeting notes — ${title}`,
+          content:  summary,
+          date:     occurredAt,
+          source:   'fathom',
+          meta:     { url: meetingUrl || null },
+        }).catch(() => {});
+      }
+    }
   }
 
   console.log(`[FATHOM_WEBHOOK] workspace=${workspaceId} logged=${logged}`);

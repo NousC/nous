@@ -1,7 +1,7 @@
 // Fireflies.ai webhook handler — ported from assetly-blueprint/server/webhooks.mjs
 // Receives meeting transcripts, resolves all participants, logs meeting_held activities.
 
-import { getSupabaseClient } from '@nous/core';
+import { getSupabaseClient, saveDocument } from '@nous/core';
 import { logActivity } from '../../utils/activity.mjs';
 import { resolveContact } from '../../utils/resolveContact.mjs';
 import { enqueueForRetry } from '../../utils/webhookInbox.mjs';
@@ -46,7 +46,24 @@ export async function reprocessFireflies(supabase, workspaceId, body) {
       summary:     meetingSummary,
       rawData:     { transcript_url, meeting_id: meetingId, duration },
     });
-    if (result) logged++;
+    if (result) {
+      logged++;
+      // Keep the full meeting notes as a document on the contact — the activity
+      // only carries a short summary. Gated on `result` (the activity was newly
+      // logged) so webhook retries, which dedup the activity, don't duplicate the
+      // document. Only when there's a real provider summary, not the thin fallback.
+      if (transcriptSummary) {
+        await saveDocument(supabase, workspaceId, {
+          entityId: contact.id,
+          type:     'meeting_notes',
+          title:    `Meeting notes — ${title || 'Untitled'}`,
+          content:  transcriptSummary,
+          date:     new Date().toISOString(),
+          source:   'fireflies',
+          meta:     { meeting_id: meetingId, transcript_url: transcript_url || null, duration: duration || null },
+        }).catch(() => {});
+      }
+    }
   }
 
   await logSysEvent(supabase, {

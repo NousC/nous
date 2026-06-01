@@ -4,6 +4,7 @@ import { hasSupabase } from './helpers.mjs';
 import {
   getSupabaseClient,
   saveNote,
+  saveDocument,
   supersedeNote,
   updateNote,
   listNotes,
@@ -186,16 +187,17 @@ run('contact documents: a note/brief saves with doc_type metadata and appends (t
   const { data: person } = await supabase
     .from('entities').insert({ workspace_id: workspaceId, type: 'person' }).select('id').single();
 
-  // Two dated documents on the same contact — append, never overwrite.
-  await saveNote(supabase, workspaceId, {
-    entityId: person.id, category: 'Meeting Brief', source: 'agent',
+  // Two dated documents on the same contact via the real saveDocument helper
+  // (the path the /v2/notes endpoint and the meeting webhooks use) — append.
+  await saveDocument(supabase, workspaceId, {
+    entityId: person.id, type: 'meeting_brief', source: 'agent',
     content: 'Brief for the May kickoff: focus on RevOps pains.',
-    metadata: { doc_type: 'meeting_brief', title: 'Kickoff brief — May', date: '2026-05-15' },
+    title: 'Kickoff brief — May', date: '2026-05-15',
   });
-  await saveNote(supabase, workspaceId, {
-    entityId: person.id, category: 'Transcript', source: 'agent',
-    content: 'Full transcript text…',
-    metadata: { doc_type: 'transcript', title: 'Transcript — Jun 1', date: '2026-06-01' },
+  await saveDocument(supabase, workspaceId, {
+    entityId: person.id, type: 'meeting_notes', source: 'fathom',
+    content: 'Full meeting notes…', title: 'Meeting notes — Jun 1', date: '2026-06-01',
+    meta: { url: 'https://fathom.video/x' },
   });
 
   const docs = (await listNotes(supabase, workspaceId, { entityId: person.id }))

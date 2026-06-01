@@ -296,3 +296,53 @@ export async function countActiveNotes(
     .is('invalid_at', null);
   return count ?? 0;
 }
+
+// ── Contact documents ─────────────────────────────────────────────────────────
+// A document is a note carrying a `doc_type` (meeting brief, transcript, notes,
+// …) — a long-form artifact kept on a contact. The category is derived for
+// display; the full text is the note content. Append-only: each is a dated
+// entry, so a contact builds a record over time. Used by the /v2/notes endpoint
+// (agent write-back) and the meeting webhooks (Fireflies/Fathom capture).
+
+const DOC_CATEGORY: Record<string, string> = {
+  note:          'Note',
+  meeting_brief: 'Meeting Brief',
+  transcript:    'Transcript',
+  meeting_notes: 'Meeting Notes',
+  pre_meeting:   'Pre-Meeting',
+  research:      'Research',
+};
+
+/** The display category for a document type (defaults to 'Note'). */
+export function documentCategory(type?: string): string {
+  return (type && DOC_CATEGORY[type]) || 'Note';
+}
+
+export interface SaveDocumentParams {
+  entityId: string;
+  content: string;
+  type?: string;
+  title?: string;
+  date?: string;
+  source?: string;
+  /** Extra metadata to keep alongside the doc (e.g. source_url, meeting_id). */
+  meta?: Record<string, unknown>;
+}
+
+export async function saveDocument(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  params: SaveDocumentParams,
+): Promise<Note | null> {
+  const type = params.type && DOC_CATEGORY[params.type] ? params.type : 'note';
+  const metadata: Record<string, unknown> = { ...(params.meta ?? {}), doc_type: type };
+  if (params.title) metadata.title = String(params.title).slice(0, 200);
+  if (params.date) metadata.date = String(params.date);
+  return saveNote(supabase, workspaceId, {
+    entityId: params.entityId,
+    category: DOC_CATEGORY[type],
+    content: String(params.content).trim(),
+    source: params.source ?? 'agent',
+    metadata,
+  });
+}
