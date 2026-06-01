@@ -163,8 +163,8 @@ export default function Intelligence() {
   // it's capped server-side at 3 per workspace. null until the server tells us.
   const [pbRebuilds, setPbRebuilds] = useState<{ used: number; limit: number } | null>(null);
 
-  // The saved-context card is collapsed by default once there's content to hide.
-  const [contextOpen, setContextOpen] = useState(false);
+  // The profile is the hero of the page, so it's expanded by default.
+  const [contextOpen, setContextOpen] = useState(true);
 
   // Per-fact supersession history — which fact's timeline is expanded, + its rows.
   const [historyOpen, setHistoryOpen] = useState<string | null>(null);
@@ -173,6 +173,9 @@ export default function Intelligence() {
 
   // Inline editing of Scorecard signals (label / weight) + delete.
   const [editSig, setEditSig] = useState<{ id: string; field: "label" | "weight" } | null>(null);
+  // The scoring model (signals, calibration, learned-changes) is tucked behind
+  // a "see the model" disclosure so the page leads with the profile, not stats.
+  const [modelOpen, setModelOpen] = useState(false);
 
   const load = useCallback(() => {
     if (!workspaceId || !token) return;
@@ -403,18 +406,79 @@ export default function Intelligence() {
   })();
   const confColor = confidence.tone === "good" ? "#15803d" : confidence.tone === "warn" ? "#b45309" : undefined;
 
-  // ── "Who to act on" — attention items, falling back to top-scored open accounts ──
+  // ── "Worth acting on" — attention items, falling back to top-scored open accounts ──
   const openHot = (substrate?.recent_predictions ?? [])
     .filter(p => !p.resolved_at && (p.score ?? 0) >= 60)
     .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
     .slice(0, 6);
+
+  // The scoring model in one plain sentence — the transparency layer. The
+  // weights/calibration live behind "see the model"; this is the gist.
+  const fitSummary = positive.length
+    ? `A strong fit looks like: ${positive.slice(0, 5).map(s => s.label).join("; ")}.`
+    : null;
+
+  // One editable signal row (weight + label), reused inside "see the model".
+  const renderSignal = (s: Signal, color: string) => {
+    const editingW = editSig?.id === s.id && editSig.field === "weight";
+    const editingL = editSig?.id === s.id && editSig.field === "label";
+    return (
+      <div key={s.id} className="flex items-baseline gap-3 py-1.5 group">
+        {editingW ? (
+          <input
+            type="number" autoFocus defaultValue={s.weight} min={-10} max={10}
+            onBlur={e => patchSignal(s.id, { weight: Number(e.target.value) })}
+            onKeyDown={e => {
+              if (e.key === "Enter") patchSignal(s.id, { weight: Number((e.target as HTMLInputElement).value) });
+              if (e.key === "Escape") setEditSig(null);
+            }}
+            className="w-12 flex-shrink-0 rounded border border-border bg-background text-[12px] tabular-nums px-1 py-0.5 outline-none focus:border-foreground/40"
+          />
+        ) : (
+          <button
+            onClick={() => setEditSig({ id: s.id, field: "weight" })}
+            title="Edit weight"
+            className="text-[12px] font-semibold tabular-nums w-8 flex-shrink-0 text-left hover:underline"
+            style={{ color }}
+          >
+            {s.weight > 0 ? "+" : ""}{s.weight}
+          </button>
+        )}
+        {editingL ? (
+          <input
+            type="text" autoFocus defaultValue={s.label}
+            onBlur={e => patchSignal(s.id, { label: e.target.value })}
+            onKeyDown={e => {
+              if (e.key === "Enter") patchSignal(s.id, { label: (e.target as HTMLInputElement).value });
+              if (e.key === "Escape") setEditSig(null);
+            }}
+            className="flex-1 rounded border border-border bg-background text-[13px] px-1.5 py-0.5 outline-none focus:border-foreground/40"
+          />
+        ) : (
+          <span
+            onClick={() => setEditSig({ id: s.id, field: "label" })}
+            className="text-[13px] text-foreground/85 leading-snug flex-1 cursor-pointer hover:text-foreground"
+          >
+            {s.label}
+          </span>
+        )}
+        <button
+          onClick={() => removeSignal(s.id)}
+          className="flex-shrink-0 h-5 w-5 grid place-items-center rounded text-muted-foreground/40 hover:text-red-500 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition-colors"
+          aria-label="Remove signal"
+        >
+          <Trash2 className="h-3 w-3" />
+        </button>
+      </div>
+    );
+  };
 
   return (
     <div className="h-full overflow-y-auto bg-background">
       <div className="px-8 py-7 max-w-[1240px] mx-auto">
         <PageHeader
           title="GTM Context"
-          subtitle="Your ideal customer, learned from what actually closes — and sharpening every night."
+          subtitle="What your agents know about your business."
           actions={
             <button
               onClick={load}
@@ -427,18 +491,18 @@ export default function Intelligence() {
 
         <div className="space-y-4">
 
-          {/* ─── 1. Your ideal customer — the Scorecard, as plain sentences ─── */}
+          {/* ─── 1. Your context — the living profile, the hero of the page ─── */}
           <div className="rounded-xl border border-border bg-background overflow-hidden">
             <div className="flex items-center justify-between px-4 py-2.5 bg-muted/50 border-b border-border">
               {(icpFacts.length === 0 && !hasModel) ? (
-                <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">Company &amp; GTM context</span>
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">Your context</span>
               ) : (
                 <button
                   onClick={() => setContextOpen(o => !o)}
                   className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 hover:text-foreground transition-colors"
                 >
                   <ChevronRight className={`h-3.5 w-3.5 transition-transform ${contextOpen ? "rotate-90" : ""}`} />
-                  Company &amp; GTM context
+                  Your context
                   <span className="text-muted-foreground/50 normal-case font-normal ml-1 tabular-nums">· {icpFacts.length} fact{icpFacts.length === 1 ? "" : "s"}</span>
                 </button>
               )}
@@ -703,210 +767,143 @@ export default function Intelligence() {
             )}
           </div>
 
-          {/* ─── Your ideal customer — the scoring signals derived from the context ─── */}
+          {/* ─── 2. How Nous scores fit — the ICP model in one sentence, ───
+               ─── with the signals/calibration tucked behind a disclosure ─── */}
           {(hasModel || icpFacts.length > 0) && (
-            <Card
-              label="Your ideal customer"
-              right={hasModel ? (
-                <span className="text-[12px] text-muted-foreground/70 tabular-nums">
-                  {active.length} signal{active.length === 1 ? "" : "s"}
-                </span>
-              ) : null}
-            >
-              {hasModel ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 divide-y sm:divide-y-0 sm:divide-x divide-border/60">
-                  {[
-                    { rows: positive, head: "What predicts a fit",  color: "#15803d", empty: "Nothing yet" },
-                    { rows: negative, head: "What predicts a miss", color: "#b91c1c", empty: "Nothing ruled out yet — the loop learns these from replies" },
-                  ].map(({ rows, head, color, empty }) => (
-                    <div key={head}>
-                      <div className="px-4 py-2 border-b border-border/60 text-[11px] font-semibold uppercase tracking-wide" style={{ color }}>
-                        {head}
-                      </div>
-                      {rows.length === 0 ? (
-                        <div className="px-4 py-4 text-[13px] text-muted-foreground/50">{empty}</div>
-                      ) : (
-                        rows.map(s => {
-                          const editingW = editSig?.id === s.id && editSig.field === "weight";
-                          const editingL = editSig?.id === s.id && editSig.field === "label";
-                          return (
-                            <div key={s.id} className="flex items-baseline gap-3 px-4 py-2.5 border-b border-border/60 last:border-0 group">
-                              {editingW ? (
-                                <input
-                                  type="number" autoFocus defaultValue={s.weight} min={-10} max={10}
-                                  onBlur={e => patchSignal(s.id, { weight: Number(e.target.value) })}
-                                  onKeyDown={e => {
-                                    if (e.key === "Enter") patchSignal(s.id, { weight: Number((e.target as HTMLInputElement).value) });
-                                    if (e.key === "Escape") setEditSig(null);
-                                  }}
-                                  className="w-12 flex-shrink-0 rounded border border-border bg-background text-[12px] tabular-nums px-1 py-0.5 outline-none focus:border-foreground/40"
-                                />
-                              ) : (
-                                <button
-                                  onClick={() => setEditSig({ id: s.id, field: "weight" })}
-                                  title="Edit weight"
-                                  className="text-[12px] font-semibold tabular-nums w-8 flex-shrink-0 text-left hover:underline"
-                                  style={{ color }}
-                                >
-                                  {s.weight > 0 ? "+" : ""}{s.weight}
-                                </button>
-                              )}
-                              {editingL ? (
-                                <input
-                                  type="text" autoFocus defaultValue={s.label}
-                                  onBlur={e => patchSignal(s.id, { label: e.target.value })}
-                                  onKeyDown={e => {
-                                    if (e.key === "Enter") patchSignal(s.id, { label: (e.target as HTMLInputElement).value });
-                                    if (e.key === "Escape") setEditSig(null);
-                                  }}
-                                  className="flex-1 rounded border border-border bg-background text-[13px] px-1.5 py-0.5 outline-none focus:border-foreground/40"
-                                />
-                              ) : (
-                                <span
-                                  onClick={() => setEditSig({ id: s.id, field: "label" })}
-                                  className="text-[13px] text-foreground/85 leading-snug flex-1 cursor-pointer hover:text-foreground"
-                                >
-                                  {s.label}
-                                </span>
-                              )}
-                              <button
-                                onClick={() => removeSignal(s.id)}
-                                className="text-[13px] text-muted-foreground/40 hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
-                                aria-label="Delete signal"
-                              >
-                                ×
-                              </button>
-                            </div>
-                          );
-                        })
-                      )}
-                    </div>
-                  ))}
-                </div>
-              ) : (
+            <div className="rounded-xl border border-border bg-background overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-2.5 bg-muted/50 border-b border-border">
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">How Nous scores fit</span>
+                {hasModel && (
+                  <button
+                    onClick={() => setModelOpen(o => !o)}
+                    className="text-[12px] font-semibold text-muted-foreground/70 hover:text-foreground transition-colors"
+                  >
+                    {modelOpen ? "Hide the model" : "See the model"}
+                  </button>
+                )}
+              </div>
+
+              {!hasModel ? (
                 <div className="px-4 py-4 flex items-center gap-3 flex-wrap">
                   <button
                     onClick={buildScorecard}
                     disabled={seeding}
                     className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-primary text-primary-foreground text-[13px] font-semibold hover:bg-primary/90 transition-colors disabled:opacity-30"
                   >
-                    {seeding ? "Building…" : "Build scoring signals from this context"}
+                    {seeding ? "Building…" : "Build scoring from your context"}
                   </button>
-                  <span className="text-[12px] text-muted-foreground/70">Claude turns the context above into 4–8 weighted signals.</span>
-                </div>
-              )}
-            </Card>
-          )}
-
-          {/* ─── 2. Confidence — calibration, stated honestly ─── */}
-          {hasModel && (
-            <Card label="Confidence">
-              <div className="px-4 py-4 flex items-center gap-4">
-                <div className="flex-1">
-                  <p className="text-[14px] leading-relaxed" style={{ color: confColor }}>
-                    {confidence.line}
-                  </p>
-                  <p className="text-[12px] text-muted-foreground/70 mt-1.5 tabular-nums">
-                    {resolved} prediction{resolved === 1 ? "" : "s"} resolved · {substrate?.predictions.open ?? 0} open
-                    {gap != null && <> · calibration gap {fmtGap(gap)}</>}
-                  </p>
-                </div>
-                <div className="flex-shrink-0 text-right">
-                  <Sparkline values={trendValues} width={88} height={28} />
-                  <div className="text-[11px] text-muted-foreground/60 mt-1">8-week trend</div>
-                </div>
-              </div>
-            </Card>
-          )}
-
-          {/* ─── What I learned + Who to act on — paired, side by side ─── */}
-          {hasModel && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <Card
-              label="What I learned"
-              right={
-                runs.length ? (
-                  <span className="text-[12px] text-muted-foreground/70 tabular-nums">{runs.length} run{runs.length === 1 ? "" : "s"}</span>
-                ) : null
-              }
-            >
-              {runs.length === 0 ? (
-                <div className="px-4 py-8 text-[13px] text-muted-foreground/70 text-center">
-                  The model hasn't needed to adjust yet. As predictions resolve, the nightly
-                  loop sharpens the signals and the changes show up here.
+                  <span className="text-[12px] text-muted-foreground/70">Turns the context above into a model that rates how well any account fits.</span>
                 </div>
               ) : (
-                <div className="divide-y divide-border/60">
-                  {runs.slice(0, 6).map(r => {
-                    const delta = (r.gap_after != null && r.gap_before != null)
-                      ? r.gap_after - r.gap_before : null;
-                    return (
-                      <div key={r.id} className="px-4 py-3">
-                        <div className="flex items-baseline gap-2">
-                          <span className="text-[13px] text-foreground/85 leading-snug flex-1">
-                            {r.note || "Adjusted the Scorecard."}
-                          </span>
-                          <span className="text-[11px] text-muted-foreground/60 tabular-nums whitespace-nowrap">
-                            {formatDistanceToNow(new Date(r.created_at), { addSuffix: true })}
-                          </span>
+                <div className="px-4 py-4 space-y-3">
+                  {fitSummary && (
+                    <p className="text-[14px] text-foreground/85 leading-relaxed">{fitSummary}</p>
+                  )}
+
+                  {resolved > 0 ? (
+                    <div className="flex items-end gap-3">
+                      <p className="text-[13px] leading-relaxed flex-1" style={{ color: confColor }}>{confidence.line}</p>
+                      {trendValues.length >= 2 && (
+                        <div className="flex-shrink-0 text-right">
+                          <Sparkline values={trendValues} width={72} height={22} />
+                          <div className="text-[10px] text-muted-foreground/50 mt-0.5">trend</div>
                         </div>
-                        {delta != null && Math.abs(delta) > 0.001 && (
-                          <div className="text-[12px] mt-0.5 tabular-nums" style={{ color: delta > 0 ? "#15803d" : "#b45309" }}>
-                            calibration {delta > 0 ? "improved" : "slipped"} {fmtGap(delta)}
-                            {r.signal_count != null && <span className="text-muted-foreground/60"> · {r.signal_count} signals</span>}
-                          </div>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-[12px] text-muted-foreground/70 leading-relaxed">
+                      Still learning which signals predict wins — the hit-rate appears here once a few deals resolve.
+                    </p>
+                  )}
+
+                  {modelOpen && (
+                    <div className="pt-3 border-t border-border/60 space-y-4">
+                      <div>
+                        <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60 mb-1">
+                          Signals · {active.length}
+                          <span className="normal-case font-normal text-muted-foreground/50"> — click a weight or label to edit</span>
+                        </div>
+                        <div>{positive.map(s => renderSignal(s, "#15803d"))}</div>
+                        {negative.length > 0 && (
+                          <>
+                            <div className="text-[10px] font-semibold uppercase tracking-wide mt-3 mb-1" style={{ color: "#b91c1c" }}>Predicts a miss</div>
+                            <div>{negative.map(s => renderSignal(s, "#b91c1c"))}</div>
+                          </>
                         )}
                       </div>
-                    );
-                  })}
+
+                      <div className="flex items-center gap-3 text-[11px] text-muted-foreground/55 tabular-nums pt-2 border-t border-border/40">
+                        <span>{resolved} resolved · {substrate?.predictions.open ?? 0} open</span>
+                        {gap != null && <span>· calibration gap {fmtGap(gap)}</span>}
+                      </div>
+
+                      {runs.length > 0 && (
+                        <div>
+                          <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60 mb-1">Recent model changes</div>
+                          <div className="space-y-1">
+                            {runs.slice(0, 4).map(r => {
+                              const delta = (r.gap_after != null && r.gap_before != null) ? r.gap_after - r.gap_before : null;
+                              return (
+                                <div key={r.id} className="flex items-baseline gap-2 text-[12px]">
+                                  <span className="text-foreground/75 leading-snug flex-1">{r.note || "Adjusted the model."}</span>
+                                  {delta != null && Math.abs(delta) > 0.001 && (
+                                    <span className="tabular-nums whitespace-nowrap" style={{ color: delta > 0 ? "#15803d" : "#b45309" }}>
+                                      {delta > 0 ? "↑" : "↓"} {fmtGap(delta)}
+                                    </span>
+                                  )}
+                                  <span className="text-[11px] text-muted-foreground/50 tabular-nums whitespace-nowrap">
+                                    {formatDistanceToNow(new Date(r.created_at), { addSuffix: true })}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
-            </Card>
+            </div>
+          )}
 
+          {/* ─── 3. Worth acting on — a worklist; hidden entirely when empty ─── */}
+          {hasModel && (substrate?.attention.length || openHot.length) ? (
             <Card
-              label="Who to act on"
+              label="Worth acting on"
               right={
-                (substrate?.attention.length || openHot.length) ? (
-                  <span className="text-[12px] text-muted-foreground/70 tabular-nums">
-                    {(substrate?.attention.length ?? 0) + openHot.length}
-                  </span>
-                ) : null
+                <span className="text-[12px] text-muted-foreground/70 tabular-nums">
+                  {(substrate?.attention.length ?? 0) + openHot.length}
+                </span>
               }
             >
-              {!substrate?.attention.length && !openHot.length ? (
-                <div className="px-4 py-8 text-[13px] text-muted-foreground/70 text-center">
-                  Nothing needs attention right now. ✓
-                </div>
-              ) : (
-                <div className="divide-y divide-border/60">
-                  {substrate?.attention.map((a, i) => (
-                    <div key={`att-${i}`} className="px-4 py-2.5">
-                      <div className="flex items-baseline gap-2">
-                        <span className="text-[10px] font-semibold uppercase tracking-wide text-[#b45309]">{a.kind.replace(/_/g, ' ')}</span>
-                        <span className="text-[13px] text-foreground/85 truncate">{a.entity_name || a.entity_id.slice(0, 8)}</span>
-                        <span className="text-[12px] text-muted-foreground/60 ml-auto tabular-nums">{a.age_days}d</span>
-                      </div>
-                      <div className="text-[12px] text-muted-foreground mt-0.5">{a.what}</div>
-                      <div className="text-[12px] text-foreground/70 mt-0.5">→ {a.suggested_action}</div>
+              <div className="divide-y divide-border/60">
+                {substrate?.attention.map((a, i) => (
+                  <div key={`att-${i}`} className="px-4 py-2.5">
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-[10px] font-semibold uppercase tracking-wide text-[#b45309]">{a.kind.replace(/_/g, ' ')}</span>
+                      <span className="text-[13px] text-foreground/85 truncate">{a.entity_name || a.entity_id.slice(0, 8)}</span>
+                      <span className="text-[12px] text-muted-foreground/60 ml-auto tabular-nums">{a.age_days}d</span>
                     </div>
-                  ))}
-                  {openHot.map(p => (
-                    <div key={`hot-${p.id}`} className="px-4 py-2.5 flex items-baseline gap-3">
-                      <span className="text-[11px] font-semibold uppercase tracking-wide text-[#15803d]">strong fit</span>
-                      <span className="text-[13px] text-foreground/85 truncate flex-1">
-                        {p.name || p.email || p.entity_id.slice(0, 8)}
-                      </span>
-                      <span className="text-[12px] text-muted-foreground truncate hidden sm:block" style={{ maxWidth: 220 }}>
-                        {p.fired.length ? p.fired.join(" · ") : "—"}
-                      </span>
-                      <span className="text-[13px] font-semibold tabular-nums text-[#15803d]">{p.score}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
+                    <div className="text-[12px] text-muted-foreground mt-0.5">{a.what}</div>
+                    <div className="text-[12px] text-foreground/70 mt-0.5">→ {a.suggested_action}</div>
+                  </div>
+                ))}
+                {openHot.map(p => (
+                  <div key={`hot-${p.id}`} className="px-4 py-2.5 flex items-baseline gap-3">
+                    <span className="text-[11px] font-semibold uppercase tracking-wide text-[#15803d]">strong fit</span>
+                    <span className="text-[13px] text-foreground/85 truncate flex-1">
+                      {p.name || p.email || p.entity_id.slice(0, 8)}
+                    </span>
+                    <span className="text-[12px] text-muted-foreground truncate hidden sm:block" style={{ maxWidth: 220 }}>
+                      {p.fired.length ? p.fired.join(" · ") : "—"}
+                    </span>
+                    <span className="text-[13px] font-semibold tabular-nums text-[#15803d]">{p.score}</span>
+                  </div>
+                ))}
+              </div>
             </Card>
-          </div>
-          )}
+          ) : null}
 
         </div>
       </div>
