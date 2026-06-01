@@ -440,6 +440,35 @@ mindRouter.get('/scorecard/runs', async (req, res) => {
   }
 });
 
+// GET /api/mind/context-changes?workspaceId=… — the workspace's context
+// evolution: every GTM fact that was superseded, as from→to pairs, newest
+// first. Half of the "what it's learned" timeline (the other half is the
+// scoring-model runs above) — this is the workspace sharpening its own profile.
+mindRouter.get('/context-changes', async (req, res) => {
+  try {
+    const { workspaceId } = req.query;
+    if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
+    const supabase = getSupabaseClient();
+    const entityId = await getWorkspaceEntityId(supabase, workspaceId);
+    if (!entityId) return res.json({ changes: [] });
+
+    const all = await listNotes(supabase, workspaceId, { entityId, includeInactive: true, limit: 300 });
+    const byId = new Map(all.map(n => [n.id, n]));
+    const changes = all
+      .filter(n => !n.is_active && n.superseded_by && byId.has(n.superseded_by))
+      .map(n => {
+        const next = byId.get(n.superseded_by);
+        return { category: next.category, from: n.content, to: next.content, at: next.created_at, source: next.source };
+      })
+      .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
+      .slice(0, 20);
+    return res.json({ changes });
+  } catch (err) {
+    console.error('[GET /api/mind/context-changes]', err);
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
 // POST /api/mind/scorecard/seed — translate the plain-English ICP into a seed
 // Scorecard. Body: { workspaceId, force? }. Refuses to clobber an existing
 // Scorecard unless force=true.

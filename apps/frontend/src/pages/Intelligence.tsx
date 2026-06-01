@@ -78,6 +78,10 @@ interface ScorecardRun {
   note: string | null;
   created_at: string;
 }
+// A GTM fact that was superseded — the workspace sharpening its own profile.
+interface ContextChange {
+  category: string; from: string; to: string; at: string; source: string;
+}
 const ICP_CATEGORIES = ["ICP", "Market", "Product", "Pricing", "Competitors", "Positioning"];
 
 const fmtGap = (g: number | null | undefined) =>
@@ -134,6 +138,7 @@ export default function Intelligence() {
   const [substrate, setSubstrate] = useState<Substrate | null>(null);
   const [signals, setSignals] = useState<Signal[]>([]);
   const [runs, setRuns] = useState<ScorecardRun[]>([]);
+  const [contextChanges, setContextChanges] = useState<ContextChange[]>([]);
   const [loading, setLoading] = useState(true);
   const [seeding, setSeeding] = useState(false);
 
@@ -186,8 +191,9 @@ export default function Intelligence() {
       fetch(`${apiUrl}/api/mind/scorecard?workspaceId=${workspaceId}`, { headers: h }).then(r => (r.ok ? r.json() : null)),
       fetch(`${apiUrl}/api/workspace/memories?workspaceId=${workspaceId}&limit=80`, { headers: h }).then(r => (r.ok ? r.json() : null)),
       fetch(`${apiUrl}/api/mind/scorecard/runs?workspaceId=${workspaceId}`, { headers: h }).then(r => (r.ok ? r.json() : null)),
+      fetch(`${apiUrl}/api/mind/context-changes?workspaceId=${workspaceId}`, { headers: h }).then(r => (r.ok ? r.json() : null)),
     ])
-      .then(([sub, sc, mem, scruns]) => {
+      .then(([sub, sc, mem, scruns, ctxch]) => {
         if (sub) setSubstrate(sub);
         if (sc) setSignals(sc.signals ?? []);
         if (mem) {
@@ -197,6 +203,7 @@ export default function Intelligence() {
           setIcpFacts(facts);
         }
         if (scruns) setRuns(scruns.runs ?? []);
+        if (ctxch) setContextChanges(ctxch.changes ?? []);
       })
       .finally(() => setLoading(false));
   }, [workspaceId, token]);
@@ -406,17 +413,32 @@ export default function Intelligence() {
   })();
   const confColor = confidence.tone === "good" ? "#15803d" : confidence.tone === "warn" ? "#b45309" : undefined;
 
-  // ── "Worth acting on" — attention items, falling back to top-scored open accounts ──
-  const openHot = (substrate?.recent_predictions ?? [])
-    .filter(p => !p.resolved_at && (p.score ?? 0) >= 60)
-    .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
-    .slice(0, 6);
-
   // The scoring model in one plain sentence — the transparency layer. The
   // weights/calibration live behind "see the model"; this is the gist.
   const fitSummary = positive.length
     ? `A strong fit looks like: ${positive.slice(0, 5).map(s => s.label).join("; ")}.`
     : null;
+
+  const predictionsMade = (substrate?.predictions.open ?? 0) + resolved;
+
+  // The "what it's learned" timeline — the page's heart. Two streams merged
+  // newest-first: scoring-model changes (the loop sharpening from outcomes) and
+  // context evolution (you sharpening your own profile). Proof it compounds.
+  type Learning = { id: string; kind: "model" | "context"; text: string; sub?: string; at: string; delta?: number | null };
+  const learnings: Learning[] = [
+    ...runs.map(r => ({
+      id: `run-${r.id}`, kind: "model" as const,
+      text: r.note || "Sharpened the scoring model.",
+      at: r.created_at,
+      delta: (r.gap_after != null && r.gap_before != null) ? r.gap_after - r.gap_before : null,
+    })),
+    ...contextChanges.map((c, i) => ({
+      id: `ctx-${i}`, kind: "context" as const,
+      text: `${c.category} — ${c.to}`,
+      sub: `was: ${c.from}`,
+      at: c.at,
+    })),
+  ].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime()).slice(0, 12);
 
   // One editable signal row (weight + label), reused inside "see the model".
   const renderSignal = (s: Signal, color: string) => {
@@ -767,143 +789,124 @@ export default function Intelligence() {
             )}
           </div>
 
-          {/* ─── 2. How Nous scores fit — the ICP model in one sentence, ───
-               ─── with the signals/calibration tucked behind a disclosure ─── */}
-          {(hasModel || icpFacts.length > 0) && (
+          {/* ─── 2. How your workspace is getting smarter — the centerpiece. ───
+               ─── The compounding story: the model AND the context sharpening ───
+               ─── over time. This is the whole point of the page. ─── */}
+          {(hasModel || icpFacts.length > 0 || learnings.length > 0) && (
             <div className="rounded-xl border border-border bg-background overflow-hidden">
               <div className="flex items-center justify-between px-4 py-2.5 bg-muted/50 border-b border-border">
-                <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">How Nous scores fit</span>
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">How your workspace is getting smarter</span>
                 {hasModel && (
                   <button
                     onClick={() => setModelOpen(o => !o)}
                     className="text-[12px] font-semibold text-muted-foreground/70 hover:text-foreground transition-colors"
                   >
-                    {modelOpen ? "Hide the model" : "See the model"}
+                    {modelOpen ? "Hide the scoring model" : "See the scoring model"}
                   </button>
                 )}
               </div>
 
-              {!hasModel ? (
-                <div className="px-4 py-4 flex items-center gap-3 flex-wrap">
-                  <button
-                    onClick={buildScorecard}
-                    disabled={seeding}
-                    className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-primary text-primary-foreground text-[13px] font-semibold hover:bg-primary/90 transition-colors disabled:opacity-30"
-                  >
-                    {seeding ? "Building…" : "Build scoring from your context"}
-                  </button>
-                  <span className="text-[12px] text-muted-foreground/70">Turns the context above into a model that rates how well any account fits.</span>
-                </div>
-              ) : (
-                <div className="px-4 py-4 space-y-3">
-                  {fitSummary && (
-                    <p className="text-[14px] text-foreground/85 leading-relaxed">{fitSummary}</p>
-                  )}
+              <div className="px-4 py-4 space-y-4">
+                {/* Headline — the improvement when there's data, else the loop's promise. */}
+                {!hasModel ? (
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <button
+                      onClick={buildScorecard}
+                      disabled={seeding}
+                      className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-primary text-primary-foreground text-[13px] font-semibold hover:bg-primary/90 transition-colors disabled:opacity-30"
+                    >
+                      {seeding ? "Building…" : "Build your scoring model"}
+                    </button>
+                    <span className="text-[12px] text-muted-foreground/70">Turn your context into a model that scores fit — then watch it sharpen from every outcome.</span>
+                  </div>
+                ) : resolved > 0 ? (
+                  <div className="flex items-end gap-3">
+                    <p className="text-[15px] leading-relaxed flex-1 font-medium" style={{ color: confColor }}>{confidence.line}</p>
+                    {trendValues.length >= 2 && (
+                      <div className="flex-shrink-0 text-right">
+                        <Sparkline values={trendValues} width={84} height={26} />
+                        <div className="text-[10px] text-muted-foreground/50 mt-0.5">getting sharper</div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-[14px] text-foreground/80 leading-relaxed">
+                    Your model is learning. It's made {predictionsMade} prediction{predictionsMade === 1 ? "" : "s"} across your accounts — as they reply and close, it sharpens which signals predict a real fit, and you'll watch exactly what it learns below.
+                  </p>
+                )}
 
-                  {resolved > 0 ? (
-                    <div className="flex items-end gap-3">
-                      <p className="text-[13px] leading-relaxed flex-1" style={{ color: confColor }}>{confidence.line}</p>
-                      {trendValues.length >= 2 && (
-                        <div className="flex-shrink-0 text-right">
-                          <Sparkline values={trendValues} width={72} height={22} />
-                          <div className="text-[10px] text-muted-foreground/50 mt-0.5">trend</div>
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <p className="text-[12px] text-muted-foreground/70 leading-relaxed">
-                      Still learning which signals predict wins — the hit-rate appears here once a few deals resolve.
+                {/* Growth strip — concrete proof of substance, even early. */}
+                <div className="flex flex-wrap gap-x-5 gap-y-1 text-[12px] text-muted-foreground/70 tabular-nums border-t border-border/50 pt-3">
+                  <span><span className="font-semibold text-foreground/80">{icpFacts.length}</span> facts in context</span>
+                  {hasModel && <span><span className="font-semibold text-foreground/80">{active.length}</span> signals learned</span>}
+                  {predictionsMade > 0 && <span><span className="font-semibold text-foreground/80">{predictionsMade}</span> predictions</span>}
+                  {resolved > 0 && <span><span className="font-semibold text-foreground/80">{resolved}</span> outcomes in</span>}
+                  <span>sharpened <span className="font-semibold text-foreground/80">{learnings.length}</span>×</span>
+                </div>
+
+                {/* What it's learned — the timeline. The heart of the page. */}
+                <div>
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60 mb-1.5">What it's learned</div>
+                  {learnings.length === 0 ? (
+                    <p className="text-[12.5px] text-muted-foreground/65 leading-relaxed">
+                      Nothing logged yet. Every time you refine your context or an account's outcome resolves, the change lands here — the running record of your workspace getting smarter.
                     </p>
-                  )}
-
-                  {modelOpen && (
-                    <div className="pt-3 border-t border-border/60 space-y-4">
-                      <div>
-                        <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60 mb-1">
-                          Signals · {active.length}
-                          <span className="normal-case font-normal text-muted-foreground/50"> — click a weight or label to edit</span>
+                  ) : (
+                    <div className="space-y-2">
+                      {learnings.map(l => (
+                        <div key={l.id} className="flex items-baseline gap-2.5 text-[12.5px]">
+                          <span
+                            className="flex-shrink-0 text-[9px] font-semibold uppercase tracking-wide px-1.5 py-[1px] rounded mt-[1px]"
+                            style={l.kind === "model"
+                              ? { color: "#15803d", background: "rgba(21,128,61,0.08)" }
+                              : { color: "#6d28d9", background: "rgba(109,40,217,0.08)" }}
+                          >
+                            {l.kind === "model" ? "model" : "context"}
+                          </span>
+                          <span className="flex-1 leading-snug text-foreground/85">
+                            {l.text}
+                            {l.sub && <span className="text-muted-foreground/55"> · {l.sub}</span>}
+                          </span>
+                          {l.delta != null && Math.abs(l.delta) > 0.001 && (
+                            <span className="tabular-nums whitespace-nowrap flex-shrink-0" style={{ color: l.delta > 0 ? "#15803d" : "#b45309" }}>
+                              {l.delta > 0 ? "↑" : "↓"} {fmtGap(l.delta)}
+                            </span>
+                          )}
+                          <span className="text-[11px] text-muted-foreground/50 tabular-nums whitespace-nowrap flex-shrink-0">
+                            {formatDistanceToNow(new Date(l.at), { addSuffix: true })}
+                          </span>
                         </div>
-                        <div>{positive.map(s => renderSignal(s, "#15803d"))}</div>
-                        {negative.length > 0 && (
-                          <>
-                            <div className="text-[10px] font-semibold uppercase tracking-wide mt-3 mb-1" style={{ color: "#b91c1c" }}>Predicts a miss</div>
-                            <div>{negative.map(s => renderSignal(s, "#b91c1c"))}</div>
-                          </>
-                        )}
-                      </div>
-
-                      <div className="flex items-center gap-3 text-[11px] text-muted-foreground/55 tabular-nums pt-2 border-t border-border/40">
-                        <span>{resolved} resolved · {substrate?.predictions.open ?? 0} open</span>
-                        {gap != null && <span>· calibration gap {fmtGap(gap)}</span>}
-                      </div>
-
-                      {runs.length > 0 && (
-                        <div>
-                          <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60 mb-1">Recent model changes</div>
-                          <div className="space-y-1">
-                            {runs.slice(0, 4).map(r => {
-                              const delta = (r.gap_after != null && r.gap_before != null) ? r.gap_after - r.gap_before : null;
-                              return (
-                                <div key={r.id} className="flex items-baseline gap-2 text-[12px]">
-                                  <span className="text-foreground/75 leading-snug flex-1">{r.note || "Adjusted the model."}</span>
-                                  {delta != null && Math.abs(delta) > 0.001 && (
-                                    <span className="tabular-nums whitespace-nowrap" style={{ color: delta > 0 ? "#15803d" : "#b45309" }}>
-                                      {delta > 0 ? "↑" : "↓"} {fmtGap(delta)}
-                                    </span>
-                                  )}
-                                  <span className="text-[11px] text-muted-foreground/50 tabular-nums whitespace-nowrap">
-                                    {formatDistanceToNow(new Date(r.created_at), { addSuffix: true })}
-                                  </span>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      )}
+                      ))}
                     </div>
                   )}
                 </div>
-              )}
+
+                {/* The scoring model itself — transparency on demand. */}
+                {hasModel && modelOpen && (
+                  <div className="pt-3 border-t border-border/60 space-y-3">
+                    {fitSummary && <p className="text-[13px] text-foreground/80 leading-relaxed">{fitSummary}</p>}
+                    <div>
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60 mb-1">
+                        Signals · {active.length}
+                        <span className="normal-case font-normal text-muted-foreground/50"> — click a weight or label to edit</span>
+                      </div>
+                      <div>{positive.map(s => renderSignal(s, "#15803d"))}</div>
+                      {negative.length > 0 && (
+                        <>
+                          <div className="text-[10px] font-semibold uppercase tracking-wide mt-3 mb-1" style={{ color: "#b91c1c" }}>Predicts a miss</div>
+                          <div>{negative.map(s => renderSignal(s, "#b91c1c"))}</div>
+                        </>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-3 text-[11px] text-muted-foreground/55 tabular-nums pt-2 border-t border-border/40">
+                      <span>{resolved} resolved · {substrate?.predictions.open ?? 0} open</span>
+                      {gap != null && <span>· calibration gap {fmtGap(gap)}</span>}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           )}
-
-          {/* ─── 3. Worth acting on — a worklist; hidden entirely when empty ─── */}
-          {hasModel && (substrate?.attention.length || openHot.length) ? (
-            <Card
-              label="Worth acting on"
-              right={
-                <span className="text-[12px] text-muted-foreground/70 tabular-nums">
-                  {(substrate?.attention.length ?? 0) + openHot.length}
-                </span>
-              }
-            >
-              <div className="divide-y divide-border/60">
-                {substrate?.attention.map((a, i) => (
-                  <div key={`att-${i}`} className="px-4 py-2.5">
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-[10px] font-semibold uppercase tracking-wide text-[#b45309]">{a.kind.replace(/_/g, ' ')}</span>
-                      <span className="text-[13px] text-foreground/85 truncate">{a.entity_name || a.entity_id.slice(0, 8)}</span>
-                      <span className="text-[12px] text-muted-foreground/60 ml-auto tabular-nums">{a.age_days}d</span>
-                    </div>
-                    <div className="text-[12px] text-muted-foreground mt-0.5">{a.what}</div>
-                    <div className="text-[12px] text-foreground/70 mt-0.5">→ {a.suggested_action}</div>
-                  </div>
-                ))}
-                {openHot.map(p => (
-                  <div key={`hot-${p.id}`} className="px-4 py-2.5 flex items-baseline gap-3">
-                    <span className="text-[11px] font-semibold uppercase tracking-wide text-[#15803d]">strong fit</span>
-                    <span className="text-[13px] text-foreground/85 truncate flex-1">
-                      {p.name || p.email || p.entity_id.slice(0, 8)}
-                    </span>
-                    <span className="text-[12px] text-muted-foreground truncate hidden sm:block" style={{ maxWidth: 220 }}>
-                      {p.fired.length ? p.fired.join(" · ") : "—"}
-                    </span>
-                    <span className="text-[13px] font-semibold tabular-nums text-[#15803d]">{p.score}</span>
-                  </div>
-                ))}
-              </div>
-            </Card>
-          ) : null}
 
         </div>
       </div>
