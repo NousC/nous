@@ -1,7 +1,7 @@
 /**
  * Nous MCP server factory.
  *
- * Builds an McpServer with the seven v2 tools registered. Both entrypoints use it:
+ * Builds an McpServer with the v2 tools registered. Both entrypoints use it:
  *   - index.js (stdio bin, published as @opennous/mcp) — one server, env-scoped key
  *   - http.js  (hosted, mcp.opennous.cloud)           — a fresh server per request,
  *                                                        key scoped via AsyncLocalStorage
@@ -18,13 +18,15 @@
  *   attention            — what needs your attention (accounts gone quiet, facts decayed)
  *   verify               — re-check a fact before acting on it
  *   get_gtm_profile      — the user's GTM profile (ICP, market, pricing, product, competitors)
+ *   update_gtm_profile   — write back a change to a GTM context section (evolve, keep history)
+ *   save_note            — attach a note/document (meeting brief, transcript, prep) to a contact
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { get, post } from "./client.js";
 
-export const SERVER_VERSION = "0.13.0";
+export const SERVER_VERSION = "0.14.0";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -401,6 +403,39 @@ export function createServer() {
       const r = await post("/v2/workspace/facts", { section, content, mode, supersedes });
       const verb = r.mode === "append" ? "Logged to" : r.superseded ? "Updated" : "Recorded";
       return { content: [{ type: "text", text: `${verb} ${section}: ${content}` }] };
+    },
+  );
+
+  // ===========================================================================
+  // TOOL: save_note  —  POST /v2/notes
+  // Attach a long-form artifact to a CONTACT: a meeting brief you wrote, a
+  // transcript, pre-meeting prep, or a plain note. Append-only and dated, so the
+  // contact builds a record across meetings. Distinct from `record` (which logs
+  // that an interaction happened) — this keeps the document itself.
+  // ===========================================================================
+  server.tool(
+    "save_note",
+    "Save a note or document onto a person or company so it is kept on their record — a meeting " +
+    "brief you wrote, a transcript, pre-meeting prep, research, or a plain note. Use this whenever " +
+    "you produce something durable about a specific contact that's worth keeping for next time (e.g. " +
+    "after writing a meeting brief, save it to the contact so future meetings can reference it). " +
+    "Notes are append-only and dated, so a contact builds a record across meetings — later you can " +
+    "read the last few and see what changed. This is NOT for logging that an interaction happened " +
+    "(use `record` with an interaction.* event for that), and NOT for the user's own GTM profile " +
+    "(use `update_gtm_profile`). Put the full text in `content` — it's kept for agents to read; the " +
+    "UI shows the title and date, not the whole body.",
+    {
+      focus: z.string().describe("Who to attach it to — an email, LinkedIn URL, domain, or entity UUID (not a bare name)."),
+      content: z.string().describe("The full note or document text (a short note or a complete brief/transcript)."),
+      type: z.enum(["note", "meeting_brief", "transcript", "meeting_notes", "pre_meeting", "research"])
+        .optional().describe("What kind of document this is (default: note)."),
+      title: z.string().optional().describe("A short name, e.g. 'Pre-meeting brief — renewal' or 'Transcript — Jun 1'."),
+      date: z.string().optional().describe("The relevant date (e.g. the meeting date, ISO or plain). Defaults to now."),
+    },
+    async ({ focus, content, type, title, date }) => {
+      const r = await post("/v2/notes", { focus, content, type, title, date });
+      const label = title || (r.doc_type || "note").replace(/_/g, " ");
+      return { content: [{ type: "text", text: `Saved ${label} to ${focus}.` }] };
     },
   );
 

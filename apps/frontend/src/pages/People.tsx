@@ -58,7 +58,10 @@ function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token:
   const linkedin = acts.filter(a => a.source === "linkedin" || a.activity_type?.includes("linkedin"));
   const slack   = acts.filter(a => a.source === "slack"    || a.activity_type?.includes("slack"));
   const calls   = acts.filter(a => ["call","meeting"].some(t => a.activity_type?.includes(t)));
-  const notes   = acts.filter(a => ["note","manual","contact_created"].some(t => a.activity_type?.includes(t)));
+  // Documents (meeting briefs, transcripts, notes) live in the notes layer with a
+  // doc_type; plain atomic facts are the rest. Documents → Notes tab, facts → Facts.
+  const documents = mems.filter((m: any) => m.metadata?.doc_type);
+  const facts     = mems.filter((m: any) => !m.metadata?.doc_type);
 
   const TABS: { id: DetailTab; label: string; count?: number }[] = [
     { id:"activity",  label:"Activity",  count: acts.length    },
@@ -66,12 +69,12 @@ function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token:
     { id:"linkedin",  label:"LinkedIn",  count: linkedin.length },
     { id:"slack",     label:"Slack",     count: slack.length   },
     { id:"calls",     label:"Calls",     count: calls.length   },
-    { id:"notes",     label:"Notes",     count: notes.length   },
+    { id:"notes",     label:"Notes",     count: documents.length },
     { id:"company",   label:"Company"                          },
-    { id:"memory",    label:"Facts",     count: mems.length    },
+    { id:"memory",    label:"Facts",     count: facts.length   },
   ];
 
-  const tabItems = tab==="activity" ? acts : tab==="emails" ? emails : tab==="linkedin" ? linkedin : tab==="slack" ? slack : tab==="calls" ? calls : tab==="notes" ? notes : [];
+  const tabItems = tab==="activity" ? acts : tab==="emails" ? emails : tab==="linkedin" ? linkedin : tab==="slack" ? slack : tab==="calls" ? calls : [];
 
   return (
     <div className="flex flex-col h-full bg-background">
@@ -107,7 +110,7 @@ function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token:
         <div className="flex flex-1 min-h-0 overflow-hidden">
           {/* Main content */}
           <div className="flex-1 overflow-y-auto px-8 py-4">
-            {(tab !== "company" && tab !== "memory") && (
+            {(tab !== "company" && tab !== "memory" && tab !== "notes") && (
               tabItems.length === 0
                 ? <p className="text-[13px] text-muted-foreground/70 py-12 text-center">Nothing here yet</p>
                 : <div className="divide-y divide-border/60">
@@ -137,11 +140,33 @@ function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token:
                 {(contact.domain ?? raw?.domain) && <div className="text-[13px] text-muted-foreground">{contact.domain ?? raw?.domain}</div>}
               </div>
             )}
+            {tab === "notes" && (
+              documents.length === 0
+                ? <p className="text-[13px] text-muted-foreground/70 py-12 text-center">No notes or documents yet</p>
+                : <div className="divide-y divide-border/60">
+                    {documents.map((m: any) => {
+                      const when = m.metadata?.date || m.created_at;
+                      const text = String(m.content || "").replace(/\s+/g, " ").trim();
+                      const long = text.length > 220;
+                      return (
+                        <div key={m.id} className="py-3">
+                          <div className="flex items-baseline gap-2 mb-1">
+                            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">{m.category}</span>
+                            {m.metadata?.title && <span className="text-[13px] font-medium text-foreground/85 truncate">{m.metadata.title}</span>}
+                            <span className="text-[12px] text-muted-foreground/70 ml-auto flex-shrink-0">{relTime(when)}</span>
+                          </div>
+                          <p className="text-[13px] text-muted-foreground leading-relaxed line-clamp-2">{long ? text.slice(0, 220) + "…" : text}</p>
+                          {long && <span className="text-[11px] text-muted-foreground/50">full document kept for agents to read</span>}
+                        </div>
+                      );
+                    })}
+                  </div>
+            )}
             {tab === "memory" && (
-              mems.length === 0
+              facts.length === 0
                 ? <p className="text-[13px] text-muted-foreground/70 py-12 text-center">No facts yet</p>
                 : <div className="divide-y divide-border/60">
-                    {mems.map((m: any) => (
+                    {facts.map((m: any) => (
                       <div key={m.id} className="py-3">
                         <div className="flex items-baseline gap-2 mb-1">
                           <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 capitalize">{m.category?.toLowerCase()}</span>
