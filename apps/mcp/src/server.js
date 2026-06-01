@@ -26,7 +26,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { get, post } from "./client.js";
 
-export const SERVER_VERSION = "0.14.0";
+export const SERVER_VERSION = "0.15.0";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -114,6 +114,17 @@ export function createServer() {
         for (const t of ctx.timeline) {
           if (t.tier === "count") lines.push(`  ${t.count}× ${fmtType(t.type)}`);
           else lines.push(`  ${relAge(t.when)}  ${fmtType(t.type)}${t.summary ? `: ${t.summary}` : ""}`);
+        }
+        lines.push("");
+      }
+      if (ctx.documents?.length) {
+        // Meeting briefs / notes / transcripts kept on the contact. Snippets only —
+        // call get_account for a full body, or to compare across meetings.
+        lines.push("DOCUMENTS (notes & meeting records — get_account for full text):");
+        for (const d of ctx.documents) {
+          const when = d.date ? `  [${relAge(d.date)}]` : "";
+          lines.push(`  ${d.type.replace(/_/g, " ")}${d.title ? ` · ${d.title}` : ""}${when}`);
+          if (d.snippet) lines.push(`    ${d.snippet}`);
         }
         lines.push("");
       }

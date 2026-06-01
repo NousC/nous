@@ -90,6 +90,9 @@ export interface AssembledContext {
   timeline: TimelineItem[];
   stakeholders: Stakeholder[];
   predictions: { kind: string; value: unknown; confidence: number }[];
+  /** Long-form documents kept on the contact (meeting briefs, notes, transcripts).
+   *  Compact list only — fetch a full body with get_account. */
+  documents: { type: string; title: string | null; date: string | null; snippet: string }[];
   meta: { token_estimate: number; claims_total: number; claims_returned: number; timeline_events: number };
 }
 
@@ -131,8 +134,31 @@ export async function assembleContext(
   // Drop legacy v1 bookkeeping claims before ranking — see LEGACY_CONTEXT_NOISE.
   const usefulClaims = claims.filter(c => !LEGACY_CONTEXT_NOISE.has(c.property));
 
+  // Pull contact documents (meeting briefs / notes / transcripts) out of the
+  // claim stream — their full bodies would blow the token budget. Surface them
+  // as a compact list (type · title · date · snippet); the agent fetches a full
+  // body with get_account when it needs one.
+  const isDoc = (c: { property: string; value: unknown }) =>
+    typeof c.property === 'string' && c.property.startsWith('note.') &&
+    !!(c.value as { metadata?: { doc_type?: string } } | null)?.metadata?.doc_type;
+  const documents = usefulClaims
+    .filter(isDoc)
+    .map(c => {
+      const v = c.value as { content?: string; metadata?: { doc_type?: string; title?: string; date?: string } };
+      const text = String(v.content ?? '').replace(/\s+/g, ' ').trim();
+      return {
+        type: v.metadata?.doc_type ?? 'note',
+        title: v.metadata?.title ?? null,
+        date: v.metadata?.date ?? c.last_observed_at ?? null,
+        snippet: text.length > 200 ? text.slice(0, 200) + '…' : text,
+      };
+    })
+    .sort((a, b) => +new Date(b.date ?? 0) - +new Date(a.date ?? 0))
+    .slice(0, 8);
+  const rankClaims = usefulClaims.filter(c => !isDoc(c));
+
   // rank claims: on-theme first, then confidence, then recency — then budget-cap
-  const ranked = [...usefulClaims].sort((a, b) => {
+  const ranked = [...rankClaims].sort((a, b) => {
     const t = themeRank(a.property, recipe.themes) - themeRank(b.property, recipe.themes);
     if (t !== 0) return t;
     if (b.confidence !== a.confidence) return b.confidence - a.confidence;
@@ -188,7 +214,7 @@ export async function assembleContext(
     entity: { id: entity.id, type: entity.type },
     intent,
     summary: buildSummary(entity.type, claimsOut, events.length, intent),
-    claims: claimsOut, workspace: workspaceClaims, timeline, stakeholders, predictions,
+    claims: claimsOut, workspace: workspaceClaims, timeline, stakeholders, predictions, documents,
     meta: {
       token_estimate: 0,
       claims_total: claims.length, claims_returned: claimsOut.length,

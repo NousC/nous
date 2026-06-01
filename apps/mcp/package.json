@@ -1,6 +1,6 @@
 {
   "name": "@opennous/mcp",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "description": "Nous MCP Server — Customer graph for GTM agents.",
   "type": "module",
   "bin": {
