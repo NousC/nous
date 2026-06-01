@@ -140,6 +140,88 @@ async function propose(signals, train) {
   }
 }
 
+// ── Contrastive discovery — the data-driven candidate source ──────────────────
+// Sweep the won/lost cohort for features whose presence separates winners from
+// losers by lift, and turn the strongest into NEW signal proposals. Deterministic
+// (no LLM); each candidate is still validated through both gates below, so a
+// spurious correlation never ships. This is Deepline's signal discovery, native.
+
+const dslug = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40);
+
+function weightFromLift(lift) {
+  if (lift >= 3) return 8;
+  if (lift >= 2) return 6;
+  if (lift >= 1.5) return 4;
+  if (lift <= 0.33) return -8;
+  if (lift <= 0.5) return -6;
+  if (lift <= 0.66) return -4;
+  return 0;
+}
+
+function labelForDiscovery(feature, value) {
+  const f = feature.replace(/^signal\./, '').replace(/[._]/g, ' ').trim();
+  const title = f.replace(/\b\w/g, c => c.toUpperCase());
+  return typeof value === 'boolean' ? title : `${title}: ${String(value).replace(/_/g, ' ')}`;
+}
+
+function discoverSignals(episodes, signals) {
+  // win per episode — disposition when present (won vs qualified-lost), else the
+  // legacy score threshold. 'no_opportunity' is already excluded upstream.
+  const rows = episodes.map(e => ({
+    features: e.features,
+    win: e.disposition ? e.disposition === 'won' : (e.outcome ?? 0) >= 0.5,
+  }));
+  if (rows.length < 8) return [];
+
+  const totalN = rows.length;
+  const totalWins = rows.filter(r => r.win).length;
+  if (totalWins === 0 || totalWins === totalN) return []; // no contrast
+
+  // Tally (feature == value) candidates — booleans ("has X") and short categoricals.
+  const cand = new Map();
+  for (const r of rows) {
+    for (const [f, v] of Object.entries(r.features)) {
+      if (v == null) continue;
+      const isBool = typeof v === 'boolean';
+      const isCat = typeof v === 'string' && v.length <= 40;
+      if (!isBool && !isCat) continue;
+      if (isBool && v === false) continue; // only presence of a signal
+      const value = v;
+      const key = `${f}::${String(value)}`;
+      let c = cand.get(key);
+      if (!c) { c = { feature: f, value, withN: 0, winWith: 0 }; cand.set(key, c); }
+      c.withN++; if (r.win) c.winWith++;
+    }
+  }
+
+  const scoredFeatures = new Set(signals.filter(s => s.active).map(s => s.rule?.feature).filter(Boolean));
+  const out = [];
+  for (const c of cand.values()) {
+    const nWithout = totalN - c.withN;
+    if (c.withN < 4 || nWithout < 4) continue;           // small cohorts lie
+    if (scoredFeatures.has(c.feature)) continue;          // already scored on this
+    const wrWith = c.winWith / c.withN;
+    const wrWithout = (totalWins - c.winWith) / nWithout;
+    if (wrWithout <= 0) continue;
+    const lift = wrWith / wrWithout;
+    if (lift < 1.5 && lift > 0.66) continue;              // not discriminative
+    const weight = weightFromLift(lift);
+    if (weight === 0) continue;
+    out.push({ ...c, lift, weight });
+  }
+  out.sort((a, b) => Math.abs(Math.log(b.lift)) - Math.abs(Math.log(a.lift)));
+  return out.slice(0, 5).map(d => ({
+    action: 'add',
+    signal: {
+      key: `disc_${dslug(d.feature)}${typeof d.value === 'string' ? '_' + dslug(d.value) : ''}`,
+      label: labelForDiscovery(d.feature, d.value),
+      weight: d.weight,
+      rule: { feature: d.feature, op: '==', value: d.value },
+    },
+    note: `discovered: ${d.lift.toFixed(1)}× lift over ${d.withN} deals`,
+  }));
+}
+
 // ── One workspace's run ───────────────────────────────────────────────────────
 async function runForWorkspace(supabase, workspaceId, episodes) {
   setUser({ id: String(workspaceId) });
@@ -178,8 +260,12 @@ async function runForWorkspace(supabase, workspaceId, episodes) {
   let kept = 0;
   const notes = [];
 
+  // Data-driven candidates first (contrastive lift), then LLM reflection for the
+  // remaining steps. Both flow through the same two gates below.
+  const discoveryQueue = discoverSignals(episodes, signals);
+
   for (let i = 0; i < MAX_STEPS; i++) {
-    const proposal = await propose(signals, train);
+    const proposal = discoveryQueue.shift() || await propose(signals, train);
     if (!proposal) break;
     steps++;
 
@@ -291,6 +377,10 @@ export async function runScorecardLoop() {
     const snapshot = p.feature_snapshot || {};
     const keys = Object.keys(snapshot);
     if (keys.length === 0) continue;
+    // 'no_opportunity' accounts (scored but never a real opportunity) are noise —
+    // exclude them so the loop learns only from genuine won/lost outcomes.
+    const disposition = p.outcome_value?.disposition ?? null;
+    if (disposition === 'no_opportunity') continue;
     const outcome = p.outcome_value?.score;
     if (typeof outcome !== 'number') continue;
 
@@ -298,7 +388,7 @@ export async function runScorecardLoop() {
     for (const k of keys) features[k] = snapshot[k]?.value;
 
     if (!byWorkspace.has(p.workspace_id)) byWorkspace.set(p.workspace_id, []);
-    byWorkspace.get(p.workspace_id).push({ features, outcome, predicted_at: p.predicted_at });
+    byWorkspace.get(p.workspace_id).push({ features, outcome, disposition, predicted_at: p.predicted_at });
   }
 
   // Heartbeat when there's nothing to learn from across the whole system —
