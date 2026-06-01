@@ -388,6 +388,14 @@ export default function Intelligence() {
   const negative = active.filter(s => s.weight < 0).sort((a, b) => a.weight - b.weight);
   const hasModel = active.length > 0;
 
+  // Has the user actually run the guided 5-step Playbook? The wizard writes its
+  // facts with source 'playbook' — onboarding only seeds a single ICP line
+  // (source 'onboarding'), which is NOT a completed playbook. So a lone ICP fact
+  // must not unlock the page: until the user finishes the Playbook (or builds a
+  // model by hand), we keep them on the cold-start setup screen.
+  const playbookDone = icpFacts.some(f => f.source === "playbook");
+  const needsSetup = !playbookDone && !hasModel;
+
   const gap = substrate?.calibration.gap ?? null;
   const resolved = substrate?.calibration.resolved ?? 0;
   const trendValues = substrate?.calibration.trend.map(t => t.gap) ?? [];
@@ -572,7 +580,7 @@ export default function Intelligence() {
           {/* ─── 1. Your context — the living profile, the hero of the page ─── */}
           <div className="rounded-xl border border-border bg-background overflow-hidden">
             <div className="flex items-center justify-between px-4 py-2.5 bg-muted/50 border-b border-border">
-              {(icpFacts.length === 0 && !hasModel) ? (
+              {needsSetup ? (
                 <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">Your context</span>
               ) : (
                 <button
@@ -584,7 +592,7 @@ export default function Intelligence() {
                   <span className="text-muted-foreground/50 normal-case font-normal ml-1 tabular-nums">· {icpFacts.length} fact{icpFacts.length === 1 ? "" : "s"}</span>
                 </button>
               )}
-              {(hasModel || icpFacts.length > 0) && (() => {
+              {!needsSetup && (() => {
                 const exhausted = pbRebuilds != null && pbRebuilds.used >= pbRebuilds.limit;
                 return (
                   <button
@@ -598,9 +606,9 @@ export default function Intelligence() {
                 );
               })()}
             </div>
-            {((icpFacts.length === 0 && !hasModel) || contextOpen) && (
+            {(needsSetup || contextOpen) && (
             <>
-            {(icpFacts.length === 0 && !hasModel) ? (
+            {needsSetup ? (
               /* Cold start — the guided GTM Playbook, with manual entry as a fallback. */
               !pbManual ? (
                 <div className="px-6 py-10 flex flex-col items-center text-center">
@@ -848,7 +856,7 @@ export default function Intelligence() {
           {/* ─── 2. How your workspace is getting smarter — the centerpiece. ───
                ─── The compounding story: the model AND the context sharpening ───
                ─── over time. This is the whole point of the page. ─── */}
-          {(hasModel || icpFacts.length > 0 || learnings.length > 0) && (
+          {!needsSetup && (hasModel || icpFacts.length > 0 || learnings.length > 0) && (
             <div className="rounded-xl border border-border bg-background overflow-hidden">
               <div className="flex items-center justify-between px-4 py-2.5 bg-muted/50 border-b border-border">
                 <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">
