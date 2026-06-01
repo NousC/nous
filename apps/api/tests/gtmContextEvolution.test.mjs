@@ -9,6 +9,7 @@ import {
   updateNote,
   listNotes,
   getNote,
+  assembleContext,
 } from '@nous/core';
 import { findSupersedable } from '../src/routes/v2/workspaceFacts.mjs';
 
@@ -207,4 +208,26 @@ run('contact documents: a note/brief saves with doc_type metadata and appends (t
   assert.ok(brief, 'brief stored with its doc_type');
   assert.equal(brief.metadata.title, 'Kickoff brief — May', 'title round-trips');
   assert.equal(brief.metadata.date, '2026-05-15', 'date round-trips');
+});
+
+run('Slice 3 — get_context surfaces documents compactly, out of the claim stream', async () => {
+  const supabase = getSupabaseClient();
+  const { data: person } = await supabase
+    .from('entities').insert({ workspace_id: workspaceId, type: 'person' }).select('id').single();
+  await saveDocument(supabase, workspaceId, {
+    entityId: person.id, type: 'meeting_brief', title: 'Prep — Q3 renewal', date: '2026-06-01',
+    content: 'A long meeting brief body that should not be dumped into the claim stream…',
+  });
+
+  const ctx = await assembleContext(supabase, workspaceId, person.id, 'meeting_prep');
+  assert.ok(ctx, 'context assembled');
+  assert.ok(
+    ctx.documents.some(d => d.type === 'meeting_brief' && d.title === 'Prep — Q3 renewal'),
+    'the document is surfaced in ctx.documents',
+  );
+  assert.equal(
+    ctx.claims.some(c => typeof c.property === 'string' && c.property.startsWith('note.')),
+    false,
+    'document is kept OUT of the claim stream (no token blowup)',
+  );
 });
