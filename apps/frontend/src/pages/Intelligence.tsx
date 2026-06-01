@@ -38,7 +38,7 @@ interface Substrate {
     id: string; entity_id: string; name: string | null; email: string | null;
     score: number | null; fit: boolean | null;
     predicted_at: string; resolved_at: string | null;
-    outcome_score: number | null; replied: boolean | null;
+    outcome_score: number | null; disposition: string | null; replied: boolean | null;
     fired: string[];
   }[];
   misses: Substrate["recent_predictions"];
@@ -177,7 +177,6 @@ export default function Intelligence() {
   // the full profile is one click away.
   const [contextOpen, setContextOpen] = useState(false);
   // The legend that explains predictions + the timeline chips.
-  const [legendOpen, setLegendOpen] = useState(false);
 
   // Per-fact supersession history — which fact's timeline is expanded, + its rows.
   const [historyOpen, setHistoryOpen] = useState<string | null>(null);
@@ -959,35 +958,7 @@ export default function Intelligence() {
                     <span className="normal-case font-normal text-muted-foreground/45 ml-1.5">· learning for {learningDays}d</span>
                   )}
                 </span>
-                <button
-                  onClick={() => setLegendOpen(o => !o)}
-                  className="text-[12px] font-semibold text-muted-foreground/70 hover:text-foreground transition-colors"
-                >
-                  What's this?
-                </button>
               </div>
-
-              {legendOpen && (
-                <div className="px-4 py-3 bg-muted/30 border-b border-border/60 text-[12px] text-muted-foreground/80 space-y-2.5">
-                  <p className="leading-relaxed">
-                    <span className="font-semibold text-foreground/75">Prediction:</span> when Nous scores an account's fit (0–100), it stakes a bet that the strong-fit ones will convert. As accounts reply or close, each prediction resolves — and the model learns which signals were actually predictive.
-                  </p>
-                  <div className="flex flex-wrap gap-x-4 gap-y-1.5">
-                    {[
-                      { label: "Claude", color: "#6d28d9", bg: "rgba(109,40,217,0.08)", desc: "Claude updated your context from your work" },
-                      { label: "you", color: "#475569", bg: "rgba(71,85,105,0.08)", desc: "you edited it" },
-                      { label: "site", color: "#a16207", bg: "rgba(161,98,7,0.08)", desc: "drafted from your website" },
-                      { label: "model", color: "#15803d", bg: "rgba(21,128,61,0.08)", desc: "the scoring model adjusted itself" },
-                      { label: "✓ called it", color: "#b45309", bg: "rgba(180,83,9,0.10)", desc: "a strong-fit prediction that converted" },
-                    ].map(it => (
-                      <span key={it.label} className="inline-flex items-center gap-1.5">
-                        <span className="text-[9px] font-semibold uppercase tracking-wide px-1.5 py-[1px] rounded whitespace-nowrap" style={{ color: it.color, background: it.bg }}>{it.label}</span>
-                        <span className="text-muted-foreground/65">{it.desc}</span>
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
 
               <div className="px-4 py-4 space-y-5">
                 {/* Headline — the improvement, or the loop's promise. */}
@@ -1024,32 +995,52 @@ export default function Intelligence() {
                   </div>
                 ) : null}
 
-                {/* The model — what it scores on. Always visible: this IS the engine. */}
-                {hasModel && (
-                  <div className="pt-4 border-t border-border/50">
-                    <div className="flex items-baseline justify-between mb-2">
-                      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60">The model — what it scores on</span>
-                      <span className="text-[10px] text-muted-foreground/45 tabular-nums">{active.length} signal{active.length === 1 ? "" : "s"} · click to edit</span>
+                {/* What we analyzed — the real work, as a People-style table. Each
+                    account Nous scored: its ICP fit and how it actually turned out.
+                    Full-bleed (breaks the card padding) so it reads as a real table. */}
+                {hasModel && (substrate?.recent_predictions?.length ?? 0) > 0 && (
+                  <div className="-mx-4">
+                    {/* Header */}
+                    <div className="flex items-center gap-4 px-4 py-2.5 bg-muted/50 border-y border-border">
+                      <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-1 min-w-0">Account</span>
+                      <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-shrink-0 text-right" style={{ width: 48 }}>ICP fit</span>
+                      <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-shrink-0" style={{ width: 96 }}>Outcome</span>
+                      <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-shrink-0 text-right" style={{ width: 92 }}>Analyzed</span>
                     </div>
-                    {fitSummary && <p className="text-[13px] text-foreground/80 leading-relaxed mb-2.5">{fitSummary}</p>}
-                    <div className="text-[10px] font-semibold uppercase tracking-wide mb-0.5" style={{ color: "#15803d" }}>Predicts a fit</div>
-                    <div>
-                      {positive.length
-                        ? positive.map(s => renderSignal(s, "#15803d"))
-                        : <div className="text-[12px] text-muted-foreground/50 py-1">none yet</div>}
-                    </div>
-                    {negative.length > 0 && (
-                      <>
-                        <div className="text-[10px] font-semibold uppercase tracking-wide mt-3 mb-0.5" style={{ color: "#b91c1c" }}>Predicts a miss</div>
-                        <div>{negative.map(s => renderSignal(s, "#b91c1c"))}</div>
-                      </>
-                    )}
-                    {resolved > 0 && (
-                      <div className="flex flex-wrap items-center gap-x-3 text-[11px] text-muted-foreground/50 tabular-nums mt-2.5 pt-2 border-t border-border/40">
-                        <span>calibrated on {resolved} outcome{resolved === 1 ? "" : "s"}</span>
-                        {gap != null && <span>· gap {fmtGap(gap)}</span>}
-                      </div>
-                    )}
+                    {/* Rows */}
+                    {substrate!.recent_predictions.slice(0, 12).map(p => {
+                      const label = p.name || p.email || "Unknown account";
+                      const score = typeof p.score === "number" ? Math.round(p.score) : null;
+                      const outcome =
+                        p.disposition === "won" ? { t: "Closed-won", c: "#15803d", bg: "rgba(21,128,61,0.10)" }
+                        : p.disposition === "lost" ? { t: "Closed-lost", c: "#b45309", bg: "rgba(180,83,9,0.10)" }
+                        : p.replied ? { t: "Replied", c: "#1d4ed8", bg: "rgba(29,78,216,0.10)" }
+                        : p.disposition === "no_opportunity" ? { t: "No deal", c: "#64748b", bg: "rgba(100,116,139,0.10)" }
+                        : null;
+                      return (
+                        <div key={p.id} className="flex items-center gap-4 px-4 py-3 border-b border-border/60 last:border-0 hover:bg-muted/50 transition-colors">
+                          <span className="flex-1 min-w-0 text-[13px] font-medium text-foreground truncate">{label}</span>
+                          <span
+                            className="flex-shrink-0 text-right text-[13px] font-semibold tabular-nums"
+                            style={{ width: 48, color: score == null ? "#94a3b8" : score >= 70 ? "#15803d" : score >= 40 ? "#a16207" : "#b91c1c" }}
+                          >
+                            {score ?? "—"}
+                          </span>
+                          <div className="flex-shrink-0" style={{ width: 96 }}>
+                            {outcome ? (
+                              <span className="text-[9px] font-semibold uppercase tracking-wide px-1.5 py-[1px] rounded" style={{ color: outcome.c, background: outcome.bg }}>
+                                {outcome.t}
+                              </span>
+                            ) : (
+                              <span className="text-[12px] text-muted-foreground/45">Pending</span>
+                            )}
+                          </div>
+                          <span className="flex-shrink-0 text-right text-[12px] text-muted-foreground/60 tabular-nums" style={{ width: 92 }}>
+                            {formatDistanceToNow(new Date(p.resolved_at || p.predicted_at), { addSuffix: true })}
+                          </span>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
 
