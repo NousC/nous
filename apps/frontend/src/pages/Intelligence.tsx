@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { RefreshCw, ChevronRight, Trash2, History, Info } from "lucide-react";
+import { RefreshCw, ChevronRight, Trash2, History, Info, Plus } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { PageHeader } from "@/components/ui/page-header";
 
@@ -389,6 +389,9 @@ export default function Intelligence() {
       });
       setPbOpen(false);
       load();
+      // One onboarding flow: after the site-read playbook builds the model,
+      // continue into closed-deals discovery to seed it from real outcomes too.
+      setCdOpen(true);
     } finally { setPbBuilding(false); }
   };
 
@@ -609,17 +612,28 @@ export default function Intelligence() {
           title="Context"
           subtitle="What your agents know about your business."
           actions={
-            <button
-              onClick={load}
-              className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-background border border-border text-foreground/80 text-[13px] font-semibold hover:bg-muted/50 transition-colors"
-            >
-              <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
-            </button>
+            <div className="flex items-center gap-2">
+              {!needsSetup && (
+                <button
+                  onClick={() => setCdOpen(true)}
+                  title="Add closed-won / closed-lost deals to sharpen the model"
+                  className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-background border border-border text-foreground/80 text-[13px] font-semibold hover:bg-muted/50 transition-colors"
+                >
+                  <Plus className="h-3.5 w-3.5" /> Add deals
+                </button>
+              )}
+              <button
+                onClick={load}
+                className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-background border border-border text-foreground/80 text-[13px] font-semibold hover:bg-muted/50 transition-colors"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
+              </button>
+            </div>
           }
         />
 
         {hasModel && (
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-px bg-border/50 rounded-xl overflow-hidden border border-border mb-4">
+          <div className="grid grid-cols-2 sm:grid-cols-5 divide-x divide-border/70 rounded-xl border border-border mb-4 bg-background">
             {[
               { label: "Accounts analyzed", value: predictionsMade, color: undefined as string | undefined, info: "Accounts the ICP model has scored for fit (0–100)." },
               { label: "Closed-won", value: substrate?.predictions.won ?? 0, color: "#15803d", info: "Scored accounts that converted — the wins the model learns from." },
@@ -627,9 +641,10 @@ export default function Intelligence() {
               { label: "Signals", value: active.length, color: undefined, info: "The weighted attributes the model scores fit on." },
               { label: "Context facts", value: icpFacts.length, color: undefined, info: "What your agents know about your business — ICP, pricing, positioning, competitors." },
             ].map(m => (
-              <div key={m.label} className="bg-background px-4 py-3.5 relative">
-                <span className="absolute top-2 right-2 text-muted-foreground/25 hover:text-muted-foreground/70 cursor-help transition-colors" title={m.info}>
-                  <Info className="h-3 w-3" />
+              <div key={m.label} className="px-4 py-3.5 relative group/metric">
+                <Info className="absolute top-2 right-2 h-3 w-3 text-muted-foreground/25 group-hover/metric:text-muted-foreground/60 transition-colors" />
+                <span className="pointer-events-none absolute top-7 right-2 z-30 w-52 rounded-lg bg-foreground text-background text-[11px] leading-snug px-2.5 py-2 shadow-lg opacity-0 group-hover/metric:opacity-100 transition-opacity duration-150">
+                  {m.info}
                 </span>
                 <div className="text-[22px] font-semibold tabular-nums leading-none" style={m.color ? { color: m.color } : undefined}>{m.value}</div>
                 <div className="text-[10.5px] font-medium text-muted-foreground/60 uppercase tracking-wide mt-1.5">{m.label}</div>
@@ -654,30 +669,6 @@ export default function Intelligence() {
                   Your context
                   <span className="text-muted-foreground/50 normal-case font-normal ml-1 tabular-nums">· {icpFacts.length} fact{icpFacts.length === 1 ? "" : "s"}</span>
                 </button>
-              )}
-              {!needsSetup && (
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => setCdOpen(true)}
-                    title="Discover signals from your closed-won vs closed-lost deals"
-                    className="text-[12px] font-semibold text-foreground/70 hover:text-foreground transition-colors"
-                  >
-                    Build from deals
-                  </button>
-                  {(() => {
-                    const exhausted = pbRebuilds != null && pbRebuilds.used >= pbRebuilds.limit;
-                    return (
-                      <button
-                        onClick={openPlaybook}
-                        disabled={exhausted}
-                        title={pbRebuilds ? `${pbRebuilds.used}/${pbRebuilds.limit} site rebuilds used` : "Reads your site and re-drafts your playbook (3 rebuilds max)"}
-                        className="text-[12px] font-semibold text-foreground/70 hover:text-foreground transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                      >
-                        {exhausted ? "Site rebuilds used up" : "Rebuild from your site"}
-                      </button>
-                    );
-                  })()}
-                </div>
               )}
             </div>
             {(needsSetup || contextOpen) && (
