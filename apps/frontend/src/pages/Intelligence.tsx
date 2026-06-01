@@ -421,10 +421,19 @@ export default function Intelligence() {
 
   const predictionsMade = (substrate?.predictions.open ?? 0) + resolved;
 
-  // The "what it's learned" timeline — the page's heart. Two streams merged
-  // newest-first: scoring-model changes (the loop sharpening from outcomes) and
-  // context evolution (you sharpening your own profile). Proof it compounds.
-  type Learning = { id: string; kind: "model" | "context"; text: string; sub?: string; at: string; delta?: number | null };
+  // "Called it" — resolved predictions where the model scored a strong fit and
+  // the account actually converted. The loop proven right by reality.
+  const hits = (substrate?.recent_predictions ?? [])
+    .filter(p => p.resolved_at && (p.score ?? 0) >= 70 && (p.outcome_score ?? 0) > 0);
+
+  // Who taught a context change — turns "a fact changed" into "Claude learned
+  // this from your work", which is the whole write-back loop made visible.
+  const sourceWho = (s: string) => (s === "agent" ? "Claude" : s === "playbook" ? "site" : "you");
+
+  // The "what it's learned" timeline — the page's heart. Three streams merged
+  // newest-first: the scoring model sharpening from outcomes, the context
+  // evolving (you/Claude/site), and predictions the model called right.
+  type Learning = { id: string; kind: "model" | "context" | "outcome"; who?: string; text: string; sub?: string; at: string; delta?: number | null };
   const learnings: Learning[] = [
     ...runs.map(r => ({
       id: `run-${r.id}`, kind: "model" as const,
@@ -433,12 +442,40 @@ export default function Intelligence() {
       delta: (r.gap_after != null && r.gap_before != null) ? r.gap_after - r.gap_before : null,
     })),
     ...contextChanges.map((c, i) => ({
-      id: `ctx-${i}`, kind: "context" as const,
+      id: `ctx-${i}`, kind: "context" as const, who: sourceWho(c.source),
       text: `${c.category} — ${c.to}`,
       sub: `was: ${c.from}`,
       at: c.at,
     })),
+    ...hits.map(p => ({
+      id: `hit-${p.id}`, kind: "outcome" as const,
+      text: `Called it — ${p.name || p.email || "an account"} scored ${p.score} and converted`,
+      at: p.resolved_at as string,
+    })),
   ].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime()).slice(0, 12);
+
+  // The chip on each learning — colour-codes who/what taught it.
+  const learningChip = (l: Learning): { label: string; color: string; bg: string } => {
+    if (l.kind === "outcome") return { label: "✓ called it", color: "#b45309", bg: "rgba(180,83,9,0.10)" };
+    if (l.kind === "model") return { label: "model", color: "#15803d", bg: "rgba(21,128,61,0.08)" };
+    const who = l.who ?? "you";
+    if (who === "Claude") return { label: "Claude", color: "#6d28d9", bg: "rgba(109,40,217,0.08)" };
+    if (who === "site") return { label: "site", color: "#a16207", bg: "rgba(161,98,7,0.08)" };
+    return { label: "you", color: "#475569", bg: "rgba(71,85,105,0.08)" };
+  };
+
+  // "To get sharper, I need…" — turns the page into a loop the user feeds.
+  const staleCount = icpFacts.filter(f => reviewReason(f)).length;
+  const openPreds = substrate?.predictions.open ?? 0;
+  const needs: string[] = [];
+  if (!hasModel && icpFacts.length > 0) needs.push("build your scoring model");
+  if (openPreds > 0) needs.push(`${openPreds} prediction${openPreds === 1 ? "" : "s"} waiting on outcomes`);
+  if (staleCount > 0) needs.push(`confirm ${staleCount} belief${staleCount === 1 ? "" : "s"}`);
+
+  // "Learning for N days" — a streak from the oldest fact still in the context.
+  const oldestAt = icpFacts.reduce<string | null>(
+    (min, f) => (f.created_at && (!min || f.created_at < min) ? f.created_at : min), null);
+  const learningDays = oldestAt ? Math.max(1, Math.floor((Date.now() - new Date(oldestAt).getTime()) / 86400000)) : null;
 
   // One editable signal row (weight + label), reused inside "see the model".
   const renderSignal = (s: Signal, color: string) => {
@@ -795,7 +832,12 @@ export default function Intelligence() {
           {(hasModel || icpFacts.length > 0 || learnings.length > 0) && (
             <div className="rounded-xl border border-border bg-background overflow-hidden">
               <div className="flex items-center justify-between px-4 py-2.5 bg-muted/50 border-b border-border">
-                <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">How your workspace is getting smarter</span>
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">
+                  How your workspace is getting smarter
+                  {learningDays != null && (
+                    <span className="normal-case font-normal text-muted-foreground/45 ml-1.5">· learning for {learningDays}d</span>
+                  )}
+                </span>
                 {hasModel && (
                   <button
                     onClick={() => setModelOpen(o => !o)}
@@ -840,6 +882,7 @@ export default function Intelligence() {
                   <span><span className="font-semibold text-foreground/80">{icpFacts.length}</span> facts in context</span>
                   {hasModel && <span><span className="font-semibold text-foreground/80">{active.length}</span> signals learned</span>}
                   {predictionsMade > 0 && <span><span className="font-semibold text-foreground/80">{predictionsMade}</span> predictions</span>}
+                  {hits.length > 0 && <span className="text-[#b45309]">called it right <span className="font-semibold">{hits.length}</span>×</span>}
                   {resolved > 0 && <span><span className="font-semibold text-foreground/80">{resolved}</span> outcomes in</span>}
                   <span>sharpened <span className="font-semibold text-foreground/80">{learnings.length}</span>×</span>
                 </div>
@@ -853,15 +896,15 @@ export default function Intelligence() {
                     </p>
                   ) : (
                     <div className="space-y-2">
-                      {learnings.map(l => (
+                      {learnings.map(l => {
+                        const chip = learningChip(l);
+                        return (
                         <div key={l.id} className="flex items-baseline gap-2.5 text-[12.5px]">
                           <span
-                            className="flex-shrink-0 text-[9px] font-semibold uppercase tracking-wide px-1.5 py-[1px] rounded mt-[1px]"
-                            style={l.kind === "model"
-                              ? { color: "#15803d", background: "rgba(21,128,61,0.08)" }
-                              : { color: "#6d28d9", background: "rgba(109,40,217,0.08)" }}
+                            className="flex-shrink-0 text-[9px] font-semibold uppercase tracking-wide px-1.5 py-[1px] rounded mt-[1px] whitespace-nowrap"
+                            style={{ color: chip.color, background: chip.bg }}
                           >
-                            {l.kind === "model" ? "model" : "context"}
+                            {chip.label}
                           </span>
                           <span className="flex-1 leading-snug text-foreground/85">
                             {l.text}
@@ -876,7 +919,14 @@ export default function Intelligence() {
                             {formatDistanceToNow(new Date(l.at), { addSuffix: true })}
                           </span>
                         </div>
-                      ))}
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {needs.length > 0 && (
+                    <div className="mt-3 pt-3 border-t border-border/50 text-[12px] text-muted-foreground/75 leading-relaxed">
+                      <span className="font-semibold text-foreground/70">To get sharper:</span> {needs.join(" · ")}
                     </div>
                   )}
                 </div>
