@@ -12,7 +12,8 @@
 
 import { Router } from 'express';
 import Anthropic from 'useleak';
-import { getSupabaseClient, listSignals, seedSignals, listNotes, scoreLead, getAttention, saveNote, deleteNote, supersedeNote, getWorkspaceEntityId } from '@nous/core';
+import { getSupabaseClient, listSignals, seedSignals, listNotes, scoreLead, getAttention, saveNote, deleteNote, supersedeNote, getWorkspaceEntityId, getOrCreateEntity, logActivity, discoverSignals, upsertSignal } from '@nous/core';
+import { extractAndRecordWebsiteSignals } from '../../services/websiteSignals.mjs';
 
 export const mindRouter = Router();
 
@@ -580,6 +581,70 @@ mindRouter.post('/scorecard/seed', async (req, res) => {
     return res.status(201).json({ signals: created });
   } catch (err) {
     console.error('[POST /api/mind/scorecard/seed]', err);
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
+// POST /api/mind/closed-deals — build the scoring model from real closed deals.
+// Body: { workspaceId, won: [domain|{domain}], lost: [domain|{domain}] }
+// For each account: resolve a company entity, extract website signals, record the
+// won/lost outcome, then run contrastive lift discovery over the cohort and seed
+// the Scorecard from what actually predicts revenue. The owned, no-CSV version of
+// Deepline's signal discovery. See docs/icp-from-closed-deals.md, Step 5.
+const cleanDomain = (d) => String(d || '').trim().replace(/^https?:\/\//i, '').replace(/\/.*$/, '').toLowerCase();
+mindRouter.post('/closed-deals', async (req, res) => {
+  try {
+    const { workspaceId, won = [], lost = [] } = req.body;
+    if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
+    const supabase = getSupabaseClient();
+
+    const clean = (list) => (Array.isArray(list) ? list : [])
+      .map(x => (typeof x === 'string' ? x : x?.domain))
+      .map(cleanDomain)
+      .filter(Boolean)
+      .slice(0, 40);
+    const wonList = clean(won), lostList = clean(lost);
+    if (wonList.length + lostList.length < 4) {
+      return res.status(400).json({ error: 'need_more_deals', detail: 'provide at least a few closed deals (won + lost)' });
+    }
+
+    const episodes = [];
+    let enriched = 0;
+    const ingest = async (domain, disposition) => {
+      const entityId = await getOrCreateEntity(supabase, workspaceId, 'company', [{ kind: 'domain', value: domain }]);
+      const r = await extractAndRecordWebsiteSignals(supabase, workspaceId, entityId, domain).catch(() => null);
+      if (r) enriched++;
+      await logActivity(supabase, {
+        workspaceId, entityId,
+        type: disposition === 'won' ? 'deal_won' : 'deal_lost',
+        source: 'closed-deals-import',
+        externalId: `import_${disposition}_${entityId}`,
+        occurredAt: new Date().toISOString(),
+        description: disposition === 'won' ? 'Imported closed-won' : 'Imported closed-lost',
+      }).catch(() => {});
+      const { data: claims } = await supabase
+        .from('claims').select('property, value').eq('entity_id', entityId).is('invalid_at', null);
+      const features = {};
+      for (const c of claims ?? []) features[c.property] = c.value;
+      episodes.push({ features, disposition });
+    };
+    for (const d of wonList) await ingest(d, 'won');
+    for (const d of lostList) await ingest(d, 'lost');
+
+    const existing = await listSignals(supabase, workspaceId);
+    const proposals = discoverSignals(episodes, existing);
+    for (const p of proposals) {
+      await upsertSignal(supabase, workspaceId, {
+        key: p.signal.key, label: p.signal.label, weight: p.signal.weight, rule: p.signal.rule,
+      }).catch(() => {});
+    }
+
+    return res.status(201).json({
+      enriched, won: wonList.length, lost: lostList.length,
+      discovered: proposals.map(p => ({ label: p.signal.label, weight: p.signal.weight, note: p.note })),
+    });
+  } catch (err) {
+    console.error('[POST /api/mind/closed-deals]', err);
     return res.status(500).json({ error: 'internal_error' });
   }
 });

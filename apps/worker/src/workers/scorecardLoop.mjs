@@ -24,6 +24,7 @@ import {
   setSignalCoverage,
   logScorecardRun,
   logWorkerRun,
+  discoverSignals,
 } from '@nous/core';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -138,88 +139,6 @@ async function propose(signals, train) {
   } catch {
     return null;
   }
-}
-
-// ── Contrastive discovery — the data-driven candidate source ──────────────────
-// Sweep the won/lost cohort for features whose presence separates winners from
-// losers by lift, and turn the strongest into NEW signal proposals. Deterministic
-// (no LLM); each candidate is still validated through both gates below, so a
-// spurious correlation never ships. This is Deepline's signal discovery, native.
-
-const dslug = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40);
-
-function weightFromLift(lift) {
-  if (lift >= 3) return 8;
-  if (lift >= 2) return 6;
-  if (lift >= 1.5) return 4;
-  if (lift <= 0.33) return -8;
-  if (lift <= 0.5) return -6;
-  if (lift <= 0.66) return -4;
-  return 0;
-}
-
-function labelForDiscovery(feature, value) {
-  const f = feature.replace(/^signal\./, '').replace(/[._]/g, ' ').trim();
-  const title = f.replace(/\b\w/g, c => c.toUpperCase());
-  return typeof value === 'boolean' ? title : `${title}: ${String(value).replace(/_/g, ' ')}`;
-}
-
-function discoverSignals(episodes, signals) {
-  // win per episode — disposition when present (won vs qualified-lost), else the
-  // legacy score threshold. 'no_opportunity' is already excluded upstream.
-  const rows = episodes.map(e => ({
-    features: e.features,
-    win: e.disposition ? e.disposition === 'won' : (e.outcome ?? 0) >= 0.5,
-  }));
-  if (rows.length < 8) return [];
-
-  const totalN = rows.length;
-  const totalWins = rows.filter(r => r.win).length;
-  if (totalWins === 0 || totalWins === totalN) return []; // no contrast
-
-  // Tally (feature == value) candidates — booleans ("has X") and short categoricals.
-  const cand = new Map();
-  for (const r of rows) {
-    for (const [f, v] of Object.entries(r.features)) {
-      if (v == null) continue;
-      const isBool = typeof v === 'boolean';
-      const isCat = typeof v === 'string' && v.length <= 40;
-      if (!isBool && !isCat) continue;
-      if (isBool && v === false) continue; // only presence of a signal
-      const value = v;
-      const key = `${f}::${String(value)}`;
-      let c = cand.get(key);
-      if (!c) { c = { feature: f, value, withN: 0, winWith: 0 }; cand.set(key, c); }
-      c.withN++; if (r.win) c.winWith++;
-    }
-  }
-
-  const scoredFeatures = new Set(signals.filter(s => s.active).map(s => s.rule?.feature).filter(Boolean));
-  const out = [];
-  for (const c of cand.values()) {
-    const nWithout = totalN - c.withN;
-    if (c.withN < 4 || nWithout < 4) continue;           // small cohorts lie
-    if (scoredFeatures.has(c.feature)) continue;          // already scored on this
-    const wrWith = c.winWith / c.withN;
-    const wrWithout = (totalWins - c.winWith) / nWithout;
-    if (wrWithout <= 0) continue;
-    const lift = wrWith / wrWithout;
-    if (lift < 1.5 && lift > 0.66) continue;              // not discriminative
-    const weight = weightFromLift(lift);
-    if (weight === 0) continue;
-    out.push({ ...c, lift, weight });
-  }
-  out.sort((a, b) => Math.abs(Math.log(b.lift)) - Math.abs(Math.log(a.lift)));
-  return out.slice(0, 5).map(d => ({
-    action: 'add',
-    signal: {
-      key: `disc_${dslug(d.feature)}${typeof d.value === 'string' ? '_' + dslug(d.value) : ''}`,
-      label: labelForDiscovery(d.feature, d.value),
-      weight: d.weight,
-      rule: { feature: d.feature, op: '==', value: d.value },
-    },
-    note: `discovered: ${d.lift.toFixed(1)}× lift over ${d.withN} deals`,
-  }));
 }
 
 // ── One workspace's run ───────────────────────────────────────────────────────

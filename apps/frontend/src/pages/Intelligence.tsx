@@ -182,6 +182,13 @@ export default function Intelligence() {
   const [historyItems, setHistoryItems] = useState<{ id: string; content: string; created_at?: string | null; is_active?: boolean }[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
 
+  // Build-from-closed-deals (Step 5) — seed the model from real won/lost.
+  const [cdOpen, setCdOpen] = useState(false);
+  const [cdWon, setCdWon] = useState("");
+  const [cdLost, setCdLost] = useState("");
+  const [cdRunning, setCdRunning] = useState(false);
+  const [cdResult, setCdResult] = useState<{ enriched: number; discovered: { label: string; weight: number; note: string }[] } | null>(null);
+
   // Inline editing of Scorecard signals (label / weight) + delete.
   const [editSig, setEditSig] = useState<{ id: string; field: "label" | "weight" } | null>(null);
   // The scoring model (signals, calibration, learned-changes) is tucked behind
@@ -284,6 +291,26 @@ export default function Intelligence() {
       });
       load();
     } finally { setSeeding(false); }
+  };
+
+  // Build the model from real closed deals — enrich + contrastive lift discovery.
+  const parseDomains = (s: string) => s.split(/[\n,]+/).map(x => x.trim()).filter(Boolean);
+  const runClosedDeals = async () => {
+    if (cdRunning) return;
+    const won = parseDomains(cdWon), lost = parseDomains(cdLost);
+    if (won.length + lost.length < 4) { window.alert("Add at least a few closed deals (won + lost domains)."); return; }
+    setCdRunning(true); setCdResult(null);
+    try {
+      const r = await fetch(`${apiUrl}/api/mind/closed-deals`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ workspaceId, won, lost }),
+      });
+      const d = await r.json();
+      if (d.discovered) { setCdResult(d); load(); }
+      else window.alert(d.detail || d.error || "Couldn't process the deals.");
+    } catch { window.alert("Request failed."); }
+    finally { setCdRunning(false); }
   };
 
   // ── Playbook wizard handlers ────────────────────────────────────────────────
@@ -628,8 +655,58 @@ export default function Intelligence() {
             {(needsSetup || contextOpen) && (
             <>
             {needsSetup ? (
-              /* Cold start — the guided GTM Playbook, with manual entry as a fallback. */
-              !pbManual ? (
+              /* Cold start — closed-deals discovery, the guided Playbook, or manual. */
+              cdOpen ? (
+                <div className="px-5 py-5 space-y-4">
+                  <div>
+                    <h3 className="text-[15px] font-semibold text-foreground">Build from your closed deals</h3>
+                    <p className="text-[12.5px] text-muted-foreground mt-1 leading-relaxed max-w-[560px]">
+                      Paste the website domains of accounts you <b>won</b> and ones you <b>lost</b>. We read each
+                      site, extract signals, and surface what actually separates your winners — by lift, from your
+                      own outcomes. A few of each is enough to start.
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-[11px] font-semibold uppercase tracking-wide text-[#15803d]">Closed-won domains</label>
+                      <textarea value={cdWon} onChange={e => setCdWon(e.target.value)} rows={6}
+                        placeholder={"acme.com\nglobex.com\n…"}
+                        className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-[13px] outline-none focus:border-foreground/40 resize-y font-mono" />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-semibold uppercase tracking-wide text-[#b45309]">Closed-lost domains</label>
+                      <textarea value={cdLost} onChange={e => setCdLost(e.target.value)} rows={6}
+                        placeholder={"initech.com\numbrella.com\n…"}
+                        className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-[13px] outline-none focus:border-foreground/40 resize-y font-mono" />
+                    </div>
+                  </div>
+                  {cdResult && (
+                    <div className="rounded-lg border border-border/60 bg-muted/30 p-3">
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 mb-1.5">Discovered signals · {cdResult.discovered.length} (enriched {cdResult.enriched})</div>
+                      {cdResult.discovered.length === 0 ? (
+                        <p className="text-[12px] text-muted-foreground/70">No discriminative signals yet — add more deals (especially a clear won/lost split) and run again.</p>
+                      ) : (
+                        <div className="space-y-1">
+                          {cdResult.discovered.map((d, i) => (
+                            <div key={i} className="flex items-baseline gap-2 text-[12.5px]">
+                              <span className="font-semibold tabular-nums w-8" style={{ color: d.weight >= 0 ? "#15803d" : "#b45309" }}>{d.weight > 0 ? "+" : ""}{d.weight}</span>
+                              <span className="flex-1 text-foreground/85">{d.label}</span>
+                              <span className="text-[11px] text-muted-foreground/60">{d.note}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  <div className="flex items-center gap-3">
+                    <button onClick={runClosedDeals} disabled={cdRunning}
+                      className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-primary text-primary-foreground text-[13px] font-semibold hover:bg-primary/90 transition-colors disabled:opacity-50">
+                      {cdRunning ? "Reading sites & discovering…" : "Discover my signals"}
+                    </button>
+                    <button onClick={() => { setCdOpen(false); setCdResult(null); }} className="text-[12px] text-muted-foreground/70 hover:text-foreground transition-colors">← back</button>
+                  </div>
+                </div>
+              ) : !pbManual ? (
                 <div className="px-6 py-10 flex flex-col items-center text-center">
                   <h3 className="text-[17px] font-semibold text-foreground">Set up your GTM Playbook</h3>
                   <p className="text-[13px] text-muted-foreground mt-2 max-w-[460px] leading-relaxed">
@@ -644,8 +721,14 @@ export default function Intelligence() {
                     Set up your GTM Playbook
                   </button>
                   <button
+                    onClick={() => setCdOpen(true)}
+                    className="mt-3 text-[12px] font-semibold text-foreground/70 hover:text-foreground transition-colors"
+                  >
+                    or build from my closed deals →
+                  </button>
+                  <button
                     onClick={() => setPbManual(true)}
-                    className="mt-3 text-[12px] text-muted-foreground/70 hover:text-foreground transition-colors"
+                    className="mt-1.5 text-[12px] text-muted-foreground/70 hover:text-foreground transition-colors"
                   >
                     or enter it manually
                   </button>
