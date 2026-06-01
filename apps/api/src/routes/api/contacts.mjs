@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
-import { getSupabaseClient, listNotes, saveNote } from '@nous/core';
+import { getSupabaseClient, listNotes, saveNote, logActivity } from '@nous/core';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
 import { ensureUserAndTeam } from '../../lib/auth.mjs';
 import { requireEnrichmentQuota } from '../../lib/access.mjs';
@@ -273,6 +273,40 @@ contactsApiRouter.post('/:id/memories', verifySupabaseAuth, async (req, res) => 
     });
     return res.json({ memory: mem });
   } catch (err) {
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
+// POST /api/contacts/:id/mark-lost — record an explicit closed-lost on a contact.
+// This is a real negative the Mind learns from (vs 30-day silence). It logs an
+// `interaction.deal_lost` observation, which mindOutcomes resolves as a loss.
+contactsApiRouter.post('/:id/mark-lost', verifySupabaseAuth, async (req, res) => {
+  try {
+    const supabase = getSupabaseClient();
+    const { id } = req.params;
+    const { reason } = req.body || {};
+    const { user } = await ensureUserAndTeam(req.user);
+    if (!UUID.test(id)) return res.status(400).json({ error: 'invalid_contact_id' });
+
+    const { data: contact } = await supabase.from('contacts').select('workspace_id, company_id').eq('id', id).single();
+    if (!contact) return res.status(404).json({ error: 'contact_not_found' });
+    const { data: membership } = await supabase.from('workspace_members').select('workspace_id').eq('workspace_id', contact.workspace_id).eq('user_id', user.id).single();
+    if (!membership) return res.status(403).json({ error: 'unauthorized' });
+
+    await logActivity(supabase, {
+      workspaceId: contact.workspace_id,
+      contactId: id,
+      companyId: contact.company_id || null,
+      type: 'deal_lost',
+      source: 'manual',
+      externalId: `deal_lost_${id}_${Date.now()}`,
+      occurredAt: new Date().toISOString(),
+      description: 'Marked lost',
+      summary: reason ? String(reason).slice(0, 280) : null,
+    });
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error('[POST /api/contacts/:id/mark-lost]', err);
     return res.status(500).json({ error: 'internal_error' });
   }
 });
