@@ -153,14 +153,20 @@ mindRouter.get('/substrate', async (req, res) => {
     // (positive outcome = outcome_value.score >= 0.5).
     const signalStats = new Map();
     for (const s of activeSignals) signalStats.set(s.key, { signal: s, fires: 0, hits: 0 });
+    // Decided cohort = resolved predictions with a finite outcome. Lift compares
+    // the win rate among accounts where a signal fired vs where it didn't.
+    let totalDecided = 0, totalWins = 0;
     for (const p of preds) {
       if (!p.resolved_at) continue;
+      const out = Number(p.outcome_value?.score);
+      if (!Number.isFinite(out)) continue;
+      totalDecided++;
+      const positive = out >= 0.5;
+      if (positive) totalWins++;
       const snap = p.feature_snapshot || {};
       const features = {};
       for (const [k, v] of Object.entries(snap)) features[k] = v?.value;
       const { fired } = scoreLead(features, activeSignals);
-      const out = Number(p.outcome_value?.score);
-      const positive = Number.isFinite(out) && out >= 0.5;
       for (const f of fired) {
         const stat = signalStats.get(f.key);
         if (!stat) continue;
@@ -168,6 +174,17 @@ mindRouter.get('/substrate', async (req, res) => {
         if (positive) stat.hits++;
       }
     }
+    // lift(signal) = winRate(fired) / winRate(not-fired). Null until both groups
+    // have a minimum sample and a non-zero baseline — small cohorts lie.
+    const liftOf = (fires, hits) => {
+      const notFired = totalDecided - fires;
+      const winsNotFired = totalWins - hits;
+      if (fires < 3 || notFired < 1) return null;
+      const wrFired = hits / fires;
+      const wrNot = winsNotFired / notFired;
+      if (wrNot <= 0) return null;
+      return Math.round((wrFired / wrNot) * 10) / 10;
+    };
     const topSignals = [...signalStats.values()]
       .filter(s => s.fires > 0)
       .sort((a, b) => b.fires - a.fires)
@@ -179,6 +196,8 @@ mindRouter.get('/substrate', async (req, res) => {
         fires: s.fires,
         hits: s.hits,
         hit_rate: s.fires ? Math.round((s.hits / s.fires) * 100) : 0,
+        lift: liftOf(s.fires, s.hits),
+        sample: s.fires,
       }));
 
     // Recent predictions feed (last 20) — enriched with entity name + email
