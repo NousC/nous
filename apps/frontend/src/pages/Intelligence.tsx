@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { RefreshCw, ChevronRight, Trash2, History } from "lucide-react";
+import { RefreshCw, ChevronRight, Trash2, History, Info } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { PageHeader } from "@/components/ui/page-header";
 
@@ -621,13 +621,16 @@ export default function Intelligence() {
         {hasModel && (
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-px bg-border/50 rounded-xl overflow-hidden border border-border mb-4">
             {[
-              { label: "Accounts analyzed", value: predictionsMade, color: undefined as string | undefined },
-              { label: "Closed-won", value: substrate?.predictions.won ?? 0, color: "#15803d" },
-              { label: "Closed-lost", value: substrate?.predictions.lost ?? 0, color: "#b45309" },
-              { label: "Signals", value: active.length, color: undefined },
-              { label: "Context facts", value: icpFacts.length, color: undefined },
+              { label: "Accounts analyzed", value: predictionsMade, color: undefined as string | undefined, info: "Accounts the ICP model has scored for fit (0–100)." },
+              { label: "Closed-won", value: substrate?.predictions.won ?? 0, color: "#15803d", info: "Scored accounts that converted — the wins the model learns from." },
+              { label: "Closed-lost", value: substrate?.predictions.lost ?? 0, color: "#b45309", info: "Scored accounts that entered a real buying motion but didn't close." },
+              { label: "Signals", value: active.length, color: undefined, info: "The weighted attributes the model scores fit on." },
+              { label: "Context facts", value: icpFacts.length, color: undefined, info: "What your agents know about your business — ICP, pricing, positioning, competitors." },
             ].map(m => (
-              <div key={m.label} className="bg-background px-4 py-3.5">
+              <div key={m.label} className="bg-background px-4 py-3.5 relative">
+                <span className="absolute top-2 right-2 text-muted-foreground/25 hover:text-muted-foreground/70 cursor-help transition-colors" title={m.info}>
+                  <Info className="h-3 w-3" />
+                </span>
                 <div className="text-[22px] font-semibold tabular-nums leading-none" style={m.color ? { color: m.color } : undefined}>{m.value}</div>
                 <div className="text-[10.5px] font-medium text-muted-foreground/60 uppercase tracking-wide mt-1.5">{m.label}</div>
               </div>
@@ -985,18 +988,14 @@ export default function Intelligence() {
                     </button>
                     <span className="text-[12px] text-muted-foreground/70">Turn your context into a model that scores fit — then watch it sharpen from every outcome.</span>
                   </div>
-                ) : (
+                ) : (resolved > 0 || hits.length > 0 || sharpenedCount > 0) ? (
                   <div className="flex items-end gap-3">
                     <div className="flex-1">
-                      {resolved > 0 ? (
+                      {resolved > 0 && (
                         <p className="text-[15px] leading-relaxed font-medium" style={{ color: confColor }}>{confidence.line}</p>
-                      ) : (
-                        <p className="text-[14px] text-foreground/80 leading-relaxed">
-                          Your model is learning. It's scored {predictionsMade} account{predictionsMade === 1 ? "" : "s"} so far — as they reply and close, you'll see exactly which signals predict a real fit.
-                        </p>
                       )}
                       {(hits.length > 0 || sharpenedCount > 0) && (
-                        <div className="flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-muted-foreground/70 tabular-nums mt-1.5">
+                        <div className={`flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-muted-foreground/70 tabular-nums ${resolved > 0 ? "mt-1.5" : ""}`}>
                           {hits.length > 0 && <span className="text-[#b45309]">called it right <span className="font-semibold">{hits.length}</span>×</span>}
                           {sharpenedCount > 0 && <span>sharpened <span className="font-semibold text-foreground/80">{sharpenedCount}</span>×</span>}
                         </div>
@@ -1009,7 +1008,7 @@ export default function Intelligence() {
                       </div>
                     )}
                   </div>
-                )}
+                ) : null}
 
                 {/* The model — what it scores on. Always visible: this IS the engine. */}
                 {hasModel && (
@@ -1031,22 +1030,19 @@ export default function Intelligence() {
                         <div>{negative.map(s => renderSignal(s, "#b91c1c"))}</div>
                       </>
                     )}
-                    <div className="flex flex-wrap items-center gap-x-3 text-[11px] text-muted-foreground/50 tabular-nums mt-2.5 pt-2 border-t border-border/40">
-                      <span>calibrated on {resolved} outcome{resolved === 1 ? "" : "s"}</span>
-                      {gap != null && <span>· gap {fmtGap(gap)}</span>}
-                      {(substrate?.predictions.open ?? 0) > 0 && <span>· {substrate?.predictions.open} pending</span>}
-                    </div>
+                    {resolved > 0 && (
+                      <div className="flex flex-wrap items-center gap-x-3 text-[11px] text-muted-foreground/50 tabular-nums mt-2.5 pt-2 border-t border-border/40">
+                        <span>calibrated on {resolved} outcome{resolved === 1 ? "" : "s"}</span>
+                        {gap != null && <span>· gap {fmtGap(gap)}</span>}
+                      </div>
+                    )}
                   </div>
                 )}
 
-                {/* What it's learned — the timeline. */}
-                <div className="pt-4 border-t border-border/50">
-                  <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60 mb-1.5">What it's learned</div>
-                  {learnings.length === 0 ? (
-                    <p className="text-[12.5px] text-muted-foreground/65 leading-relaxed">
-                      Nothing learned yet. This fills in as your workspace sharpens — when Claude updates your context from your work, when you refine a belief, or when an account's outcome resolves.
-                    </p>
-                  ) : (
+                {/* What it's learned — the timeline. Hidden until there's something. */}
+                {learnings.length > 0 && (
+                  <div className="pt-4 border-t border-border/50">
+                    <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60 mb-1.5">What it's learned</div>
                     <div className="space-y-2">
                       {learnings.map(l => {
                         const chip = learningChip(l);
@@ -1074,14 +1070,8 @@ export default function Intelligence() {
                         );
                       })}
                     </div>
-                  )}
-
-                  {needs.length > 0 && (
-                    <div className="mt-3 pt-3 border-t border-border/50 text-[12px] text-muted-foreground/75 leading-relaxed">
-                      <span className="font-semibold text-foreground/70">To get sharper:</span> {needs.join(" · ")}
-                    </div>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
