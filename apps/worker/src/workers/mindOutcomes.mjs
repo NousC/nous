@@ -36,6 +36,20 @@ const WON_PROPS = [
   'interaction.proposal_signed',
 ];
 
+// Observation properties that mark an account explicitly LOST/disqualified — a
+// real negative, distinct from going quiet. Resolves immediately, like a win.
+const LOST_PROPS = [
+  'interaction.deal_lost',
+  'interaction.deal_disqualified',
+];
+
+// The bar for an account to count as a real opportunity. Reaching 'interested'
+// or higher means it entered a buying motion — so a non-close is a genuine LOSS
+// the model should learn from. Below this (identified/aware), going quiet is
+// "no opportunity", not a loss — it must NOT pollute the won/lost cohort, or
+// every cold LinkedIn touch would drag the scoring model down.
+const QUALIFY_RANK = STAGE_RANK.interested; // 2
+
 // Outcome signal weights (design §5). Must sum to 1.
 const W_REPLY = 0.25;
 const W_PIPELINE = 0.35;
@@ -116,6 +130,17 @@ async function deriveSignals(supabase, p) {
 
   const rev = await deriveRevenue(supabase, p.entity_id, since);
 
+  // Explicit lost — any time after the prediction (like revenue, not
+  // window-bounded). A real negative; resolves immediately.
+  const { data: lostObs } = await supabase
+    .from('observations')
+    .select('id')
+    .eq('entity_id', p.entity_id)
+    .in('property', LOST_PROPS)
+    .gte('observed_at', since)
+    .order('observed_at', { ascending: false })
+    .limit(1);
+
   // Closed-won signal. Prefer an explicit revenue observation (deal_won /
   // payment_received / proposal_signed) when one exists, but also treat
   // reaching the `client` pipeline stage as won — that's this CRM's closed-won
@@ -129,6 +154,8 @@ async function deriveSignals(supabase, p) {
     won: rev.won || wonByStage,
     revenue: rev.revenue,
     observationId: rev.observationId,
+    explicitLost: (lostObs?.length ?? 0) > 0,
+    lostObservationId: lostObs?.[0]?.id ?? null,
   };
 }
 
@@ -170,9 +197,20 @@ export async function resolveOutcomes() {
 
     const s = await deriveSignals(supabase, p);
 
-    // Resolve on definitive revenue, or once the resolution window elapses.
-    // Otherwise keep observing — re-checked on the next run.
-    if (!s.won && !windowElapsed) continue;
+    // Resolve on definitive revenue, an explicit loss, or once the window
+    // elapses. Otherwise keep observing — re-checked on the next run.
+    if (!s.won && !s.explicitLost && !windowElapsed) continue;
+
+    // Disposition is what the learning loop trains on. Only won + qualified-lost
+    // belong in the won/lost cohort; an account that never entered a buying
+    // motion (didn't reach 'interested') and went quiet is 'no_opportunity' — it
+    // resolves so it stops being watched, but it's excluded from learning.
+    const reachedRank = Math.max(STAGE_RANK[s.pipelineFrom] ?? 0, STAGE_RANK[s.pipelineTo] ?? 0);
+    const qualified = reachedRank >= QUALIFY_RANK;
+    const disposition = s.won ? 'won'
+      : s.explicitLost ? 'lost'
+      : qualified ? 'lost'
+      : 'no_opportunity';
 
     const score = computeOutcomeScore(s);
     await supabase
@@ -183,9 +221,10 @@ export async function resolveOutcomes() {
           pipeline_from: s.pipelineFrom,
           pipeline_to: s.pipelineTo,
           revenue: s.revenue,
+          disposition,
           score,
         },
-        outcome_observation_id: s.observationId,
+        outcome_observation_id: s.observationId ?? s.lostObservationId,
         resolved_at: new Date().toISOString(),
       })
       .eq('id', p.id);

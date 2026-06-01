@@ -25,6 +25,25 @@ function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token:
   const [editValue, setEditValue] = useState("");
   const [saving, setSaving] = useState(false);
   const [localOverrides, setLocalOverrides] = useState<Record<string, string | null>>({});
+  const [lostMarking, setLostMarking] = useState(false);
+  const [lostMarked, setLostMarked] = useState(false);
+
+  // Record an explicit closed-lost — a real negative the Mind learns from,
+  // unlike a contact that simply goes quiet.
+  const markLost = async () => {
+    if (lostMarking || lostMarked) return;
+    if (!window.confirm("Mark this account as closed-lost? It teaches the scoring model from a real loss.")) return;
+    setLostMarking(true);
+    try {
+      await fetch(`${apiUrl}/api/contacts/${contact.id}/mark-lost`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({}),
+      });
+      setLostMarked(true);
+    } catch { /* silent */ }
+    finally { setLostMarking(false); }
+  };
 
   useEffect(() => {
     setLoading(true);
@@ -259,6 +278,14 @@ function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token:
                 );
               })}
             </div>
+            <button
+              onClick={markLost}
+              disabled={lostMarking || lostMarked}
+              className="mt-5 w-full h-8 rounded-md border border-red-500/30 text-[12px] font-semibold text-red-600/90 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+              title="Records a closed-lost so the scoring model learns from a real loss"
+            >
+              {lostMarked ? "Marked lost ✓" : lostMarking ? "Marking…" : "Mark as lost"}
+            </button>
           </div>
         </div>
       )}

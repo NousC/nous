@@ -84,7 +84,7 @@ mindRouter.get('/substrate', async (req, res) => {
         .eq('workspace_id', workspaceId),
       // predictions sample for kind/open/resolved + calibration trend
       supabase.from('predictions')
-        .select('kind, predicted_value, outcome_value, predicted_at, resolved_at')
+        .select('kind, predicted_value, outcome_value, predicted_at, resolved_at, feature_snapshot')
         .eq('workspace_id', workspaceId).limit(2000),
     ]);
     if (obsSampleRes.error) throw obsSampleRes.error;
@@ -158,11 +158,22 @@ mindRouter.get('/substrate', async (req, res) => {
     let totalDecided = 0, totalWins = 0;
     for (const p of preds) {
       if (!p.resolved_at) continue;
-      const out = Number(p.outcome_value?.score);
-      if (!Number.isFinite(out)) continue;
+      // Cohort = won + qualified-lost. 'no_opportunity' (scored but never a real
+      // opportunity, then quiet) is excluded so cold touches can't poison the
+      // lift. Predictions resolved before dispositions existed fall back to the
+      // outcome-score threshold.
+      const disp = p.outcome_value?.disposition;
+      let isWin;
+      if (disp) {
+        if (disp === 'no_opportunity') continue;
+        isWin = disp === 'won';
+      } else {
+        const out = Number(p.outcome_value?.score);
+        if (!Number.isFinite(out)) continue;
+        isWin = out >= 0.5;
+      }
       totalDecided++;
-      const positive = out >= 0.5;
-      if (positive) totalWins++;
+      if (isWin) totalWins++;
       const snap = p.feature_snapshot || {};
       const features = {};
       for (const [k, v] of Object.entries(snap)) features[k] = v?.value;
@@ -171,7 +182,7 @@ mindRouter.get('/substrate', async (req, res) => {
         const stat = signalStats.get(f.key);
         if (!stat) continue;
         stat.fires++;
-        if (positive) stat.hits++;
+        if (isWin) stat.hits++;
       }
     }
     // lift(signal) = winRate(fired) / winRate(not-fired). Null until both groups
