@@ -638,75 +638,36 @@ export default function Intelligence() {
                   <span className="text-muted-foreground/50 normal-case font-normal ml-1 tabular-nums">· {icpFacts.length} fact{icpFacts.length === 1 ? "" : "s"}</span>
                 </button>
               )}
-              {!needsSetup && (() => {
-                const exhausted = pbRebuilds != null && pbRebuilds.used >= pbRebuilds.limit;
-                return (
+              {!needsSetup && (
+                <div className="flex items-center gap-3">
                   <button
-                    onClick={openPlaybook}
-                    disabled={exhausted}
-                    title={pbRebuilds ? `${pbRebuilds.used}/${pbRebuilds.limit} site rebuilds used` : "Reads your site and re-drafts your playbook (3 rebuilds max)"}
-                    className="text-[12px] font-semibold text-foreground/70 hover:text-foreground transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    onClick={() => setCdOpen(true)}
+                    title="Discover signals from your closed-won vs closed-lost deals"
+                    className="text-[12px] font-semibold text-foreground/70 hover:text-foreground transition-colors"
                   >
-                    {exhausted ? "Site rebuilds used up" : "Rebuild from your site"}
+                    Build from deals
                   </button>
-                );
-              })()}
+                  {(() => {
+                    const exhausted = pbRebuilds != null && pbRebuilds.used >= pbRebuilds.limit;
+                    return (
+                      <button
+                        onClick={openPlaybook}
+                        disabled={exhausted}
+                        title={pbRebuilds ? `${pbRebuilds.used}/${pbRebuilds.limit} site rebuilds used` : "Reads your site and re-drafts your playbook (3 rebuilds max)"}
+                        className="text-[12px] font-semibold text-foreground/70 hover:text-foreground transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        {exhausted ? "Site rebuilds used up" : "Rebuild from your site"}
+                      </button>
+                    );
+                  })()}
+                </div>
+              )}
             </div>
             {(needsSetup || contextOpen) && (
             <>
             {needsSetup ? (
-              /* Cold start — closed-deals discovery, the guided Playbook, or manual. */
-              cdOpen ? (
-                <div className="px-5 py-5 space-y-4">
-                  <div>
-                    <h3 className="text-[15px] font-semibold text-foreground">Build from your closed deals</h3>
-                    <p className="text-[12.5px] text-muted-foreground mt-1 leading-relaxed max-w-[560px]">
-                      Paste the website domains of accounts you <b>won</b> and ones you <b>lost</b>. We read each
-                      site, extract signals, and surface what actually separates your winners — by lift, from your
-                      own outcomes. A few of each is enough to start.
-                    </p>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="text-[11px] font-semibold uppercase tracking-wide text-[#15803d]">Closed-won domains</label>
-                      <textarea value={cdWon} onChange={e => setCdWon(e.target.value)} rows={6}
-                        placeholder={"acme.com\nglobex.com\n…"}
-                        className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-[13px] outline-none focus:border-foreground/40 resize-y font-mono" />
-                    </div>
-                    <div>
-                      <label className="text-[11px] font-semibold uppercase tracking-wide text-[#b45309]">Closed-lost domains</label>
-                      <textarea value={cdLost} onChange={e => setCdLost(e.target.value)} rows={6}
-                        placeholder={"initech.com\numbrella.com\n…"}
-                        className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-[13px] outline-none focus:border-foreground/40 resize-y font-mono" />
-                    </div>
-                  </div>
-                  {cdResult && (
-                    <div className="rounded-lg border border-border/60 bg-muted/30 p-3">
-                      <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 mb-1.5">Discovered signals · {cdResult.discovered.length} (enriched {cdResult.enriched})</div>
-                      {cdResult.discovered.length === 0 ? (
-                        <p className="text-[12px] text-muted-foreground/70">No discriminative signals yet — add more deals (especially a clear won/lost split) and run again.</p>
-                      ) : (
-                        <div className="space-y-1">
-                          {cdResult.discovered.map((d, i) => (
-                            <div key={i} className="flex items-baseline gap-2 text-[12.5px]">
-                              <span className="font-semibold tabular-nums w-8" style={{ color: d.weight >= 0 ? "#15803d" : "#b45309" }}>{d.weight > 0 ? "+" : ""}{d.weight}</span>
-                              <span className="flex-1 text-foreground/85">{d.label}</span>
-                              <span className="text-[11px] text-muted-foreground/60">{d.note}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  <div className="flex items-center gap-3">
-                    <button onClick={runClosedDeals} disabled={cdRunning}
-                      className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-primary text-primary-foreground text-[13px] font-semibold hover:bg-primary/90 transition-colors disabled:opacity-50">
-                      {cdRunning ? "Reading sites & discovering…" : "Discover my signals"}
-                    </button>
-                    <button onClick={() => { setCdOpen(false); setCdResult(null); }} className="text-[12px] text-muted-foreground/70 hover:text-foreground transition-colors">← back</button>
-                  </div>
-                </div>
-              ) : !pbManual ? (
+              /* Cold start — the guided Playbook (or closed-deals / manual). */
+              !pbManual ? (
                 <div className="px-6 py-10 flex flex-col items-center text-center">
                   <h3 className="text-[17px] font-semibold text-foreground">Set up your GTM Playbook</h3>
                   <p className="text-[13px] text-muted-foreground mt-2 max-w-[460px] leading-relaxed">
@@ -1120,6 +1081,64 @@ export default function Intelligence() {
         </div>
       </div>
 
+
+      {/* ─── Build from closed deals — contrastive lift discovery ─── */}
+      {cdOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => !cdRunning && setCdOpen(false)}>
+          <div className="bg-background border border-border rounded-2xl shadow-xl w-full max-w-[620px] max-h-[88vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="px-6 py-4 border-b border-border flex items-center justify-between">
+              <div className="text-[15px] font-semibold text-foreground">Build from your closed deals</div>
+              <button onClick={() => !cdRunning && setCdOpen(false)} className="text-muted-foreground/60 hover:text-foreground text-[20px] leading-none" aria-label="Close">×</button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
+              <p className="text-[12.5px] text-muted-foreground leading-relaxed">
+                Paste the website domains of accounts you <b>won</b> and ones you <b>lost</b>. We read each site,
+                extract signals, and surface what actually separates your winners — by lift, from your own
+                outcomes. A few of each is enough to start.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[11px] font-semibold uppercase tracking-wide text-[#15803d]">Closed-won domains</label>
+                  <textarea value={cdWon} onChange={e => setCdWon(e.target.value)} rows={6}
+                    placeholder={"acme.com\nglobex.com\n…"}
+                    className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-[13px] outline-none focus:border-foreground/40 resize-y font-mono" />
+                </div>
+                <div>
+                  <label className="text-[11px] font-semibold uppercase tracking-wide text-[#b45309]">Closed-lost domains</label>
+                  <textarea value={cdLost} onChange={e => setCdLost(e.target.value)} rows={6}
+                    placeholder={"initech.com\numbrella.com\n…"}
+                    className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-[13px] outline-none focus:border-foreground/40 resize-y font-mono" />
+                </div>
+              </div>
+              {cdResult && (
+                <div className="rounded-lg border border-border/60 bg-muted/30 p-3">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 mb-1.5">Discovered signals · {cdResult.discovered.length} (enriched {cdResult.enriched})</div>
+                  {cdResult.discovered.length === 0 ? (
+                    <p className="text-[12px] text-muted-foreground/70">No discriminative signals yet — add more deals (especially a clear won/lost split) and run again.</p>
+                  ) : (
+                    <div className="space-y-1">
+                      {cdResult.discovered.map((d, i) => (
+                        <div key={i} className="flex items-baseline gap-2 text-[12.5px]">
+                          <span className="font-semibold tabular-nums w-8" style={{ color: d.weight >= 0 ? "#15803d" : "#b45309" }}>{d.weight > 0 ? "+" : ""}{d.weight}</span>
+                          <span className="flex-1 text-foreground/85">{d.label}</span>
+                          <span className="text-[11px] text-muted-foreground/60">{d.note}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+            <div className="px-6 py-4 border-t border-border flex items-center justify-between">
+              <button onClick={() => { setCdOpen(false); setCdResult(null); }} className="text-[13px] font-semibold text-foreground/70 hover:text-foreground transition-colors">Close</button>
+              <button onClick={runClosedDeals} disabled={cdRunning}
+                className="h-9 px-5 rounded-lg bg-primary text-primary-foreground text-[13px] font-semibold hover:bg-primary/90 disabled:opacity-50 transition-colors">
+                {cdRunning ? "Reading sites & discovering…" : "Discover my signals"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ─── GTM Playbook wizard — guided ICP setup, read from your site ─── */}
       {pbOpen && (
