@@ -10,24 +10,24 @@ function render({ firstName }) {
 
 I just saw you signed up. Really glad to have you here.
 
-We just launched and the product gets better every week. You might hit the occasional bug, and if you do, let me know ASAP so I can fix it — same if you have any improvements or ideas, send them my way.
+As you might know, we just launched, so I apologize in advance if you run into any bugs. If you hit one, let me know ASAP so I can fix it. Same if you have an improvement or an idea, I would love to hear it.
 
-You're one of our first users, which means a lot. You'll be part of shaping this product. I hope I get to know you, and at some point we can hop on a quick call.
+You're one of our early users, which means a lot to us. You will be part of shaping this product.
 
-We're building this together with the people actually using it. Excited to see what you do with it.
+Excited to see what you do with Nous and how it helps your GTM.
 
-— Bennet
+Bennet
 
-P.S. If you want to know more, check out the tutorial section to see how you can get set up in a few minutes.`;
+P.S. If you're wondering how to get started, check out the resources on the website, especially the use cases and Claude skills built for you to get going.`;
 
   const html = `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:15px;line-height:1.6;color:#111;max-width:560px">
 <p>Hey ${name},</p>
 <p>I just saw you signed up. Really glad to have you here.</p>
-<p>We just launched and the product gets better every week. You might hit the occasional bug, and if you do, let me know ASAP so I can fix it &mdash; same if you have any improvements or ideas, send them my way.</p>
-<p>You're one of our first users, which means a lot. You'll be part of shaping this product. I hope I get to know you, and at some point we can hop on a quick call.</p>
-<p>We're building this together with the people actually using it. Excited to see what you do with it.</p>
-<p>&mdash; Bennet</p>
-<p style="color:#666;font-size:14px">P.S. If you want to know more, check out the tutorial section to see how you can get set up in a few minutes.</p>
+<p>As you might know, we just launched, so I apologize in advance if you run into any bugs. If you hit one, let me know ASAP so I can fix it. Same if you have an improvement or an idea, I would love to hear it.</p>
+<p>You're one of our early users, which means a lot to us. You will be part of shaping this product.</p>
+<p>Excited to see what you do with Nous and how it helps your GTM.</p>
+<p>Bennet</p>
+<p style="color:#666;font-size:14px">P.S. If you're wondering how to get started, check out the resources on the website, especially the use cases and Claude skills built for you to get going.</p>
 </div>`;
 
   return { subject: `welcome, ${name}`, text, html };
