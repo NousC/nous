@@ -52,7 +52,7 @@ interface Signal {
 }
 interface IcpFact {
   id: string; category: string; content: string; created_at?: string | null;
-  confidence?: number; subject?: string | null; reaffirmed_at?: string | null;
+  confidence?: number; subject?: string | null; reaffirmed_at?: string | null; source?: string;
 }
 
 // A fact is worth revisiting if it was AI-drafted and never confirmed
@@ -199,7 +199,7 @@ export default function Intelligence() {
         if (mem) {
           const facts: IcpFact[] = (mem.memories ?? [])
             .filter((m: any) => ICP_CATEGORIES.includes(m.category))
-            .map((m: any) => ({ id: m.id, category: m.category, content: m.content, created_at: m.created_at, confidence: m.confidence, subject: m.subject, reaffirmed_at: m.reaffirmed_at }));
+            .map((m: any) => ({ id: m.id, category: m.category, content: m.content, created_at: m.created_at, confidence: m.confidence, subject: m.subject, reaffirmed_at: m.reaffirmed_at, source: m.source }));
           setIcpFacts(facts);
         }
         if (scruns) setRuns(scruns.runs ?? []);
@@ -430,9 +430,15 @@ export default function Intelligence() {
   // this from your work", which is the whole write-back loop made visible.
   const sourceWho = (s: string) => (s === "agent" ? "Claude" : s === "playbook" ? "site" : "you");
 
-  // The "what it's learned" timeline — the page's heart. Three streams merged
-  // newest-first: the scoring model sharpening from outcomes, the context
-  // evolving (you/Claude/site), and predictions the model called right.
+  // Capturing a fact IS the workspace getting smarter — so the timeline shows
+  // the acquisition of knowledge (day one), not only later refinements. A fact
+  // that was refined shows as the refinement (below), so skip its capture.
+  const refinedContents = new Set(contextChanges.map(c => c.to));
+  const captures = icpFacts.filter(f => f.created_at && !refinedContents.has(f.content));
+
+  // The "what it's learned" timeline — the page's heart. Knowledge captured,
+  // then refined (you/Claude/site), the model sharpening, and predictions it
+  // called right — all merged newest-first.
   type Learning = { id: string; kind: "model" | "context" | "outcome"; who?: string; text: string; sub?: string; at: string; delta?: number | null };
   const learnings: Learning[] = [
     ...runs.map(r => ({
@@ -452,7 +458,16 @@ export default function Intelligence() {
       text: `Called it — ${p.name || p.email || "an account"} scored ${p.score} and converted`,
       at: p.resolved_at as string,
     })),
-  ].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime()).slice(0, 12);
+    ...captures.map(f => ({
+      id: `cap-${f.id}`, kind: "context" as const, who: sourceWho(f.source ?? "manual"),
+      text: `${f.category} — ${f.content}`,
+      at: f.created_at as string,
+    })),
+  ].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime()).slice(0, 14);
+
+  // "Sharpened" counts the times it got BETTER — refinements, model changes, and
+  // calls it got right — not the initial captures.
+  const sharpenedCount = runs.length + contextChanges.length + hits.length;
 
   // The chip on each learning — colour-codes who/what taught it.
   const learningChip = (l: Learning): { label: string; color: string; bg: string } => {
@@ -884,7 +899,7 @@ export default function Intelligence() {
                   {predictionsMade > 0 && <span><span className="font-semibold text-foreground/80">{predictionsMade}</span> predictions</span>}
                   {hits.length > 0 && <span className="text-[#b45309]">called it right <span className="font-semibold">{hits.length}</span>×</span>}
                   {resolved > 0 && <span><span className="font-semibold text-foreground/80">{resolved}</span> outcomes in</span>}
-                  <span>sharpened <span className="font-semibold text-foreground/80">{learnings.length}</span>×</span>
+                  {sharpenedCount > 0 && <span>sharpened <span className="font-semibold text-foreground/80">{sharpenedCount}</span>×</span>}
                 </div>
 
                 {/* What it's learned — the timeline. The heart of the page. */}
