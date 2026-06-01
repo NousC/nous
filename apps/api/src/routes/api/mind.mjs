@@ -499,8 +499,18 @@ mindRouter.post('/scorecard/seed', async (req, res) => {
       `ICP: """${icpText}"""\n\n` +
       `Produce 4 to 8 signals. Each is an inclusion criterion, so every weight ` +
       `is positive — the system learns negative signals later from real replies.\n\n` +
+      `CRITICAL — stay faithful to the ICP. A signal must be exactly as narrow as ` +
+      `what the ICP states, never broader:\n` +
+      `- Preserve stated numbers exactly. "1-20 employees" becomes employee_count ` +
+      `<= 20 (or a 1-20 range), NOT employee_count < 50. Never loosen a threshold.\n` +
+      `- Map qualitative descriptors to the tightest faithful rule. "AI service ` +
+      `businesses and agencies" becomes industry in the specific terms given, NOT ` +
+      `a vague "operates in the AI space".\n` +
+      `- Do not invent criteria the ICP never mentions, and do not generalize a ` +
+      `narrow, niche ICP into a broad one. If the ICP is narrow, the signals are narrow.\n\n` +
       `Each signal has:\n` +
-      `- key: short snake_case id\n- label: one plain sentence\n` +
+      `- key: short snake_case id\n- label: one plain sentence that restates the ` +
+      `ICP's own specifics (e.g. "1-20 employees", not "small company")\n` +
       `- weight: integer 1-10, higher = more predictive of fit\n` +
       `- rule: how it fires on a lead's features — ` +
       `{ "feature": <name>, "op": <operator>, "value": <value> }\n\n` +
@@ -633,15 +643,22 @@ mindRouter.post('/playbook/research', async (req, res) => {
       `  },\n` +
       `  "segments": ["<4-6 specific market segments they target>"],\n` +
       `  "buyers": ["<4-6 specific buyer titles/roles>"],\n` +
-      `  "use_cases": ["<4-6 specific use cases>"],\n` +
-      `  "competitors": ["<3-6 named competitors or alternatives they displace>"]\n` +
+      `  "use_cases": ["<4-6 concrete jobs buyers hire this for — the specific task or outcome, e.g. 'consolidate scattered client data before a fundraise', not 'improve efficiency'>"],\n` +
+      `  "competitors": ["<real, named companies that sell to the SAME buyer and segment as this company — only ones you are genuinely confident compete here>"]\n` +
       `}\n` +
       `Be specific and concrete (e.g. "Series A-B B2B SaaS, 50-200 employees", ` +
-      `"VP RevOps", not "businesses" or "leaders"). The strategy fields should be ` +
-      `rich enough to brief a new rep — a full thought, not a fragment. Each array ` +
-      `item is a short phrase. When the site is silent on pricing or competitors, ` +
-      `infer a sensible best guess from the category and the company — do not leave ` +
-      `them blank — the user will confirm or correct.`;
+      `"VP RevOps", not "businesses" or "leaders"). Mirror the company's actual ` +
+      `scale and category — do not inflate a small or niche company into a broad ` +
+      `one. The strategy fields should be rich enough to brief a new rep — a full ` +
+      `thought, not a fragment. Each array item is a short phrase.\n` +
+      `Use cases: tie each to what this company actually sells, phrased as the ` +
+      `job-to-be-done, not a generic benefit.\n` +
+      `Competitors: name only real companies that plausibly compete for THIS ` +
+      `company's specific buyer, segment, and size. If you are not confident a ` +
+      `name genuinely competes, leave it out — 2 accurate competitors (or none) ` +
+      `beat 6 that don't fit. Never invent vague "alternatives" to hit a count.\n` +
+      `Pricing: if the site is silent, infer a sensible best guess from the ` +
+      `category — the user will confirm or correct.`;
 
     const msg = await anthropic.messages.create({
       feature: 'playbook-research',

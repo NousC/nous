@@ -602,7 +602,9 @@ export default function Onboarding() {
       refreshUserData().catch(console.error);
     } catch { /* non-blocking */ }
     await new Promise(r => setTimeout(r, 2500));
-    navigate("/", { replace: true });
+    // First run lands on Install ("add Nous to your tool"), not the ops log —
+    // a fresh workspace has nothing to operate on yet, so setup comes first.
+    navigate("/install", { replace: true });
   };
 
   const currentStep = phase === "finishing" ? TOTAL_STEPS : phase;
