@@ -151,6 +151,8 @@ export default function Intelligence() {
   const [newCategory, setNewCategory] = useState("ICP");
   const [newContent, setNewContent] = useState("");
   const [savingFact, setSavingFact] = useState(false);
+  const [addSection, setAddSection] = useState<string | null>(null);
+  const [sectionDraft, setSectionDraft] = useState("");
 
   // ── The GTM Playbook wizard (Phase B) — guided ICP setup, read from the site.
   const [pbOpen, setPbOpen] = useState(false);
@@ -230,6 +232,20 @@ export default function Intelligence() {
         body: JSON.stringify({ workspaceId, category: newCategory, content: newContent.trim() }),
       });
       setNewContent("");
+      load();
+    } finally { setSavingFact(false); }
+  };
+
+  const submitSection = async (cat: string) => {
+    if (!sectionDraft.trim() || savingFact) return;
+    setSavingFact(true);
+    try {
+      await fetch(`${apiUrl}/api/workspace/memories`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ workspaceId, category: cat, content: sectionDraft.trim() }),
+      });
+      setSectionDraft("");
       load();
     } finally { setSavingFact(false); }
   };
@@ -633,13 +649,12 @@ export default function Intelligence() {
         />
 
         {hasModel && (
-          <div className="grid grid-cols-2 sm:grid-cols-5 divide-x divide-border/70 rounded-xl border border-border mb-4 bg-background">
+          <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-border/70 rounded-xl border border-border mb-4 bg-background">
             {[
               { label: "Accounts analyzed", value: predictionsMade, color: undefined as string | undefined, info: "Accounts the ICP model has scored for fit (0–100)." },
               { label: "Closed-won", value: substrate?.predictions.won ?? 0, color: "#15803d", info: "Scored accounts that converted — the wins the model learns from." },
               { label: "Closed-lost", value: substrate?.predictions.lost ?? 0, color: "#b45309", info: "Scored accounts that entered a real buying motion but didn't close." },
               { label: "Signals", value: active.length, color: undefined, info: "The weighted attributes the model scores fit on." },
-              { label: "Context facts", value: icpFacts.length, color: undefined, info: "What your agents know about your business — ICP, pricing, positioning, competitors." },
             ].map(m => (
               <div key={m.label} className="px-4 py-3.5 relative group/metric">
                 <Info className="absolute top-2 right-2 h-3 w-3 text-muted-foreground/25 group-hover/metric:text-muted-foreground/60 transition-colors" />
@@ -667,7 +682,6 @@ export default function Intelligence() {
                 >
                   <ChevronRight className={`h-3.5 w-3.5 transition-transform ${contextOpen ? "rotate-90" : ""}`} />
                   Your context
-                  <span className="text-muted-foreground/50 normal-case font-normal ml-1 tabular-nums">· {icpFacts.length} fact{icpFacts.length === 1 ? "" : "s"}</span>
                 </button>
               )}
             </div>
@@ -730,7 +744,7 @@ export default function Intelligence() {
                         <button
                           onClick={() => removeIcpFact(f.id)}
                           className="text-[11px] text-muted-foreground/60 hover:text-foreground transition-colors"
-                          aria-label="Remove fact"
+                          aria-label="Remove"
                         >
                           ×
                         </button>
@@ -773,8 +787,8 @@ export default function Intelligence() {
                     {seeding
                       ? "Building…"
                       : icpFacts.length === 0
-                        ? "Add at least one fact first"
-                        : `Build the model from ${icpFacts.length} fact${icpFacts.length === 1 ? "" : "s"}`}
+                        ? "Add at least one line first"
+                        : `Build the model from ${icpFacts.length} line${icpFacts.length === 1 ? "" : "s"}`}
                   </button>
                   {icpFacts.length > 0 && (
                     <span className="text-[12px] text-muted-foreground/70">
@@ -799,7 +813,7 @@ export default function Intelligence() {
                         Worth revisiting · {review.length}
                       </div>
                       <p className="text-[11.5px] text-muted-foreground/80 leading-relaxed">
-                        These facts are AI-drafted or have gone a while without a check. Confirm the ones still true so your context stays trustworthy.
+                        These are AI-drafted or have gone a while without a check. Confirm the ones still true so your context stays trustworthy.
                       </p>
                       <div className="space-y-1.5">
                         {review.map(({ f, reason }) => (
@@ -822,13 +836,29 @@ export default function Intelligence() {
                     </div>
                   );
                 })()}
-                {icpFacts.length > 0 ? (
-                  <div className="space-y-5">
-                    {ICP_CATEGORIES.filter(cat => icpFacts.some(f => f.category === cat)).map(cat => (
-                      <div key={cat}>
-                        <div className="text-[12px] font-semibold uppercase tracking-wider text-foreground/60 mb-1.5 pb-1 border-b border-border/40">{cat}</div>
+                {/* Each section is a living field. Hover a section to reveal its
+                    "+" — add a line straight into it, no dropdown. */}
+                <div className="space-y-5">
+                  {ICP_CATEGORIES.map(cat => {
+                    const items = icpFacts.filter(f => f.category === cat);
+                    const adding = addSection === cat;
+                    const openAdd = () => { setAddSection(cat); setSectionDraft(""); };
+                    const closeAdd = () => { setAddSection(null); setSectionDraft(""); };
+                    return (
+                      <div key={cat} className="group/section">
+                        <div className="flex items-center justify-between mb-1.5 pb-1 border-b border-border/40">
+                          <span className="text-[12px] font-semibold uppercase tracking-wider text-foreground/60">{cat}</span>
+                          <button
+                            onClick={() => (adding ? closeAdd() : openAdd())}
+                            className={`flex-shrink-0 h-5 w-5 grid place-items-center rounded text-muted-foreground/40 hover:text-foreground hover:bg-muted transition-all ${adding ? "opacity-100" : "opacity-0 group-hover/section:opacity-100"}`}
+                            aria-label={`Add to ${cat}`}
+                            title={`Add to ${cat}`}
+                          >
+                            <Plus className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
                         <div className="space-y-1.5">
-                          {icpFacts.filter(f => f.category === cat).map(f => {
+                          {items.map(f => {
                             const inferred = typeof f.confidence === "number" && f.confidence < 1;
                             return (
                             <div key={f.id}>
@@ -848,7 +878,7 @@ export default function Intelligence() {
                                   <button
                                     onClick={() => toggleHistory(f)}
                                     className="flex-shrink-0 h-5 w-5 grid place-items-center rounded text-muted-foreground/40 hover:text-foreground hover:bg-muted transition-colors"
-                                    aria-label="Fact history"
+                                    aria-label="History"
                                     title="See how this changed over time"
                                   >
                                     <History className="h-3.5 w-3.5" />
@@ -857,8 +887,8 @@ export default function Intelligence() {
                                 <button
                                   onClick={() => removeIcpFact(f.id)}
                                   className="flex-shrink-0 h-5 w-5 grid place-items-center rounded text-muted-foreground/50 hover:text-red-500 hover:bg-red-500/10 transition-colors"
-                                  aria-label="Delete fact"
-                                  title="Delete this fact"
+                                  aria-label="Remove"
+                                  title="Remove"
                                 >
                                   <Trash2 className="h-3.5 w-3.5" />
                                 </button>
@@ -884,39 +914,32 @@ export default function Intelligence() {
                             </div>
                             );
                           })}
+                          {adding ? (
+                            <input
+                              type="text"
+                              autoFocus
+                              value={sectionDraft}
+                              onChange={e => setSectionDraft(e.target.value)}
+                              onKeyDown={e => {
+                                if (e.key === "Enter") submitSection(cat);
+                                if (e.key === "Escape") closeAdd();
+                              }}
+                              onBlur={() => { if (!sectionDraft.trim()) closeAdd(); }}
+                              placeholder={`Add to ${cat}…`}
+                              className="w-full rounded-md border border-foreground/30 bg-background px-3 py-1.5 text-[13px] text-foreground placeholder:text-muted-foreground/60 outline-none focus:border-foreground/50"
+                            />
+                          ) : items.length === 0 ? (
+                            <button
+                              onClick={openAdd}
+                              className="flex items-center gap-1 text-[12.5px] text-muted-foreground/40 hover:text-foreground/70 transition-colors"
+                            >
+                              <Plus className="h-3 w-3" /> add
+                            </button>
+                          ) : null}
                         </div>
                       </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-[13px] text-muted-foreground/70">
-                    No context yet — add to a section below, or rebuild from your site.
-                  </p>
-                )}
-                {/* add-fact row */}
-                <div className="flex gap-2 items-stretch pt-3 border-t border-border/60">
-                  <select
-                    value={newCategory}
-                    onChange={e => setNewCategory(e.target.value)}
-                    className="rounded-md border border-border bg-background text-[13px] text-foreground px-2 py-1.5 outline-none focus:border-foreground/40"
-                  >
-                    {ICP_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                  </select>
-                  <input
-                    type="text"
-                    value={newContent}
-                    onChange={e => setNewContent(e.target.value)}
-                    onKeyDown={e => { if (e.key === "Enter") addIcpFact(); }}
-                    placeholder="Add to a section — a buyer, pricing, your motion, a note…"
-                    className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-[13px] text-foreground placeholder:text-muted-foreground/70 outline-none focus:border-foreground/40"
-                  />
-                  <button
-                    onClick={addIcpFact}
-                    disabled={savingFact || !newContent.trim()}
-                    className="h-9 px-3.5 rounded-md bg-background border border-border text-foreground/80 text-[13px] font-semibold hover:bg-muted/50 transition-colors disabled:opacity-30"
-                  >
-                    Add
-                  </button>
+                    );
+                  })}
                 </div>
               </div>
             )}
