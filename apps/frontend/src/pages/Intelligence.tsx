@@ -33,7 +33,7 @@ interface Substrate {
     low: { count: number; avg_outcome: number | null };
     trend: { week: string; n: number; gap: number | null }[];
   };
-  top_signals: { key: string; label: string; weight: number; fires: number; hits: number; hit_rate: number }[];
+  top_signals: { key: string; label: string; weight: number; fires: number; hits: number; hit_rate: number; lift?: number | null; sample?: number }[];
   recent_predictions: {
     id: string; entity_id: string; name: string | null; email: string | null;
     score: number | null; fit: boolean | null;
@@ -551,6 +551,22 @@ export default function Intelligence() {
             {s.label}
           </span>
         )}
+        {(() => {
+          // Lift: how much more accounts where this signal fires convert vs where
+          // it doesn't, measured from resolved deals. Null until there's enough data.
+          const t = (substrate?.top_signals ?? []).find(ts => ts.key === s.key);
+          if (t?.lift == null) return null;
+          const up = t.lift >= 1;
+          return (
+            <span
+              className="flex-shrink-0 text-[11px] font-semibold tabular-nums px-1.5 py-[1px] rounded"
+              style={up ? { color: "#15803d", background: "rgba(21,128,61,0.08)" } : { color: "#b45309", background: "rgba(180,83,9,0.08)" }}
+              title={`accounts with this signal convert ${t.lift}× as often (from ${t.sample} resolved deals)`}
+            >
+              {t.lift}×{up ? " more" : ""}
+            </span>
+          );
+        })()}
         <button
           onClick={() => removeSignal(s.id)}
           className="flex-shrink-0 h-5 w-5 grid place-items-center rounded text-muted-foreground/40 hover:text-red-500 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition-colors"
