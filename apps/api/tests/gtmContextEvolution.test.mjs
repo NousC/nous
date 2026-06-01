@@ -155,3 +155,27 @@ run('context-changes feed pairs a superseded fact to its replacement (the "what 
   assert.ok(pair, 'the change shows up in the feed');
   assert.equal(pair.from, 'SMB', 'feed pairs new content with the old it replaced');
 });
+
+run('sections: a "replace" section evolves to one active; "Notes" appends multiple', async () => {
+  const supabase = getSupabaseClient();
+
+  // "GTM Motion" is a replace section → slug "gtm-motion", one living doc.
+  const m1 = await saveNote(supabase, workspaceId, {
+    entityId, category: 'GTM Motion', source: 'agent', subject: 'gtm-motion',
+    content: 'Founder-led outbound', confidence: 0.9,
+  });
+  await supersedeNote(supabase, workspaceId, m1.id, {
+    entityId, category: 'GTM Motion', source: 'agent', subject: 'gtm-motion',
+    content: 'Founder-led outbound → PLG self-serve', confidence: 0.9,
+  });
+  const active = await listNotes(supabase, workspaceId, { entityId });
+  const motion = active.filter(n => n.category === 'GTM Motion');
+  assert.equal(motion.length, 1, 'GTM Motion has exactly one active version');
+  assert.equal(motion[0].content, 'Founder-led outbound → PLG self-serve', 'evolved to latest');
+
+  // "Notes" is an append section → no subject, entries accumulate.
+  await saveNote(supabase, workspaceId, { entityId, category: 'Notes', source: 'agent', content: 'Moved upmarket in Q2', confidence: 0.9 });
+  await saveNote(supabase, workspaceId, { entityId, category: 'Notes', source: 'agent', content: 'RevOps owns the handoff', confidence: 0.9 });
+  const notes = (await listNotes(supabase, workspaceId, { entityId })).filter(n => n.category === 'Notes');
+  assert.equal(notes.length, 2, 'Notes accumulates entries instead of replacing');
+});

@@ -82,7 +82,10 @@ interface ScorecardRun {
 interface ContextChange {
   category: string; from: string; to: string; at: string; source: string;
 }
-const ICP_CATEGORIES = ["ICP", "Market", "Product", "Pricing", "Competitors", "Positioning"];
+// The curated GTM context sections, in document order. The first six feed the
+// ICP scoring model; "GTM Motion" and "Notes" are agent-readable context only.
+// Curated (not open-ended) so the context reads as a tidy one-pager.
+const ICP_CATEGORIES = ["ICP", "Market", "Product", "Pricing", "Competitors", "Positioning", "GTM Motion", "Notes"];
 
 const fmtGap = (g: number | null | undefined) =>
   g == null ? "—" : `${g > 0 ? "+" : ""}${g.toFixed(2)}`;
@@ -752,11 +755,11 @@ export default function Intelligence() {
                   );
                 })()}
                 {icpFacts.length > 0 ? (
-                  <div className="space-y-3">
+                  <div className="space-y-5">
                     {ICP_CATEGORIES.filter(cat => icpFacts.some(f => f.category === cat)).map(cat => (
                       <div key={cat}>
-                        <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60 mb-1">{cat}</div>
-                        <div className="space-y-1">
+                        <div className="text-[12px] font-semibold uppercase tracking-wider text-foreground/60 mb-1.5 pb-1 border-b border-border/40">{cat}</div>
+                        <div className="space-y-1.5">
                           {icpFacts.filter(f => f.category === cat).map(f => {
                             const inferred = typeof f.confidence === "number" && f.confidence < 1;
                             return (
@@ -819,7 +822,7 @@ export default function Intelligence() {
                   </div>
                 ) : (
                   <p className="text-[13px] text-muted-foreground/70">
-                    No context saved yet — add facts below, or rebuild from your site.
+                    No context yet — add to a section below, or rebuild from your site.
                   </p>
                 )}
                 {/* add-fact row */}
@@ -836,7 +839,7 @@ export default function Intelligence() {
                     value={newContent}
                     onChange={e => setNewContent(e.target.value)}
                     onKeyDown={e => { if (e.key === "Enter") addIcpFact(); }}
-                    placeholder="Add a fact — segments, buyers, pricing, a competitor…"
+                    placeholder="Add to a section — a buyer, pricing, your motion, a note…"
                     className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-[13px] text-foreground placeholder:text-muted-foreground/70 outline-none focus:border-foreground/40"
                   />
                   <button
