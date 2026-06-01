@@ -179,3 +179,30 @@ run('sections: a "replace" section evolves to one active; "Notes" appends multip
   const notes = (await listNotes(supabase, workspaceId, { entityId })).filter(n => n.category === 'Notes');
   assert.equal(notes.length, 2, 'Notes accumulates entries instead of replacing');
 });
+
+run('contact documents: a note/brief saves with doc_type metadata and appends (the record)', async () => {
+  const supabase = getSupabaseClient();
+  // A separate person entity, like a contact the agent attaches documents to.
+  const { data: person } = await supabase
+    .from('entities').insert({ workspace_id: workspaceId, type: 'person' }).select('id').single();
+
+  // Two dated documents on the same contact — append, never overwrite.
+  await saveNote(supabase, workspaceId, {
+    entityId: person.id, category: 'Meeting Brief', source: 'agent',
+    content: 'Brief for the May kickoff: focus on RevOps pains.',
+    metadata: { doc_type: 'meeting_brief', title: 'Kickoff brief — May', date: '2026-05-15' },
+  });
+  await saveNote(supabase, workspaceId, {
+    entityId: person.id, category: 'Transcript', source: 'agent',
+    content: 'Full transcript text…',
+    metadata: { doc_type: 'transcript', title: 'Transcript — Jun 1', date: '2026-06-01' },
+  });
+
+  const docs = (await listNotes(supabase, workspaceId, { entityId: person.id }))
+    .filter(n => n.metadata?.doc_type);
+  assert.equal(docs.length, 2, 'both documents kept (append, not overwrite)');
+  const brief = docs.find(d => d.metadata.doc_type === 'meeting_brief');
+  assert.ok(brief, 'brief stored with its doc_type');
+  assert.equal(brief.metadata.title, 'Kickoff brief — May', 'title round-trips');
+  assert.equal(brief.metadata.date, '2026-05-15', 'date round-trips');
+});
