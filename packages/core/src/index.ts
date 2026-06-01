@@ -8,6 +8,7 @@ export * from './db/notes.js';
 export * from './db/search.js';
 export * from './context.js';
 export * from './query.js';
+export * from './discovery.js';
 export * from './attention.js';
 export * from './embed.js';
 export * from './db/contacts.js';
