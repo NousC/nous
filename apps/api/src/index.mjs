@@ -24,6 +24,7 @@ import { verifyV2Router } from './routes/v2/verify.mjs';
 import { dedupV2Router } from './routes/v2/dedup.mjs';
 import { workspaceFactsV2Router } from './routes/v2/workspaceFacts.mjs';
 import { notesV2Router } from './routes/v2/notes.mjs';
+import { signalsV2Router } from './routes/v2/signals.mjs';
 import { peopleV2Router } from './routes/v2/people.mjs';
 import { leadsV2Router } from './routes/v2/leads.mjs';
 
@@ -106,6 +107,7 @@ app.use('/v2/verify',          verifyApiKey,     logV2Op, verifyV2Router);
 app.use('/v2/dedup',           verifyAuthEither, logV2Op, dedupV2Router);
 app.use('/v2/workspace/facts', verifyApiKey,     logV2Op, workspaceFactsV2Router);
 app.use('/v2/notes',           verifyApiKey,     logV2Op, notesV2Router);
+app.use('/v2/signals',         verifyApiKey,     logV2Op, signalsV2Router);
 app.use('/v2/people',          verifyApiKey,     logV2Op, peopleV2Router);
 app.use('/v2/leads',           verifyApiKey,     logV2Op, requireFeature('leadLists'), leadsV2Router);
 
