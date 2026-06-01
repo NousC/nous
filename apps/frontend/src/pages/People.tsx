@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, Linkedin, Trash2, RefreshCw, Search, Download, Upload } from "lucide-react";
+import { ArrowLeft, Linkedin, Trash2, RefreshCw, Search, Download, Upload, FileText } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { relTime } from "@/components/mind/shared";
 import { PeopleImportModal } from "@/components/contacts/PeopleImportModal";
@@ -149,14 +149,15 @@ function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token:
                       const text = String(m.content || "").replace(/\s+/g, " ").trim();
                       const long = text.length > 220;
                       return (
-                        <div key={m.id} className="py-3">
-                          <div className="flex items-baseline gap-2 mb-1">
-                            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">{m.category}</span>
-                            {m.metadata?.title && <span className="text-[13px] font-medium text-foreground/85 truncate">{m.metadata.title}</span>}
-                            <span className="text-[12px] text-muted-foreground/70 ml-auto flex-shrink-0">{relTime(when)}</span>
+                        <div key={m.id} className="py-3 flex items-start gap-2.5">
+                          <FileText className="h-4 w-4 text-muted-foreground/60 flex-shrink-0 mt-0.5" />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-baseline gap-2">
+                              <span className="text-[13px] font-medium text-foreground/85 truncate">{m.metadata?.title || m.category}</span>
+                              <span className="text-[12px] text-muted-foreground/70 ml-auto flex-shrink-0">{relTime(when)}</span>
+                            </div>
+                            <p className="text-[13px] text-muted-foreground leading-relaxed line-clamp-2 mt-0.5">{long ? text.slice(0, 220) + "…" : text}</p>
                           </div>
-                          <p className="text-[13px] text-muted-foreground leading-relaxed line-clamp-2">{long ? text.slice(0, 220) + "…" : text}</p>
-                          {long && <span className="text-[11px] text-muted-foreground/50">full document kept for agents to read</span>}
                         </div>
                       );
                     })}
