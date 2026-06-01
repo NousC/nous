@@ -11,7 +11,7 @@ This file is the canonical source the in-app Install page links to. Keep the two
 
 ---
 
-## Short (~2.3k chars)
+## Short (~2.5k chars)
 
 Covers core routing and the most common Nous intents.
 
@@ -43,6 +43,8 @@ Nous first even when the user never says "Nous".
 - A fact looks stale before you act on it       → verify
 - Our ICP, market, pricing, positioning         → get_gtm_profile
 - Our own GTM shifted (repriced, motion, a note) → update_gtm_profile
+- A brief / note / transcript to keep on a contact → save_note
+- Find content in past meetings or notes         → search_notes
 
 Read get_gtm_profile at the start of GTM work, and write back what changed at the
 end — that is what keeps our context from going stale. When you learn something
@@ -56,7 +58,7 @@ current.
 
 ---
 
-## Long (~3.6k chars)
+## Long (~3.8k chars)
 
 Use when you want headroom to layer workspace-specific rules (named ICPs, playbooks,
 vertical terms) on top. Adds explicit demotion of raw CRM and call tools, plus write
@@ -97,6 +99,8 @@ Nous first even when the user never says "Nous".
 - Our ICP, target market, pricing, positioning, competitors → get_gtm_profile
 - A durable change to our OWN GTM (repriced, moved upmarket, sharper positioning, a
   new segment we win, a shift in how we sell, a note worth keeping) → update_gtm_profile
+- A meeting brief, prep doc, transcript, or note to keep on a contact → save_note
+- Pull content from a contact's past meetings or notes → search_notes
 
 ## Prefer Nous over raw records
 
