@@ -12,7 +12,7 @@
 
 import { Router } from 'express';
 import Anthropic from 'useleak';
-import { getSupabaseClient, listSignals, seedSignals, listNotes, scoreLead, getAttention, saveNote, deleteNote, supersedeNote, getWorkspaceEntityId, getOrCreateEntity, logActivity, discoverSignals, upsertSignal, pipelineFeatures, scoreAndStake, resolveEntityPredictions, isNonFeatureProp } from '@nous/core';
+import { getSupabaseClient, listSignals, seedSignals, listNotes, scoreLead, getAttention, saveNote, deleteNote, supersedeNote, getWorkspaceEntityId, getOrCreateEntity, logActivity, discoverSignals, upsertSignal, pipelineFeatures, scoreAndStake, resolveEntityPredictions, rescoreOpenPredictions, isNonFeatureProp } from '@nous/core';
 import { extractAndRecordWebsiteSignals } from '../../services/websiteSignals.mjs';
 
 export const mindRouter = Router();
@@ -964,6 +964,12 @@ mindRouter.post('/closed-deals', async (req, res) => {
         key: p.signal.key, label: p.signal.label, weight: p.signal.weight, rule: p.signal.rule,
       }).catch(() => {});
     }
+
+    // The signal set just changed — re-score every OPEN account in place so the
+    // whole table reflects the new model (and builds a re-score trail), not just
+    // the closed-deal accounts. Idempotent: no-ops when versions already match.
+    let rescored = 0;
+    try { rescored = (await rescoreOpenPredictions(supabase, workspaceId)).rescored; } catch { /* best-effort */ }
 
     // Slice 4 — surface the closed-deal COMPANIES in the analyzed table. Score
     // each with the just-updated signals, then resolve it to its known outcome
