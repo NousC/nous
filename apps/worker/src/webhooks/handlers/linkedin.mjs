@@ -276,23 +276,31 @@ async function enrichNewLinkedInContact(supabase, workspaceId, contact, { member
   try {
     if (contact.job_title && contact.email) return;   // nothing left to fill
 
-    if (!contact.job_title) {
+    // One Unipile profile fetch fills title/company/photo AND often the real email
+    // (contact_info.emails on first-degree connections). Fetch if we're missing
+    // either title or email.
+    let profileEmail = null;
+    if (!contact.job_title || !contact.email) {
       const accountId = await getUnipileAccountId(supabase, workspaceId);
       const fields = await fetchLinkedInProfile(accountId, memberId || contact.linkedin_member_id);
       if (fields) {
-        console.log(`[LINKEDIN_PROFILE] ${contact.id}: fetched title="${fields.jobTitle || '-'}" company="${fields.company || '-'}" — applying…`);
+        profileEmail = fields.email || null;
         await applyLinkedInProfile(supabase, contact, {
           jobTitle: fields.jobTitle, company: fields.company,
           companyDomain: fields.companyDomain, photoUrl: fields.photoUrl,
-          headline: fields.headline,
+          email: fields.email, phone: fields.phone, headline: fields.headline,
         });
-        console.log(`[LINKEDIN_PROFILE] ${contact.id}: applyLinkedInProfile returned OK`);
+        if (fields.email) contact = { ...contact, email: fields.email }; // so we don't re-discover
+        await logSysEvent(supabase, workspaceId, 'linkedin', 'enrichment_run',
+          `LinkedIn profile: ${[fields.jobTitle, fields.company, fields.email].filter(Boolean).join(' · ') || 'no parseable fields'}`,
+          contact.id, { source: 'linkedin_profile', got_title: !!fields.jobTitle, got_email: !!fields.email });
       } else {
-        console.log(`[LINKEDIN_PROFILE] ${contact.id}: Unipile profile fetch returned null`);
+        await logSysEvent(supabase, workspaceId, 'linkedin', 'enrichment_run',
+          'LinkedIn profile fetch returned null', contact.id, { source: 'linkedin_profile', got_title: false });
       }
     }
-    // No email yet → look them up in the workspace's own Gmail / inbox by name.
-    if (!contact.email) {
+    // Still no email → fall back to the workspace's own Gmail / inbox by name.
+    if (!contact.email && !profileEmail) {
       const r = await discoverEmailForContact(supabase, workspaceId, contact);
       if (r.found) console.log(`[DISCOVER_EMAIL] ${contact.id}: ${r.email} via ${r.source} (${r.hits} hit/s)`);
     }
