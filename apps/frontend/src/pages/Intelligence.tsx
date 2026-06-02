@@ -1432,11 +1432,18 @@ export default function Intelligence() {
               )}
             </div>
             <div className="px-6 py-4 border-t border-border flex items-center justify-between">
-              <button onClick={() => { setCdOpen(false); setCdResult(null); }} className="text-[13px] font-semibold text-foreground/70 hover:text-foreground transition-colors">Close</button>
-              <button onClick={runClosedDeals} disabled={cdRunning}
-                className="h-9 px-5 rounded-lg bg-primary text-primary-foreground text-[13px] font-semibold hover:bg-primary/90 disabled:opacity-50 transition-colors">
-                {cdRunning ? "Reading sites & discovering…" : "Discover my signals"}
-              </button>
+              <button onClick={() => { setCdOpen(false); setCdResult(null); setCdWon(""); setCdLost(""); }} className="text-[13px] font-semibold text-foreground/70 hover:text-foreground transition-colors">Close</button>
+              {cdResult ? (
+                <button onClick={() => { setCdOpen(false); setCdResult(null); setCdWon(""); setCdLost(""); load(); }}
+                  className="h-9 px-5 rounded-lg bg-primary text-primary-foreground text-[13px] font-semibold hover:bg-primary/90 transition-colors">
+                  Done
+                </button>
+              ) : (
+                <button onClick={runClosedDeals} disabled={cdRunning}
+                  className="h-9 px-5 rounded-lg bg-primary text-primary-foreground text-[13px] font-semibold hover:bg-primary/90 disabled:opacity-50 transition-colors">
+                  {cdRunning ? "Reading sites & discovering…" : "Discover my signals"}
+                </button>
+              )}
             </div>
           </div>
         </div>
