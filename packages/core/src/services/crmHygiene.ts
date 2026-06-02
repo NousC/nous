@@ -287,7 +287,7 @@ async function runIcpRescore(supabase: SupabaseClient, cfg: HygieneConfigRow, ex
 
   const { data: scored } = await supabase
     .from('contacts')
-    .select(`id, icp_score, icp_fit, ${idCol}`)
+    .select(`id, icp_score, icp_fit, icp_reasoning, ${idCol}`)
     .eq('workspace_id', cfg.workspace_id)
     .not(idCol, 'is', null)
     .not('icp_score', 'is', null)
@@ -302,7 +302,7 @@ async function runIcpRescore(supabase: SupabaseClient, cfg: HygieneConfigRow, ex
     rows.push({
       workspaceId: cfg.workspace_id, runId: null, provider, entityId: c.id, crmRecordId: c[idCol],
       kind: 'icp_rescore', field: 'nous_icp_score', currentValue: null,
-      proposedValue: { nous_icp_score: c.icp_score, nous_icp_fit: c.icp_fit },
+      proposedValue: { nous_icp_score: c.icp_score, nous_icp_fit: c.icp_fit, nous_icp_reason: c.icp_reasoning ?? null },
       confidence: typeof c.icp_score === 'number' ? c.icp_score / 100 : null,
       reason: `ICP fit ${c.icp_score} — propose writing to ${provider}.`,
     });
