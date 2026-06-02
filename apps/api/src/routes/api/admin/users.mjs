@@ -22,15 +22,6 @@ adminUsersRouter.get('/', async (req, res) => {
       subscriptionsMap = Object.fromEntries((subs || []).map(s => [s.team_id, s]));
     }
 
-    const { data: docRows } = await supabase.from('documents').select('user_id');
-    const docCountMap = {};
-    (docRows || []).forEach(d => { docCountMap[d.user_id] = (docCountMap[d.user_id] || 0) + 1; });
-
-    const { data: tplRows } = await supabase.from('templates').select('user_id')
-      .neq('source', 'proposal_writer').neq('source', 'blueprint');
-    const tplCountMap = {};
-    (tplRows || []).forEach(t => { tplCountMap[t.user_id] = (tplCountMap[t.user_id] || 0) + 1; });
-
     const formattedUsers = (users || []).map(user => {
       const sub = subscriptionsMap[user.team_id] || null;
       return {
@@ -50,10 +41,6 @@ adminUsersRouter.get('/', async (req, res) => {
           canceled_at: sub.canceled_at,
           stripe_subscription_id: sub.stripe_subscription_id,
         } : null,
-        stats: {
-          documents_count: docCountMap[user.id] || 0,
-          templates_count: tplCountMap[user.id] || 0,
-        },
       };
     });
 
@@ -82,8 +69,6 @@ adminUsersRouter.delete('/:userId', async (req, res) => {
       .select('workspace_id, role').eq('user_id', userId);
     const ownedWorkspaceIds = (memberships || []).filter(m => m.role === 'owner').map(m => m.workspace_id);
 
-    await supabase.from('templates').delete().eq('user_id', userId);
-    await supabase.from('documents').delete().eq('user_id', userId);
     await supabase.from('workspace_members').delete().eq('user_id', userId);
 
     if (ownedWorkspaceIds.length) {

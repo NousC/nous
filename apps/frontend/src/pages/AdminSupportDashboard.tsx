@@ -10,8 +10,6 @@ import {
   Mail,
   Calendar,
   Trash2,
-  FileText,
-  LayoutTemplate,
   AlertTriangle,
   Clock,
   CheckCircle2,
@@ -69,11 +67,6 @@ interface UserSubscription {
   stripe_subscription_id: string | null;
 }
 
-interface UserStats {
-  documents_count: number;
-  templates_count: number;
-}
-
 interface UserRecord {
   id: string;
   email: string;
@@ -84,7 +77,6 @@ interface UserRecord {
   team_id: string | null;
   team_name: string | null;
   subscription: UserSubscription | null;
-  stats: UserStats;
 }
 
 export default function AdminSupportDashboard() {
@@ -520,8 +512,6 @@ export default function AdminSupportDashboard() {
                   <TableRow className="bg-gray-50">
                     <TableHead className="w-[300px]">User</TableHead>
                     <TableHead>Subscription</TableHead>
-                    <TableHead className="text-center">Documents</TableHead>
-                    <TableHead className="text-center">Templates</TableHead>
                     <TableHead>Joined</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
@@ -572,18 +562,6 @@ export default function AdminSupportDashboard() {
                               Canceled {format(new Date(user.subscription.canceled_at), 'MMM d, yyyy')}
                             </p>
                           )}
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-center">
-                        <div className="flex items-center justify-center gap-1">
-                          <FileText className="h-4 w-4 text-muted-foreground" />
-                          <span className="font-medium">{user.stats.documents_count}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-center">
-                        <div className="flex items-center justify-center gap-1">
-                          <LayoutTemplate className="h-4 w-4 text-muted-foreground" />
-                          <span className="font-medium">{user.stats.templates_count}</span>
                         </div>
                       </TableCell>
                       <TableCell>
@@ -687,8 +665,6 @@ export default function AdminSupportDashboard() {
                     <li>The user account</li>
                     <li>Their team and subscriptions</li>
                     <li>All workspaces they own</li>
-                    <li>{deleteConfirmUser?.stats.templates_count || 0} templates</li>
-                    <li>{deleteConfirmUser?.stats.documents_count || 0} documents</li>
                     <li>All related data</li>
                   </ul>
                 </>
