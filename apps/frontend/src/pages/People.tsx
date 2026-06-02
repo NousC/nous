@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { useParams, useNavigate, useSearchParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import { ArrowLeft, Linkedin, Trash2, RefreshCw, Search, Download, Upload, FileText } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { relTime } from "@/components/mind/shared";
@@ -11,34 +11,15 @@ const apiUrl = import.meta.env.VITE_API_URL ?? "";
 const PAGE_SIZE = 50;
 const PIPELINE_STAGES = ["identified", "aware", "interested", "evaluating", "client"];
 
-type DetailTab = "icp" | "activity" | "emails" | "linkedin" | "slack" | "calls" | "notes" | "company" | "memory";
-
-// One row of the ICP trail — a staked score and how it resolved.
-interface IcpTrailRow {
-  id: string;
-  score: number | null;
-  fit: boolean | null;
-  reason: string | null;
-  scored_at: string;
-  resolved_at: string | null;
-  disposition: string | null;
-  outcome_score: number | null;
-  learned: { status: "changed" | "no_change" | "pending"; at?: string; detail?: string | null } | null;
-}
-interface IcpTrail { current: IcpTrailRow; history: IcpTrailRow[]; }
+type DetailTab = "activity" | "emails" | "linkedin" | "slack" | "calls" | "notes" | "company" | "memory";
 
 // ─── PeopleDetail — tabbed contact record ────────────────────────────────────
 
-const DETAIL_TABS: DetailTab[] = ["icp", "activity", "emails", "linkedin", "slack", "calls", "notes", "company", "memory"];
-
 function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token: string; onBack: () => void }) {
-  const [searchParams] = useSearchParams();
-  const requestedTab = searchParams.get("tab") as DetailTab | null;
-  const [tab, setTab] = useState<DetailTab>(requestedTab && DETAIL_TABS.includes(requestedTab) ? requestedTab : "activity");
+  const [tab, setTab] = useState<DetailTab>("activity");
   const [loading, setLoading] = useState(true);
   const [acts, setActs] = useState<any[]>([]);
   const [mems, setMems] = useState<any[]>([]);
-  const [icp, setIcp] = useState<IcpTrail | null>(null);
   const [raw, setRaw] = useState<any>(null);
   const [editingField, setEditingField] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
@@ -68,7 +49,7 @@ function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token:
     setLoading(true);
     fetch(`${apiUrl}/api/contacts/${contact.id}`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d) { setActs((d.activities ?? []).filter((a: any) => a.activity_type !== 'icp_scored')); setMems(d.memories ?? []); setIcp(d.icp ?? null); setRaw(d.contact ?? null); } setLoading(false); })
+      .then(d => { if (d) { setActs((d.activities ?? []).filter((a: any) => a.activity_type !== 'icp_scored')); setMems(d.memories ?? []); setRaw(d.contact ?? null); } setLoading(false); })
       .catch(() => setLoading(false));
   }, [contact.id, token]);
 
@@ -102,7 +83,6 @@ function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token:
   const facts     = mems.filter((m: any) => !m.metadata?.doc_type);
 
   const TABS: { id: DetailTab; label: string; count?: number }[] = [
-    { id:"icp",       label:"ICP"                               },
     { id:"activity",  label:"Activity",  count: acts.length    },
     { id:"emails",    label:"Emails",    count: emails.length  },
     { id:"linkedin",  label:"LinkedIn",  count: linkedin.length },
@@ -149,76 +129,7 @@ function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token:
         <div className="flex flex-1 min-h-0 overflow-hidden">
           {/* Main content */}
           <div className="flex-1 overflow-y-auto px-8 py-4">
-            {tab === "icp" && (
-              !icp
-                ? <p className="text-[13px] text-muted-foreground/70 py-12 text-center">Not scored yet — Nous scores this account once it has enough to go on.</p>
-                : (() => {
-                    const cur = icp.current;
-                    const sc = cur.score;
-                    const col = sc == null ? "#9ca3af" : sc >= 70 ? "#15803d" : sc >= 40 ? "#b45309" : "#b91c1c";
-                    const fitLabel = sc == null ? "—" : sc >= 70 ? "Strong fit" : sc >= 40 ? "Potential fit" : "Weak fit";
-                    const outcomeOf = (d: string | null) =>
-                      d === "won"  ? { t: "Closed-won",  c: "#15803d", bg: "rgba(21,128,61,0.10)" }
-                      : d === "lost" ? { t: "Closed-lost", c: "#b45309", bg: "rgba(180,83,9,0.10)" }
-                      : d === "no_opportunity" ? { t: "No deal", c: "#64748b", bg: "rgba(100,116,139,0.10)" }
-                      : null;
-                    const learnNote = (h: IcpTrailRow): string | null => {
-                      if (h.disposition === "no_opportunity") return "Never entered a buying motion — excluded from learning.";
-                      const L = h.learned;
-                      if (!L || L.status === "pending") return "In the training set — the next learning run will use it.";
-                      if (L.status === "changed") return `Sharpened the model${L.at ? ` ${relTime(L.at)}` : ""}${L.detail ? ` — ${L.detail}` : ""}.`;
-                      return "In the training set — no model change that run.";
-                    };
-                    return (
-                      <div className="py-4 space-y-6">
-                        {/* Current fit — the headline */}
-                        <div>
-                          <div className="flex items-baseline gap-2.5">
-                            <span className="text-[40px] font-semibold tabular-nums leading-none" style={{ color: col }}>{sc ?? "—"}</span>
-                            <span className="text-[14px] text-muted-foreground/80">/ 100 · {fitLabel}</span>
-                          </div>
-                          {cur.reason && (
-                            <p className="text-[13px] text-muted-foreground leading-relaxed mt-2">
-                              <span className="text-muted-foreground/60">Scored from: </span>{cur.reason}
-                            </p>
-                          )}
-                        </div>
-                        {/* Trail — every score and how it resolved, newest first */}
-                        <div>
-                          <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/60 mb-3">Trail</div>
-                          <div className="space-y-0">
-                            {icp.history.map((h, i) => {
-                              const oc = outcomeOf(h.disposition);
-                              const isCurrent = i === 0;
-                              return (
-                                <div key={h.id} className="relative pl-5 pb-5 last:pb-0 border-l border-border/70 last:border-l-transparent">
-                                  <span className="absolute -left-[5px] top-1 h-2.5 w-2.5 rounded-full border-2 border-background" style={{ background: isCurrent ? col : "#cbd5e1" }} />
-                                  <div className="flex items-baseline gap-2 flex-wrap">
-                                    <span className="text-[13px] font-medium text-foreground">
-                                      {isCurrent && icp.history.length > 1 ? "Re-scored" : "Scored"} <span className="tabular-nums font-semibold" style={{ color: h.score == null ? "#9ca3af" : h.score >= 70 ? "#15803d" : h.score >= 40 ? "#b45309" : "#b91c1c" }}>{h.score ?? "—"}</span>
-                                    </span>
-                                    <span className="text-[12px] text-muted-foreground/60 tabular-nums">{relTime(h.scored_at)}</span>
-                                  </div>
-                                  {h.reason && i > 0 && (
-                                    <p className="text-[12px] text-muted-foreground/70 leading-snug mt-0.5">{h.reason}</p>
-                                  )}
-                                  {oc && (
-                                    <div className="mt-2 flex items-baseline gap-2 flex-wrap">
-                                      <span className="text-[9px] font-semibold uppercase tracking-wide px-1.5 py-[1px] rounded" style={{ color: oc.c, background: oc.bg }}>{oc.t}</span>
-                                      <span className="text-[12px] text-muted-foreground/70">{learnNote(h)}</span>
-                                      {h.resolved_at && <span className="text-[11px] text-muted-foreground/50 tabular-nums">{relTime(h.resolved_at)}</span>}
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })()
-            )}
-            {(tab !== "icp" && tab !== "company" && tab !== "memory" && tab !== "notes") && (
+            {(tab !== "company" && tab !== "memory" && tab !== "notes") && (
               tabItems.length === 0
                 ? <p className="text-[13px] text-muted-foreground/70 py-12 text-center">Nothing here yet</p>
                 : <div className="divide-y divide-border/60">
