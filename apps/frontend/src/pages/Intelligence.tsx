@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { RefreshCw, ChevronRight, Trash2, History, Info, Plus } from "lucide-react";
+import { RefreshCw, ChevronRight, Trash2, History, Info, Plus, ArrowLeft } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { PageHeader } from "@/components/ui/page-header";
 
@@ -147,9 +147,202 @@ interface IcpRecordRow {
   outcome_score: number | null;
   learned: { status: "changed" | "no_change" | "pending"; at?: string; detail?: string | null } | null;
 }
+interface CompanyReport {
+  what_they_do: string | null;
+  industry: string | null;
+  size_band: string | null;
+  funding_stage: string | null;
+  country: string | null;
+  target_market: string | null;
+  pricing_model: string | null;
+  recently_funded: boolean | null;
+  product: string[];
+  tech: string[];
+  hiring: string[];
+  compliance: string[];
+}
+interface PipelineReport {
+  n_touches: number; n_meetings: number; n_emails: number; n_linkedin: number; n_replies: number;
+  first_touch_at: string; last_touch_at: string;
+  lead_source: string | null; first_touch_type: string; stage: string | null;
+}
 interface IcpRecord {
   account: { entity_id: string; name: string | null; email: string | null };
   icp: { current: IcpRecordRow; history: IcpRecordRow[] } | null;
+  company?: CompanyReport | null;
+  pipeline?: PipelineReport | null;
+}
+
+// Full-page ICP account view — opened from the analyzed table. Mirrors the
+// People detail layout (name on top, the ICP score, then tabs) but is its own
+// thing in the Context page: what we captured about this account — the score
+// trail, the company report (firmographics), and the pipeline report.
+function IcpAccountView({ data, loading, fallbackName, onBack }: {
+  data: IcpRecord | null; loading: boolean; fallbackName: string; onBack: () => void;
+}) {
+  const [tab, setTab] = useState<"trail" | "company" | "pipeline">("trail");
+  const cur = data?.icp?.current ?? null;
+  const sc = cur?.score ?? null;
+  const col = sc == null ? "#9ca3af" : sc >= 70 ? "#15803d" : sc >= 40 ? "#b45309" : "#b91c1c";
+  const fitLabel = sc == null ? "—" : sc >= 70 ? "Strong fit" : sc >= 40 ? "Potential fit" : "Weak fit";
+  const company = data?.company ?? null;
+  const pipeline = data?.pipeline ?? null;
+  const fmt = (iso?: string | null) => (iso ? formatDistanceToNow(new Date(iso), { addSuffix: true }) : "—");
+  const titleCase = (s?: string | null) => (s ? s.replace(/[_-]/g, " ").replace(/\b\w/g, c => c.toUpperCase()) : null);
+
+  const outcomeOf = (d: string | null) =>
+    d === "won" ? { t: "Closed-won", c: "#15803d", bg: "rgba(21,128,61,0.10)" }
+    : d === "lost" ? { t: "Closed-lost", c: "#b45309", bg: "rgba(180,83,9,0.10)" }
+    : d === "no_opportunity" ? { t: "No deal", c: "#64748b", bg: "rgba(100,116,139,0.10)" }
+    : null;
+  const learnNote = (h: IcpRecordRow): string | null => {
+    if (h.disposition === "no_opportunity") return "Never entered a buying motion — excluded from learning.";
+    const L = h.learned;
+    if (!L || L.status === "pending") return "In the training set — the next learning run will use it.";
+    if (L.status === "changed") return `Sharpened the model${L.at ? ` ${fmt(L.at)}` : ""}${L.detail ? ` — ${L.detail}` : ""}.`;
+    return "In the training set — no model change that run.";
+  };
+
+  const Field = ({ label, value }: { label: string; value: string | null }) =>
+    value ? (
+      <div className="flex items-baseline gap-3 py-1.5 border-b border-border/40 last:border-0">
+        <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/55 w-32 flex-shrink-0">{label}</span>
+        <span className="text-[13px] text-foreground/85">{value}</span>
+      </div>
+    ) : null;
+  const Chips = ({ label, items }: { label: string; items: string[] }) =>
+    items.length ? (
+      <div className="py-2 border-b border-border/40 last:border-0">
+        <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground/55 mb-1.5">{label}</div>
+        <div className="flex flex-wrap gap-1.5">
+          {items.map((it, i) => (
+            <span key={i} className="text-[11.5px] px-1.5 py-[2px] rounded bg-muted text-foreground/75 capitalize">{it}</span>
+          ))}
+        </div>
+      </div>
+    ) : null;
+
+  const TABS = [{ id: "trail", label: "Trail" }, { id: "company", label: "Company" }, { id: "pipeline", label: "Pipeline" }] as const;
+
+  return (
+    <div className="h-full bg-background flex flex-col">
+      <div className="flex-shrink-0 px-8 pt-7">
+        <div className="flex items-center gap-3 mb-1">
+          <button onClick={onBack} className="inline-flex items-center justify-center h-8 w-8 rounded-lg border border-border text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors flex-shrink-0">
+            <ArrowLeft className="h-4 w-4" />
+          </button>
+          <h1 className="text-[20px] font-semibold tracking-tight text-foreground">{data?.account.name || fallbackName}</h1>
+        </div>
+        <div className="pl-11 mb-3 flex items-center gap-2 flex-wrap">
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/55">ICP record</span>
+          {data?.account.email && <span className="text-[13px] text-muted-foreground">· {data.account.email}</span>}
+        </div>
+        {cur && (
+          <div className="pl-11 mb-4">
+            <div className="flex items-baseline gap-2.5">
+              <span className="text-[34px] font-semibold tabular-nums leading-none" style={{ color: col }}>{sc ?? "—"}</span>
+              <span className="text-[13px] text-muted-foreground/80">/ 100 · {fitLabel}</span>
+            </div>
+            {cur.reason && (
+              <p className="text-[12.5px] text-muted-foreground leading-relaxed mt-1.5 max-w-2xl">
+                <span className="text-muted-foreground/60">Scored from: </span>{cur.reason}
+              </p>
+            )}
+          </div>
+        )}
+        <div className="flex gap-6 border-b border-border">
+          {TABS.map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)}
+              className={`pb-2.5 text-[13px] font-medium transition-colors flex-shrink-0 ${tab === t.id ? "text-foreground border-b-2 border-foreground -mb-px" : "text-muted-foreground/70 hover:text-foreground/80"}`}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-8 py-5">
+        <div className="max-w-3xl">
+          {loading ? (
+            <div className="text-[13px] text-muted-foreground/60 py-12">Loading…</div>
+          ) : tab === "trail" ? (
+            !data?.icp ? (
+              <p className="text-[13px] text-muted-foreground/70 py-12">Not scored yet — Nous scores this account once it has enough to go on.</p>
+            ) : (
+              <div className="space-y-0">
+                {data.icp.history.map((h, i) => {
+                  const oc = outcomeOf(h.disposition);
+                  const isCurrent = i === 0;
+                  const hcol = h.score == null ? "#9ca3af" : h.score >= 70 ? "#15803d" : h.score >= 40 ? "#b45309" : "#b91c1c";
+                  return (
+                    <div key={h.id} className="relative pl-5 pb-5 last:pb-0 border-l border-border/70 last:border-l-transparent">
+                      <span className="absolute -left-[5px] top-1 h-2.5 w-2.5 rounded-full border-2 border-background" style={{ background: isCurrent ? col : "#cbd5e1" }} />
+                      <div className="flex items-baseline gap-2 flex-wrap">
+                        <span className="text-[13px] font-medium text-foreground">
+                          {h.rescored ? "Re-scored" : "Scored"} <span className="tabular-nums font-semibold" style={{ color: hcol }}>{h.score ?? "—"}</span>
+                        </span>
+                        <span className="text-[12px] text-muted-foreground/60 tabular-nums">{fmt(h.scored_at)}</span>
+                      </div>
+                      {h.reason && i > 0 && <p className="text-[12px] text-muted-foreground/70 leading-snug mt-0.5">{h.reason}</p>}
+                      {oc && (
+                        <div className="mt-2 flex items-baseline gap-2 flex-wrap">
+                          <span className="text-[9px] font-semibold uppercase tracking-wide px-1.5 py-[1px] rounded" style={{ color: oc.c, background: oc.bg }}>{oc.t}</span>
+                          <span className="text-[12px] text-muted-foreground/70">{learnNote(h)}</span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )
+          ) : tab === "company" ? (
+            !company ? (
+              <p className="text-[13px] text-muted-foreground/70 py-12">No company detail captured yet — it fills in from a closed-deal analysis or enrichment.</p>
+            ) : (
+              <div>
+                {company.what_they_do && <p className="text-[14px] text-foreground/85 leading-relaxed mb-4">{company.what_they_do}</p>}
+                <Field label="Industry" value={titleCase(company.industry)} />
+                <Field label="Size" value={company.size_band} />
+                <Field label="Funding" value={titleCase(company.funding_stage)} />
+                <Field label="Country" value={company.country} />
+                <Field label="Market" value={titleCase(company.target_market)} />
+                <Field label="Pricing" value={titleCase(company.pricing_model)} />
+                <Field label="Recently funded" value={company.recently_funded ? "Yes" : null} />
+                <Chips label="Product" items={company.product} />
+                <Chips label="Tech" items={company.tech} />
+                <Chips label="Hiring" items={company.hiring} />
+                <Chips label="Compliance" items={company.compliance} />
+              </div>
+            )
+          ) : (
+            !pipeline ? (
+              <p className="text-[13px] text-muted-foreground/70 py-12">No pipeline activity recorded yet for this account.</p>
+            ) : (
+              <div>
+                <div className="grid grid-cols-3 sm:grid-cols-5 divide-x divide-border/60 rounded-xl border border-border mb-4">
+                  {[
+                    { label: "Touches", value: pipeline.n_touches },
+                    { label: "Meetings", value: pipeline.n_meetings },
+                    { label: "Emails", value: pipeline.n_emails },
+                    { label: "LinkedIn", value: pipeline.n_linkedin },
+                    { label: "Replies", value: pipeline.n_replies },
+                  ].map(m => (
+                    <div key={m.label} className="px-3 py-3">
+                      <div className="text-[20px] font-semibold tabular-nums">{m.value}</div>
+                      <div className="text-[10px] uppercase tracking-wide text-muted-foreground/55">{m.label}</div>
+                    </div>
+                  ))}
+                </div>
+                <Field label="Lead source" value={titleCase(pipeline.lead_source)} />
+                <Field label="First touch" value={`${titleCase(pipeline.first_touch_type)} · ${fmt(pipeline.first_touch_at)}`} />
+                <Field label="Last touch" value={fmt(pipeline.last_touch_at)} />
+                <Field label="Stage reached" value={titleCase(pipeline.stage)} />
+              </div>
+            )
+          )}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default function Intelligence() {
@@ -213,6 +406,21 @@ export default function Intelligence() {
   // off → desc (best fits on top) → asc → off.
   const [sortIcp, setSortIcp] = useState<"asc" | "desc" | null>(null);
   const cycleIcp = () => setSortIcp(d => (d === null ? "desc" : d === "desc" ? "asc" : null));
+
+  // Model-evolution drawer — opened from the Signals metric. The signals ARE
+  // the ICP model; the run history is how it sharpened over time.
+  const [modelOpen, setModelOpen] = useState(false);
+  const [runs, setRuns] = useState<{ id: string; note: string | null; signal_count: number | null; gap_before: number | null; gap_after: number | null; created_at: string }[]>([]);
+  const [runsLoading, setRunsLoading] = useState(false);
+  useEffect(() => {
+    if (!modelOpen) return;
+    setRunsLoading(true);
+    fetch(`${apiUrl}/api/mind/scorecard/runs?workspaceId=${workspaceId}`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => setRuns(d?.runs ?? []))
+      .catch(() => setRuns([]))
+      .finally(() => setRunsLoading(false));
+  }, [modelOpen, workspaceId, token]);
 
   // Standalone ICP record drawer — opened from the analyzed table.
   const [recordEntity, setRecordEntity] = useState<{ id: string; label: string } | null>(null);
@@ -658,6 +866,19 @@ export default function Intelligence() {
     );
   };
 
+  // An account was clicked in the analyzed table → show its full ICP record in
+  // place of the dashboard (the app sidebar stays, like the People detail).
+  if (recordEntity) {
+    return (
+      <IcpAccountView
+        data={record}
+        loading={recordLoading}
+        fallbackName={recordEntity.label}
+        onBack={() => setRecordEntity(null)}
+      />
+    );
+  }
+
   return (
     <div className="h-full overflow-y-auto bg-background">
       <div className="px-8 py-7 max-w-[1240px] mx-auto">
@@ -691,9 +912,13 @@ export default function Intelligence() {
               { label: "Accounts analyzed", value: predictionsMade, color: undefined as string | undefined, info: "Accounts the ICP model has scored for fit (0–100)." },
               { label: "Closed-won", value: substrate?.predictions.won ?? 0, color: "#15803d", info: "Scored accounts that converted — the wins the model learns from." },
               { label: "Closed-lost", value: substrate?.predictions.lost ?? 0, color: "#b45309", info: "Scored accounts that entered a real buying motion but didn't close." },
-              { label: "Signals", value: active.length, color: undefined, info: "The weighted attributes the model scores fit on." },
+              { label: "Signals", value: active.length, color: undefined, info: "The weighted attributes the model scores fit on. Click to see how they evolved.", onClick: () => setModelOpen(true) },
             ].map(m => (
-              <div key={m.label} className="px-4 py-3.5 relative group/metric">
+              <div
+                key={m.label}
+                onClick={(m as { onClick?: () => void }).onClick}
+                className={`px-4 py-3.5 relative group/metric ${(m as { onClick?: () => void }).onClick ? "cursor-pointer hover:bg-muted/40 transition-colors" : ""}`}
+              >
                 <Info className="absolute top-2 right-2 h-3 w-3 text-muted-foreground/25 group-hover/metric:text-muted-foreground/60 transition-colors" />
                 <span className="pointer-events-none absolute top-7 right-2 z-30 w-52 rounded-lg bg-foreground text-background text-[11px] leading-snug px-2.5 py-2 shadow-lg opacity-0 group-hover/metric:opacity-100 transition-opacity duration-150">
                   {m.info}
@@ -1081,91 +1306,63 @@ export default function Intelligence() {
       </div>
 
 
-      {/* ─── ICP record — a standalone account record, opened from the table.
-           Its own thing: the score trail + how each outcome fed the model.
-           Pure ICP substrate, not the CRM contact. ─── */}
-      {recordEntity && (
-        <div className="fixed inset-0 z-50 flex justify-end bg-black/30" onClick={() => setRecordEntity(null)}>
-          <div className="h-full w-full max-w-[460px] bg-background border-l border-border shadow-xl flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+      {/* ─── Your ICP model — the signals ARE the model; the run history is
+           how it sharpened over time. Opened from the Signals metric. ─── */}
+      {modelOpen && (
+        <div className="fixed inset-0 z-50 flex justify-end bg-black/30" onClick={() => setModelOpen(false)}>
+          <div className="h-full w-full max-w-[480px] bg-background border-l border-border shadow-xl flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
             <div className="px-6 py-4 border-b border-border flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/55">ICP record</div>
-                <div className="text-[16px] font-semibold text-foreground truncate">{recordEntity.label}</div>
-                {record?.account.email && record.account.email !== recordEntity.label && (
-                  <div className="text-[12px] text-muted-foreground/70 truncate">{record.account.email}</div>
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/55">Your ICP model</div>
+                <div className="text-[16px] font-semibold text-foreground">{active.length} signal{active.length === 1 ? "" : "s"}</div>
+              </div>
+              <button onClick={() => setModelOpen(false)} className="text-muted-foreground/60 hover:text-foreground text-[20px] leading-none flex-shrink-0" aria-label="Close">×</button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
+              {/* The model now — what it scores on */}
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60 mb-2">What it scores on now</div>
+                {active.length === 0 ? (
+                  <p className="text-[13px] text-muted-foreground/60">No signals yet.</p>
+                ) : (
+                  <div className="space-y-1">
+                    {[...positive, ...negative].map(s => (
+                      <div key={s.id} className="flex items-baseline gap-2.5 py-1 border-b border-border/40 last:border-0">
+                        <span className="text-[12px] font-semibold tabular-nums w-8 flex-shrink-0 text-right" style={{ color: s.weight >= 0 ? "#15803d" : "#b45309" }}>{s.weight > 0 ? "+" : ""}{s.weight}</span>
+                        <span className="text-[13px] text-foreground/85 flex-1">{s.label}</span>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
-              <button onClick={() => setRecordEntity(null)} className="text-muted-foreground/60 hover:text-foreground text-[20px] leading-none flex-shrink-0" aria-label="Close">×</button>
-            </div>
-            <div className="flex-1 overflow-y-auto px-6 py-5">
-              {recordLoading ? (
-                <div className="text-[13px] text-muted-foreground/60 py-12 text-center">Loading…</div>
-              ) : !record?.icp ? (
-                <p className="text-[13px] text-muted-foreground/70 py-12 text-center">Not scored yet — Nous scores this account once it has enough to go on.</p>
-              ) : (() => {
-                const cur = record.icp.current;
-                const sc = cur.score;
-                const col = sc == null ? "#9ca3af" : sc >= 70 ? "#15803d" : sc >= 40 ? "#b45309" : "#b91c1c";
-                const fitLabel = sc == null ? "—" : sc >= 70 ? "Strong fit" : sc >= 40 ? "Potential fit" : "Weak fit";
-                const outcomeOf = (d: string | null) =>
-                  d === "won"  ? { t: "Closed-won",  c: "#15803d", bg: "rgba(21,128,61,0.10)" }
-                  : d === "lost" ? { t: "Closed-lost", c: "#b45309", bg: "rgba(180,83,9,0.10)" }
-                  : d === "no_opportunity" ? { t: "No deal", c: "#64748b", bg: "rgba(100,116,139,0.10)" }
-                  : null;
-                const learnNote = (h: IcpRecordRow): string | null => {
-                  if (h.disposition === "no_opportunity") return "Never entered a buying motion — excluded from learning.";
-                  const L = h.learned;
-                  if (!L || L.status === "pending") return "In the training set — the next learning run will use it.";
-                  if (L.status === "changed") return `Sharpened the model${L.at ? ` ${formatDistanceToNow(new Date(L.at), { addSuffix: true })}` : ""}${L.detail ? ` — ${L.detail}` : ""}.`;
-                  return "In the training set — no model change that run.";
-                };
-                return (
-                  <div className="space-y-6">
-                    {/* Current fit — the headline */}
-                    <div>
-                      <div className="flex items-baseline gap-2.5">
-                        <span className="text-[44px] font-semibold tabular-nums leading-none" style={{ color: col }}>{sc ?? "—"}</span>
-                        <span className="text-[14px] text-muted-foreground/80">/ 100 · {fitLabel}</span>
-                      </div>
-                      {cur.reason && (
-                        <p className="text-[13px] text-muted-foreground leading-relaxed mt-2">
-                          <span className="text-muted-foreground/60">Scored from: </span>{cur.reason}
-                        </p>
-                      )}
-                    </div>
-                    {/* Trail — every score and how it resolved, newest first */}
-                    <div>
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60 mb-3">Trail</div>
-                      <div className="space-y-0">
-                        {record.icp.history.map((h, i) => {
-                          const oc = outcomeOf(h.disposition);
-                          const isCurrent = i === 0;
-                          return (
-                            <div key={h.id} className="relative pl-5 pb-5 last:pb-0 border-l border-border/70 last:border-l-transparent">
-                              <span className="absolute -left-[5px] top-1 h-2.5 w-2.5 rounded-full border-2 border-background" style={{ background: isCurrent ? col : "#cbd5e1" }} />
-                              <div className="flex items-baseline gap-2 flex-wrap">
-                                <span className="text-[13px] font-medium text-foreground">
-                                  {h.rescored ? "Re-scored" : "Scored"} <span className="tabular-nums font-semibold" style={{ color: h.score == null ? "#9ca3af" : h.score >= 70 ? "#15803d" : h.score >= 40 ? "#b45309" : "#b91c1c" }}>{h.score ?? "—"}</span>
-                                </span>
-                                <span className="text-[12px] text-muted-foreground/60 tabular-nums">{formatDistanceToNow(new Date(h.scored_at), { addSuffix: true })}</span>
-                              </div>
-                              {h.reason && i > 0 && (
-                                <p className="text-[12px] text-muted-foreground/70 leading-snug mt-0.5">{h.reason}</p>
-                              )}
-                              {oc && (
-                                <div className="mt-2 flex items-baseline gap-2 flex-wrap">
-                                  <span className="text-[9px] font-semibold uppercase tracking-wide px-1.5 py-[1px] rounded" style={{ color: oc.c, background: oc.bg }}>{oc.t}</span>
-                                  <span className="text-[12px] text-muted-foreground/70">{learnNote(h)}</span>
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
+              {/* How it evolved — the run history */}
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60 mb-2">How it evolved</div>
+                {runsLoading ? (
+                  <p className="text-[13px] text-muted-foreground/60">Loading…</p>
+                ) : runs.length === 0 ? (
+                  <p className="text-[12.5px] text-muted-foreground/65 leading-relaxed">No learning runs yet. The model sharpens once you've resolved enough deals (≈20) — each run that changes a signal shows up here with a date.</p>
+                ) : (
+                  <div className="space-y-0">
+                    {runs.map(r => {
+                      const changed = typeof r.note === "string" && r.note.startsWith("kept");
+                      const label = !r.note ? "Learning run"
+                        : changed ? `Sharpened — ${r.note.replace(/^kept\s+\d+:\s*/, "")}`
+                        : r.note.startsWith("no change") ? "Reviewed — no change" : r.note;
+                      return (
+                        <div key={r.id} className="relative pl-5 pb-4 last:pb-0 border-l border-border/70 last:border-l-transparent">
+                          <span className="absolute -left-[5px] top-1 h-2.5 w-2.5 rounded-full border-2 border-background" style={{ background: changed ? "#15803d" : "#cbd5e1" }} />
+                          <div className="flex items-baseline gap-2 flex-wrap">
+                            <span className={`text-[12.5px] ${changed ? "font-medium text-foreground/85" : "text-muted-foreground/70"}`}>{label}</span>
+                            <span className="text-[11px] text-muted-foreground/50 tabular-nums">{formatDistanceToNow(new Date(r.created_at), { addSuffix: true })}</span>
+                          </div>
+                          {r.signal_count != null && <div className="text-[11px] text-muted-foreground/45 mt-0.5">{r.signal_count} active signal{r.signal_count === 1 ? "" : "s"}</div>}
+                        </div>
+                      );
+                    })}
                   </div>
-                );
-              })()}
+                )}
+              </div>
             </div>
           </div>
         </div>
