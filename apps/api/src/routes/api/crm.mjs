@@ -353,8 +353,26 @@ crmRouter.get('/hygiene/proposals', verifySupabaseAuth, async (req, res) => {
       provider: provider || undefined,
       limit: limit ? Math.min(Number(limit), 200) : 100,
     });
+
+    // Attach the contact each proposal targets so the report identifies the record.
+    const entityIds = [...new Set(proposals.map(p => p.entity_id).filter(Boolean))];
+    const contactById = {};
+    if (entityIds.length) {
+      const { data: contacts } = await supabase.from('contacts')
+        .select('id, first_name, last_name, email, company')
+        .in('id', entityIds);
+      for (const c of contacts || []) {
+        contactById[c.id] = {
+          name: [c.first_name, c.last_name].filter(Boolean).join(' ') || null,
+          email: c.email || null,
+          company: c.company || null,
+        };
+      }
+    }
+    const enriched = proposals.map(p => ({ ...p, contact: p.entity_id ? contactById[p.entity_id] ?? null : null }));
+
     const openCount = await countHygieneProposals(supabase, workspaceId, 'proposed');
-    return res.json({ proposals, openCount });
+    return res.json({ proposals: enriched, openCount });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
@@ -370,6 +388,18 @@ crmRouter.post('/hygiene/proposals/:id', verifySupabaseAuth, requireCrmSync, asy
     if (!['approved', 'dismissed'].includes(status)) return res.status(400).json({ error: 'status must be approved or dismissed' });
     const row = await updateHygieneProposalStatus(supabase, workspaceId, req.params.id, status);
     if (!row) return res.status(404).json({ error: 'proposal not found' });
+
+    // Record the decision in the live log so the action is visible + auditable.
+    const what = row.field ? `${row.field} → ${typeof row.proposed_value === 'object' ? JSON.stringify(row.proposed_value) : row.proposed_value}` : row.kind;
+    await supabase.from('workspace_system_log').insert({
+      workspace_id: workspaceId,
+      source: row.provider,
+      event_type: status === 'approved' ? 'proposal_approved' : 'proposal_dismissed',
+      summary: `${status === 'approved' ? 'Approved' : 'Dismissed'} ${row.kind} — ${what}`,
+      contact_id: row.entity_id || null,
+      metadata: { proposal_id: row.id, kind: row.kind, field: row.field },
+    }).then(() => {}, () => {});
+
     return res.json({ ok: true, proposal: row });
   } catch (err) {
     return res.status(500).json({ error: err.message });
