@@ -12,7 +12,7 @@
 
 import { Router } from 'express';
 import Anthropic from 'useleak';
-import { getSupabaseClient, listSignals, seedSignals, listNotes, scoreLead, getAttention, saveNote, deleteNote, supersedeNote, getWorkspaceEntityId, getOrCreateEntity, logActivity, discoverSignals, upsertSignal, pipelineFeatures, scoreAndStake, resolveEntityPredictions, NON_FEATURE_PROPS } from '@nous/core';
+import { getSupabaseClient, listSignals, seedSignals, listNotes, scoreLead, getAttention, saveNote, deleteNote, supersedeNote, getWorkspaceEntityId, getOrCreateEntity, logActivity, discoverSignals, upsertSignal, pipelineFeatures, scoreAndStake, resolveEntityPredictions, isNonFeatureProp } from '@nous/core';
 import { extractAndRecordWebsiteSignals } from '../../services/websiteSignals.mjs';
 
 export const mindRouter = Router();
@@ -783,7 +783,7 @@ function discoverWinnerSignals(episodes, existing) {
   const tally = new Map();
   const add = (eps, side) => { for (const e of eps) for (const [f, v] of Object.entries(e.features || {})) {
     if (v == null) continue;
-    if (NON_FEATURE_PROPS.has(f)) continue;   // identity/metadata, never a signal
+    if (isNonFeatureProp(f)) continue;   // identity/metadata/vendor-id, never a signal
     const isBool = typeof v === 'boolean', isCat = typeof v === 'string' && v.length <= 40;
     if (!isBool && !isCat) continue;
     if (isBool && v === false) continue;
@@ -995,6 +995,24 @@ mindRouter.post('/closed-deals', async (req, res) => {
         if (!pid) {
           const staked = await scoreAndStake(supabase, workspaceId, personId, freshSignals);
           pid = staked?.prediction_id;
+        }
+        if (!pid) {
+          // Unenriched contact (no scoreable features) — scoreAndStake gated it,
+          // but we KNOW this deal closed, so still record the account from
+          // whatever claims/pipeline it has.
+          const { data: cl } = await supabase.from('claims').select('property, value').eq('entity_id', personId).is('invalid_at', null);
+          const feats = {}, snap = {};
+          for (const c of cl || []) { feats[c.property] = c.value; snap[c.property] = { value: c.value, confidence: 1 }; }
+          const { data: pa } = await supabase.from('observations').select('property, source, observed_at')
+            .eq('entity_id', personId).eq('kind', 'event').like('property', 'interaction.%').order('observed_at', { ascending: true }).limit(500);
+          for (const [k, v] of Object.entries(pipelineFeatures(pa || []))) { feats[k] = v; snap[k] = { value: v, confidence: 1 }; }
+          const sr = scoreLead(feats, freshSignals);
+          const { data: ins } = await supabase.from('predictions').insert({
+            workspace_id: workspaceId, entity_id: personId, kind: 'icp_fit',
+            predicted_value: { score: sr.score, fit: sr.score >= 70, reason: 'closed-deal import (unenriched)' },
+            predicted_confidence: sr.score / 100, feature_snapshot: snap, model_version: 'imported',
+          }).select('id').single();
+          pid = ins?.id;
         }
         if (!pid) continue;
         await supabase.from('predictions').update({
