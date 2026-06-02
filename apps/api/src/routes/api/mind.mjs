@@ -692,7 +692,7 @@ mindRouter.post('/scorecard/seed', async (req, res) => {
 // won/lost outcome, then run contrastive lift discovery over the cohort and seed
 // the Scorecard from what actually predicts revenue. The owned, no-CSV version of
 // Deepline's signal discovery. See docs/icp-from-closed-deals.md, Step 5.
-const cleanDomain = (d) => String(d || '').trim().replace(/^https?:\/\//i, '').replace(/\/.*$/, '').toLowerCase();
+const cleanDomain = (d) => String(d || '').trim().replace(/^https?:\/\//i, '').replace(/\/.*$/, '').replace(/^www\./i, '').toLowerCase();
 
 // Small-cohort fallback. Contrastive lift (discoverSignals) needs a real cohort
 // (>=8 deals, >=4 each side) or it's statistically meaningless. With only a
