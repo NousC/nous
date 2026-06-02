@@ -1,7 +1,7 @@
 # ICP from closed deals — live, contrastive signal discovery
 
 **Status:** spec / proposed. **Owner:** GTM Context / the Mind.
-**Related:** `docs/adaptive-lead-scoring.md`, `docs/compound-intelligence-mind.md`,
+**Related:** `docs/icp-scoring-internals.md`, `docs/icp-and-gtm-context.md`,
 the GTM Context page (`apps/frontend/src/pages/Intelligence.tsx`), the Playbook
 (`/api/mind/playbook/*`), the Mind loop (`apps/worker/src/workers/mindOutcomes.mjs`,
 `scoreEntities.mjs`, `scorecardLoop`).
