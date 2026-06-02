@@ -207,7 +207,7 @@ export default function Intelligence() {
   const [cdWon, setCdWon] = useState("");
   const [cdLost, setCdLost] = useState("");
   const [cdRunning, setCdRunning] = useState(false);
-  const [cdResult, setCdResult] = useState<{ enriched: number; discovered: { label: string; weight: number; note: string }[] } | null>(null);
+  const [cdResult, setCdResult] = useState<{ enriched: number; won: number; lost: number; mode?: string; discovered: { label: string; weight: number; note: string }[] } | null>(null);
 
   // ICP-fit column sort for the analyzed table. Cycle (like the People table):
   // off → desc (best fits on top) → asc → off.
@@ -348,7 +348,7 @@ export default function Intelligence() {
   const runClosedDeals = async () => {
     if (cdRunning) return;
     const won = parseDomains(cdWon), lost = parseDomains(cdLost);
-    if (won.length + lost.length < 4) { window.alert("Add at least a few closed deals (won + lost domains)."); return; }
+    if (won.length + lost.length < 1) { window.alert("Add at least one closed deal (a won or lost domain)."); return; }
     setCdRunning(true); setCdResult(null);
     try {
       const r = await fetch(`${apiUrl}/api/mind/closed-deals`, {
@@ -1201,19 +1201,30 @@ export default function Intelligence() {
               </div>
               {cdResult && (
                 <div className="rounded-lg border border-border/60 bg-muted/30 p-3">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 mb-1.5">Discovered signals · {cdResult.discovered.length} (enriched {cdResult.enriched})</div>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 mb-1.5">
+                    {cdResult.discovered.length > 0
+                      ? <>Signals added · {cdResult.discovered.length}{cdResult.mode === "winners" ? " (from your winners)" : " (by lift)"}</>
+                      : <>Recorded {cdResult.won} won · {cdResult.lost} lost</>}
+                  </div>
                   {cdResult.discovered.length === 0 ? (
-                    <p className="text-[12px] text-muted-foreground/70">No discriminative signals yet — add more deals (especially a clear won/lost split) and run again.</p>
+                    <p className="text-[12px] text-muted-foreground/70">
+                      Read {cdResult.enriched} site{cdResult.enriched === 1 ? "" : "s"} and recorded your deals — but found no clear signal to propose from them yet. Add a few more (especially winners) and run again.
+                    </p>
                   ) : (
-                    <div className="space-y-1">
-                      {cdResult.discovered.map((d, i) => (
-                        <div key={i} className="flex items-baseline gap-2 text-[12.5px]">
-                          <span className="font-semibold tabular-nums w-8" style={{ color: d.weight >= 0 ? "#15803d" : "#b45309" }}>{d.weight > 0 ? "+" : ""}{d.weight}</span>
-                          <span className="flex-1 text-foreground/85">{d.label}</span>
-                          <span className="text-[11px] text-muted-foreground/60">{d.note}</span>
-                        </div>
-                      ))}
-                    </div>
+                    <>
+                      <div className="space-y-1">
+                        {cdResult.discovered.map((d, i) => (
+                          <div key={i} className="flex items-baseline gap-2 text-[12.5px]">
+                            <span className="font-semibold tabular-nums w-8" style={{ color: d.weight >= 0 ? "#15803d" : "#b45309" }}>{d.weight > 0 ? "+" : ""}{d.weight}</span>
+                            <span className="flex-1 text-foreground/85">{d.label}</span>
+                            <span className="text-[11px] text-muted-foreground/60">{d.note}</span>
+                          </div>
+                        ))}
+                      </div>
+                      {cdResult.mode === "winners" && (
+                        <p className="text-[11px] text-muted-foreground/55 mt-2 leading-snug">A starting point from what your winners share — it sharpens into true win/loss lift as more deals close.</p>
+                      )}
+                    </>
                   )}
                 </div>
               )}

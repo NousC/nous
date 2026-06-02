@@ -693,6 +693,56 @@ mindRouter.post('/scorecard/seed', async (req, res) => {
 // the Scorecard from what actually predicts revenue. The owned, no-CSV version of
 // Deepline's signal discovery. See docs/icp-from-closed-deals.md, Step 5.
 const cleanDomain = (d) => String(d || '').trim().replace(/^https?:\/\//i, '').replace(/\/.*$/, '').toLowerCase();
+
+// Small-cohort fallback. Contrastive lift (discoverSignals) needs a real cohort
+// (>=8 deals, >=4 each side) or it's statistically meaningless. With only a
+// handful, propose the boolean/categorical features common to the WON accounts
+// — down-weighted if they also show up among losers — as positive signals. An
+// honest starting point the nightly lift discovery sharpens as more deals land.
+const dslug = (s) => String(s ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40);
+const featLabel = (feature, value) => {
+  const f = String(feature).replace(/^signal\./, '').replace(/[._]/g, ' ').trim();
+  const title = f.replace(/\b\w/g, c => c.toUpperCase());
+  return typeof value === 'boolean' ? title : `${title}: ${String(value).replace(/_/g, ' ')}`;
+};
+function discoverWinnerSignals(episodes, existing) {
+  const scored = new Set((existing || []).filter(s => s.active !== false).map(s => s.rule?.feature).filter(Boolean));
+  const wonEps = episodes.filter(e => e.disposition === 'won');
+  const lostEps = episodes.filter(e => e.disposition === 'lost');
+  if (!wonEps.length) return [];
+  const tally = new Map();
+  const add = (eps, side) => { for (const e of eps) for (const [f, v] of Object.entries(e.features || {})) {
+    if (v == null) continue;
+    const isBool = typeof v === 'boolean', isCat = typeof v === 'string' && v.length <= 40;
+    if (!isBool && !isCat) continue;
+    if (isBool && v === false) continue;
+    const k = `${f}::${String(v)}`;
+    const c = tally.get(k) || { feature: f, value: v, won: 0, lost: 0 };
+    c[side]++; tally.set(k, c);
+  }};
+  add(wonEps, 'won'); add(lostEps, 'lost');
+  const out = [];
+  for (const c of tally.values()) {
+    if (scored.has(c.feature)) continue;            // don't re-propose what we already score
+    const wonFrac = c.won / wonEps.length;
+    if (c.won === 0 || wonFrac < 0.5) continue;     // must be common among winners
+    const lostFrac = lostEps.length ? c.lost / lostEps.length : 0;
+    const weight = lostFrac === 0 ? 6 : lostFrac < 0.5 ? 4 : 2;  // weaker if losers share it
+    out.push({ feature: c.feature, value: c.value, won: c.won, wonFrac, lostFrac, weight });
+  }
+  out.sort((a, b) => (b.wonFrac - b.lostFrac) - (a.wonFrac - a.lostFrac));
+  return out.slice(0, 5).map(d => ({
+    action: 'add',
+    signal: {
+      key: `win_${dslug(d.feature)}${typeof d.value === 'string' ? '_' + dslug(d.value) : ''}`,
+      label: featLabel(d.feature, d.value),
+      weight: d.weight,
+      rule: { feature: d.feature, op: '==', value: d.value },
+    },
+    note: `on ${d.won} of your ${wonEps.length} won deal${wonEps.length === 1 ? '' : 's'}`,
+  }));
+}
+
 mindRouter.post('/closed-deals', async (req, res) => {
   try {
     const { workspaceId, won = [], lost = [] } = req.body;
@@ -705,8 +755,8 @@ mindRouter.post('/closed-deals', async (req, res) => {
       .filter(Boolean)
       .slice(0, 40);
     const wonList = clean(won), lostList = clean(lost);
-    if (wonList.length + lostList.length < 4) {
-      return res.status(400).json({ error: 'need_more_deals', detail: 'provide at least a few closed deals (won + lost)' });
+    if (wonList.length + lostList.length < 1) {
+      return res.status(400).json({ error: 'need_more_deals', detail: 'add at least one closed deal (a won or lost domain)' });
     }
 
     const episodes = [];
@@ -733,7 +783,11 @@ mindRouter.post('/closed-deals', async (req, res) => {
     for (const d of lostList) await ingest(d, 'lost');
 
     const existing = await listSignals(supabase, workspaceId);
-    const proposals = discoverSignals(episodes, existing);
+    // Prefer rigorous contrastive lift; fall back to winner-signal extraction
+    // when the cohort is too small for it to mean anything.
+    let proposals = discoverSignals(episodes, existing);
+    let mode = 'lift';
+    if (proposals.length === 0) { proposals = discoverWinnerSignals(episodes, existing); mode = 'winners'; }
     for (const p of proposals) {
       await upsertSignal(supabase, workspaceId, {
         key: p.signal.key, label: p.signal.label, weight: p.signal.weight, rule: p.signal.rule,
@@ -741,7 +795,7 @@ mindRouter.post('/closed-deals', async (req, res) => {
     }
 
     return res.status(201).json({
-      enriched, won: wonList.length, lost: lostList.length,
+      enriched, won: wonList.length, lost: lostList.length, mode,
       discovered: proposals.map(p => ({ label: p.signal.label, weight: p.signal.weight, note: p.note })),
     });
   } catch (err) {
