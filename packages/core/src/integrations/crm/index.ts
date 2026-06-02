@@ -380,7 +380,9 @@ export async function writeCrmRecordFields(
     const values: Record<string, unknown> = {};
     for (const [k, v] of writable) {
       if (map[k] === 'job_title') values.job_title = [{ value: v }];
-      if (map[k] === 'phone')     values.phone_numbers = [{ phone_number: String(v) }];
+      // Attio's phone-number type is written with `original_phone_number` (E.164),
+      // even though it's READ back as `phone_number`.
+      if (map[k] === 'phone')     values.phone_numbers = [{ original_phone_number: String(v) }];
     }
     const res = await fetch(`https://api.attio.com/v2/objects/people/records/${encodeURIComponent(recordId)}`, {
       method: 'PATCH', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
