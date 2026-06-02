@@ -91,6 +91,7 @@ export async function extractWebsiteSignals(domain) {
     `{\n` +
     `  "summary": "<1-2 sentences: what they do and who their users are>",\n` +
     `  "industry": "<their industry/vertical in 1-3 words, e.g. fintech, devtools, healthcare, e-commerce, logistics>",\n` +
+    `  "company_type": "<what KIND of business they are — one of: software, agency, services, marketplace, ecommerce, media, hardware, nonprofit, other>",\n` +
     `  "size_band": "<one of: 1-10, 11-50, 51-200, 201-1000, 1000+, unknown>",\n` +
     `  "funding_stage": "<one of: bootstrapped, pre_seed, seed, series_a, series_b, series_c_plus, public, unknown>",\n` +
     `  "hq_country": "<country name or 2-letter code, or unknown>",\n` +
@@ -130,6 +131,7 @@ export async function recordWebsiteSignals(supabase, workspaceId, entityId, sign
   // signal. prefix) so they read as core ICP traits and discovery can find lift
   // on industry/size/funding the same way it does on job_title/industry today.
   add('industry', signals.industry);
+  add('company_type', signals.company_type);   // software / agency / services / …
   add('size_band', signals.size_band);
   add('funding_stage', signals.funding_stage);
   add('country', signals.hq_country);

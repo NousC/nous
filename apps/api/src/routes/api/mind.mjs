@@ -24,6 +24,7 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const FEATURE_VOCAB =
   'job_title (string), seniority (one of: c_suite, vp, director, manager, ic), ' +
   'department (string), industry (string), employee_count (number), ' +
+  'company_type (one of: software, agency, services, marketplace, ecommerce, media, hardware), ' +
   'size_band (one of: 1-10, 11-50, 51-200, 201-1000, 1000+), ' +
   'funding_stage (one of: bootstrapped, seed, series_a, series_b, series_c_plus, public), ' +
   'country (string), company (string). ' +
@@ -449,6 +450,7 @@ mindRouter.get('/account/:entityId', async (req, res) => {
     const company = {
       what_they_do: cm.what_they_do ?? null,
       industry: cm.industry ?? null,
+      company_type: cm.company_type ?? null,
       size_band: cm.size_band ?? (cm.employee_count != null ? String(cm.employee_count) : null),
       funding_stage: cm.funding_stage ?? null,
       country: cm.country ?? null,
