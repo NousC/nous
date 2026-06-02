@@ -12,7 +12,7 @@
 
 import { Router } from 'express';
 import Anthropic from 'useleak';
-import { getSupabaseClient, listSignals, seedSignals, listNotes, scoreLead, getAttention, saveNote, deleteNote, supersedeNote, getWorkspaceEntityId, getOrCreateEntity, logActivity, discoverSignals, upsertSignal, pipelineFeatures } from '@nous/core';
+import { getSupabaseClient, listSignals, seedSignals, listNotes, scoreLead, getAttention, saveNote, deleteNote, supersedeNote, getWorkspaceEntityId, getOrCreateEntity, logActivity, discoverSignals, upsertSignal, pipelineFeatures, scoreAndStake, resolveEntityPredictions } from '@nous/core';
 import { extractAndRecordWebsiteSignals } from '../../services/websiteSignals.mjs';
 
 export const mindRouter = Router();
@@ -238,25 +238,29 @@ mindRouter.get('/substrate', async (req, res) => {
     const recentRows = recentPredsRes.data || [];
     const recentEntityIds = [...new Set(recentRows.map(r => r.entity_id))];
 
-    let nameByEntity = {}, emailByEntity = {};
+    let nameByEntity = {}, emailByEntity = {}, domainByEntity = {};
     if (recentEntityIds.length) {
-      const [{ data: claimsForNames }, { data: emailIdents }] = await Promise.all([
+      const [{ data: claimsForNames }, { data: emailIdents }, { data: domainIdents }] = await Promise.all([
         supabase.from('claims').select('entity_id, property, value')
           .in('entity_id', recentEntityIds).is('invalid_at', null)
           .in('property', ['first_name', 'last_name']),
         supabase.from('entity_identifiers').select('entity_id, value')
           .in('entity_id', recentEntityIds).eq('kind', 'email').eq('status', 'active'),
+        supabase.from('entity_identifiers').select('entity_id, value')
+          .in('entity_id', recentEntityIds).eq('kind', 'domain').eq('status', 'active'),
       ]);
       for (const c of claimsForNames || []) {
         if (!nameByEntity[c.entity_id]) nameByEntity[c.entity_id] = { first_name: null, last_name: null };
         nameByEntity[c.entity_id][c.property] = c.value;
       }
       for (const i of emailIdents || []) emailByEntity[i.entity_id] = i.value;
+      for (const i of domainIdents || []) if (!domainByEntity[i.entity_id]) domainByEntity[i.entity_id] = i.value;
     }
 
     const buildRecent = (p) => {
       const n = nameByEntity[p.entity_id];
-      const name = n ? [n.first_name, n.last_name].filter(Boolean).join(' ') || null : null;
+      // Person → full name; company (closed-deal) → its domain.
+      const name = (n ? [n.first_name, n.last_name].filter(Boolean).join(' ') || null : null) || domainByEntity[p.entity_id] || null;
       // Top firing signal keys (recompute, lightweight)
       const snap = p.feature_snapshot || {};
       const features = {};
@@ -854,9 +858,11 @@ mindRouter.post('/closed-deals', async (req, res) => {
 
     const episodes = [];
     let enriched = 0;
-    const linked = [];   // contacts we recognized and joined to the deal
+    const linked = [];        // contacts we recognized and joined to the deal
+    const companyDeals = [];  // {companyId, disposition} — scored after discovery
     const ingest = async (domain, disposition) => {
       const companyId = await getOrCreateEntity(supabase, workspaceId, 'company', [{ kind: 'domain', value: domain }]);
+      companyDeals.push({ companyId, disposition });
       const r = await extractAndRecordWebsiteSignals(supabase, workspaceId, companyId, domain).catch(() => null);
       if (r) enriched++;
 
@@ -941,7 +947,27 @@ mindRouter.post('/closed-deals', async (req, res) => {
       }).catch(() => {});
     }
 
+    // Slice 4 — surface the closed-deal COMPANIES in the analyzed table. Score
+    // each with the just-updated signals, then resolve it to its known outcome
+    // (resolution reads the deal_won/lost observation recorded during ingest).
+    // Skip companies already scored so re-runs don't duplicate rows.
+    const freshSignals = await listSignals(supabase, workspaceId);
+    let surfaced = 0;
+    for (const { companyId } of companyDeals) {
+      try {
+        const { count } = await supabase.from('predictions')
+          .select('id', { count: 'exact', head: true })
+          .eq('workspace_id', workspaceId).eq('entity_id', companyId).eq('kind', 'icp_fit');
+        if (count) continue;
+        const staked = await scoreAndStake(supabase, workspaceId, companyId, freshSignals);
+        if (!staked) continue;
+        await resolveEntityPredictions(supabase, { workspaceId, entityId: companyId });
+        surfaced++;
+      } catch { /* best-effort */ }
+    }
+
     return res.status(201).json({
+      surfaced,
       enriched, won: wonList.length, lost: lostList.length, mode,
       linked: [...new Map(linked.map(l => [l.name, l])).values()],
       discovered: proposals.map(p => ({ label: p.signal.label, weight: p.signal.weight, note: p.note })),
