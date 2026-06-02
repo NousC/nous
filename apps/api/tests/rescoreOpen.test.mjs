@@ -66,7 +66,7 @@ run('open prediction whose score moves is re-scored, prior kept as history', asy
 
   const { data: row } = await supabase
     .from('predictions').select('predicted_value, model_version, resolved_at').eq('id', id).single();
-  assert.equal(row.predicted_value.score, 100, 'current fit recomputed to 100');
+  assert.equal(row.predicted_value.score, 73, 'current fit recomputed (logistic: +8 → 73)');
   assert.equal(row.predicted_value.fit, true, 'fit flipped true');
   assert.ok(Array.isArray(row.predicted_value.history) && row.predicted_value.history[0].score === 50, 'prior score 50 kept in history');
   assert.ok(row.model_version.startsWith('sc_'), 'model_version stamped');
@@ -76,7 +76,7 @@ run('open prediction whose score moves is re-scored, prior kept as history', asy
 run('open prediction whose score is unchanged is only re-stamped (no history)', async () => {
   const supabase = getSupabaseClient();
   // 'manager' never fires the signal → score 0, and stored score is already 0.
-  const id = await insertPrediction(supabase, { seniority: 'manager', score: 0 });
+  const id = await insertPrediction(supabase, { seniority: 'manager', score: 50 });
 
   const res = await rescoreOpenPredictions(supabase, workspaceId);
   assert.equal(res.rescored, 0, 'nothing re-scored (score did not move)');
@@ -84,7 +84,7 @@ run('open prediction whose score is unchanged is only re-stamped (no history)', 
 
   const { data: row } = await supabase
     .from('predictions').select('predicted_value, model_version').eq('id', id).single();
-  assert.equal(row.predicted_value.score, 0, 'score unchanged');
+  assert.equal(row.predicted_value.score, 50, 'score unchanged (manager fires nothing → logistic 50)');
   assert.equal(row.predicted_value.history, undefined, 'no history added for a restamp');
   assert.ok(row.model_version.startsWith('sc_'), 'version stamped to current');
 });

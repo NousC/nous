@@ -52,16 +52,13 @@ export function scoreLead(
     }
   }
 
-  // Rescale against the catalog's own bounds so the score reads consistently
-  // regardless of how many signals exist.
-  let maxPos = 0;
-  let maxNeg = 0;
-  for (const s of active) {
-    if (s.weight > 0) maxPos += s.weight;
-    else maxNeg += s.weight;
-  }
-  const span = maxPos - maxNeg;
-  const score = span > 0 ? Math.round(((raw - maxNeg) / span) * 100) : 50;
+  // Logistic squash of the raw weight sum → 0–100. Stable no matter how many
+  // signals the catalog holds. The old approach rescaled `raw` against the SUM
+  // of every signal's weight, but an account only ever fires a SUBSET (you can't
+  // be both `bootstrapped` and `series_a`) — so each new signal inflated the
+  // denominator and deflated every real account's score (the 92→6 collapse).
+  // K=8 maps a single strong signal (±8) to ~73/27 and stacks from there; raw 0 → 50.
+  const score = Math.round(100 / (1 + Math.exp(-raw / 8)));
 
   return { score: Math.max(0, Math.min(100, score)), raw, fired };
 }

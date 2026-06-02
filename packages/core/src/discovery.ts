@@ -39,15 +39,28 @@ const dslug = (s: unknown) =>
   String(s ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40);
 
 // Properties that are identity/metadata or outcome-leaky — never ICP signals.
-// (A name or "enrichment_status: complete" predicts nothing; pipeline_stage /
-// deal_* are downstream of the outcome we're trying to predict.)
+// (A name or "enrichment_status: complete" predicts nothing; an Apollo account
+// id is noise; pipeline_stage / deal_* are downstream of the outcome.)
 export const NON_FEATURE_PROPS = new Set([
   'name', 'first_name', 'last_name', 'full_name', 'email', 'phone', 'domain',
   'company', 'linkedin_url', 'what_they_do', 'website', 'avatar_url',
-  'enriched_at', 'enrichment_status', 'enrichment_source', 'created_at', 'updated_at',
-  'last_activity_at', 'icp_score', 'icp_scored_at',
+  'enrichment_status', 'enrichment_source', 'icp_score',
   'pipeline_stage', 'deal_stage', 'deal_value', 'total_income', 'lead_source',
 ]);
+
+// True when a property is identity/metadata/outcome-leaky and must not become a
+// signal. Covers the explicit set PLUS structural patterns so vendor ids and
+// timestamps (apollo_account_id, hubspot_id, enriched_at, created_at, …) can't
+// leak in. NOTE: real features (industry, size_band, funding_stage, signal.*,
+// pipe.lead_source/channel/…) match none of these.
+export function isNonFeatureProp(prop: string): boolean {
+  if (NON_FEATURE_PROPS.has(prop)) return true;
+  if (/_id$/.test(prop)) return true;                                   // any *_id (apollo_account_id, hubspot_id)
+  if (/_at$/.test(prop)) return true;                                   // any *_at timestamp
+  if (/^(apollo|clearbit|hubspot|attio|salesforce|pipedrive|crm)[._]/i.test(prop)) return true; // vendor fields
+  if (/(^|[._])(enrich|enriched|avatar|photo|image|uuid|external)/i.test(prop)) return true;
+  return false;
+}
 
 /** Map a lift ratio to a signal weight (−10..10), in bands. */
 export function weightFromLift(lift: number): number {
@@ -102,7 +115,7 @@ export function discoverSignals(
     const w = weights[i];
     for (const [f, v] of Object.entries(r.features)) {
       if (v == null) continue;
-      if (NON_FEATURE_PROPS.has(f)) continue; // identity/metadata, never a signal
+      if (isNonFeatureProp(f)) continue; // identity/metadata/vendor-id, never a signal
       const isBool = typeof v === 'boolean';
       const isCat = typeof v === 'string' && v.length <= 40;
       if (!isBool && !isCat) continue;
