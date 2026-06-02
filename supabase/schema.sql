@@ -17,11 +17,10 @@
 CREATE EXTENSION IF NOT EXISTS vector;
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- Helper functions below reference tables created later in this file
--- (is_workspace_member -> workspace_members, reject_mutation -> observations).
--- Postgres validates function bodies at CREATE time, so defer that check to
--- runtime — by the time a policy/trigger actually calls them, the tables exist.
--- This is exactly what pg_dump emits for the same reason.
+-- Safety net for one-shot fresh installs: defer function-body validation to
+-- runtime (pg_dump emits the same). The two helpers that read tables are ALSO
+-- physically defined after those tables below, so this file applies cleanly
+-- even if a client ignores this SET.
 SET check_function_bodies = false;
 
 -- ── Shared helpers ────────────────────────────────────────────
@@ -30,34 +29,9 @@ CREATE OR REPLACE FUNCTION touch_updated_at()
 RETURNS TRIGGER LANGUAGE plpgsql AS $$
 BEGIN NEW.updated_at = now(); RETURN NEW; END; $$;
 
--- One workspace-membership check, used by every RLS policy.
--- Parameter name `workspace_uuid` is kept stable: CREATE OR REPLACE
--- cannot rename an input parameter on an existing function.
-CREATE OR REPLACE FUNCTION is_workspace_member(workspace_uuid UUID)
-RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER AS $$
-  SELECT EXISTS (
-    SELECT 1 FROM workspace_members
-    WHERE workspace_id = workspace_uuid AND user_id = auth.uid()
-  );
-$$;
-
--- Observations are append-only. DELETE is never permitted. UPDATE is permitted
--- ONLY to fill the derived `embedding` index — the evidence itself (subject,
--- property, value, source, observed_at, …) can never change.
-CREATE OR REPLACE FUNCTION reject_mutation()
-RETURNS TRIGGER LANGUAGE plpgsql AS $$
-DECLARE probe observations%ROWTYPE;
-BEGIN
-  IF TG_OP = 'DELETE' THEN
-    RAISE EXCEPTION 'observations are append-only — DELETE is not permitted';
-  END IF;
-  probe := NEW;
-  probe.embedding := OLD.embedding;          -- exempt the embedding index from the check
-  IF ROW(probe.*) IS DISTINCT FROM ROW(OLD.*) THEN
-    RAISE EXCEPTION 'observations are append-only — only the embedding index may change';
-  END IF;
-  RETURN NEW;
-END; $$;
+-- NOTE: is_workspace_member() and reject_mutation() are defined further down,
+-- each right after the table it reads (workspace_members / observations), so a
+-- one-shot run on a fresh database resolves their bodies without forward refs.
 
 
 -- ============================================================
@@ -128,6 +102,19 @@ CREATE TABLE workspace_members (
 );
 CREATE INDEX workspace_members_user ON workspace_members(user_id);
 ALTER TABLE workspace_members ENABLE ROW LEVEL SECURITY;
+
+-- Defined here (right after workspace_members) so a one-shot fresh install can
+-- resolve its body. Used by the RLS policies on every workspace-scoped table.
+-- Parameter name `workspace_uuid` is kept stable: CREATE OR REPLACE cannot
+-- rename an input parameter on an existing function.
+CREATE OR REPLACE FUNCTION is_workspace_member(workspace_uuid UUID)
+RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM workspace_members
+    WHERE workspace_id = workspace_uuid AND user_id = auth.uid()
+  );
+$$;
+
 CREATE POLICY wm_select ON workspace_members FOR SELECT USING (user_id = auth.uid());
 CREATE POLICY ws_select ON workspaces FOR SELECT USING (is_workspace_member(id));
 
@@ -242,6 +229,25 @@ CREATE INDEX observations_timeline
   ON observations(entity_id, observed_at DESC);             -- the account timeline
 CREATE INDEX observations_embedding
   ON observations USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+
+-- Append-only enforcement. Defined here (right after observations) so its
+-- `observations%ROWTYPE` declaration resolves on a one-shot fresh install.
+-- DELETE is never permitted; UPDATE is permitted ONLY to fill the derived
+-- `embedding` index — the evidence itself can never change.
+CREATE OR REPLACE FUNCTION reject_mutation()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+DECLARE probe observations%ROWTYPE;
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'observations are append-only — DELETE is not permitted';
+  END IF;
+  probe := NEW;
+  probe.embedding := OLD.embedding;          -- exempt the embedding index from the check
+  IF ROW(probe.*) IS DISTINCT FROM ROW(OLD.*) THEN
+    RAISE EXCEPTION 'observations are append-only — only the embedding index may change';
+  END IF;
+  RETURN NEW;
+END; $$;
 
 -- Append-only: no UPDATE, no DELETE, ever.
 CREATE TRIGGER observations_immutable
