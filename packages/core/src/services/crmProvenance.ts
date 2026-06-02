@@ -11,8 +11,15 @@ import { getObservationsByIds } from '../db/observations.js';
 
 // CRMs are the projection target, never an independent source for writing back.
 export const CRM_PROVIDERS = new Set(['hubspot', 'pipedrive', 'attio', 'salesforce']);
-// Origin-erased rows from the v1→v2 trigger fallback — never counts as evidence.
-export const UNKNOWN_PROVENANCE = 'v1_compat';
+// Origin-erased rows whose true source wasn't preserved (the v1→v2 trigger
+// fallback, and historical backfills/migrations) — these NEVER count as
+// independent evidence (fail-closed). Any `v1_*` source qualifies.
+export const UNKNOWN_PROVENANCE = 'v1_compat';   // kept for back-compat references
+export const UNKNOWN_PROVENANCE_SOURCES = new Set(['v1_compat', 'v1_backfill']);
+
+export function isUnknownProvenance(source: string): boolean {
+  return UNKNOWN_PROVENANCE_SOURCES.has(source) || source.startsWith('v1_');
+}
 
 export interface TrustTier { rank: number; tier: string; sources: string[]; }
 
@@ -42,7 +49,7 @@ export function isCrmSource(source: string): boolean {
 
 /** Independent of the CRMs = neither a CRM provider nor unknown provenance. */
 export function isIndependentSource(source: string): boolean {
-  return !isCrmSource(source) && source !== UNKNOWN_PROVENANCE;
+  return !isCrmSource(source) && !isUnknownProvenance(source);
 }
 
 /**

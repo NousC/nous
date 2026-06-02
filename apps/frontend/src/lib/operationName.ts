@@ -135,6 +135,8 @@ export function systemLogOpName(
     if (e === "sync_failed")           return { name: `${s}.sync.failed`,       color: "pink" };
     if (e === "hygiene_complete")      return { name: `${s}.hygiene.run`,       color };
     if (e === "hygiene_failed")        return { name: `${s}.hygiene.failed`,    color: "pink" };
+    if (e === "proposal_approved")     return { name: `${s}.proposal.approved`, color: "green" };
+    if (e === "proposal_dismissed")    return { name: `${s}.proposal.dismissed`, color: "gray" };
     if (e === "webhook_received")      return { name: `${s}.webhook.ingest`,    color };
   }
 

@@ -32,6 +32,7 @@ type HygieneProposal = {
   id: string; provider: string; kind: string; field: string | null;
   proposed_value: unknown; current_value: unknown; reason: string | null; confidence: number | null;
   status: string; created_at: string;
+  contact?: { name: string | null; email: string | null; company: string | null } | null;
 };
 type SyncEvent = { id: string; ts: string; provider: string; event_type: string; summary: string };
 type Range = "1d" | "7d" | "30d" | "all";
@@ -588,7 +589,13 @@ export default function CrmSync() {
                         {HYGIENE_KIND_LABEL[p.kind] || p.kind}
                       </span>
                       <div className="min-w-0 flex-1">
-                        <div className="text-[12.5px] text-foreground/90">{p.reason || p.kind}</div>
+                        {p.contact && (
+                          <div className="truncate text-[12.5px] font-medium text-foreground">
+                            {p.contact.name || p.contact.email || "Unknown contact"}
+                            {p.contact.company && <span className="font-normal text-muted-foreground/70"> · {p.contact.company}</span>}
+                          </div>
+                        )}
+                        <div className="text-[12px] text-foreground/80">{p.reason || p.kind}</div>
                         {summarizeProposed(p.proposed_value) && (
                           <div className="mt-0.5 truncate text-[11.5px] text-muted-foreground/80">{summarizeProposed(p.proposed_value)}</div>
                         )}
