@@ -59,7 +59,11 @@ export async function extractWebsiteSignals(domain) {
     `You are extracting GTM signals from a company's website to help score how well they fit as a customer. ` +
     `Read the content and return ONLY a JSON object, no prose, with this exact shape:\n` +
     `{\n` +
-    `  "summary": "<1 sentence: what they do>",\n` +
+    `  "summary": "<1-2 sentences: what they do and who their users are>",\n` +
+    `  "industry": "<their industry/vertical in 1-3 words, e.g. fintech, devtools, healthcare, e-commerce, logistics>",\n` +
+    `  "size_band": "<one of: 1-10, 11-50, 51-200, 201-1000, 1000+, unknown>",\n` +
+    `  "funding_stage": "<one of: bootstrapped, pre_seed, seed, series_a, series_b, series_c_plus, public, unknown>",\n` +
+    `  "hq_country": "<country name or 2-letter code, or unknown>",\n` +
     `  "target_market": "<one of: b2b, b2c, b2b2c, developer, enterprise, smb, unknown>",\n` +
     `  "pricing_model": "<one of: usage_based, seat_based, flat, freemium, enterprise_contact, unknown>",\n` +
     `  "product": { "has_api": <bool>, "has_docs": <bool>, "has_sandbox": <bool>, "self_serve_signup": <bool>, "free_trial": <bool> },\n` +
@@ -91,6 +95,17 @@ export async function extractWebsiteSignals(domain) {
 export async function recordWebsiteSignals(supabase, workspaceId, entityId, signals) {
   const obs = [];
   const add = (property, value) => { if (value != null && value !== '' && value !== 'unknown') obs.push({ property, value }); };
+
+  // Firmographics — *who they are*. Saved under their plain feature names (no
+  // signal. prefix) so they read as core ICP traits and discovery can find lift
+  // on industry/size/funding the same way it does on job_title/industry today.
+  add('industry', signals.industry);
+  add('size_band', signals.size_band);
+  add('funding_stage', signals.funding_stage);
+  add('country', signals.hq_country);
+  // What they do — the one-line description, kept for the account view (a long
+  // string, so discovery ignores it as a scoring feature — display only).
+  add('what_they_do', signals.summary);
 
   add('signal.target_market', signals.target_market);
   add('signal.pricing_model', signals.pricing_model);
