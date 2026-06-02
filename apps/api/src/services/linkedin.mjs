@@ -8,6 +8,7 @@
 // ============================================================
 
 import { logActivity as coreLogActivity } from '@nous/core';
+import { scoreICP } from './enrichment.mjs';
 
 const BASE = () => {
   const dsn = process.env.UNIPILE_DSN;
@@ -108,17 +109,20 @@ function parseHeadline(headline) {
 // blocks the sync. The /users/{id} response has no structured work history, so title
 // + company come from the headline; the photo is free in the same call.
 async function fetchLinkedInProfile(accountId, memberId) {
-  if (!memberId) return { photo_url: null, job_title: null, company: null };
+  if (!memberId) return { photo_url: null, job_title: null, company: null, email: null, phone: null, headline: null };
   try {
     const url = `${BASE()}/users/${encodeURIComponent(memberId)}?account_id=${encodeURIComponent(accountId)}`;
     const res = await fetch(url, { headers: headers() });
-    if (!res.ok) return { photo_url: null, job_title: null, company: null };
+    if (!res.ok) return { photo_url: null, job_title: null, company: null, email: null, phone: null, headline: null };
     const d = await res.json();
     const photo_url = d.profile_picture_url || d.profile_picture_url_large || null;
     const { job_title, company } = parseHeadline(d.headline);
-    return { photo_url, job_title, company };
+    // First-degree connections often expose their real email/phone in the profile.
+    const email = (d.contact_info?.emails || []).find(e => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e || '')) || null;
+    const phone = d.contact_info?.phones?.[0] || null;
+    return { photo_url, job_title, company, email, phone, headline: d.headline || null };
   } catch {
-    return { photo_url: null, job_title: null, company: null };
+    return { photo_url: null, job_title: null, company: null, email: null, phone: null, headline: null };
   }
 }
 
@@ -243,22 +247,33 @@ async function syncConnections(supabase, workspaceId, accountId) {
     });
     if (!contactId) continue;
 
-    // Patch linkedin_url, photo, title + company onto contact if missing
+    // Patch linkedin_url, photo, title, company, email, phone onto contact if missing
     const { data: contactSnap } = await supabase
       .from('contacts')
-      .select('linkedin_url, photo_url, job_title, company')
+      .select('linkedin_url, photo_url, job_title, company, email, phone')
       .eq('id', contactId)
       .single();
 
     const contactUpdates = {};
     if (profileUrl && !contactSnap?.linkedin_url)
       contactUpdates.linkedin_url = normaliseLinkedInUrl(profileUrl);
-    // One profile fetch fills any of photo / title / company that's still empty.
-    if (!contactSnap?.photo_url || !contactSnap?.job_title || !contactSnap?.company) {
+    // One profile fetch fills any of photo / title / company / email / phone still empty.
+    if (!contactSnap?.photo_url || !contactSnap?.job_title || !contactSnap?.company
+        || !contactSnap?.email || !contactSnap?.phone) {
       const profile = await fetchLinkedInProfile(accountId, rel.member_id);
       if (profile.photo_url && !contactSnap?.photo_url) contactUpdates.photo_url = profile.photo_url;
       if (profile.job_title && !contactSnap?.job_title) contactUpdates.job_title = profile.job_title;
       if (profile.company   && !contactSnap?.company)   contactUpdates.company   = profile.company;
+      if (profile.phone     && !contactSnap?.phone)     contactUpdates.phone     = profile.phone;
+      // Real email straight from the LinkedIn profile (contact_info.emails).
+      const cleanEmail = profile.email && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(profile.email)
+        ? profile.email.toLowerCase().trim() : null;
+      if (cleanEmail && !contactSnap?.email) {
+        contactUpdates.email = cleanEmail;
+        await supabase.from('entity_identifiers')
+          .upsert({ workspace_id: workspaceId, entity_id: contactId, kind: 'email', value: cleanEmail },
+            { onConflict: 'workspace_id,kind,value', ignoreDuplicates: true }).then(null, () => {});
+      }
       // Fallback to the relation's own headline when the profile call yields no title.
       if (!contactUpdates.job_title && !contactSnap?.job_title && rel.headline) {
         const fromRel = parseHeadline(rel.headline);
@@ -269,6 +284,12 @@ async function syncConnections(supabase, workspaceId, accountId) {
     }
     if (Object.keys(contactUpdates).length)
       await supabase.from('contacts').update(contactUpdates).eq('id', contactId);
+
+    // Score ICP once we have a title or company (free — role-based, no paid provider).
+    if ((contactUpdates.job_title || contactUpdates.company)) {
+      const scored = { id: contactId, workspace_id: workspaceId, ...contactSnap, ...contactUpdates };
+      await scoreICP(supabase, workspaceId, scored).catch(() => {});
+    }
 
     const connectedAt = rel.created_at ? new Date(rel.created_at).toISOString() : new Date().toISOString();
     await logActivity(supabase, {
