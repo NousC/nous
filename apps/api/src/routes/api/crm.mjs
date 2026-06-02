@@ -421,7 +421,7 @@ crmRouter.post('/hygiene/proposals/:id', verifySupabaseAuth, requireCrmSync, asy
 
     // Approve an applyable proposal → write it to the CRM (Phase 2).
     const token = await resolveCrmTokenForProvider(supabase, workspaceId, row.provider);
-    const result = await applyProposal(row, token);
+    const result = await applyProposal(supabase, row, token);
     const final = await updateHygieneProposalStatus(supabase, workspaceId, req.params.id, result.status);
     if (result.applied) {
       await logEvent('proposal_applied', `Applied ${row.kind} to ${row.provider} — ${what}`);

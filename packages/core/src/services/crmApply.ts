@@ -7,6 +7,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { fetchCrmRecordFields, writeCrmRecordFields, writeCrmIcpFields, type CrmProvider } from '../integrations/crm/index.js';
 import { normalizeFieldValue } from './crmReconcile.js';
+import { recordWriteState } from '../db/crmWriteState.js';
 import type { HygieneProposalRow } from './crmHygiene.js';
 
 export interface ApplyResult {
@@ -28,6 +29,7 @@ export function isApplyable(kind: string): boolean {
  * PATCH, returns the outcome. The caller persists status + telemetry.
  */
 export async function applyProposal(
+  supabase: SupabaseClient,
   proposal: HygieneProposalRow,
   token: string | null,
 ): Promise<ApplyResult> {
@@ -64,5 +66,8 @@ export async function applyProposal(
 
   const res = await writeCrmRecordFields(provider as CrmProvider, token, crm_record_id, { [field]: proposed_value });
   if (!res.ok) return { applied: false, status: 'failed', reason: res.error || 'write failed' };
+
+  // Echo suppression: remember what we wrote so the next pull doesn't re-ingest it.
+  await recordWriteState(supabase, proposal.workspace_id, provider, crm_record_id, field, proposed_value);
   return { applied: true, status: 'applied' };
 }

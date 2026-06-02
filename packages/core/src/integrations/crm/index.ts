@@ -6,6 +6,7 @@
 // deals (which don't have a v1-shape view).
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { echoFieldsToSkip } from '../../db/crmWriteState.js';
 
 // ─── shared types ────────────────────────────────────────────────────────────
 
@@ -501,6 +502,11 @@ async function upsertContact(
   };
 
   if (existing) {
+    // Echo suppression: if company/phone match a value Nous just wrote to this
+    // record, drop them from the update so we don't re-ingest our own write.
+    const skip = await echoFieldsToSkip(supabase, workspaceId, provider, c.id, { company: c.company, phone: c.phone });
+    if (skip.has('company')) delete payload.company;
+    if (skip.has('phone'))   delete payload.phone;
     await supabase.from('contacts').update(payload).eq('id', existing.id);
     return 'updated';
   }

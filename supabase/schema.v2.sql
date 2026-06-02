@@ -549,6 +549,21 @@ CREATE POLICY chp_all ON crm_hygiene_proposals FOR ALL USING (is_workspace_membe
 CREATE TRIGGER touch_crm_hygiene_proposals BEFORE UPDATE ON crm_hygiene_proposals
   FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
 
+-- Echo suppression: what Nous wrote to a CRM, so the next pull doesn't re-ingest it.
+CREATE TABLE crm_write_state (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  workspace_id  UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  provider      TEXT NOT NULL,
+  crm_record_id TEXT NOT NULL,
+  property      TEXT NOT NULL,
+  value         JSONB,
+  written_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (workspace_id, provider, crm_record_id, property)
+);
+CREATE INDEX crm_write_state_lookup_idx ON crm_write_state (workspace_id, provider, crm_record_id, property);
+ALTER TABLE crm_write_state ENABLE ROW LEVEL SECURITY;
+CREATE POLICY cws_all ON crm_write_state FOR ALL USING (is_workspace_member(workspace_id));
+
 CREATE TABLE workspace_webhook_subscriptions (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
