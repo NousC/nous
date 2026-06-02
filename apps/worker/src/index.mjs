@@ -23,6 +23,7 @@ import { processEmbeddings } from './workers/embeddings.mjs';
 import { runCrmAutoSync } from './workers/crmSync.mjs';
 import { runCrmHygieneSweep } from './workers/crmHygiene.mjs';
 import { runStageDerivation } from './workers/stageDerivation.mjs';
+import { runOnboardingDrip } from './workers/onboardingDrip.mjs';
 
 // Wire webhook-driven activity logging → CRM push at module load.
 // Worker is where most logActivity() calls originate (Instantly/Lemlist replies,
@@ -236,5 +237,18 @@ async function runStageDerivationSafe() {
 runStageDerivationSafe();
 cron.schedule('15 * * * *', runStageDerivationSafe);
 console.log('[WORKER] Pipeline-stage derivation — hourly at :15');
+
+// ── Onboarding drip — hourly at :45 ──────────────────────────────────────────
+// Dogfood follow-up sequence for our own signups. Reads the observation
+// substrate (welcome sent, replies, conversions) and sends the next due nudge
+// from DRIP, recording each send as an observation so it shows on the timeline.
+// Cloud-only: no-op unless NOUS_DOGFOOD_WORKSPACE_ID is set. See
+// workers/onboardingDrip.mjs.
+async function runOnboardingDripSafe() {
+  try { await runOnboardingDrip(); }
+  catch (err) { console.error('[WORKER] onboarding drip error:', err.message); }
+}
+cron.schedule('45 * * * *', runOnboardingDripSafe);
+console.log('[WORKER] Onboarding drip — hourly at :45');
 
 console.log('[WORKER] Started');

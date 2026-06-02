@@ -132,13 +132,16 @@ export default function UsageBilling() {
 
   useEffect(() => { load(); }, [load]);
 
-  const subscribe = async (plan: string) => {
+  const subscribe = async (
+    plan: string,
+    opts?: { interval?: "month" | "year"; promotion_code?: string },
+  ) => {
     setAction(`subscribe:${plan}`);
     try {
       const r = await fetch(`${apiUrl}/api/billing/subscribe`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ plan }),
+        body: JSON.stringify({ plan, ...opts }),
       });
       const data = await r.json();
       if (!r.ok || !data.url) throw new Error(data.error || "checkout_failed");
@@ -148,6 +151,23 @@ export default function UsageBilling() {
       setAction(null);
     }
   };
+
+  // Drip-email deep link: /settings?section=billing&plan=pro&interval=year&code=…
+  // auto-starts the annual checkout with the per-user code pre-applied. Guarded so
+  // it fires once, only after auth is ready.
+  useEffect(() => {
+    if (!token) return;
+    const q = new URLSearchParams(window.location.search);
+    if (q.get("interval") !== "year") return;
+    const plan = q.get("plan") || "pro";
+    const code = q.get("code") || undefined;
+    // Strip the offer params so a refresh / back-nav doesn't re-trigger checkout.
+    const cleaned = new URLSearchParams(window.location.search);
+    ["interval", "code"].forEach((k) => cleaned.delete(k));
+    window.history.replaceState({}, "", `${window.location.pathname}?${cleaned.toString()}`);
+    subscribe(plan, { interval: "year", promotion_code: code });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
 
   const openPortal = async () => {
     setAction("portal");
