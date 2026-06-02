@@ -12,7 +12,7 @@
 
 import { Router } from 'express';
 import Anthropic from 'useleak';
-import { getSupabaseClient, listSignals, seedSignals, listNotes, scoreLead, getAttention, saveNote, deleteNote, supersedeNote, getWorkspaceEntityId, getOrCreateEntity, logActivity, discoverSignals, upsertSignal } from '@nous/core';
+import { getSupabaseClient, listSignals, seedSignals, listNotes, scoreLead, getAttention, saveNote, deleteNote, supersedeNote, getWorkspaceEntityId, getOrCreateEntity, logActivity, discoverSignals, upsertSignal, pipelineFeatures } from '@nous/core';
 import { extractAndRecordWebsiteSignals } from '../../services/websiteSignals.mjs';
 
 export const mindRouter = Router();
@@ -33,7 +33,12 @@ const FEATURE_VOCAB =
   'signal.has_api / signal.has_sandbox / signal.self_serve_signup / signal.free_trial / signal.recently_funded (boolean), ' +
   'signal.tech.<tool> (boolean, e.g. signal.tech.stripe), ' +
   'signal.hiring.<role> (boolean, e.g. signal.hiring.revops), ' +
-  'signal.compliance.<term> (boolean, e.g. signal.compliance.soc2)';
+  'signal.compliance.<term> (boolean, e.g. signal.compliance.soc2). ' +
+  // Pipeline-engagement (how the deal went), bucketed from the activity log:
+  'pipe.lead_source (e.g. inbound_website, outbound_email, inbound_linkedin), ' +
+  'pipe.channel (email|linkedin|meeting|website|slack|other), ' +
+  'pipe.inbound (boolean), pipe.replied (boolean), ' +
+  'pipe.meetings_band (0|1|2|3+), pipe.touches_band (1-2|3-5|6-10|10+)';
 
 // Monday-of-week key (UTC) — buckets episodes for the weekly trend.
 function weekKey(iso) {
@@ -903,13 +908,22 @@ mindRouter.post('/closed-deals', async (req, res) => {
       }).catch(() => {});
 
       // Episode features = company firmographics/signals + the decision-maker's
-      // own traits (job_title/seniority/department) — so discovery learns *who*
-      // buys, not just *what* the company is.
+      // own traits (job_title/seniority/department) + the pipeline-engagement of
+      // the deal (lead source, channel, inbound/outbound, meetings/touches) — so
+      // discovery learns *who* buys and *how* the deal went, not just *what* the
+      // company is.
       const { data: companyClaims } = await supabase
         .from('claims').select('property, value').eq('entity_id', companyId).is('invalid_at', null);
       const features = {};
       for (const c of companyClaims ?? []) features[c.property] = c.value;
       for (const [k, v] of Object.entries(buyer)) if (v != null && !(k in features)) features[k] = v;
+      if (personIds.length) {
+        const { data: pacts } = await supabase
+          .from('observations').select('property, source, observed_at')
+          .in('entity_id', personIds).eq('kind', 'event').like('property', 'interaction.%')
+          .order('observed_at', { ascending: true }).limit(1000);
+        for (const [k, v] of Object.entries(pipelineFeatures(pacts || []))) if (!(k in features)) features[k] = v;
+      }
       episodes.push({ features, disposition });
     };
     for (const d of wonList) await ingest(d, 'won');

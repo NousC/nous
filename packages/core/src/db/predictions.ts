@@ -3,6 +3,7 @@ import type { ScorecardSignal } from '../types.js';
 import type { Claim } from './claims.js';
 import { scoreToPrediction, modelVersion } from './scorecard.js';
 import { getClaims } from './claims.js';
+import { pipelineFeatures } from '../services/pipelineFeatures.js';
 
 // The prediction-write half of the compound-intelligence loop.
 //
@@ -80,6 +81,21 @@ export async function scoreAndStake(
   }
 
   const { features, snapshot } = buildSnapshot(claims);
+
+  // Pipeline-engagement features — *how the deal is going* (lead source, channel,
+  // inbound/outbound, replied, banded meeting/touch counts), derived from the
+  // entity's activity log. Captured into the snapshot so the Mind can learn lift
+  // on engagement, not just firmographics. (As of scoring time — the snapshot
+  // freezes engagement-so-far against the eventual outcome.)
+  const { data: acts } = await supabase
+    .from('observations')
+    .select('property, source, observed_at')
+    .eq('entity_id', entityId).eq('kind', 'event').like('property', 'interaction.%')
+    .order('observed_at', { ascending: true }).limit(500);
+  for (const [k, v] of Object.entries(pipelineFeatures(acts || []))) {
+    features[k] = v;
+    snapshot[k] = { value: v, confidence: 1 };
+  }
 
   // Gate: only stake on accounts we can actually score. If the entity carries
   // none of the scoreable ICP features yet, it's awaiting enrichment — skip,
