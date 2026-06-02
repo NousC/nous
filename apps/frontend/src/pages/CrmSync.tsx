@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { RefreshCw, Download, Plus, Activity, Settings, ChevronDown, Upload, UserPlus, Sparkles } from "lucide-react";
+import { RefreshCw, Download, Plus, Activity, Settings, Upload, UserPlus, Sparkles, Info } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { format, isToday, isYesterday, startOfDay } from "date-fns";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/components/ui/sonner";
@@ -336,83 +337,53 @@ export default function CrmSync() {
     return events.filter(e => new Date(e.ts).getTime() >= cutoff);
   }, [events, range]);
 
-  // ── Top-of-page metrics tiles ──
-  const stats = useMemo(() => {
-    const totalContacts = Object.values(configs).reduce((s, c) => s + (c.contacts_synced ?? 0), 0);
-    const autoOn        = Object.values(configs).filter(c => c.auto_sync).length;
-    const fails7d       = events.filter(e => {
-      if (!e.event_type.toLowerCase().includes("fail")) return false;
-      return Date.now() - new Date(e.ts).getTime() < 7 * 24 * 60 * 60 * 1000;
-    }).length;
-    return [
-      { label: "Contacts synced (all-time)", value: totalContacts.toLocaleString(), raw: true },
-      { label: "Connected CRMs",              value: `${crmConns.length} / ${CRM_NAMES.length}`, raw: true },
-      { label: "Auto-sync active",            value: autoOn },
-      { label: "Failed runs (7d)",            value: fails7d },
-    ] as { label: string; value: number | string; raw?: boolean }[];
-  }, [configs, events, crmConns.length]);
-
   const groups = groupByDay(rangeEvents);
 
   return (
     <div className="h-full overflow-y-auto bg-background">
       <div className="px-8 py-7">
-        <PageHeader
-          title="CRM Sync"
-          subtitle="Configure each CRM connection — auto-sync runs once a day, or trigger Sync now anytime. Every push and pull lands in the live log below."
-        />
-
-        {/* ── How CRM sync works — plain-language overview ── */}
-        <div className="mb-5 rounded-xl border border-border bg-background">
-          <button
-            onClick={() => setShowHelp(v => !v)}
-            className="flex w-full items-center justify-between px-4 py-3 text-left">
-            <span className="flex items-center gap-2 text-[13px] font-semibold text-foreground">
-              <Activity className="h-4 w-4 text-primary" />
-              How CRM sync works
-            </span>
-            <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${showHelp ? "rotate-180" : ""}`} />
+        <div className="flex items-start justify-between gap-4">
+          <PageHeader
+            title="CRM Sync"
+            subtitle="Connect a CRM and Nous keeps it in sync — pull, push, create, and hygiene."
+          />
+          <button onClick={() => setShowHelp(true)} title="How CRM sync works"
+            className="mt-1 inline-flex h-8 items-center gap-1.5 flex-shrink-0 rounded-lg border border-border px-2.5 text-[12px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors">
+            <Info className="h-3.5 w-3.5" /> How it works
           </button>
-          {showHelp && (
-            <div className="border-t border-border/60 px-4 py-4">
-              <p className="mb-4 text-[12.5px] leading-relaxed text-muted-foreground">
-                Nous treats your customer graph as the source of truth and keeps the CRM
-                reconciled with it. Data moves in four ways:
-              </p>
-              <div className="grid gap-3 sm:grid-cols-2">
-                {[
-                  {
-                    icon: Download, title: "Pull — read from the CRM",
-                    body: "Once a day (when Auto-sync is on) Nous reads contacts, companies, and deals updated since the last run, so it knows what your CRM holds. Run it anytime with Sync now.",
-                  },
-                  {
-                    icon: Upload, title: "Push — log touchpoints back",
-                    body: "When a real milestone happens in your outbound — a positive reply, a booked meeting, a signed proposal — Nous logs it onto the matching CRM record. Low-signal noise (every open, every back-and-forth) stays in the graph and never clutters the CRM.",
-                  },
-                  {
-                    icon: UserPlus, title: "Create — only earned records",
-                    body: "A prospect who isn't in the CRM yet is created automatically once they meet your trigger (by default: a positive reply or a booked meeting) and clear your ICP-fit threshold. Set this per CRM below — so every record is an earned, on-target hand-raise.",
-                  },
-                  {
-                    icon: Sparkles, title: "Hygiene — keep attributes reconciled",
-                    body: "On a weekly or monthly schedule, Nous reconciles a slice of contact and account fields against what it knows. Today it enriches and scores records added outside Nous and proposes ICP write-backs; filling and refreshing other fields is rolling out. Every change is proposed with its evidence for your approval — Nous never overwrites a value your team entered without proof.",
-                  },
-                ].map(({ icon: Icon, title, body }) => (
-                  <div key={title} className="rounded-lg border border-border/60 bg-muted/20 p-3">
-                    <div className="mb-1 flex items-center gap-1.5 text-[12.5px] font-semibold text-foreground/90">
-                      <Icon className="h-3.5 w-3.5 text-primary" />
-                      {title}
-                    </div>
-                    <p className="text-[12px] leading-relaxed text-muted-foreground">{body}</p>
-                  </div>
-                ))}
-              </div>
-              <p className="mt-4 text-[11.5px] leading-relaxed text-muted-foreground/70">
-                Every pull, push, create, and hygiene change lands in the live log below — so you can always see exactly what Nous did and why.
-              </p>
-            </div>
-          )}
         </div>
+
+        {/* ── How CRM sync works — info popup ── */}
+        <Dialog open={showHelp} onOpenChange={setShowHelp}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-[15px]">
+                <Activity className="h-4 w-4 text-primary" /> How CRM sync works
+              </DialogTitle>
+            </DialogHeader>
+            <p className="text-[12.5px] leading-relaxed text-muted-foreground">
+              Nous treats your customer graph as the source of truth and keeps the CRM reconciled with it. Data moves in four ways:
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {[
+                { icon: Download, title: "Pull — read from the CRM", body: "Once a day (when Auto-sync is on) Nous reads contacts, companies, and deals updated since the last run, so it knows what your CRM holds. Run it anytime with Sync now." },
+                { icon: Upload, title: "Push — log touchpoints back", body: "When a real milestone happens in your outbound — a positive reply, a booked meeting, a signed proposal — Nous logs it onto the matching CRM record. Low-signal noise stays in the graph and never clutters the CRM." },
+                { icon: UserPlus, title: "Create — only earned records", body: "A prospect who isn't in the CRM yet is created automatically once they meet your trigger (by default: a positive reply or a booked meeting) and clear your ICP-fit threshold — so every record is an earned, on-target hand-raise." },
+                { icon: Sparkles, title: "Hygiene — keep attributes reconciled", body: "On a weekly or monthly schedule, Nous reconciles a slice of contact and account fields against what it knows, and proposes every change with its evidence for your approval — never overwriting a value your team entered without proof." },
+              ].map(({ icon: Icon, title, body }) => (
+                <div key={title} className="rounded-lg border border-border/60 bg-muted/20 p-3">
+                  <div className="mb-1 flex items-center gap-1.5 text-[12.5px] font-semibold text-foreground/90">
+                    <Icon className="h-3.5 w-3.5 text-primary" /> {title}
+                  </div>
+                  <p className="text-[12px] leading-relaxed text-muted-foreground">{body}</p>
+                </div>
+              ))}
+            </div>
+            <p className="text-[11.5px] leading-relaxed text-muted-foreground/70">
+              Every pull, push, create, and hygiene change lands in the live log — so you can always see exactly what Nous did and why.
+            </p>
+          </DialogContent>
+        </Dialog>
 
         {loadingConns ? (
           <div className="text-[13px] text-muted-foreground/70 text-center py-12">Loading…</div>
@@ -427,20 +398,9 @@ export default function CrmSync() {
           </div>
         ) : (
           <>
-            {/* ── Metrics row ── */}
-            <div className="mb-5 grid grid-cols-2 sm:grid-cols-4 gap-3">
-              {stats.map(s => (
-                <div key={s.label} className="rounded-xl border border-border bg-background p-4">
-                  <div className="text-[22px] font-bold text-foreground tabular-nums">
-                    {s.raw ? s.value : (typeof s.value === "number" ? s.value.toLocaleString() : s.value)}
-                  </div>
-                  <div className="text-[12px] text-muted-foreground mt-0.5">{s.label}</div>
-                </div>
-              ))}
-            </div>
-
-            {/* ── CRM configuration section ── */}
-            <div className="mb-6">
+            {/* ── Config (left) + hygiene report (right) ── */}
+            <div className="mb-6 grid grid-cols-1 lg:grid-cols-[1.5fr_1fr] gap-6 items-start">
+            <div>
               <div className="mb-3 flex items-center gap-2 text-[12px] font-semibold tracking-wide text-muted-foreground">
                 <Settings className="h-3.5 w-3.5" />
                 CRM CONFIGURATION
@@ -583,13 +543,20 @@ export default function CrmSync() {
               </div>
             </div>
 
-            {/* ── Hygiene report — proposed changes awaiting approval ── */}
-            {proposals.length > 0 && (
-              <div className="mb-6">
-                <div className="mb-3 flex items-center gap-2 text-[12px] font-semibold tracking-wide text-muted-foreground">
-                  <Sparkles className="h-3.5 w-3.5" />
-                  HYGIENE REPORT — {proposals.length} proposed change{proposals.length === 1 ? "" : "s"}
+            {/* ── Hygiene report (right cell) ── */}
+            <div>
+              <div className="mb-3 flex items-center gap-2 text-[12px] font-semibold tracking-wide text-muted-foreground">
+                <Sparkles className="h-3.5 w-3.5" />
+                HYGIENE REPORT{proposals.length ? ` — ${proposals.length}` : ""}
+              </div>
+              {proposals.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-border py-10 text-center">
+                  <Sparkles className="h-6 w-6 text-muted-foreground/40 mx-auto mb-2" strokeWidth={1.5} />
+                  <p className="text-[12.5px] font-medium text-foreground/80 mb-0.5">No proposed changes</p>
+                  <p className="text-[11.5px] text-muted-foreground/70">Run hygiene on a CRM to generate proposals.</p>
                 </div>
+              ) : (
+                <>
                 <div className="rounded-xl border border-border divide-y divide-border/60">
                   {proposals.slice(0, 50).map(p => (
                     <div key={p.id} className="flex items-start gap-3 px-4 py-3">
@@ -622,10 +589,12 @@ export default function CrmSync() {
                   ))}
                 </div>
                 <p className="mt-2 text-[11px] text-muted-foreground/60">
-                  Approving records the decision. Writing approved changes back to the CRM ships next (Phase 2).
+                  Approving a field change writes it to the CRM. ICP write-back is rolling out.
                 </p>
-              </div>
-            )}
+                </>
+              )}
+            </div>
+            </div>{/* end config + report grid */}
 
             {/* ── Date-range toggle + live header ── */}
             <div className="mb-4 flex items-center justify-between gap-3">
