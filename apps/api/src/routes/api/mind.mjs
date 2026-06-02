@@ -820,6 +820,33 @@ mindRouter.post('/closed-deals', async (req, res) => {
       return res.status(400).json({ error: 'need_more_deals', detail: 'add at least one closed deal (a won or lost domain)' });
     }
 
+    // Seniority ordering — when a company has several contacts (founder + two
+    // CEOs), the MOST SENIOR one represents the deal's decision-maker for the
+    // buyer traits; we still link and resolve ALL of them.
+    const SENIORITY_RANK = { ic: 0, manager: 1, director: 2, vp: 3, c_suite: 4 };
+
+    // Every contact we already have at a domain — recognized three ways:
+    //   1. via the company record (companies.domain → contacts.company_id),
+    //   2. the contact's own domain (contacts.domain),
+    //   3. email as the fallback (entity_identifiers ilike @domain).
+    // Returns deduped person entity ids (contact.id == entity.id by convention).
+    const findPeopleAtDomain = async (domain) => {
+      const ids = new Set();
+      const [byContactDomain, comp, emails] = await Promise.all([
+        supabase.from('contacts').select('id').eq('workspace_id', workspaceId).eq('domain', domain),
+        supabase.from('companies').select('id').eq('workspace_id', workspaceId).eq('domain', domain).maybeSingle(),
+        supabase.from('entity_identifiers').select('entity_id').eq('workspace_id', workspaceId).eq('kind', 'email').eq('status', 'active').ilike('value', `%@${domain}`),
+      ]);
+      for (const c of byContactDomain.data || []) ids.add(c.id);
+      for (const e of emails.data || []) ids.add(e.entity_id);
+      if (comp.data?.id) {
+        const { data: byCompany } = await supabase.from('contacts').select('id')
+          .eq('workspace_id', workspaceId).eq('company_id', comp.data.id);
+        for (const c of byCompany || []) ids.add(c.id);
+      }
+      return [...ids];
+    };
+
     const episodes = [];
     let enriched = 0;
     const linked = [];   // contacts we recognized and joined to the deal
@@ -828,16 +855,11 @@ mindRouter.post('/closed-deals', async (req, res) => {
       const r = await extractAndRecordWebsiteSignals(supabase, workspaceId, companyId, domain).catch(() => null);
       if (r) enriched++;
 
-      // Decision-maker linkage — close the loop. Find contacts we ALREADY have at
-      // this domain, link them to the company (works_at), and record the won/lost
-      // on THEM too: that resolves their open ICP prediction and joins their
-      // pipeline history (touches, calls, channel) to the deal.
-      const { data: emails } = await supabase
-        .from('entity_identifiers').select('entity_id, value')
-        .eq('workspace_id', workspaceId).eq('kind', 'email').eq('status', 'active')
-        .ilike('value', `%@${domain}`);
-      const personIds = [...new Set((emails || []).map(e => e.entity_id))];
-      let personClaims = [];
+      // Decision-maker linkage — recognize EVERY contact we already have at this
+      // company, link each to the company (works_at), and record the won/lost on
+      // each: that resolves their open ICP prediction and joins their pipeline
+      // history (touches, calls, channel) to the deal.
+      const personIds = await findPeopleAtDomain(domain);
       for (const personId of personIds) {
         await supabase.from('relationships').upsert(
           { workspace_id: workspaceId, from_entity_id: personId, to_entity_id: companyId, type: 'works_at', valid_from: new Date().toISOString() },
@@ -851,20 +873,23 @@ mindRouter.post('/closed-deals', async (req, res) => {
           description: disposition === 'won' ? 'Closed-won (closed-deals import)' : 'Closed-lost (closed-deals import)',
         }).catch(() => {});
       }
+
+      // Buyer traits for the episode — the most senior linked contact represents
+      // the deal's decision-maker; all names are recorded for the UI.
+      let buyer = {};
       if (personIds.length) {
-        const [{ data: pc }, { data: names }] = await Promise.all([
-          supabase.from('claims').select('property, value').in('entity_id', personIds).is('invalid_at', null)
-            .in('property', ['job_title', 'seniority', 'department']),
-          supabase.from('claims').select('entity_id, property, value').in('entity_id', personIds).is('invalid_at', null)
-            .in('property', ['first_name', 'last_name']),
-        ]);
-        personClaims = pc || [];
-        const byId = {};
-        for (const n of names || []) { (byId[n.entity_id] ||= {})[n.property] = n.value; }
+        const { data: pc } = await supabase.from('claims').select('entity_id, property, value')
+          .in('entity_id', personIds).is('invalid_at', null)
+          .in('property', ['job_title', 'seniority', 'department', 'first_name', 'last_name']);
+        const byPerson = {};
+        for (const c of pc || []) (byPerson[c.entity_id] ||= {})[c.property] = c.value;
+        let bestRank = -1;
         for (const pid of personIds) {
-          const nm = byId[pid];
-          const full = nm ? [nm.first_name, nm.last_name].filter(Boolean).join(' ') : null;
-          linked.push({ domain, name: full || (emails.find(e => e.entity_id === pid)?.value ?? 'a contact') });
+          const p = byPerson[pid] || {};
+          const rank = SENIORITY_RANK[p.seniority] ?? 0;
+          if (rank >= bestRank) { bestRank = rank; buyer = { job_title: p.job_title, seniority: p.seniority, department: p.department }; }
+          const full = [p.first_name, p.last_name].filter(Boolean).join(' ') || null;
+          linked.push({ domain, name: full || 'a contact' });
         }
       }
 
@@ -878,13 +903,13 @@ mindRouter.post('/closed-deals', async (req, res) => {
       }).catch(() => {});
 
       // Episode features = company firmographics/signals + the decision-maker's
-      // own traits (job_title/seniority/department) — so discovery can learn
-      // *who* buys, not just *what* the company is.
+      // own traits (job_title/seniority/department) — so discovery learns *who*
+      // buys, not just *what* the company is.
       const { data: companyClaims } = await supabase
         .from('claims').select('property, value').eq('entity_id', companyId).is('invalid_at', null);
       const features = {};
       for (const c of companyClaims ?? []) features[c.property] = c.value;
-      for (const c of personClaims) if (!(c.property in features)) features[c.property] = c.value;
+      for (const [k, v] of Object.entries(buyer)) if (v != null && !(k in features)) features[k] = v;
       episodes.push({ features, disposition });
     };
     for (const d of wonList) await ingest(d, 'won');
