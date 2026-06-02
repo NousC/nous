@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { RefreshCw, ChevronRight, Trash2, History, Info, Plus } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
@@ -134,9 +133,26 @@ function Sparkline({ values, width = 96, height = 24 }: { values: (number | null
 
 // ─── The page ────────────────────────────────────────────────────────────────
 
+// A standalone ICP record — the analyzed account's score trail, sourced from
+// the ICP substrate (GET /api/mind/account/:id), independent of the CRM contact.
+interface IcpRecordRow {
+  id: string;
+  score: number | null;
+  fit: boolean | null;
+  reason: string | null;
+  scored_at: string;
+  resolved_at: string | null;
+  disposition: string | null;
+  outcome_score: number | null;
+  learned: { status: "changed" | "no_change" | "pending"; at?: string; detail?: string | null } | null;
+}
+interface IcpRecord {
+  account: { entity_id: string; name: string | null; email: string | null };
+  icp: { current: IcpRecordRow; history: IcpRecordRow[] } | null;
+}
+
 export default function Intelligence() {
   const { session, userData } = useAuth();
-  const navigate = useNavigate();
   const token = session?.access_token ?? "";
   const workspaceId = userData?.workspace?.id ?? "";
 
@@ -191,6 +207,20 @@ export default function Intelligence() {
   const [cdLost, setCdLost] = useState("");
   const [cdRunning, setCdRunning] = useState(false);
   const [cdResult, setCdResult] = useState<{ enriched: number; discovered: { label: string; weight: number; note: string }[] } | null>(null);
+
+  // Standalone ICP record drawer — opened from the analyzed table.
+  const [recordEntity, setRecordEntity] = useState<{ id: string; label: string } | null>(null);
+  const [record, setRecord] = useState<IcpRecord | null>(null);
+  const [recordLoading, setRecordLoading] = useState(false);
+  useEffect(() => {
+    if (!recordEntity) { setRecord(null); return; }
+    setRecordLoading(true);
+    fetch(`${apiUrl}/api/mind/account/${recordEntity.id}?workspaceId=${workspaceId}`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => setRecord(d ?? null))
+      .catch(() => setRecord(null))
+      .finally(() => setRecordLoading(false));
+  }, [recordEntity, workspaceId, token]);
 
   // Inline editing of Scorecard signals (label / weight) + delete.
   const [editSig, setEditSig] = useState<{ id: string; field: "label" | "weight" } | null>(null);
@@ -1022,9 +1052,9 @@ export default function Intelligence() {
                       return (
                         <div
                           key={p.id}
-                          onClick={() => p.entity_id && navigate(`/people/${p.entity_id}?tab=icp`)}
+                          onClick={() => p.entity_id && setRecordEntity({ id: p.entity_id, label })}
                           className="flex items-center gap-4 px-4 py-3 border-b border-border/60 last:border-0 hover:bg-muted/50 transition-colors cursor-pointer"
-                          title="Open this account's ICP trail"
+                          title="Open this account's ICP record"
                         >
                           <span className="flex-1 min-w-0 text-[13px] font-medium text-foreground truncate">{label}</span>
                           <span
@@ -1091,6 +1121,96 @@ export default function Intelligence() {
         </div>
       </div>
 
+
+      {/* ─── ICP record — a standalone account record, opened from the table.
+           Its own thing: the score trail + how each outcome fed the model.
+           Pure ICP substrate, not the CRM contact. ─── */}
+      {recordEntity && (
+        <div className="fixed inset-0 z-50 flex justify-end bg-black/30" onClick={() => setRecordEntity(null)}>
+          <div className="h-full w-full max-w-[460px] bg-background border-l border-border shadow-xl flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="px-6 py-4 border-b border-border flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/55">ICP record</div>
+                <div className="text-[16px] font-semibold text-foreground truncate">{recordEntity.label}</div>
+                {record?.account.email && record.account.email !== recordEntity.label && (
+                  <div className="text-[12px] text-muted-foreground/70 truncate">{record.account.email}</div>
+                )}
+              </div>
+              <button onClick={() => setRecordEntity(null)} className="text-muted-foreground/60 hover:text-foreground text-[20px] leading-none flex-shrink-0" aria-label="Close">×</button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-6 py-5">
+              {recordLoading ? (
+                <div className="text-[13px] text-muted-foreground/60 py-12 text-center">Loading…</div>
+              ) : !record?.icp ? (
+                <p className="text-[13px] text-muted-foreground/70 py-12 text-center">Not scored yet — Nous scores this account once it has enough to go on.</p>
+              ) : (() => {
+                const cur = record.icp.current;
+                const sc = cur.score;
+                const col = sc == null ? "#9ca3af" : sc >= 70 ? "#15803d" : sc >= 40 ? "#b45309" : "#b91c1c";
+                const fitLabel = sc == null ? "—" : sc >= 70 ? "Strong fit" : sc >= 40 ? "Potential fit" : "Weak fit";
+                const outcomeOf = (d: string | null) =>
+                  d === "won"  ? { t: "Closed-won",  c: "#15803d", bg: "rgba(21,128,61,0.10)" }
+                  : d === "lost" ? { t: "Closed-lost", c: "#b45309", bg: "rgba(180,83,9,0.10)" }
+                  : d === "no_opportunity" ? { t: "No deal", c: "#64748b", bg: "rgba(100,116,139,0.10)" }
+                  : null;
+                const learnNote = (h: IcpRecordRow): string | null => {
+                  if (h.disposition === "no_opportunity") return "Never entered a buying motion — excluded from learning.";
+                  const L = h.learned;
+                  if (!L || L.status === "pending") return "In the training set — the next learning run will use it.";
+                  if (L.status === "changed") return `Sharpened the model${L.at ? ` ${formatDistanceToNow(new Date(L.at), { addSuffix: true })}` : ""}${L.detail ? ` — ${L.detail}` : ""}.`;
+                  return "In the training set — no model change that run.";
+                };
+                return (
+                  <div className="space-y-6">
+                    {/* Current fit — the headline */}
+                    <div>
+                      <div className="flex items-baseline gap-2.5">
+                        <span className="text-[44px] font-semibold tabular-nums leading-none" style={{ color: col }}>{sc ?? "—"}</span>
+                        <span className="text-[14px] text-muted-foreground/80">/ 100 · {fitLabel}</span>
+                      </div>
+                      {cur.reason && (
+                        <p className="text-[13px] text-muted-foreground leading-relaxed mt-2">
+                          <span className="text-muted-foreground/60">Scored from: </span>{cur.reason}
+                        </p>
+                      )}
+                    </div>
+                    {/* Trail — every score and how it resolved, newest first */}
+                    <div>
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60 mb-3">Trail</div>
+                      <div className="space-y-0">
+                        {record.icp.history.map((h, i) => {
+                          const oc = outcomeOf(h.disposition);
+                          const isCurrent = i === 0;
+                          return (
+                            <div key={h.id} className="relative pl-5 pb-5 last:pb-0 border-l border-border/70 last:border-l-transparent">
+                              <span className="absolute -left-[5px] top-1 h-2.5 w-2.5 rounded-full border-2 border-background" style={{ background: isCurrent ? col : "#cbd5e1" }} />
+                              <div className="flex items-baseline gap-2 flex-wrap">
+                                <span className="text-[13px] font-medium text-foreground">
+                                  {isCurrent && record.icp!.history.length > 1 ? "Re-scored" : "Scored"} <span className="tabular-nums font-semibold" style={{ color: h.score == null ? "#9ca3af" : h.score >= 70 ? "#15803d" : h.score >= 40 ? "#b45309" : "#b91c1c" }}>{h.score ?? "—"}</span>
+                                </span>
+                                <span className="text-[12px] text-muted-foreground/60 tabular-nums">{formatDistanceToNow(new Date(h.scored_at), { addSuffix: true })}</span>
+                              </div>
+                              {h.reason && i > 0 && (
+                                <p className="text-[12px] text-muted-foreground/70 leading-snug mt-0.5">{h.reason}</p>
+                              )}
+                              {oc && (
+                                <div className="mt-2 flex items-baseline gap-2 flex-wrap">
+                                  <span className="text-[9px] font-semibold uppercase tracking-wide px-1.5 py-[1px] rounded" style={{ color: oc.c, background: oc.bg }}>{oc.t}</span>
+                                  <span className="text-[12px] text-muted-foreground/70">{learnNote(h)}</span>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ─── Build from closed deals — contrastive lift discovery ─── */}
       {cdOpen && (

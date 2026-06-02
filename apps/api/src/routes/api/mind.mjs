@@ -318,6 +318,80 @@ mindRouter.get('/substrate', async (req, res) => {
   }
 });
 
+// GET /api/mind/account/:entityId?workspaceId=… — the ICP record for one
+// analyzed account, standalone (NOT the CRM contact view). Everything the
+// Context page needs to show "what we did to this account": the current fit,
+// why it scored, the full trail of scores, and how each resolved outcome fed
+// the learning model. Sourced entirely from the ICP substrate (predictions +
+// scorecard_runs), independent of the contacts table.
+mindRouter.get('/account/:entityId', async (req, res) => {
+  try {
+    const { workspaceId } = req.query;
+    const { entityId } = req.params;
+    if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
+    const supabase = getSupabaseClient();
+
+    const { data: preds } = await supabase
+      .from('predictions')
+      .select('id, predicted_value, predicted_at, resolved_at, outcome_value, model_version')
+      .eq('workspace_id', workspaceId).eq('entity_id', entityId).eq('kind', 'icp_fit')
+      .order('predicted_at', { ascending: false }).limit(30);
+
+    const history = (preds || []).map(p => ({
+      id:            p.id,
+      score:         p.predicted_value?.score ?? null,
+      fit:           p.predicted_value?.fit ?? null,
+      reason:        p.predicted_value?.reason ?? null,
+      scored_at:     p.predicted_at,
+      resolved_at:   p.resolved_at,
+      disposition:   p.resolved_at ? (p.outcome_value?.disposition ?? null) : null,
+      outcome_score: p.resolved_at ? (p.outcome_value?.score ?? null) : null,
+      learned:       null,
+    }));
+
+    // Tie each resolved won/lost outcome to the first scorecard_run after it
+    // resolved — the run whose training cohort it was part of.
+    const learnable = history.filter(h => h.resolved_at && (h.disposition === 'won' || h.disposition === 'lost'));
+    if (learnable.length) {
+      const { data: runs } = await supabase
+        .from('scorecard_runs')
+        .select('note, created_at')
+        .eq('workspace_id', workspaceId)
+        .order('created_at', { ascending: true });
+      const runRows = runs || [];
+      for (const h of learnable) {
+        const run = runRows.find(r => r.created_at >= h.resolved_at);
+        if (!run) { h.learned = { status: 'pending' }; continue; }
+        const changed = typeof run.note === 'string' && run.note.startsWith('kept');
+        const detail = changed ? run.note.replace(/^kept\s+\d+:\s*/, '') : null;
+        h.learned = { status: changed ? 'changed' : 'no_change', at: run.created_at, detail };
+      }
+    }
+
+    // Name/email for the header — from claims + identifiers, not the CRM row.
+    let name = null, email = null;
+    const [{ data: nameClaims }, { data: emailIdent }] = await Promise.all([
+      supabase.from('claims').select('property, value')
+        .eq('entity_id', entityId).is('invalid_at', null).in('property', ['first_name', 'last_name']),
+      supabase.from('entity_identifiers').select('value')
+        .eq('entity_id', entityId).eq('kind', 'email').eq('status', 'active').limit(1),
+    ]);
+    if (nameClaims?.length) {
+      const byProp = Object.fromEntries(nameClaims.map(c => [c.property, c.value]));
+      name = [byProp.first_name, byProp.last_name].filter(Boolean).join(' ') || null;
+    }
+    email = emailIdent?.[0]?.value ?? null;
+
+    return res.json({
+      account: { entity_id: entityId, name, email },
+      icp: history.length ? { current: history[0], history } : null,
+    });
+  } catch (err) {
+    console.error('[GET /api/mind/account/:entityId]', err);
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
 // GET /api/mind/icp?workspaceId=… — the plain-English ICP, the Scorecard seed.
 mindRouter.get('/icp', async (req, res) => {
   try {
