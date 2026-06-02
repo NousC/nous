@@ -17,6 +17,13 @@
 CREATE EXTENSION IF NOT EXISTS vector;
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
+-- Helper functions below reference tables created later in this file
+-- (is_workspace_member -> workspace_members, reject_mutation -> observations).
+-- Postgres validates function bodies at CREATE time, so defer that check to
+-- runtime — by the time a policy/trigger actually calls them, the tables exist.
+-- This is exactly what pg_dump emits for the same reason.
+SET check_function_bodies = false;
+
 -- ── Shared helpers ────────────────────────────────────────────
 
 CREATE OR REPLACE FUNCTION touch_updated_at()
