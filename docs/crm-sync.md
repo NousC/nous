@@ -315,6 +315,5 @@ records") before a workspace's first non-`off` apply.
 - `listSignals()` + `scoreAndStake()` — on-demand ICP (re)score
 - `logWorkerRun()` + `workspace_system_log` — run telemetry and the live log
 
-See also: [ICP scoring internals](./icp-scoring-internals.md),
-[The ICP Model & GTM Context](./icp-and-gtm-context.md),
+See also: [The ICP Model & GTM Context](./icp-and-gtm-context.md),
 [Identity Resolution](./identity-resolution.md).

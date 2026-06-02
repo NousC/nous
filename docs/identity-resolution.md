@@ -146,4 +146,4 @@ This prevents enrichment calls for contacts imported with synthetic emails like 
 
 ## Lead-list matching (planned)
 
-There is a `leads` table — the cold outreach universe, kept separate from `contacts` (scoring covered in `icp-scoring-internals.md`). When it ships, inbound resolution also checks `leads`: a reply from someone on a lead list updates that lead and graduates them into `contacts` through the waterfall above. A reply that matches no lead is handled exactly as today. The waterfall itself does not change — lead-list matching runs alongside it.
+There is a `leads` table — the cold outreach universe, kept separate from `contacts` (scoring covered in `icp-and-gtm-context.md`). When it ships, inbound resolution also checks `leads`: a reply from someone on a lead list updates that lead and graduates them into `contacts` through the waterfall above. A reply that matches no lead is handled exactly as today. The waterfall itself does not change — lead-list matching runs alongside it.
