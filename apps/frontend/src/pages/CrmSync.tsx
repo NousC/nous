@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { RefreshCw, Download, Plus, Activity, Upload, UserPlus, Sparkles, Info } from "lucide-react";
+import { RefreshCw, Download, Plus, Activity, Upload, UserPlus, Sparkles, Info, ChevronDown, Check, X } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { format, isToday, isYesterday, startOfDay } from "date-fns";
 import { useAuth } from "@/contexts/AuthContext";
@@ -274,6 +274,7 @@ export default function CrmSync() {
   // ── Hygiene report ──
   const [proposals, setProposals] = useState<HygieneProposal[]>([]);
   const [runningHygiene, setRunningHygiene] = useState<string | null>(null);
+  const [expandedCfg, setExpandedCfg] = useState<string | null>(null);
 
   const loadProposals = useCallback(async () => {
     if (!token || !workspaceId) return;
@@ -414,113 +415,97 @@ export default function CrmSync() {
                   const isSyncing = syncing === provider;
                   return (
                     <div key={conn.id} className={i < crmConns.length - 1 ? "border-b border-border/60" : ""}>
-                    <div className="flex items-center gap-4 px-4 py-3.5">
-                      <IntegrationLogo url={meta.logo} name={meta.label} size={26} />
-                      <div className="w-40 flex-shrink-0">
-                        <div className="text-[13px] font-semibold text-foreground">{meta.label}</div>
-                        <div className="text-[11px] text-muted-foreground/70 truncate">{conn.is_verified ? "Connected" : "Needs auth"}</div>
+                    {/* Summary row — clean by default */}
+                    <div className="flex items-center gap-3 px-3 py-2.5">
+                      <IntegrationLogo url={meta.logo} name={meta.label} size={22} />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-[12.5px] font-medium text-foreground">{meta.label}</div>
+                        <div className="truncate text-[11px] text-muted-foreground/70">{conn.is_verified ? `Last sync ${last}` : "Needs auth"}</div>
                       </div>
-                      <div className="hidden md:flex flex-col text-[12px] w-32 flex-shrink-0">
-                        <span className="text-muted-foreground/70">Last sync</span>
-                        <span className="text-foreground/80 tabular-nums">{last}</span>
-                      </div>
-                      <div className="hidden md:flex flex-col text-[12px] w-28 flex-shrink-0">
-                        <span className="text-muted-foreground/70">Contacts</span>
-                        <span className="text-foreground/80 tabular-nums">{(cfg?.contacts_synced ?? 0).toLocaleString()}</span>
-                      </div>
-                      <div className="flex-1 flex flex-wrap items-center justify-end gap-x-4 gap-y-2">
-                        <label className="flex items-center gap-1.5 text-[12px] text-foreground/80 cursor-pointer whitespace-nowrap"
-                          title="Daily incremental pull — contacts, companies, deals updated since the last run.">
-                          <input type="checkbox" checked={!!cfg?.auto_sync} disabled={togglingAuto === provider || !conn.is_verified}
-                            onChange={e => handleToggleAuto(conn, e.target.checked)}
-                            className="h-3.5 w-3.5 accent-primary" />
-                          Auto-sync (daily)
-                        </label>
-                        <label className="flex items-center gap-1.5 text-[12px] text-foreground/80 cursor-pointer whitespace-nowrap"
-                          title="Push Nous touchpoints (meetings, replies, signed proposals) to this CRM as native engagements.">
-                          <input type="checkbox" checked={cfg?.push_activities !== false} disabled={togglingPush === provider || !conn.is_verified}
-                            onChange={e => handleTogglePush(conn, e.target.checked)}
-                            className="h-3.5 w-3.5 accent-primary" />
-                          Push activities
-                        </label>
-                        <button onClick={() => handleSync(conn)} disabled={isSyncing || !conn.is_verified}
-                          className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-primary text-primary-foreground text-[12px] font-semibold hover:bg-primary/90 transition-colors disabled:opacity-40">
-                          {isSyncing
-                            ? <><RefreshCw className="h-3 w-3 animate-spin" /> Syncing…</>
-                            : <><Download className="h-3 w-3" /> Sync now</>}
-                        </button>
-                      </div>
+                      <button onClick={() => handleSync(conn)} disabled={isSyncing || !conn.is_verified} title="Sync now"
+                        className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-muted/50 disabled:opacity-40">
+                        {isSyncing ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+                      </button>
+                      <button onClick={() => setExpandedCfg(expandedCfg === provider ? null : provider)} disabled={!conn.is_verified} title="Settings"
+                        className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/50 disabled:opacity-30">
+                        <ChevronDown className={`h-4 w-4 transition-transform ${expandedCfg === provider ? "rotate-180" : ""}`} />
+                      </button>
                     </div>
 
-                    {/* ── Create-policy sub-row: WHEN a prospect earns a new CRM record ── */}
-                    {conn.is_verified && (
-                      <div className="px-4 pb-3.5 -mt-1 md:pl-[4.1rem]">
-                        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-border/50 bg-muted/30 px-3 py-2.5">
-                          <label className="flex items-center gap-1.5 text-[12px] font-medium text-foreground/80 cursor-pointer whitespace-nowrap"
-                            title="When ON, a prospect who isn't in this CRM yet is created automatically once they meet the trigger below. When OFF, Nous only logs activity onto records that already exist.">
+                    {/* Settings — tucked behind the expander */}
+                    {conn.is_verified && expandedCfg === provider && (
+                      <div className="space-y-3 border-t border-border/60 bg-muted/20 px-4 py-3 text-[12px]">
+                        {/* Sync */}
+                        <div className="space-y-1.5">
+                          <div className="text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground/60">Sync</div>
+                          <label className="flex items-center gap-1.5 text-foreground/80 cursor-pointer">
+                            <input type="checkbox" checked={!!cfg?.auto_sync} disabled={togglingAuto === provider}
+                              onChange={e => handleToggleAuto(conn, e.target.checked)} className="h-3.5 w-3.5 accent-primary" />
+                            Auto-sync daily (pull contacts, companies, deals)
+                          </label>
+                          <label className="flex items-center gap-1.5 text-foreground/80 cursor-pointer">
+                            <input type="checkbox" checked={cfg?.push_activities !== false} disabled={togglingPush === provider}
+                              onChange={e => handleTogglePush(conn, e.target.checked)} className="h-3.5 w-3.5 accent-primary" />
+                            Push touchpoints (meetings, replies, proposals)
+                          </label>
+                        </div>
+
+                        {/* Create policy */}
+                        <div className="space-y-1.5">
+                          <div className="text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground/60">Create records</div>
+                          <label className="flex items-center gap-1.5 text-foreground/80 cursor-pointer">
                             <input type="checkbox" checked={cfg?.create_in_crm !== false}
-                              onChange={e => handleSavePolicy(conn, { createInCrm: e.target.checked })}
-                              className="h-3.5 w-3.5 accent-primary" />
-                            Create new records
+                              onChange={e => handleSavePolicy(conn, { createInCrm: e.target.checked })} className="h-3.5 w-3.5 accent-primary" />
+                            Auto-create new records
                           </label>
                           {cfg?.create_in_crm !== false && (
-                            <>
-                              <span className="text-[12px] text-muted-foreground/70">when</span>
+                            <div className="flex flex-wrap items-center gap-2 pl-5 text-[11.5px] text-muted-foreground">
+                              when
                               <select value={cfg?.create_trigger || "positive_reply_or_meeting"}
                                 onChange={e => handleSavePolicy(conn, { createTrigger: e.target.value })}
-                                className="h-7 rounded-md border border-border bg-background px-2 text-[12px] text-foreground/90">
+                                className="h-7 rounded-md border border-border bg-background px-2 text-[11.5px] text-foreground/90">
                                 <option value="positive_reply_or_meeting">a reply is positive, or a meeting is booked</option>
                                 <option value="any_reply_or_meeting">any reply, or a meeting is booked</option>
                                 <option value="meeting_only">a meeting is booked</option>
                                 <option value="interested_stage">the contact reaches “interested”</option>
                               </select>
-                              <label className="flex items-center gap-1.5 text-[12px] text-foreground/80 cursor-pointer whitespace-nowrap"
-                                title="Only create the record if the contact's ICP fit score clears the threshold — keeps off-target replies out of the CRM.">
+                              <label className="flex items-center gap-1.5 cursor-pointer">
                                 <input type="checkbox" checked={cfg?.create_require_icp_fit !== false}
-                                  onChange={e => handleSavePolicy(conn, { createRequireIcpFit: e.target.checked })}
-                                  className="h-3.5 w-3.5 accent-primary" />
+                                  onChange={e => handleSavePolicy(conn, { createRequireIcpFit: e.target.checked })} className="h-3.5 w-3.5 accent-primary" />
                                 and ICP fit ≥
                               </label>
-                              <input type="number" min={0} max={100}
-                                key={cfg?.create_icp_threshold ?? 70}
-                                defaultValue={cfg?.create_icp_threshold ?? 70}
-                                disabled={cfg?.create_require_icp_fit === false}
+                              <input type="number" min={0} max={100} key={cfg?.create_icp_threshold ?? 70}
+                                defaultValue={cfg?.create_icp_threshold ?? 70} disabled={cfg?.create_require_icp_fit === false}
                                 onBlur={e => handleSavePolicy(conn, { createIcpThreshold: Number(e.target.value) })}
-                                className="h-7 w-14 rounded-md border border-border bg-background px-2 text-[12px] tabular-nums disabled:opacity-40" />
-                            </>
+                                className="h-7 w-14 rounded-md border border-border bg-background px-2 text-[11.5px] tabular-nums disabled:opacity-40" />
+                            </div>
                           )}
                         </div>
-                      </div>
-                    )}
 
-                    {/* ── Hygiene sub-row: scheduled reconcile + run now ── */}
-                    {conn.is_verified && (
-                      <div className="px-4 pb-3.5 -mt-1 md:pl-[4.1rem]">
-                        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-border/50 bg-muted/20 px-3 py-2.5">
-                          <span className="flex items-center gap-1.5 text-[12px] font-medium text-foreground/80 whitespace-nowrap">
-                            <Sparkles className="h-3.5 w-3.5 text-primary" /> Hygiene
-                          </span>
-                          <label className="flex items-center gap-1.5 text-[12px] text-foreground/80 cursor-pointer whitespace-nowrap"
-                            title="Scheduled reconcile: enrich + score net-new records and propose CRM updates for your approval. Never writes to the CRM without sign-off.">
-                            <input type="checkbox" checked={cfg?.hygiene_enabled !== false}
-                              onChange={e => handleSaveHygiene(conn, { hygieneEnabled: e.target.checked })}
-                              className="h-3.5 w-3.5 accent-primary" />
-                            Scheduled cleanup
-                          </label>
-                          {cfg?.hygiene_enabled !== false && (
-                            <select value={cfg?.hygiene_cadence || "weekly"}
-                              onChange={e => handleSaveHygiene(conn, { hygieneCadence: e.target.value })}
-                              className="h-7 rounded-md border border-border bg-background px-2 text-[12px] text-foreground/90">
-                              <option value="weekly">weekly</option>
-                              <option value="monthly">monthly</option>
-                            </select>
-                          )}
-                          <button onClick={() => handleRunHygiene(conn)} disabled={runningHygiene === provider}
-                            className="ml-auto inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border border-border text-[12px] font-medium text-foreground/80 hover:bg-muted/50 disabled:opacity-40">
-                            {runningHygiene === provider
-                              ? <><RefreshCw className="h-3 w-3 animate-spin" /> Running…</>
-                              : <><Sparkles className="h-3 w-3" /> Run hygiene now</>}
-                          </button>
+                        {/* Hygiene */}
+                        <div className="space-y-1.5">
+                          <div className="text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground/60">Hygiene</div>
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <label className="flex items-center gap-1.5 text-foreground/80 cursor-pointer">
+                              <input type="checkbox" checked={cfg?.hygiene_enabled !== false}
+                                onChange={e => handleSaveHygiene(conn, { hygieneEnabled: e.target.checked })} className="h-3.5 w-3.5 accent-primary" />
+                              Scheduled cleanup
+                              {cfg?.hygiene_enabled !== false && (
+                                <select value={cfg?.hygiene_cadence || "weekly"} onClick={e => e.preventDefault()}
+                                  onChange={e => handleSaveHygiene(conn, { hygieneCadence: e.target.value })}
+                                  className="ml-1 h-6 rounded-md border border-border bg-background px-1.5 text-[11.5px] text-foreground/90">
+                                  <option value="weekly">weekly</option>
+                                  <option value="monthly">monthly</option>
+                                </select>
+                              )}
+                            </label>
+                            <button onClick={() => handleRunHygiene(conn)} disabled={runningHygiene === provider}
+                              className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border border-border text-[11.5px] font-medium text-foreground/80 hover:bg-muted/50 disabled:opacity-40">
+                              {runningHygiene === provider
+                                ? <><RefreshCw className="h-3 w-3 animate-spin" /> Running…</>
+                                : <><Sparkles className="h-3 w-3" /> Run now</>}
+                            </button>
+                          </div>
                         </div>
                       </div>
                     )}
@@ -561,32 +546,24 @@ export default function CrmSync() {
                   <p className="text-[11.5px] text-muted-foreground/70">Run hygiene on a CRM to generate proposals.</p>
                 </div>
               ) : (
-                <div className="max-h-[560px] divide-y divide-border/60 overflow-y-auto">
+                <div className="max-h-[420px] divide-y divide-border/60 overflow-y-auto">
                   {proposals.slice(0, 50).map(p => (
-                    <div key={p.id} className="px-4 py-3">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="truncate text-[12.5px] font-medium text-foreground">{p.contact?.name || p.contact?.email || "Unknown contact"}</div>
-                          {p.contact?.company && <div className="truncate text-[11px] text-muted-foreground/70">{p.contact.company}</div>}
+                    <div key={p.id} className="flex items-center gap-2 px-3 py-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-[12px] font-medium text-foreground">{p.contact?.name || p.contact?.email || "Unknown contact"}</div>
+                        <div className="truncate text-[11px] text-muted-foreground/70">
+                          <span className="font-medium text-muted-foreground">{HYGIENE_KIND_LABEL[p.kind] || p.kind}</span>
+                          {summarizeProposed(p.proposed_value) ? ` · ${summarizeProposed(p.proposed_value)}` : (p.reason ? ` · ${p.reason}` : "")}
                         </div>
-                        <span className="inline-flex flex-shrink-0 items-center rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                          {HYGIENE_KIND_LABEL[p.kind] || p.kind}
-                        </span>
                       </div>
-                      <div className="mt-1 text-[12px] text-foreground/80">{p.reason || p.kind}</div>
-                      {summarizeProposed(p.proposed_value) && (
-                        <div className="mt-1 truncate rounded-md bg-muted/40 px-2 py-1 font-mono text-[11px] text-foreground/80">{summarizeProposed(p.proposed_value)}</div>
-                      )}
-                      <div className="mt-2.5 flex items-center gap-1.5">
-                        <button onClick={() => decideProposal(p.id, "approved")}
-                          className="inline-flex h-7 flex-1 items-center justify-center rounded-md bg-primary text-[11.5px] font-semibold text-primary-foreground hover:bg-primary/90">
-                          Approve
-                        </button>
-                        <button onClick={() => decideProposal(p.id, "dismissed")}
-                          className="inline-flex h-7 items-center justify-center rounded-md border border-border px-3 text-[11.5px] font-medium text-muted-foreground hover:bg-muted/50">
-                          Dismiss
-                        </button>
-                      </div>
+                      <button onClick={() => decideProposal(p.id, "approved")} title="Approve & apply"
+                        className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary hover:bg-primary/20">
+                        <Check className="h-3.5 w-3.5" />
+                      </button>
+                      <button onClick={() => decideProposal(p.id, "dismissed")} title="Dismiss"
+                        className="inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted">
+                        <X className="h-3.5 w-3.5" />
+                      </button>
                     </div>
                   ))}
                 </div>
