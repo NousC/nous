@@ -982,20 +982,11 @@ export default function Intelligence() {
           {/* ─── 2. How your workspace is getting smarter — the centerpiece. ───
                ─── The compounding story: the model AND the context sharpening ───
                ─── over time. This is the whole point of the page. ─── */}
-          {!needsSetup && (hasModel || icpFacts.length > 0 || learnings.length > 0) && (
+          {!needsSetup && ((!hasModel && icpFacts.length > 0) || (hasModel && (substrate?.recent_predictions?.length ?? 0) > 0)) && (
             <div className="rounded-xl border border-border bg-background overflow-hidden">
-              <div className="flex items-center justify-between px-4 py-2.5 bg-muted/50 border-b border-border">
-                <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">
-                  How your workspace is getting smarter
-                  {learningDays != null && (
-                    <span className="normal-case font-normal text-muted-foreground/45 ml-1.5">· learning for {learningDays}d</span>
-                  )}
-                </span>
-              </div>
-
               <div className="px-4 py-4 space-y-5">
-                {/* Headline — the improvement, or the loop's promise. */}
-                {!hasModel ? (
+                {/* Build CTA — only before a scoring model exists. */}
+                {!hasModel && (
                   <div className="flex items-center gap-3 flex-wrap">
                     <button
                       onClick={buildScorecard}
@@ -1006,27 +997,7 @@ export default function Intelligence() {
                     </button>
                     <span className="text-[12px] text-muted-foreground/70">Turn your context into a model that scores fit — then watch it sharpen from every outcome.</span>
                   </div>
-                ) : (resolved > 0 || hits.length > 0 || sharpenedCount > 0) ? (
-                  <div className="flex items-end gap-3">
-                    <div className="flex-1">
-                      {resolved > 0 && (
-                        <p className="text-[15px] leading-relaxed font-medium" style={{ color: confColor }}>{confidence.line}</p>
-                      )}
-                      {(hits.length > 0 || sharpenedCount > 0) && (
-                        <div className={`flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-muted-foreground/70 tabular-nums ${resolved > 0 ? "mt-1.5" : ""}`}>
-                          {hits.length > 0 && <span className="text-[#b45309]">called it right <span className="font-semibold">{hits.length}</span>×</span>}
-                          {sharpenedCount > 0 && <span>sharpened <span className="font-semibold text-foreground/80">{sharpenedCount}</span>×</span>}
-                        </div>
-                      )}
-                    </div>
-                    {resolved > 0 && trendValues.length >= 2 && (
-                      <div className="flex-shrink-0 text-right">
-                        <Sparkline values={trendValues} width={84} height={26} />
-                        <div className="text-[10px] text-muted-foreground/50 mt-0.5">getting sharper</div>
-                      </div>
-                    )}
-                  </div>
-                ) : null}
+                )}
 
                 {/* What we analyzed — the real work, as a People-style table. Each
                     account Nous scored: its ICP fit and how it actually turned out.
@@ -1082,39 +1053,6 @@ export default function Intelligence() {
                   </div>
                 )}
 
-                {/* What it's learned — the timeline. Hidden until there's something. */}
-                {learnings.length > 0 && (
-                  <div className="pt-4 border-t border-border/50">
-                    <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60 mb-1.5">What it's learned</div>
-                    <div className="space-y-2">
-                      {learnings.map(l => {
-                        const chip = learningChip(l);
-                        return (
-                        <div key={l.id} className="flex items-baseline gap-2.5 text-[12.5px]">
-                          <span
-                            className="flex-shrink-0 text-[9px] font-semibold uppercase tracking-wide px-1.5 py-[1px] rounded mt-[1px] whitespace-nowrap"
-                            style={{ color: chip.color, background: chip.bg }}
-                          >
-                            {chip.label}
-                          </span>
-                          <span className="flex-1 leading-snug text-foreground/85">
-                            {l.text}
-                            {l.sub && <span className="text-muted-foreground/55"> · {l.sub}</span>}
-                          </span>
-                          {l.delta != null && Math.abs(l.delta) > 0.001 && (
-                            <span className="tabular-nums whitespace-nowrap flex-shrink-0" style={{ color: l.delta > 0 ? "#15803d" : "#b45309" }}>
-                              {l.delta > 0 ? "↑" : "↓"} {fmtGap(l.delta)}
-                            </span>
-                          )}
-                          <span className="text-[11px] text-muted-foreground/50 tabular-nums whitespace-nowrap flex-shrink-0">
-                            {formatDistanceToNow(new Date(l.at), { addSuffix: true })}
-                          </span>
-                        </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
               </div>
             </div>
           )}
