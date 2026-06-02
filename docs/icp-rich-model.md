@@ -2,7 +2,7 @@
 
 **Status:** spec / proposed. **Owner:** GTM Context / the Mind.
 **Related:** `docs/icp-from-closed-deals.md` (the contrastive-discovery foundation
-this extends), `docs/adaptive-lead-scoring.md`, `docs/compound-intelligence-mind.md`.
+this extends), `docs/icp-scoring-internals.md`, `docs/icp-and-gtm-context.md`.
 Touch points: closed-deals (`/api/mind/closed-deals`), the website extractor
 (`apps/api/src/services/websiteSignals.mjs`), scoring (`packages/core/src/db/predictions.ts`,
 `scorecard.ts`), the Context page (`apps/frontend/src/pages/Intelligence.tsx`).

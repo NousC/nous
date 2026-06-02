@@ -2,8 +2,8 @@
 
 **Status:** reference (shipped). **Owner:** GTM Context / the Mind.
 **The page:** `apps/frontend/src/pages/Intelligence.tsx` (route `/intelligence`, "Context").
-**Specs it implements:** `docs/icp-rich-model.md`, `docs/icp-from-closed-deals.md`,
-`docs/adaptive-lead-scoring.md`, `docs/compound-intelligence-mind.md`.
+**Deep-dive:** `docs/icp-scoring-internals.md` (enrichment + Scorecard + the Mind loop).
+**Specs it implements:** `docs/icp-rich-model.md`, `docs/icp-from-closed-deals.md`.
 
 This is the single overview of two intertwined features: the **GTM Context**
 (what your agents know about your business) and the **ICP model** (a scoring

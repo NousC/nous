@@ -12,12 +12,8 @@ Grouped by area. Each group has a **start-here** doc; the rest are deep-dives.
 ## ICP & GTM Context
 - **[The ICP Model & GTM Context](./icp-and-gtm-context.md)** — start here. How
   Nous learns who you sell to.
-- [Adaptive Lead Scoring](./adaptive-lead-scoring.md) — the Scorecard model
-  behind every ICP score.
-- [Compound Intelligence — the Mind](./compound-intelligence-mind.md) — the loop
-  that sharpens scoring from real outcomes.
-- [ICP Scoring & Contact Enrichment](./icp-scoring-and-enrichment.md) — the
-  enrichment pipeline + the scoring run that follows it.
+- [ICP scoring internals](./icp-scoring-internals.md) — the deep-dive:
+  enrichment pipeline + the Scorecard model + the Mind learning loop.
 - [Rich ICP model](./icp-rich-model.md) — *spec/proposed* — company + deal ICP.
 - [ICP from closed deals](./icp-from-closed-deals.md) — *spec/proposed* —
   contrastive signal discovery.
