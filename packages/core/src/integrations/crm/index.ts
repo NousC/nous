@@ -404,22 +404,49 @@ const ICP_FIELDS = [
   { key: 'nous_icp_reason',    label: 'Nous ICP Reason',    hsType: 'string',   hsField: 'text',   attioType: 'text' },
 ];
 
-async function ensureHubspotIcpProps(token: string): Promise<void> {
-  for (const f of ICP_FIELDS) {
-    await fetch('https://api.hubapi.com/crm/v3/properties/contacts', {
-      method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: f.key, label: f.label, type: f.hsType, fieldType: f.hsField, groupName: 'contactinformation' }),
-    }).catch(() => {});  // 409 = already exists → ignore
-  }
+// "already exists" is the only error we ignore on provisioning — everything else
+// (bad payload, missing scope) is a real reason the field won't be writable, so
+// we surface it instead of swallowing it.
+function isAlreadyExists(status: number, body: string): boolean {
+  return status === 409 || /already\s*exists|conflict|duplicate|slug.*taken/i.test(body);
 }
 
-async function ensureAttioIcpAttrs(token: string): Promise<void> {
+async function ensureHubspotIcpProps(token: string): Promise<string[]> {
+  const errors: string[] = [];
   for (const f of ICP_FIELDS) {
-    await fetch('https://api.attio.com/v2/objects/people/attributes', {
-      method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ data: { title: f.label, api_slug: f.key, type: f.attioType, is_required: false, is_unique: false, is_multiselect: false } }),
-    }).catch(() => {});  // already exists → ignore
+    try {
+      const res = await fetch('https://api.hubapi.com/crm/v3/properties/contacts', {
+        method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: f.key, label: f.label, type: f.hsType, fieldType: f.hsField, groupName: 'contactinformation' }),
+      });
+      if (!res.ok) {
+        const t = await res.text().catch(() => '');
+        if (!isAlreadyExists(res.status, t)) errors.push(`${f.key}: ${res.status} ${t.slice(0, 160)}`);
+      }
+    } catch (e: any) { errors.push(`${f.key}: ${e?.message || e}`); }
   }
+  return errors;
+}
+
+async function ensureAttioIcpAttrs(token: string): Promise<string[]> {
+  const errors: string[] = [];
+  for (const f of ICP_FIELDS) {
+    try {
+      const res = await fetch('https://api.attio.com/v2/objects/people/attributes', {
+        method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data: {
+          title: f.label, api_slug: f.key, type: f.attioType,
+          is_required: false, is_unique: false, is_multiselect: false,
+          config: {}, default_value: null,
+        }}),
+      });
+      if (!res.ok) {
+        const t = await res.text().catch(() => '');
+        if (!isAlreadyExists(res.status, t)) errors.push(`${f.key}: ${res.status} ${t.slice(0, 160)}`);
+      }
+    } catch (e: any) { errors.push(`${f.key}: ${e?.message || e}`); }
+  }
+  return errors;
 }
 
 export async function writeCrmIcpFields(
@@ -434,17 +461,19 @@ export async function writeCrmIcpFields(
   const reason = icp.nous_icp_reason ?? null;
 
   if (provider === 'hubspot') {
-    await ensureHubspotIcpProps(token);
+    const provErrors = await ensureHubspotIcpProps(token);
     const properties: Record<string, unknown> = { nous_icp_score: score, nous_icp_fit: fit == null ? '' : String(fit), nous_icp_scored_at: scoredAt };
     if (reason) properties.nous_icp_reason = reason;
     const res = await fetch(`https://api.hubapi.com/crm/v3/objects/contacts/${encodeURIComponent(recordId)}`, {
       method: 'PATCH', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ properties }),
     });
-    return res.ok ? { ok: true } : { ok: false, error: `HubSpot ICP PATCH ${res.status}: ${(await res.text().catch(() => '')).slice(0, 200)}` };
+    if (res.ok) return { ok: true };
+    const extra = provErrors.length ? ` · field provisioning failed: ${provErrors.join('; ')}` : '';
+    return { ok: false, error: `HubSpot ICP PATCH ${res.status}: ${(await res.text().catch(() => '')).slice(0, 200)}${extra}` };
   }
   if (provider === 'attio') {
-    await ensureAttioIcpAttrs(token);
+    const provErrors = await ensureAttioIcpAttrs(token);
     const values: Record<string, unknown> = {
       nous_icp_score: [{ value: score }],
       nous_icp_fit: [{ value: !!fit }],
@@ -455,7 +484,9 @@ export async function writeCrmIcpFields(
       method: 'PATCH', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ data: { values } }),
     });
-    return res.ok ? { ok: true } : { ok: false, error: `Attio ICP PATCH ${res.status}: ${(await res.text().catch(() => '')).slice(0, 200)}` };
+    if (res.ok) return { ok: true };
+    const extra = provErrors.length ? ` · field provisioning failed: ${provErrors.join('; ')}` : '';
+    return { ok: false, error: `Attio ICP PATCH ${res.status}: ${(await res.text().catch(() => '')).slice(0, 200)}${extra}` };
   }
   return { ok: false, error: `ICP write-back not supported for ${provider} yet` };
 }
