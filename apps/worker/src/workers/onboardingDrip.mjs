@@ -79,9 +79,17 @@ export async function runOnboardingDrip() {
 
   const supabase = getSupabaseClient();
   const startedAt = Date.now();
-  const sinceISO = new Date(Date.now() - WINDOW_DAYS * 86_400_000).toISOString();
+  const windowISO = new Date(Date.now() - WINDOW_DAYS * 86_400_000).toISOString();
 
-  // Candidates: everyone who got a welcome email in the window.
+  // Start-date guard: never act on signups whose welcome predates NOUS_DRIP_START_AT.
+  // Set this to the moment the drip is enabled so existing signups aren't
+  // retroactively blasted with the sequence (and a real discount code) — only
+  // people who sign up from enable-time forward enter it. Falls back to the
+  // 21-day window when unset.
+  const startAt = process.env.NOUS_DRIP_START_AT;
+  const sinceISO = startAt && startAt > windowISO ? startAt : windowISO;
+
+  // Candidates: everyone who got a welcome email since the effective start.
   const { data: welcomeRows, error: wErr } = await supabase
     .from('observations')
     .select('entity_id')
