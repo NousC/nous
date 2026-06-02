@@ -124,33 +124,62 @@ billingRouter.get('/state', verifySupabaseAuth, async (req, res) => {
   }
 });
 
-// ── POST /api/billing/subscribe { plan: 'starter' | 'pro' | 'scale' } ──────
+// ── POST /api/billing/subscribe ────────────────────────────────────────────
+//   { plan: 'starter'|'pro'|'scale', interval?: 'month'|'year', promotion_code?: string }
+// interval:'year' is currently Pro-only (the onboarding first-year offer) and
+// uses STRIPE_PRO_ANNUAL_PRICE_ID. A promotion_code, when valid, is auto-applied
+// to the session (so the drip email's code lands pre-filled); otherwise we fall
+// back to letting the customer type one. Team binding via subscription metadata
+// is preserved either way — that's why the offer routes through our own session
+// and not a standalone Payment Link.
 billingRouter.post('/subscribe', verifySupabaseAuth, async (req, res) => {
   if (!billingEnabled()) return res.status(403).json({ error: 'billing_disabled' });
   try {
     const stripe = getStripe();
-    const { plan: requestedPlanId } = req.body;
+    const { plan: requestedPlanId, interval: requestedInterval, promotion_code: promoCode } = req.body;
     const plan = PLANS[requestedPlanId];
     if (!plan || plan.id === 'free') {
       return res.status(400).json({ error: 'invalid_plan' });
     }
-    const priceId = process.env[plan.stripePriceEnv];
-    if (!priceId) return res.status(500).json({ error: 'plan_not_configured', detail: plan.stripePriceEnv });
+
+    const interval = requestedInterval === 'year' ? 'year' : 'month';
+    let priceId;
+    if (interval === 'year') {
+      if (plan.id !== 'pro') return res.status(400).json({ error: 'annual_not_available', detail: plan.id });
+      priceId = process.env.STRIPE_PRO_ANNUAL_PRICE_ID;
+      if (!priceId) return res.status(500).json({ error: 'plan_not_configured', detail: 'STRIPE_PRO_ANNUAL_PRICE_ID' });
+    } else {
+      priceId = process.env[plan.stripePriceEnv];
+      if (!priceId) return res.status(500).json({ error: 'plan_not_configured', detail: plan.stripePriceEnv });
+    }
 
     const { user, team } = await ensureUserAndTeam(req.user);
     const supabase = getSupabaseClient();
     const stripeCustomerId = await ensureStripeCustomer(stripe, supabase, user, team);
+
+    // Resolve a supplied code to its promotion-code id so we can auto-apply it.
+    // discounts[] and allow_promotion_codes are mutually exclusive in Checkout,
+    // so we use one or the other.
+    let discounts;
+    if (typeof promoCode === 'string' && promoCode.trim()) {
+      try {
+        const found = await stripe.promotionCodes.list({ code: promoCode.trim(), active: true, limit: 1 });
+        if (found.data[0]) discounts = [{ promotion_code: found.data[0].id }];
+      } catch (e) {
+        console.warn('[billing/subscribe] promo lookup failed:', e.message);
+      }
+    }
 
     const session = await stripe.checkout.sessions.create({
       customer: stripeCustomerId,
       mode: 'subscription',
       payment_method_types: ['card'],
       line_items: [{ price: priceId, quantity: 1 }],
-      subscription_data: { metadata: { team_id: team.id, plan_id: plan.id } },
-      metadata: { team_id: team.id, plan_id: plan.id, kind: 'subscription' },
+      subscription_data: { metadata: { team_id: team.id, plan_id: plan.id, billing_interval: interval } },
+      metadata: { team_id: team.id, plan_id: plan.id, kind: 'subscription', billing_interval: interval },
       success_url: `${appUrl()}/settings?section=billing&success=true&plan=${plan.id}`,
       cancel_url: `${appUrl()}/settings?section=billing&canceled=true`,
-      allow_promotion_codes: true,
+      ...(discounts ? { discounts } : { allow_promotion_codes: true }),
     });
 
     return res.json({ url: session.url });

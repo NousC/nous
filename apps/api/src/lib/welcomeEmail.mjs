@@ -1,8 +1,10 @@
 // Personal-feel welcome email sent once per user after they finish onboarding.
 // Plain text + minimal HTML — no logo banner, no marketing chrome.
+//
+// The actual Resend call lives in @nous/core (sendEmail) so the welcome email
+// and the onboarding drip worker share one sender. This module owns only the copy.
 
-const FROM = process.env.RESEND_FROM_EMAIL || 'Nous <bennet@opennous.cloud>';
-const REPLY_TO = process.env.RESEND_REPLY_TO || 'bennet@opennous.cloud';
+import { sendEmail } from '@nous/core';
 
 function render({ firstName }) {
   const name = (firstName || 'there').toString().trim() || 'there';
@@ -34,41 +36,6 @@ P.S. If you're wondering how to get started, check out the resources on the webs
 }
 
 export async function sendWelcomeEmail({ to, firstName }) {
-  const key = process.env.RESEND_API_KEY;
-  if (!key) {
-    console.warn('[WELCOME_EMAIL] RESEND_API_KEY not set, skipping');
-    return { sent: false, reason: 'not_configured' };
-  }
-  if (!to) return { sent: false, reason: 'no_recipient' };
-
   const { subject, text, html } = render({ firstName });
-
-  try {
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${key}`,
-      },
-      body: JSON.stringify({
-        from: FROM,
-        to: [to],
-        reply_to: REPLY_TO,
-        subject,
-        text,
-        html,
-      }),
-    });
-    if (!res.ok) {
-      const errText = await res.text().catch(() => '');
-      console.error(`[WELCOME_EMAIL] Resend ${res.status}: ${errText}`);
-      return { sent: false, reason: 'resend_error', status: res.status };
-    }
-    const data = await res.json().catch(() => ({}));
-    console.log(`[WELCOME_EMAIL] sent to ${to} (id=${data?.id || 'unknown'})`);
-    return { sent: true, id: data?.id };
-  } catch (err) {
-    console.error('[WELCOME_EMAIL] exception:', err.message);
-    return { sent: false, reason: 'exception' };
-  }
+  return sendEmail({ to, subject, text, html, tag: 'WELCOME_EMAIL' });
 }
