@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { RefreshCw, Download, Plus, Activity, Settings, Upload, UserPlus, Sparkles, Info } from "lucide-react";
+import { RefreshCw, Download, Plus, Activity, Upload, UserPlus, Sparkles, Info } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { format, isToday, isYesterday, startOfDay } from "date-fns";
 import { useAuth } from "@/contexts/AuthContext";
@@ -400,12 +400,12 @@ export default function CrmSync() {
           <>
             {/* ── Config (left) + hygiene report (right) ── */}
             <div className="mb-6 grid grid-cols-1 lg:grid-cols-[1.5fr_1fr] gap-6 items-start">
-            <div>
-              <div className="mb-3 flex items-center gap-2 text-[12px] font-semibold tracking-wide text-muted-foreground">
-                <Settings className="h-3.5 w-3.5" />
-                CRM CONFIGURATION
+            <div className="rounded-xl border border-border bg-background overflow-hidden">
+              <div className="border-b border-border/60 px-4 py-3">
+                <h3 className="text-[13px] font-semibold text-foreground">CRM configuration</h3>
+                <p className="mt-0.5 text-[11.5px] text-muted-foreground/70">Connections, sync rules, and per-CRM hygiene.</p>
               </div>
-              <div className="rounded-xl border border-border overflow-hidden">
+              <div>
                 {crmConns.map((conn, i) => {
                   const provider = conn.provider?.name as string;
                   const meta = CRM_PROVIDER_META[provider];
@@ -543,55 +543,53 @@ export default function CrmSync() {
               </div>
             </div>
 
-            {/* ── Hygiene report (right cell) ── */}
-            <div>
-              <div className="mb-3 flex items-center gap-2 text-[12px] font-semibold tracking-wide text-muted-foreground">
-                <Sparkles className="h-3.5 w-3.5" />
-                HYGIENE REPORT{proposals.length ? ` — ${proposals.length}` : ""}
+            {/* ── Hygiene report (right card) ── */}
+            <div className="rounded-xl border border-border bg-background overflow-hidden">
+              <div className="flex items-center justify-between gap-2 border-b border-border/60 px-4 py-3">
+                <div>
+                  <h3 className="text-[13px] font-semibold text-foreground">Hygiene report</h3>
+                  <p className="mt-0.5 text-[11.5px] text-muted-foreground/70">Proposed changes awaiting approval.</p>
+                </div>
+                {proposals.length > 0 && (
+                  <span className="inline-flex flex-shrink-0 items-center rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">{proposals.length}</span>
+                )}
               </div>
               {proposals.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-border py-10 text-center">
-                  <Sparkles className="h-6 w-6 text-muted-foreground/40 mx-auto mb-2" strokeWidth={1.5} />
-                  <p className="text-[12.5px] font-medium text-foreground/80 mb-0.5">No proposed changes</p>
+                <div className="py-12 text-center">
+                  <Sparkles className="mx-auto mb-2 h-6 w-6 text-muted-foreground/40" strokeWidth={1.5} />
+                  <p className="mb-0.5 text-[12.5px] font-medium text-foreground/80">No proposed changes</p>
                   <p className="text-[11.5px] text-muted-foreground/70">Run hygiene on a CRM to generate proposals.</p>
                 </div>
               ) : (
-                <>
-                <div className="rounded-xl border border-border divide-y divide-border/60">
+                <div className="max-h-[560px] divide-y divide-border/60 overflow-y-auto">
                   {proposals.slice(0, 50).map(p => (
-                    <div key={p.id} className="flex items-start gap-3 px-4 py-3">
-                      <span className="mt-0.5 inline-flex flex-shrink-0 items-center rounded-md bg-muted px-1.5 py-0.5 text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        {HYGIENE_KIND_LABEL[p.kind] || p.kind}
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        {p.contact && (
-                          <div className="truncate text-[12.5px] font-medium text-foreground">
-                            {p.contact.name || p.contact.email || "Unknown contact"}
-                            {p.contact.company && <span className="font-normal text-muted-foreground/70"> · {p.contact.company}</span>}
-                          </div>
-                        )}
-                        <div className="text-[12px] text-foreground/80">{p.reason || p.kind}</div>
-                        {summarizeProposed(p.proposed_value) && (
-                          <div className="mt-0.5 truncate text-[11.5px] text-muted-foreground/80">{summarizeProposed(p.proposed_value)}</div>
-                        )}
+                    <div key={p.id} className="px-4 py-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="truncate text-[12.5px] font-medium text-foreground">{p.contact?.name || p.contact?.email || "Unknown contact"}</div>
+                          {p.contact?.company && <div className="truncate text-[11px] text-muted-foreground/70">{p.contact.company}</div>}
+                        </div>
+                        <span className="inline-flex flex-shrink-0 items-center rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          {HYGIENE_KIND_LABEL[p.kind] || p.kind}
+                        </span>
                       </div>
-                      <div className="flex flex-shrink-0 items-center gap-1.5">
+                      <div className="mt-1 text-[12px] text-foreground/80">{p.reason || p.kind}</div>
+                      {summarizeProposed(p.proposed_value) && (
+                        <div className="mt-1 truncate rounded-md bg-muted/40 px-2 py-1 font-mono text-[11px] text-foreground/80">{summarizeProposed(p.proposed_value)}</div>
+                      )}
+                      <div className="mt-2.5 flex items-center gap-1.5">
                         <button onClick={() => decideProposal(p.id, "approved")}
-                          className="inline-flex items-center h-7 px-2.5 rounded-md bg-primary text-primary-foreground text-[11.5px] font-semibold hover:bg-primary/90">
+                          className="inline-flex h-7 flex-1 items-center justify-center rounded-md bg-primary text-[11.5px] font-semibold text-primary-foreground hover:bg-primary/90">
                           Approve
                         </button>
                         <button onClick={() => decideProposal(p.id, "dismissed")}
-                          className="inline-flex items-center h-7 px-2.5 rounded-md border border-border text-[11.5px] font-medium text-muted-foreground hover:bg-muted/50">
+                          className="inline-flex h-7 items-center justify-center rounded-md border border-border px-3 text-[11.5px] font-medium text-muted-foreground hover:bg-muted/50">
                           Dismiss
                         </button>
                       </div>
                     </div>
                   ))}
                 </div>
-                <p className="mt-2 text-[11px] text-muted-foreground/60">
-                  Approving a field change writes it to the CRM. ICP write-back is rolling out.
-                </p>
-                </>
               )}
             </div>
             </div>{/* end config + report grid */}
