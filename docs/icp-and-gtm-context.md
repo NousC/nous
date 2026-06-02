@@ -1,9 +1,10 @@
 # The ICP Model & GTM Context — how Nous learns who you sell to
 
-**Status:** reference (shipped). **Owner:** GTM Context / the Mind.
+**Status:** reference (shipped). **Owner:** GTM Context / the Mind. The single ICP doc.
 **The page:** `apps/frontend/src/pages/Intelligence.tsx` (route `/intelligence`, "Context").
-**Deep-dive:** `docs/icp-scoring-internals.md` (enrichment + Scorecard + the Mind loop).
-**Specs it implements:** `docs/icp-rich-model.md`, `docs/icp-from-closed-deals.md`.
+**Code:** `packages/core/src/db/{scorecard,predictions,claims}.ts`,
+`services/{outcomes,rescore,discovery}`, `apps/api/src/services/enrichment.mjs`,
+`apps/worker/src/workers/{scoreEntities,scorecardLoop,mindOutcomes}.mjs`.
 
 This is the single overview of two intertwined features: the **GTM Context**
 (what your agents know about your business) and the **ICP model** (a scoring
@@ -62,6 +63,19 @@ deal went*:
 
 All three flow into the `feature_snapshot` at scoring time and into closed-deal
 episodes, so discovery can learn lift on any of them.
+
+### Where the features come from — enrichment
+
+Layer A/B features start with **enrichment** (`apps/api/src/services/enrichment.mjs`):
+per contact, Nous tries **Apollo** BYOK (if its enrichment toggle is on) →
+**Prospeo** BYOK → Nous's platform Prospeo key, and pulls job title, seniority,
+department, phone, and company info. Crucially, enriched attributes are written as
+**observations tagged with their true source** (`apollo` / `prospeo` / `linkedin`)
+via `recordEnrichmentObservations`, not flattened onto the contact row — so a
+value's origin is preserved for the claim engine and for CRM-hygiene's provenance
+gate (see [CRM Sync](./crm-sync.md)). `scoreICP` then writes `icp_score/icp_fit/
+icp_reasoning` to the contact for **display**; the formal prediction is staked
+separately by the `scoreEntities` worker (below).
 
 ## 3. The learning loop — score → resolve → discover → re-score
 
