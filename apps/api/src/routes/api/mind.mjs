@@ -872,10 +872,12 @@ mindRouter.post('/closed-deals', async (req, res) => {
       // history (touches, calls, channel) to the deal.
       const personIds = await findPeopleAtDomain(domain);
       for (const personId of personIds) {
-        await supabase.from('relationships').upsert(
-          { workspace_id: workspaceId, from_entity_id: personId, to_entity_id: companyId, type: 'works_at', valid_from: new Date().toISOString() },
-          { onConflict: 'workspace_id,from_entity_id,to_entity_id,type', ignoreDuplicates: true },
-        ).catch(() => {});
+        try {
+          await supabase.from('relationships').upsert(
+            { workspace_id: workspaceId, from_entity_id: personId, to_entity_id: companyId, type: 'works_at', valid_from: new Date().toISOString() },
+            { onConflict: 'workspace_id,from_entity_id,to_entity_id,type', ignoreDuplicates: true },
+          );
+        } catch { /* best-effort link */ }
         await logActivity(supabase, {
           workspaceId, entityId: personId,
           type: disposition === 'won' ? 'deal_won' : 'deal_lost',
