@@ -150,6 +150,7 @@ interface IcpRecordRow {
 interface CompanyReport {
   what_they_do: string | null;
   industry: string | null;
+  company_type: string | null;
   size_band: string | null;
   funding_stage: string | null;
   country: string | null;
@@ -300,6 +301,7 @@ function IcpAccountView({ data, loading, fallbackName, onBack }: {
             ) : (
               <div>
                 {company.what_they_do && <p className="text-[14px] text-foreground/85 leading-relaxed mb-4">{company.what_they_do}</p>}
+                <Field label="Type" value={titleCase(company.company_type)} />
                 <Field label="Industry" value={titleCase(company.industry)} />
                 <Field label="Size" value={company.size_band} />
                 <Field label="Funding" value={titleCase(company.funding_stage)} />
