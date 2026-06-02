@@ -863,7 +863,6 @@ mindRouter.post('/closed-deals', async (req, res) => {
     const companyDeals = [];  // {companyId, disposition} — scored after discovery
     const ingest = async (domain, disposition) => {
       const companyId = await getOrCreateEntity(supabase, workspaceId, 'company', [{ kind: 'domain', value: domain }]);
-      companyDeals.push({ companyId, disposition });
       const r = await extractAndRecordWebsiteSignals(supabase, workspaceId, companyId, domain).catch(() => null);
       if (r) enriched++;
 
@@ -934,6 +933,10 @@ mindRouter.post('/closed-deals', async (req, res) => {
         for (const [k, v] of Object.entries(pipelineFeatures(pacts || []))) if (!(k in features)) features[k] = v;
       }
       episodes.push({ features, disposition });
+      // Only surface the COMPANY as its own analyzed row when we have no contact
+      // there — otherwise the linked person IS the account (with the real
+      // pipeline), and a separate company row just duplicates it.
+      companyDeals.push({ companyId, disposition, hasContacts: personIds.length > 0 });
     };
     for (const d of wonList) await ingest(d, 'won');
     for (const d of lostList) await ingest(d, 'lost');
@@ -956,8 +959,9 @@ mindRouter.post('/closed-deals', async (req, res) => {
     // Skip companies already scored so re-runs don't duplicate rows.
     const freshSignals = await listSignals(supabase, workspaceId);
     let surfaced = 0;
-    for (const { companyId, disposition } of companyDeals) {
+    for (const { companyId, disposition, hasContacts } of companyDeals) {
       try {
+        if (hasContacts) continue;   // the linked person carries this deal, not a dup company row
         const { count } = await supabase.from('predictions')
           .select('id', { count: 'exact', head: true })
           .eq('workspace_id', workspaceId).eq('entity_id', companyId).eq('kind', 'icp_fit');
