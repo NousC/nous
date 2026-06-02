@@ -410,16 +410,16 @@ export default function Intelligence() {
   // Model-evolution drawer — opened from the Signals metric. The signals ARE
   // the ICP model; the run history is how it sharpened over time.
   const [modelOpen, setModelOpen] = useState(false);
-  const [runs, setRuns] = useState<{ id: string; note: string | null; signal_count: number | null; gap_before: number | null; gap_after: number | null; created_at: string }[]>([]);
-  const [runsLoading, setRunsLoading] = useState(false);
+  const [modelRuns, setModelRuns] = useState<{ id: string; note: string | null; signal_count: number | null; gap_before: number | null; gap_after: number | null; created_at: string }[]>([]);
+  const [modelRunsLoading, setModelRunsLoading] = useState(false);
   useEffect(() => {
     if (!modelOpen) return;
-    setRunsLoading(true);
+    setModelRunsLoading(true);
     fetch(`${apiUrl}/api/mind/scorecard/runs?workspaceId=${workspaceId}`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.ok ? r.json() : null)
-      .then(d => setRuns(d?.runs ?? []))
-      .catch(() => setRuns([]))
-      .finally(() => setRunsLoading(false));
+      .then(d => setModelRuns(d?.runs ?? []))
+      .catch(() => setModelRuns([]))
+      .finally(() => setModelRunsLoading(false));
   }, [modelOpen, workspaceId, token]);
 
   // Standalone ICP record drawer — opened from the analyzed table.
@@ -1338,13 +1338,13 @@ export default function Intelligence() {
               {/* How it evolved — the run history */}
               <div>
                 <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60 mb-2">How it evolved</div>
-                {runsLoading ? (
+                {modelRunsLoading ? (
                   <p className="text-[13px] text-muted-foreground/60">Loading…</p>
-                ) : runs.length === 0 ? (
+                ) : modelRuns.length === 0 ? (
                   <p className="text-[12.5px] text-muted-foreground/65 leading-relaxed">No learning runs yet. The model sharpens once you've resolved enough deals (≈20) — each run that changes a signal shows up here with a date.</p>
                 ) : (
                   <div className="space-y-0">
-                    {runs.map(r => {
+                    {modelRuns.map(r => {
                       const changed = typeof r.note === "string" && r.note.startsWith("kept");
                       const label = !r.note ? "Learning run"
                         : changed ? `Sharpened — ${r.note.replace(/^kept\s+\d+:\s*/, "")}`
