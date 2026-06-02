@@ -278,7 +278,7 @@ export async function runScorecardLoop() {
   // checked against a real outcome (reply, pipeline advance, closed-won).
   const { data: preds, error } = await supabase
     .from('predictions')
-    .select('workspace_id, feature_snapshot, outcome_value, predicted_at')
+    .select('workspace_id, feature_snapshot, outcome_value, predicted_at, resolved_at')
     .eq('kind', 'icp_fit')
     .not('resolved_at', 'is', null)
     .order('predicted_at', { ascending: true })
@@ -317,7 +317,7 @@ export async function runScorecardLoop() {
     for (const k of keys) features[k] = snapshot[k]?.value;
 
     if (!byWorkspace.has(p.workspace_id)) byWorkspace.set(p.workspace_id, []);
-    byWorkspace.get(p.workspace_id).push({ features, outcome, disposition, predicted_at: p.predicted_at });
+    byWorkspace.get(p.workspace_id).push({ features, outcome, disposition, predicted_at: p.predicted_at, at: p.resolved_at || p.predicted_at });
   }
 
   // Heartbeat when there's nothing to learn from across the whole system —

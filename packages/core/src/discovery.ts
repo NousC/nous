@@ -11,7 +11,18 @@ export interface DiscoveryEpisode {
   /** 'won' | 'lost' | 'no_opportunity' | null. no_opportunity should be excluded
    *  by the caller; if present here it is treated as a loss. */
   disposition?: string | null;
+  /** When the deal resolved (ISO). Drives recency weighting — recent deals count
+   *  more, so the ICP follows where the business is going. Omit → equal weight. */
+  at?: string | null;
 }
+
+// Recency: a deal's vote decays with age so a pivot shifts the ICP. The newest
+// deal in the cohort counts 1.0; one HALF_LIFE_DAYS older counts 0.5.
+const HALF_LIFE_DAYS = 180;
+const DISC_DAY_MS = 86_400_000;
+// Volume confidence: a signal backed by more (recency-weighted) deals is sturdier.
+// withW/(withW+VOL_K) shrinks a thin-evidence signal's weight toward ±1.
+const VOL_K = 5;
 
 export interface DiscoverySignalRef {
   active?: boolean;
@@ -48,19 +59,36 @@ export function discoverSignals(
   episodes: DiscoveryEpisode[],
   signals: DiscoverySignalRef[],
 ): SignalProposal[] {
-  const rows = episodes.map(e => ({
-    features: e.features,
-    win: e.disposition ? e.disposition === 'won' : (e.outcome ?? 0) >= 0.5,
-  }));
+  const rows = episodes.map(e => {
+    const t = e.at ? new Date(e.at).getTime() : null;
+    return {
+      features: e.features,
+      win: e.disposition ? e.disposition === 'won' : (e.outcome ?? 0) >= 0.5,
+      t: t != null && Number.isFinite(t) ? t : null,
+    };
+  });
   if (rows.length < 8) return [];
 
   const totalN = rows.length;
   const totalWins = rows.filter(r => r.win).length;
   if (totalWins === 0 || totalWins === totalN) return []; // no contrast
 
+  // Recency weight per deal, relative to the newest deal in the cohort.
+  const times = rows.map(r => r.t).filter((t): t is number => t != null);
+  const newest = times.length ? Math.max(...times) : null;
+  const weights = rows.map(r => {
+    if (r.t == null || newest == null) return 1;
+    const ageDays = Math.max(0, (newest - r.t) / DISC_DAY_MS);
+    return Math.pow(0.5, ageDays / HALF_LIFE_DAYS);
+  });
+  const totalWinsW = rows.reduce((s, r, i) => s + (r.win ? weights[i] : 0), 0);
+  const totalW = weights.reduce((s, w) => s + w, 0);
+
   // Tally (feature == value) candidates — booleans ("has X") and short categoricals.
-  const cand = new Map<string, { feature: string; value: unknown; withN: number; winWith: number }>();
-  for (const r of rows) {
+  // Track raw count (for the hard threshold) and recency-weighted sums (for lift + volume).
+  const cand = new Map<string, { feature: string; value: unknown; withN: number; withW: number; winWithW: number }>();
+  rows.forEach((r, i) => {
+    const w = weights[i];
     for (const [f, v] of Object.entries(r.features)) {
       if (v == null) continue;
       const isBool = typeof v === 'boolean';
@@ -69,11 +97,12 @@ export function discoverSignals(
       if (isBool && v === false) continue; // only presence of a signal
       const key = `${f}::${String(v)}`;
       let c = cand.get(key);
-      if (!c) { c = { feature: f, value: v, withN: 0, winWith: 0 }; cand.set(key, c); }
+      if (!c) { c = { feature: f, value: v, withN: 0, withW: 0, winWithW: 0 }; cand.set(key, c); }
       c.withN++;
-      if (r.win) c.winWith++;
+      c.withW += w;
+      if (r.win) c.winWithW += w;
     }
-  }
+  });
 
   const scored = new Set(
     signals.filter(s => s.active !== false).map(s => s.rule?.feature).filter(Boolean) as string[],
@@ -81,18 +110,25 @@ export function discoverSignals(
   const out: { feature: string; value: unknown; lift: number; weight: number; withN: number }[] = [];
   for (const c of cand.values()) {
     const nWithout = totalN - c.withN;
-    if (c.withN < 4 || nWithout < 4) continue;        // small cohorts lie
+    if (c.withN < 4 || nWithout < 4) continue;        // hard minimum of REAL deals
     if (scored.has(c.feature)) continue;               // already scored on this
-    const wrWith = c.winWith / c.withN;
-    const wrWithout = (totalWins - c.winWith) / nWithout;
+    const withoutW = totalW - c.withW;
+    if (c.withW <= 0 || withoutW <= 0) continue;
+    const wrWith = c.winWithW / c.withW;               // recency-weighted win rates
+    const wrWithout = (totalWinsW - c.winWithW) / withoutW;
     if (wrWithout <= 0) continue;
     const lift = wrWith / wrWithout;
     if (lift < 1.5 && lift > 0.66) continue;           // not discriminative
-    const weight = weightFromLift(lift);
-    if (weight === 0) continue;
+    const base = weightFromLift(lift);
+    if (base === 0) continue;
+    // Volume-weighted confidence — a signal backed by more weighted deals keeps
+    // more of its band weight; thin evidence is shrunk toward ±1.
+    const conf = c.withW / (c.withW + VOL_K);
+    const weight = Math.sign(base) * Math.max(1, Math.round(Math.abs(base) * conf));
     out.push({ feature: c.feature, value: c.value, lift, weight, withN: c.withN });
   }
-  out.sort((a, b) => Math.abs(Math.log(b.lift)) - Math.abs(Math.log(a.lift)));
+  // Rank by confidence-scaled strength so sturdy, strongly-separating signals win.
+  out.sort((a, b) => (Math.abs(b.weight) * Math.abs(Math.log(b.lift))) - (Math.abs(a.weight) * Math.abs(Math.log(a.lift))));
   return out.slice(0, 5).map(d => ({
     action: 'add' as const,
     signal: {
