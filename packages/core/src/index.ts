@@ -30,4 +30,5 @@ export * from './services/rescore.js';
 export * from './services/crmHygiene.js';
 export * from './services/crmProvenance.js';
 export * from './services/crmReconcile.js';
+export * from './services/crmApply.js';
 export * from './integrations/crm/index.js';

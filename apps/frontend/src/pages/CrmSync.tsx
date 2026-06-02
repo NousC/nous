@@ -310,13 +310,21 @@ export default function CrmSync() {
   };
 
   const decideProposal = async (id: string, status: "approved" | "dismissed") => {
+    const target = proposals.find(p => p.id === id);
     setProposals(prev => prev.filter(p => p.id !== id));  // optimistic
     try {
-      await fetch(`${apiUrl}/api/crm/hygiene/proposals/${id}`, {
+      const r = await fetch(`${apiUrl}/api/crm/hygiene/proposals/${id}`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ workspaceId, status }),
       });
+      const d = await r.json().catch(() => ({}));
+      if (status === "approved") {
+        if (d.applied === true)       toast.success(`Applied to ${target?.provider ?? "CRM"}`);
+        else if (d.applied === false) toast.error(`Apply failed — ${d.reason || "see live log"}`);
+        else                          toast.info("Approved — write-back ships next");
+      }
+      loadEvents();  // surface the operation in the live log
     } catch { loadProposals(); }
   };
 

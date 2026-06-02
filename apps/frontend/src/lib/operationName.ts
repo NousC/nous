@@ -137,6 +137,8 @@ export function systemLogOpName(
     if (e === "hygiene_failed")        return { name: `${s}.hygiene.failed`,    color: "pink" };
     if (e === "proposal_approved")     return { name: `${s}.proposal.approved`, color: "green" };
     if (e === "proposal_dismissed")    return { name: `${s}.proposal.dismissed`, color: "gray" };
+    if (e === "proposal_applied")      return { name: `${s}.proposal.applied`,  color };
+    if (e === "proposal_apply_failed") return { name: `${s}.proposal.failed`,   color: "pink" };
     if (e === "webhook_received")      return { name: `${s}.webhook.ingest`,    color };
   }
 
