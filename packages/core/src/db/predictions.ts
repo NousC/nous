@@ -133,17 +133,19 @@ export async function scoreAndStake(
 }
 
 /**
- * Person-entities that carry claims but have no open `icp_fit` prediction —
- * the ones the score worker should stake a prediction for next. An entity
- * holds at most one open prediction; once it resolves, it becomes eligible
- * for a fresh score.
+ * Person-entities that carry claims but have NO `icp_fit` prediction yet — the
+ * ones the score worker should stake a prediction for next. Each entity is
+ * scored exactly ONCE: its prediction is re-scored in place while open (when the
+ * model changes, see rescore.ts) and frozen once it resolves (won/lost/
+ * no_opportunity). We deliberately do NOT re-stake after resolution — doing so
+ * churned closed-won customers back into the pipeline as fresh "Pending" rows.
  */
 export async function entitiesNeedingScore(
   supabase: SupabaseClient,
   workspaceId: string,
   limit = 200,
 ): Promise<string[]> {
-  const [people, open] = await Promise.all([
+  const [people, scored] = await Promise.all([
     supabase
       .from('entities')
       .select('id')
@@ -154,15 +156,14 @@ export async function entitiesNeedingScore(
       .from('predictions')
       .select('entity_id')
       .eq('workspace_id', workspaceId)
-      .eq('kind', 'icp_fit')
-      .is('resolved_at', null),
+      .eq('kind', 'icp_fit'),                 // ANY prediction (open OR resolved)
   ]);
   if (people.error) throw new Error(`failed to list entities: ${people.error.message}`);
-  if (open.error) throw new Error(`failed to list open predictions: ${open.error.message}`);
+  if (scored.error) throw new Error(`failed to list predictions: ${scored.error.message}`);
 
-  const hasOpen = new Set((open.data ?? []).map(p => p.entity_id as string));
+  const alreadyScored = new Set((scored.data ?? []).map(p => p.entity_id as string));
   return (people.data ?? [])
     .map(p => p.id as string)
-    .filter(id => !hasOpen.has(id))
+    .filter(id => !alreadyScored.has(id))
     .slice(0, limit);
 }
