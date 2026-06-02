@@ -66,8 +66,6 @@ export function AppSidebar() {
   const [enterpriseOpen, setEnterpriseOpen] = useState(true);
   const [plan, setPlan] = useState<string | null>(null);
 
-  const isAdmin = userData?.user?.is_admin === true;
-
   // CRM sync is a Scale-tier feature — only surface the Enterprise section
   // for workspaces actually on the Scale or Enterprise plan.
   useEffect(() => {
@@ -120,14 +118,6 @@ export function AppSidebar() {
       </li>
     );
   };
-
-  const adminItems: NavItem[] = [
-    { title: "CMS",        icon: Package, url: "/admin/cms"        },
-    { title: "Updates",    icon: Package, url: "/admin/updates"    },
-    { title: "Roadmap",    icon: Package, url: "/admin/roadmap"    },
-    { title: "Changelog",  icon: Package, url: "/admin/changelog"  },
-    { title: "Media",      icon: Package, url: "/admin/media"      },
-  ];
 
   return (
     <aside
@@ -219,28 +209,6 @@ export function AppSidebar() {
 
       {/* Spacer */}
       <div className="flex-1" />
-
-      {/* Admin section */}
-      {isAdmin && (
-        <div className="px-2.5 pb-1">
-          <ul className="flex flex-col gap-0.5">
-            {adminItems.map((item) => (
-              <li key={item.title}>
-                <NavLink
-                  to={item.url}
-                  className={`group flex w-full items-center gap-3 rounded-lg px-2.5 py-1.5 transition-all duration-150 hover:bg-blue-50 dark:hover:bg-blue-500/10 ${
-                    collapsed ? "justify-center" : ""
-                  }`}
-                  activeClassName="bg-blue-50 dark:bg-blue-500/10"
-                >
-                  <item.icon className="h-4 w-4 text-blue-500 flex-shrink-0" strokeWidth={1.75} />
-                  {!collapsed && <span className="text-xs text-blue-600 dark:text-blue-400">{item.title}</span>}
-                </NavLink>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
 
       {/* Bottom: Usage & Billing + Docs */}
       <nav className="px-2.5 pb-1">

@@ -735,6 +735,267 @@ CREATE POLICY oe_select ON outbound_events FOR SELECT USING (is_workspace_member
 
 
 -- ============================================================
+-- 13. ACCOUNTS & BILLING  — the application identity layer
+--
+-- `workspace_members` (above) is the RLS anchor, keyed on
+-- auth.users. This section is the app's own account model that
+-- sits on top of it: a public `users` profile row per auth user,
+-- team membership/invites, and the Stripe-backed subscription.
+-- `is_admin` / `is_vip` are the operator flags — the API only
+-- ever reports is_admin=true for an allowlisted email
+-- (ADMIN_EMAILS), which is empty on self-host, so the operator
+-- surface (CMS/Roadmap/Changelog, see schema.cloud.sql) is
+-- unreachable for self-hosters by construction.
+-- ============================================================
+
+-- One profile row per Supabase auth user. `id` is the app id;
+-- `supabase_user_id` links to auth.users. `team_id` is the
+-- account the user belongs to.
+CREATE TABLE users (
+  id                        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email                     TEXT NOT NULL,
+  name                      TEXT,
+  team_id                   UUID NOT NULL REFERENCES teams(id) ON DELETE RESTRICT,
+  created_at                TIMESTAMPTZ NOT NULL DEFAULT now(),
+  onboarding_completed_at   TIMESTAMPTZ,
+  use_case                  TEXT,
+  supabase_user_id          UUID NOT NULL UNIQUE REFERENCES auth.users(id) ON DELETE CASCADE,
+  is_admin                  BOOLEAN DEFAULT false,   -- operator flag (gated by ADMIN_EMAILS allowlist)
+  profile_picture_url       TEXT,
+  company_name              TEXT,
+  default_signature         TEXT,
+  default_signature_type    TEXT DEFAULT 'type' CHECK (default_signature_type IN ('draw','type','upload')),
+  is_vip                    BOOLEAN DEFAULT false,   -- operator flag (gated by VIP_EMAILS allowlist)
+  website_url               TEXT,
+  account_setup_completed_at TIMESTAMPTZ,
+  referred_by_code          TEXT,
+  referred_by_affiliate_id  UUID,
+  how_heard_about_us        TEXT,
+  acquisition_referral_code TEXT,
+  use_cases                 TEXT[],
+  welcome_email_sent_at     TIMESTAMPTZ
+);
+CREATE INDEX idx_users_supabase_user_id  ON users(supabase_user_id);
+CREATE INDEX idx_users_team_id           ON users(team_id);
+CREATE INDEX idx_users_is_vip            ON users(id) WHERE is_vip = true;
+CREATE INDEX idx_users_referred_by_code  ON users(referred_by_code) WHERE referred_by_code IS NOT NULL;
+CREATE INDEX idx_users_default_signature ON users(id) WHERE default_signature IS NOT NULL;
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+CREATE POLICY users_service_role ON users FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY users_select_own   ON users FOR SELECT USING (id = auth.uid());
+CREATE POLICY users_update_own   ON users FOR UPDATE USING (id = auth.uid()) WITH CHECK (id = auth.uid());
+
+CREATE TABLE team_members (
+  id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  team_id   UUID NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+  user_id   UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  role      TEXT NOT NULL DEFAULT 'member' CHECK (role IN ('founder','owner','admin','member','viewer')),
+  joined_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (team_id, user_id)
+);
+CREATE INDEX idx_team_members_team_id ON team_members(team_id);
+CREATE INDEX idx_team_members_user_id ON team_members(user_id);
+ALTER TABLE team_members ENABLE ROW LEVEL SECURITY;
+CREATE POLICY team_members_view_own ON team_members FOR SELECT USING (user_id = auth.uid());
+CREATE POLICY team_members_view_team ON team_members FOR SELECT USING (
+  EXISTS (SELECT 1 FROM team_members tm WHERE tm.team_id = team_members.team_id AND tm.user_id = auth.uid())
+);
+CREATE POLICY team_members_admin_delete ON team_members FOR DELETE USING (
+  user_id = auth.uid()
+  OR EXISTS (SELECT 1 FROM team_members tm
+             WHERE tm.team_id = team_members.team_id AND tm.user_id = auth.uid()
+               AND tm.role IN ('founder','owner','admin'))
+);
+
+CREATE TABLE team_invitations (
+  id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  team_id            UUID NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+  email              TEXT NOT NULL,
+  token              TEXT NOT NULL UNIQUE,
+  invited_by_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  role               TEXT NOT NULL DEFAULT 'member'  CHECK (role IN ('owner','admin','member','viewer')),
+  status             TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','accepted','expired','cancelled')),
+  expires_at         TIMESTAMPTZ NOT NULL DEFAULT (now() + INTERVAL '7 days'),
+  accepted_at        TIMESTAMPTZ,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_team_invitations_team_id    ON team_invitations(team_id);
+CREATE INDEX idx_team_invitations_email      ON team_invitations(email);
+CREATE INDEX idx_team_invitations_status     ON team_invitations(status);
+CREATE INDEX idx_team_invitations_expires_at ON team_invitations(expires_at);
+CREATE UNIQUE INDEX idx_team_invitations_unique_pending
+  ON team_invitations(team_id, email) WHERE status = 'pending';
+ALTER TABLE team_invitations ENABLE ROW LEVEL SECURITY;
+CREATE POLICY team_invitations_own ON team_invitations FOR ALL USING (invited_by_user_id = auth.uid());
+
+-- One Stripe-backed subscription per team. `is_comp` flags a
+-- comped account; lifetime_credits_* back the lifetime plans.
+CREATE TABLE subscriptions (
+  id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  team_id                UUID NOT NULL UNIQUE REFERENCES teams(id) ON DELETE CASCADE,
+  plan_id                TEXT NOT NULL,
+  plan_name              TEXT NOT NULL DEFAULT 'starter',
+  status                 TEXT NOT NULL DEFAULT 'trial',
+  is_comp                BOOLEAN NOT NULL DEFAULT false,
+  cancel_at_period_end   BOOLEAN NOT NULL DEFAULT false,
+  current_period_start   TIMESTAMPTZ DEFAULT now(),
+  current_period_end     TIMESTAMPTZ DEFAULT (now() + INTERVAL '1 month'),
+  trial_ends_at          TIMESTAMPTZ,
+  stripe_subscription_id TEXT UNIQUE,
+  stripe_price_id        TEXT,
+  stripe_customer_id     TEXT,
+  lifetime_credits_total INTEGER,
+  lifetime_credits_used  INTEGER DEFAULT 0,
+  created_at             TIMESTAMPTZ DEFAULT now(),
+  updated_at             TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX idx_subscriptions_status ON subscriptions(status);
+ALTER TABLE subscriptions ENABLE ROW LEVEL SECURITY;
+CREATE POLICY subscriptions_service_role ON subscriptions FOR ALL USING (auth.role() = 'service_role');
+CREATE POLICY subscriptions_member_read ON subscriptions FOR SELECT USING (
+  team_id IN (SELECT w.team_id FROM workspaces w
+              JOIN workspace_members wm ON wm.workspace_id = w.id
+              WHERE wm.user_id = auth.uid())
+);
+
+
+-- ============================================================
+-- 14. WORKSPACE GRAPH  — lightweight extracted relationship edges
+--
+-- A flat (subject)-[relationship]->(object) edge store, separate
+-- from the derived `relationships` table: this captures free-text
+-- facts pulled from memory ("Acme uses Salesforce") to answer
+-- get_workspace_facts, keyed by label so it works before an edge
+-- is resolved to a canonical entity.
+-- ============================================================
+
+CREATE TABLE workspace_graph_edges (
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  workspace_id     UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  subject_type     TEXT NOT NULL,
+  subject_id       UUID,
+  subject_label    TEXT NOT NULL,
+  relationship     TEXT NOT NULL,
+  object_type      TEXT NOT NULL,
+  object_id        UUID,
+  object_label     TEXT NOT NULL,
+  confidence       DOUBLE PRECISION DEFAULT 1.0,
+  source           TEXT DEFAULT 'extraction',
+  source_memory_id UUID,
+  metadata         JSONB DEFAULT '{}',
+  created_at       TIMESTAMPTZ DEFAULT now(),
+  UNIQUE (workspace_id, subject_label, relationship, object_label)
+);
+CREATE INDEX idx_wge_workspace     ON workspace_graph_edges(workspace_id);
+CREATE INDEX idx_wge_subject_label ON workspace_graph_edges(workspace_id, lower(subject_label));
+CREATE INDEX idx_wge_object_label  ON workspace_graph_edges(workspace_id, lower(object_label));
+CREATE INDEX idx_wge_subject_id    ON workspace_graph_edges(workspace_id, subject_id) WHERE subject_id IS NOT NULL;
+CREATE INDEX idx_wge_object_id     ON workspace_graph_edges(workspace_id, object_id)  WHERE object_id IS NOT NULL;
+CREATE INDEX idx_wge_relationship  ON workspace_graph_edges(workspace_id, relationship);
+ALTER TABLE workspace_graph_edges ENABLE ROW LEVEL SECURITY;
+CREATE POLICY workspace_graph_edges_select ON workspace_graph_edges
+  FOR SELECT USING (is_workspace_member(workspace_id));
+CREATE POLICY workspace_graph_edges_service_all ON workspace_graph_edges
+  FOR ALL USING (auth.role() = 'service_role');
+
+
+-- ============================================================
+-- 15. PRODUCT SURFACES  — usage log, playground, outbound
+--
+-- Operational tables behind specific product features: the SDK/MCP
+-- usage log, the in-app agent playground, the campaign-copy store
+-- that powers the Campaign Writer, the outbound suppression list,
+-- and CRM-push idempotency. All workspace- or team-scoped.
+-- ============================================================
+
+-- Every SDK/MCP memory operation, for usage metering & the activity feed.
+CREATE TABLE memory_ops_log (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  team_id      UUID NOT NULL,
+  workspace_id UUID,
+  op_type      TEXT NOT NULL,
+  entity_type  TEXT,
+  source       TEXT NOT NULL DEFAULT 'sdk',
+  api_key_id   UUID REFERENCES api_keys(id) ON DELETE SET NULL,
+  created_at   TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX memory_ops_log_team_created_idx ON memory_ops_log(team_id, created_at DESC);
+CREATE INDEX memory_ops_log_api_key_id_idx   ON memory_ops_log(api_key_id);
+ALTER TABLE memory_ops_log ENABLE ROW LEVEL SECURITY;
+
+-- In-app agent playground: one thread per conversation, its messages.
+CREATE TABLE playground_threads (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  user_id      UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  title        TEXT,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX playground_threads_workspace_user_updated_idx
+  ON playground_threads(workspace_id, user_id, updated_at DESC);
+ALTER TABLE playground_threads ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE playground_messages (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  thread_id  UUID NOT NULL REFERENCES playground_threads(id) ON DELETE CASCADE,
+  role       TEXT NOT NULL CHECK (role IN ('user','assistant')),
+  content    TEXT NOT NULL DEFAULT '',
+  tool_calls JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX playground_messages_thread_created_idx ON playground_messages(thread_id, created_at);
+ALTER TABLE playground_messages ENABLE ROW LEVEL SECURITY;
+
+-- Campaign-copy store: the per-step/variant outbound message bodies,
+-- keyed by provider campaign, that the Campaign Writer reads & writes.
+CREATE TABLE campaign_messages (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  workspace_id  UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  provider      TEXT NOT NULL DEFAULT 'unknown',
+  campaign_id   TEXT NOT NULL,
+  campaign_name TEXT,
+  step          TEXT NOT NULL DEFAULT '',
+  variant       TEXT NOT NULL DEFAULT '',
+  subject       TEXT,
+  body          TEXT,
+  source        TEXT NOT NULL DEFAULT 'webhook',
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (workspace_id, provider, campaign_id, step, variant)
+);
+CREATE INDEX campaign_messages_ws ON campaign_messages(workspace_id, created_at DESC);
+ALTER TABLE campaign_messages ENABLE ROW LEVEL SECURITY;
+
+-- Outbound suppression list: emails we must never contact.
+CREATE TABLE lead_suppressions (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  email        TEXT NOT NULL,
+  reason       TEXT,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (workspace_id, email)
+);
+ALTER TABLE lead_suppressions ENABLE ROW LEVEL SECURITY;
+
+-- CRM-push idempotency: which observation was pushed to which CRM,
+-- so an activity is never double-written. (See crm_write_state for
+-- the inverse: echo suppression on the pull side.)
+CREATE TABLE observation_crm_pushes (
+  workspace_id   UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  observation_id UUID NOT NULL REFERENCES observations(id) ON DELETE CASCADE,
+  provider       TEXT NOT NULL,
+  engagement_id  TEXT NOT NULL,
+  pushed_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (observation_id, provider)
+);
+CREATE INDEX observation_crm_pushes_ws ON observation_crm_pushes(workspace_id);
+ALTER TABLE observation_crm_pushes ENABLE ROW LEVEL SECURITY;
+CREATE POLICY ocp_select ON observation_crm_pushes FOR SELECT USING (is_workspace_member(workspace_id));
+
+
+-- ============================================================
 -- Done.
 --
 -- The whole model: entities are anchors; observations are
