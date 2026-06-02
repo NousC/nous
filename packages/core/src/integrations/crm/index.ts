@@ -390,6 +390,75 @@ export async function writeCrmRecordFields(
   return { ok: false, error: `unknown provider ${provider}` };
 }
 
+// ─── ICP write-back (Phase 2): provision nous_icp_* fields, then write ───────
+// Nous OWNS a namespaced field set rather than overwriting a team's own ICP
+// field. Provisioning is idempotent (create; ignore "already exists"). HubSpot +
+// Attio only for now — Pipedrive needs custom-field key handling. Payloads per
+// API docs, NOT runtime-verified.
+
+const ICP_FIELDS = [
+  { key: 'nous_icp_score',     label: 'Nous ICP Score',     hsType: 'number',   hsField: 'number', attioType: 'number' },
+  { key: 'nous_icp_fit',       label: 'Nous ICP Fit',       hsType: 'string',   hsField: 'text',   attioType: 'checkbox' },
+  { key: 'nous_icp_scored_at', label: 'Nous ICP Scored At', hsType: 'datetime', hsField: 'date',   attioType: 'timestamp' },
+  { key: 'nous_icp_reason',    label: 'Nous ICP Reason',    hsType: 'string',   hsField: 'text',   attioType: 'text' },
+];
+
+async function ensureHubspotIcpProps(token: string): Promise<void> {
+  for (const f of ICP_FIELDS) {
+    await fetch('https://api.hubapi.com/crm/v3/properties/contacts', {
+      method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: f.key, label: f.label, type: f.hsType, fieldType: f.hsField, groupName: 'contactinformation' }),
+    }).catch(() => {});  // 409 = already exists → ignore
+  }
+}
+
+async function ensureAttioIcpAttrs(token: string): Promise<void> {
+  for (const f of ICP_FIELDS) {
+    await fetch('https://api.attio.com/v2/objects/people/attributes', {
+      method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ data: { title: f.label, api_slug: f.key, type: f.attioType, is_required: false, is_unique: false, is_multiselect: false } }),
+    }).catch(() => {});  // already exists → ignore
+  }
+}
+
+export async function writeCrmIcpFields(
+  provider: CrmProvider,
+  token: string,
+  recordId: string,
+  icp: { nous_icp_score?: unknown; nous_icp_fit?: unknown; nous_icp_reason?: unknown },
+): Promise<{ ok: boolean; error?: string }> {
+  const score = icp.nous_icp_score ?? null;
+  const fit = icp.nous_icp_fit ?? null;
+  const scoredAt = new Date().toISOString();
+  const reason = icp.nous_icp_reason ?? null;
+
+  if (provider === 'hubspot') {
+    await ensureHubspotIcpProps(token);
+    const properties: Record<string, unknown> = { nous_icp_score: score, nous_icp_fit: fit == null ? '' : String(fit), nous_icp_scored_at: scoredAt };
+    if (reason) properties.nous_icp_reason = reason;
+    const res = await fetch(`https://api.hubapi.com/crm/v3/objects/contacts/${encodeURIComponent(recordId)}`, {
+      method: 'PATCH', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ properties }),
+    });
+    return res.ok ? { ok: true } : { ok: false, error: `HubSpot ICP PATCH ${res.status}: ${(await res.text().catch(() => '')).slice(0, 200)}` };
+  }
+  if (provider === 'attio') {
+    await ensureAttioIcpAttrs(token);
+    const values: Record<string, unknown> = {
+      nous_icp_score: [{ value: score }],
+      nous_icp_fit: [{ value: !!fit }],
+      nous_icp_scored_at: [{ value: scoredAt }],
+    };
+    if (reason) values.nous_icp_reason = [{ value: reason }];
+    const res = await fetch(`https://api.attio.com/v2/objects/people/records/${encodeURIComponent(recordId)}`, {
+      method: 'PATCH', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ data: { values } }),
+    });
+    return res.ok ? { ok: true } : { ok: false, error: `Attio ICP PATCH ${res.status}: ${(await res.text().catch(() => '')).slice(0, 200)}` };
+  }
+  return { ok: false, error: `ICP write-back not supported for ${provider} yet` };
+}
+
 // ─── Upsert into the v2 substrate ────────────────────────────────────────────
 // Contacts + companies go through the v1-shape views — the INSTEAD OF triggers
 // translate writes into entity / identifier / observation rows. Deals go
