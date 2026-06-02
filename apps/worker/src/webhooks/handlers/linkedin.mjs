@@ -342,10 +342,11 @@ export async function handleLinkedIn(req, res, workspaceId) {
     const { contact, created } = await resolveLinkedInContact(supabase, workspaceId, { linkedinUrl, fullName, memberId: identifier });
     if (!contact) return res.json({ ok: true, skipped: 'could not resolve contact' });
 
-    // Pull title/company from Unipile (free) + score ICP. Runs on every accept
-    // webhook, not only first creation — the contact may have been created by
-    // another path (sync/invite-poll). enrichNewLinkedInContact self-guards.
-    enrichNewLinkedInContact(supabase, workspaceId, contact, { memberId: identifier }).catch(() => {});
+    // Pull title/company from Unipile (free) + score ICP. AWAITED, not fire-and-
+    // forget: a detached promise gets cut off when the handler responds, so the
+    // Unipile fetch + scoring never finished and the contact stayed blank. Webhooks
+    // tolerate a few seconds. Runs on every accept (self-guards across creation paths).
+    await enrichNewLinkedInContact(supabase, workspaceId, contact, { memberId: identifier });
 
     // Deduplicate — Unipile re-fires new_relation on re-auth
     const alreadyConnected = await countActivities(supabase, {
@@ -500,9 +501,10 @@ export async function handleLinkedIn(req, res, workspaceId) {
     // New contact → backfill their full conversation history.
     // Also backfill existing contacts that have no prior linkedin_message activities —
     // catches contacts imported before the webhook was set up (e.g. old connections).
-    // Capture title/company + score ICP + discover email. Self-guarding, so it's
-    // safe on every message (not just the first) and across creation paths.
-    enrichNewLinkedInContact(supabase, workspaceId, contact, { memberId }).catch(() => {});
+    // Capture title/company + score ICP + discover email. AWAITED (see accept
+    // branch) so the detached promise isn't cut off when the handler responds.
+    // Self-guarding, so it's safe on every message and across creation paths.
+    await enrichNewLinkedInContact(supabase, workspaceId, contact, { memberId });
 
     const chatId = body.chat_id || body.provider_chat_id || null;
     if (created) {
