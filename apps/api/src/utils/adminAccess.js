@@ -2,13 +2,24 @@
  * Admin Access - Check admin status and provide Pro plan access
  */
 
-// VIP email addresses that always get full Consultancies access
-const VIP_EMAILS = [
-  'bennetglinder@gmail.com',
-  'bennetglinder@gmx.de',
-  'bennet@kara-x.de',
-  'collin@rev-box.com',
-];
+// Operator email allowlists are sourced from the environment and are EMPTY by
+// default. This is the deliberate, open-source-safe lock that keeps self-hosters
+// out of the platform-operator surface (CMS, Roadmap, Changelog, Updates,
+// Resources, VIP plan access): with no env set, no account is ever an operator,
+// regardless of any users.is_admin flag in a self-hosted database. Only the Nous
+// Cloud deployment sets ADMIN_EMAILS / VIP_EMAILS in its own environment.
+//
+// Format: comma-separated, e.g. ADMIN_EMAILS=founder@example.com,ops@example.com
+function parseEmailList(raw) {
+  if (!raw) return [];
+  return raw.split(',').map((e) => e.trim().toLowerCase()).filter(Boolean);
+}
+
+// VIP emails always get full Consultancies / Pro plan access.
+const VIP_EMAILS = parseEmailList(process.env.VIP_EMAILS);
+
+// Admin emails are the only accounts allowed into the platform-operator surface.
+const ADMIN_EMAILS = parseEmailList(process.env.ADMIN_EMAILS);
 
 /**
  * Check if user email is in the VIP list
@@ -18,6 +29,18 @@ const VIP_EMAILS = [
 export function isVIPEmail(email) {
   if (!email) return false;
   return VIP_EMAILS.includes(email.toLowerCase());
+}
+
+/**
+ * Check if user email is on the platform-operator (admin) allowlist.
+ * Empty by default — self-hosted deployments set no ADMIN_EMAILS, so this
+ * returns false for everyone and the admin surface stays locked.
+ * @param {string} email - User email address
+ * @returns {boolean} True if email is an allowlisted operator
+ */
+export function isAdminEmail(email) {
+  if (!email) return false;
+  return ADMIN_EMAILS.includes(email.toLowerCase());
 }
 
 /**
