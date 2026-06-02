@@ -822,22 +822,69 @@ mindRouter.post('/closed-deals', async (req, res) => {
 
     const episodes = [];
     let enriched = 0;
+    const linked = [];   // contacts we recognized and joined to the deal
     const ingest = async (domain, disposition) => {
-      const entityId = await getOrCreateEntity(supabase, workspaceId, 'company', [{ kind: 'domain', value: domain }]);
-      const r = await extractAndRecordWebsiteSignals(supabase, workspaceId, entityId, domain).catch(() => null);
+      const companyId = await getOrCreateEntity(supabase, workspaceId, 'company', [{ kind: 'domain', value: domain }]);
+      const r = await extractAndRecordWebsiteSignals(supabase, workspaceId, companyId, domain).catch(() => null);
       if (r) enriched++;
+
+      // Decision-maker linkage — close the loop. Find contacts we ALREADY have at
+      // this domain, link them to the company (works_at), and record the won/lost
+      // on THEM too: that resolves their open ICP prediction and joins their
+      // pipeline history (touches, calls, channel) to the deal.
+      const { data: emails } = await supabase
+        .from('entity_identifiers').select('entity_id, value')
+        .eq('workspace_id', workspaceId).eq('kind', 'email').eq('status', 'active')
+        .ilike('value', `%@${domain}`);
+      const personIds = [...new Set((emails || []).map(e => e.entity_id))];
+      let personClaims = [];
+      for (const personId of personIds) {
+        await supabase.from('relationships').upsert(
+          { workspace_id: workspaceId, from_entity_id: personId, to_entity_id: companyId, type: 'works_at', valid_from: new Date().toISOString() },
+          { onConflict: 'workspace_id,from_entity_id,to_entity_id,type', ignoreDuplicates: true },
+        ).catch(() => {});
+        await logActivity(supabase, {
+          workspaceId, entityId: personId,
+          type: disposition === 'won' ? 'deal_won' : 'deal_lost',
+          source: 'closed-deals-import', externalId: `import_${disposition}_${personId}`,
+          occurredAt: new Date().toISOString(),
+          description: disposition === 'won' ? 'Closed-won (closed-deals import)' : 'Closed-lost (closed-deals import)',
+        }).catch(() => {});
+      }
+      if (personIds.length) {
+        const [{ data: pc }, { data: names }] = await Promise.all([
+          supabase.from('claims').select('property, value').in('entity_id', personIds).is('invalid_at', null)
+            .in('property', ['job_title', 'seniority', 'department']),
+          supabase.from('claims').select('entity_id, property, value').in('entity_id', personIds).is('invalid_at', null)
+            .in('property', ['first_name', 'last_name']),
+        ]);
+        personClaims = pc || [];
+        const byId = {};
+        for (const n of names || []) { (byId[n.entity_id] ||= {})[n.property] = n.value; }
+        for (const pid of personIds) {
+          const nm = byId[pid];
+          const full = nm ? [nm.first_name, nm.last_name].filter(Boolean).join(' ') : null;
+          linked.push({ domain, name: full || (emails.find(e => e.entity_id === pid)?.value ?? 'a contact') });
+        }
+      }
+
+      // Record the deal on the company too (the company-level discovery cohort).
       await logActivity(supabase, {
-        workspaceId, entityId,
+        workspaceId, entityId: companyId,
         type: disposition === 'won' ? 'deal_won' : 'deal_lost',
-        source: 'closed-deals-import',
-        externalId: `import_${disposition}_${entityId}`,
+        source: 'closed-deals-import', externalId: `import_${disposition}_${companyId}`,
         occurredAt: new Date().toISOString(),
         description: disposition === 'won' ? 'Imported closed-won' : 'Imported closed-lost',
       }).catch(() => {});
-      const { data: claims } = await supabase
-        .from('claims').select('property, value').eq('entity_id', entityId).is('invalid_at', null);
+
+      // Episode features = company firmographics/signals + the decision-maker's
+      // own traits (job_title/seniority/department) — so discovery can learn
+      // *who* buys, not just *what* the company is.
+      const { data: companyClaims } = await supabase
+        .from('claims').select('property, value').eq('entity_id', companyId).is('invalid_at', null);
       const features = {};
-      for (const c of claims ?? []) features[c.property] = c.value;
+      for (const c of companyClaims ?? []) features[c.property] = c.value;
+      for (const c of personClaims) if (!(c.property in features)) features[c.property] = c.value;
       episodes.push({ features, disposition });
     };
     for (const d of wonList) await ingest(d, 'won');
@@ -857,6 +904,7 @@ mindRouter.post('/closed-deals', async (req, res) => {
 
     return res.status(201).json({
       enriched, won: wonList.length, lost: lostList.length, mode,
+      linked: [...new Map(linked.map(l => [l.name, l])).values()],
       discovered: proposals.map(p => ({ label: p.signal.label, weight: p.signal.weight, note: p.note })),
     });
   } catch (err) {

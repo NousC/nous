@@ -400,7 +400,7 @@ export default function Intelligence() {
   const [cdWon, setCdWon] = useState("");
   const [cdLost, setCdLost] = useState("");
   const [cdRunning, setCdRunning] = useState(false);
-  const [cdResult, setCdResult] = useState<{ enriched: number; won: number; lost: number; mode?: string; discovered: { label: string; weight: number; note: string }[] } | null>(null);
+  const [cdResult, setCdResult] = useState<{ enriched: number; won: number; lost: number; mode?: string; linked?: { name: string; domain: string }[]; discovered: { label: string; weight: number; note: string }[] } | null>(null);
 
   // ICP-fit column sort for the analyzed table. Cycle (like the People table):
   // off → desc (best fits on top) → asc → off.
@@ -1396,6 +1396,11 @@ export default function Intelligence() {
                     className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-[13px] outline-none focus:border-foreground/40 resize-y font-mono" />
                 </div>
               </div>
+              {cdResult && (cdResult.linked?.length ?? 0) > 0 && (
+                <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/[0.06] px-3 py-2 text-[12px] text-emerald-800/90">
+                  Recognized {cdResult.linked!.length} contact{cdResult.linked!.length === 1 ? "" : "s"} you already had — linked the deal to {cdResult.linked!.map(l => l.name).join(", ")} and resolved their record.
+                </div>
+              )}
               {cdResult && (
                 <div className="rounded-lg border border-border/60 bg-muted/30 p-3">
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 mb-1.5">
