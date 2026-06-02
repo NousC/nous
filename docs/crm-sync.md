@@ -117,11 +117,25 @@ Reply sentiment is classified once at the worker choke point
 
 ## 4. Hygiene — keep attributes reconciled
 
-> **Status:** **Phase 1a [Built]** — propose-only, covering *net-new* (enrich +
-> score records that appeared in the CRM outside Nous) and *ICP rescore*
-> (propose writing the score back). **Everything else in §4 is [Designed].**
-> Field reconcile, the survivorship engine, normalization, echo suppression, and
-> write-back are not yet implemented.
+> **Status (current):** **Built and live-tested against a real Attio workspace.**
+> - **Reconcile (propose):** net-new enrich+score, ICP rescore, and free-text
+>   field reconcile (job_title/company/phone) — all generate proposals with their
+>   evidence + provenance gate. ✅
+> - **Apply on approve:** approving a proposal **writes it to the CRM** — field
+>   writes (text + structured) and ICP write-back (provisions `nous_icp_*`,
+>   writes score/fit/scored_at/reason). Optimistic concurrency; `conflict` never
+>   auto-applies; reversible via `current_value`. ✅ (verified: Attio job_title,
+>   phone, ICP score all landed live).
+> - **Echo suppression:** an applied write isn't re-ingested by the next pull. ✅
+> - **Still [Designed]:** the auto-apply ladder (`hygiene_auto_apply` safe/all +
+>   dry-run) — today every apply is manual approve. The survivorship engine is the
+>   `deriveClaim` confidence model (in use), not a separate module.
+>
+> **Open follow-ups:** Pipedrive ICP write (custom-field keys); per-provider write
+> payloads are verified for Attio, lighter-tested for HubSpot; the "Nous"-branded
+> actor on writes needs an Attio/HubSpot **app (OAuth)** connection instead of a
+> personal API key (today writes show as the token's owner). See
+> [crm-setup.md](./crm-setup.md) for required custom fields per CRM.
 
 **Settings:** `crm_sync_configs.hygiene_enabled`, `hygiene_cadence`
 (`weekly` | `monthly`), `hygiene_last_run_at`, `hygiene_auto_apply`.

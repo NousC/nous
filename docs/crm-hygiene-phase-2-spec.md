@@ -25,7 +25,15 @@ stay deferred (crm-sync.md §4.5); dedup stays out (identity resolution).
 
 ---
 
-## Task A — Write-back primitives (PATCH per provider) + ICP provisioning
+## Task A — Write-back primitives (PATCH per provider) + ICP provisioning · [Partial]
+
+> **Built:** `writeCrmRecordFields(provider, token, recordId, fields)` in
+> `integrations/crm/index.ts` — PATCH standard free-text fields (HubSpot
+> job_title/company/phone, Pipedrive phone, Attio job_title/phone). Payloads per
+> API docs, **NOT runtime-verified** — test on a throwaway record first.
+> **Not built:** `nous_icp_*` provisioning (schema API per provider) — so
+> `icp_rescore` proposals can't apply yet. Enum/relationship writes still deferred.
+
 
 The mirror of Phase 1b's `fetchCrmRecordFields`. Read-only's opposite — one
 function per provider that PATCHes a record's reconciled fields.
@@ -54,7 +62,16 @@ matrix, so read (Phase 1b) and write (here) share one source of truth.
 
 ---
 
-## Task B — Apply flow + reversibility
+## Task B — Apply flow + reversibility · [Built]
+
+> **Built:** `applyProposal(proposal, token)` in `services/crmApply.ts` —
+> optimistic concurrency (re-read; bail `stale` if the CRM moved), `conflict`
+> never applies, only `field_fill`/`field_update` write today, reversible via
+> `current_value`. Wired to the Approve button: approve → write → status
+> `applied`/`failed` → `proposal_applied`/`_apply_failed` in the live log →
+> frontend toast. Offline-verified (9 fixtures incl. the stale path). NOT
+> runtime-verified against a live CRM.
+
 
 `applyProposal(supabase, deps, proposalId)`:
 1. Load the proposal; require `status = 'approved'` (or auto-eligible per Task E).
