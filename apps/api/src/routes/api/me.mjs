@@ -3,6 +3,7 @@ import { getSupabaseClient } from '@nous/core';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
 import { ensureUserAndTeam } from '../../lib/auth.mjs';
 import { getCountryFromRequest } from '../../lib/geo.mjs';
+import { isAdminEmail } from '../../utils/adminAccess.js';
 
 export const meRouter = Router();
 
@@ -147,8 +148,16 @@ meRouter.get('/', verifySupabaseAuth, async (req, res) => {
       }
     }
 
+    // Never report is_admin=true to the client unless the account is also on the
+    // env allowlist (empty on self-host). The admin nav + routes are operator-only,
+    // so a self-hoster who flips users.is_admin in their own DB still won't see the
+    // admin surface. The API (requireAdmin) enforces the same allowlist server-side.
+    const safeUser = user
+      ? { ...user, is_admin: isAdminEmail(user.email) && user.is_admin === true }
+      : user;
+
     return res.json({
-      user,
+      user: safeUser,
       team,
       workspace,
       onboarding_completed: onboardingCompleted,

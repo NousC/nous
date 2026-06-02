@@ -1,4 +1,5 @@
 import { getSupabaseClient } from '@nous/core';
+import { isAdminEmail } from '../utils/adminAccess.js';
 
 /**
  * Middleware to verify admin access.
@@ -13,7 +14,16 @@ export async function requireAdmin(req, res, next) {
       return res.status(401).json({ error: 'auth_required' });
     }
 
-    // Check users.is_admin field. req.user is the Supabase auth user, whose
+    // Deliberate, open-source-safe lock: the platform-operator surface is gated
+    // on an env allowlist (ADMIN_EMAILS) that is EMPTY by default. Self-hosted
+    // deployments set no ADMIN_EMAILS, so this denies everyone — no users.is_admin
+    // flag in a self-hosted database can unlock it. Only Nous Cloud sets it.
+    if (!isAdminEmail(user.email)) {
+      return res.status(403).json({ error: 'forbidden', message: 'Admin access required' });
+    }
+
+    // Defense in depth: also require the users.is_admin field. req.user is the
+    // Supabase auth user, whose
     // id is the auth UUID — that lives in users.supabase_user_id, NOT users.id.
     // verifySupabaseAuth already resolved the internal users.id into
     // req.internalUserId; use that for the lookup.
