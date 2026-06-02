@@ -2,6 +2,7 @@ export * from './types.js';
 export * from './db/client.js';
 export * from './db/entities.js';
 export * from './db/observations.js';
+export * from './db/crmWriteState.js';
 export * from './db/claims.js';
 export * from './db/predictions.js';
 export * from './db/notes.js';
