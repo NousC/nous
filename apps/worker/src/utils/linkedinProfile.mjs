@@ -43,9 +43,12 @@ export async function fetchLinkedInProfile(accountId, memberId) {
       ? d.websites[0].replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/^www\./, '').toLowerCase() || null
       : null;
     const phone = d.contact_info?.phones?.[0] || null;
+    // First-degree connections often expose their real email in the profile itself —
+    // the reliable source, no Gmail name-matching needed. Take the first valid one.
+    const email = (d.contact_info?.emails || []).find(e => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e || '')) || null;
     const location = d.location || null;
 
-    return { headline, jobTitle, company, companyDomain, photoUrl, phone, location };
+    return { headline, jobTitle, company, companyDomain, photoUrl, phone, email, location };
   } catch (e) {
     console.warn('[LINKEDIN_PROFILE] fetch failed (non-fatal):', e.message);
     return null;

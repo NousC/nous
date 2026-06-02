@@ -3,7 +3,7 @@
 // scoreICP runs after every successful enrichment.
 
 import Anthropic, { setUser } from 'useleak';
-import { listNotes, recordEnrichmentObservations } from '@nous/core';
+import { listNotes, recordEnrichmentObservations, recordObservation } from '@nous/core';
 import { logActivity } from './activity.mjs';
 import { upsertCompany } from './resolveContact.mjs';
 import { decrypt } from './encryption.mjs';
@@ -136,7 +136,7 @@ async function extractRoleFromHeadline(workspaceId, headline) {
 // ICP. job_title alone clears scoreICP's gate, so a LinkedIn-only contact becomes
 // scoreable without ever spending on email enrichment. Only fills empty fields —
 // never overwrites data a paid provider or the user already set.
-export async function applyLinkedInProfile(supabase, contact, { jobTitle, company, companyDomain, photoUrl, headline } = {}) {
+export async function applyLinkedInProfile(supabase, contact, { jobTitle, company, companyDomain, photoUrl, email, phone, headline } = {}) {
   if (!contact?.id || !contact?.workspace_id) return;
   const workspaceId = contact.workspace_id;
   const updates = {};
@@ -162,8 +162,28 @@ export async function applyLinkedInProfile(supabase, contact, { jobTitle, compan
     updates.company = company;
   }
   if (photoUrl && !contact.photo_url) updates.photo_url = photoUrl;
+  if (phone && !contact.phone) updates.phone = phone;
 
-  if (!Object.keys(updates).length) return;
+  // Email from the LinkedIn profile (contact_info.emails) — register it as an
+  // identity so resolution keys on it, then fill the column. Done separately from
+  // the enrichment-observation set because email is an identifier, not just a claim.
+  const cleanEmail = email && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) ? email.toLowerCase().trim() : null;
+  if (cleanEmail && !contact.email) {
+    await supabase.from('entity_identifiers')
+      .upsert({ workspace_id: workspaceId, entity_id: contact.id, kind: 'email', value: cleanEmail },
+        { onConflict: 'workspace_id,kind,value', ignoreDuplicates: true }).then(null, () => {});
+    await recordObservation(supabase, {
+      workspaceId, entityId: contact.id, kind: 'state', property: 'email',
+      value: cleanEmail, source: 'linkedin', method: 'api', externalId: `li_email_${cleanEmail}`,
+    }).catch(() => {});
+    await supabase.from('contacts').update({ email: cleanEmail }).eq('id', contact.id).then(null, () => {});
+  }
+
+  if (!Object.keys(updates).length) {
+    // Even with no claim-fields, we may have scored nothing yet — score if we have a title now.
+    if (jobTitle || company) await scoreICP(supabase, workspaceId, { ...contact, job_title: jobTitle, company });
+    return;
+  }
 
   await recordEnrichmentObservations(supabase, workspaceId, contact.id, 'linkedin', updates);
   console.log(`[APPLY_LI] ${contact.id}: observations recorded (${Object.keys(updates).join(',')})`);
