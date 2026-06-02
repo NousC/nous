@@ -437,12 +437,11 @@ async function ensureAttioIcpAttrs(token: string): Promise<string[]> {
         body: JSON.stringify({ data: {
           title: f.label, api_slug: f.key, type: f.attioType,
           is_required: false, is_unique: false, is_multiselect: false,
-          config: {}, default_value: null,
         }}),
       });
       if (!res.ok) {
         const t = await res.text().catch(() => '');
-        if (!isAlreadyExists(res.status, t)) errors.push(`${f.key}: ${res.status} ${t.slice(0, 160)}`);
+        if (!isAlreadyExists(res.status, t)) errors.push(`${f.key}: ${res.status} ${t.slice(0, 300)}`);
       }
     } catch (e: any) { errors.push(`${f.key}: ${e?.message || e}`); }
   }
@@ -469,8 +468,11 @@ export async function writeCrmIcpFields(
       body: JSON.stringify({ properties }),
     });
     if (res.ok) return { ok: true };
-    const extra = provErrors.length ? ` · field provisioning failed: ${provErrors.join('; ')}` : '';
-    return { ok: false, error: `HubSpot ICP PATCH ${res.status}: ${(await res.text().catch(() => '')).slice(0, 200)}${extra}` };
+    const body = (await res.text().catch(() => '')).slice(0, 300);
+    if (/PROPERTY_DOESNT_EXIST|does not exist|Cannot find/i.test(body)) {
+      return { ok: false, error: `HubSpot is missing the nous_icp_* properties. Create them on Contacts — nous_icp_score (Number), nous_icp_fit (Text), nous_icp_scored_at (Date), nous_icp_reason (Text) — or grant the token crm.schemas.contacts.write. See docs/crm-setup.md.${provErrors.length ? ` [auto-create error: ${provErrors[0]}]` : ''}` };
+    }
+    return { ok: false, error: `HubSpot ICP PATCH ${res.status}: ${body}` };
   }
   if (provider === 'attio') {
     const provErrors = await ensureAttioIcpAttrs(token);
@@ -485,8 +487,12 @@ export async function writeCrmIcpFields(
       body: JSON.stringify({ data: { values } }),
     });
     if (res.ok) return { ok: true };
-    const extra = provErrors.length ? ` · field provisioning failed: ${provErrors.join('; ')}` : '';
-    return { ok: false, error: `Attio ICP PATCH ${res.status}: ${(await res.text().catch(() => '')).slice(0, 200)}${extra}` };
+    const body = (await res.text().catch(() => '')).slice(0, 300);
+    // Fields don't exist and we couldn't auto-create them → actionable setup message.
+    if (/value_not_found|Cannot find attribute/i.test(body)) {
+      return { ok: false, error: `Attio is missing the nous_icp_* attributes. Create them on the People object — nous_icp_score (Number), nous_icp_fit (Checkbox), nous_icp_scored_at (Timestamp), nous_icp_reason (Text) — then retry. See docs/crm-setup.md.${provErrors.length ? ` [auto-create error: ${provErrors[0]}]` : ''}` };
+    }
+    return { ok: false, error: `Attio ICP PATCH ${res.status}: ${body}` };
   }
   return { ok: false, error: `ICP write-back not supported for ${provider} yet` };
 }
