@@ -2,6 +2,7 @@ import { Router } from 'express';
 import {
   getSupabaseClient, logActivity, syncCrmProvider,
   runHygieneForConfig, listHygieneProposals, countHygieneProposals, updateHygieneProposalStatus,
+  applyProposal, isApplyable,
 } from '@nous/core';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
 import { requireFeature } from '../../lib/access.mjs';
@@ -27,6 +28,22 @@ function decryptCred(encryptedValue) {
     const decipher = crypto.createDecipheriv('aes-256-cbc', ENCRYPTION_KEY, Buffer.from(parts[0], 'hex'));
     return decipher.update(parts[1], 'hex', 'utf8') + decipher.final('utf8');
   } catch { return encryptedValue; }
+}
+
+// Resolve a CRM token for (workspace, provider) from its sync-config connection.
+async function resolveCrmTokenForProvider(supabase, workspaceId, provider) {
+  const { data: cfg } = await supabase.from('crm_sync_configs')
+    .select('connection_id').eq('workspace_id', workspaceId).eq('provider', provider).maybeSingle();
+  if (!cfg?.connection_id) return null;
+  const { data: conn } = await supabase.from('workflow_provider_connections')
+    .select('encrypted_credentials').eq('id', cfg.connection_id).maybeSingle();
+  if (!conn?.encrypted_credentials) return null;
+  const creds = {};
+  for (const [k, v] of Object.entries(conn.encrypted_credentials)) creds[k] = decryptCred(v);
+  const firstCred = Object.values(creds).find(Boolean);
+  if (provider === 'hubspot')   return creds.access_token || creds.api_key || firstCred || null;
+  if (provider === 'pipedrive') return creds.api_token   || creds.api_key || firstCred || null;
+  return creds.api_key || creds.access_token || firstCred || null;  // attio + default
 }
 
 async function fetchHubSpotRecords(accessToken, type, search) {
@@ -389,18 +406,29 @@ crmRouter.post('/hygiene/proposals/:id', verifySupabaseAuth, requireCrmSync, asy
     const row = await updateHygieneProposalStatus(supabase, workspaceId, req.params.id, status);
     if (!row) return res.status(404).json({ error: 'proposal not found' });
 
-    // Record the decision in the live log so the action is visible + auditable.
-    const what = row.field ? `${row.field} → ${typeof row.proposed_value === 'object' ? JSON.stringify(row.proposed_value) : row.proposed_value}` : row.kind;
-    await supabase.from('workspace_system_log').insert({
-      workspace_id: workspaceId,
-      source: row.provider,
-      event_type: status === 'approved' ? 'proposal_approved' : 'proposal_dismissed',
-      summary: `${status === 'approved' ? 'Approved' : 'Dismissed'} ${row.kind} — ${what}`,
-      contact_id: row.entity_id || null,
-      metadata: { proposal_id: row.id, kind: row.kind, field: row.field },
+    const logEvent = (eventType, summary) => supabase.from('workspace_system_log').insert({
+      workspace_id: workspaceId, source: row.provider, event_type: eventType, summary,
+      contact_id: row.entity_id || null, metadata: { proposal_id: row.id, kind: row.kind, field: row.field },
     }).then(() => {}, () => {});
 
-    return res.json({ ok: true, proposal: row });
+    const what = row.field
+      ? `${row.field} → ${typeof row.proposed_value === 'object' ? JSON.stringify(row.proposed_value) : row.proposed_value}`
+      : row.kind;
+
+    // Dismiss, or approve a kind we don't write yet → record the decision only.
+    if (status === 'dismissed') { await logEvent('proposal_dismissed', `Dismissed ${row.kind} — ${what}`); return res.json({ ok: true, proposal: row }); }
+    if (!isApplyable(row.kind)) { await logEvent('proposal_approved', `Approved ${row.kind} — ${what} (write-back pending)`); return res.json({ ok: true, proposal: row }); }
+
+    // Approve an applyable proposal → write it to the CRM (Phase 2).
+    const token = await resolveCrmTokenForProvider(supabase, workspaceId, row.provider);
+    const result = await applyProposal(row, token);
+    const final = await updateHygieneProposalStatus(supabase, workspaceId, req.params.id, result.status);
+    if (result.applied) {
+      await logEvent('proposal_applied', `Applied ${row.kind} to ${row.provider} — ${what}`);
+    } else {
+      await logEvent('proposal_apply_failed', `Apply failed for ${row.kind} — ${result.reason}`);
+    }
+    return res.json({ ok: true, proposal: final || row, applied: result.applied, reason: result.reason });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }

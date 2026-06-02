@@ -335,6 +335,61 @@ export async function fetchCrmRecordFields(
   return null;
 }
 
+// ─── Single-record field WRITE (CRM hygiene apply, Phase 2) ──────────────────
+// PATCH one record's reconciled free-text fields. THIS WRITES TO A LIVE CRM.
+// Only writes fields the provider exposes as standard writable attributes;
+// company (Pipedrive/Attio relationship) and enum/custom fields are not written.
+// NOTE: payload shapes are per current provider API docs but are not yet
+// runtime-verified — test on a throwaway record first.
+
+const WRITE_FIELD_MAP: Record<CrmProvider, Record<string, string>> = {
+  hubspot:   { job_title: 'jobtitle', company: 'company', phone: 'phone' },
+  pipedrive: { phone: 'phone' },                 // company=org relationship, job_title=custom → not written
+  attio:     { job_title: 'job_title', phone: 'phone' },
+};
+
+export async function writeCrmRecordFields(
+  provider: CrmProvider,
+  token: string,
+  recordId: string,
+  fields: Record<string, unknown>,
+): Promise<{ ok: boolean; error?: string }> {
+  const map = WRITE_FIELD_MAP[provider] || {};
+  const writable = Object.entries(fields).filter(([k]) => k in map);
+  if (!writable.length) return { ok: false, error: `no writable field for ${provider} in ${Object.keys(fields).join(',')}` };
+
+  if (provider === 'hubspot') {
+    const properties: Record<string, unknown> = {};
+    for (const [k, v] of writable) properties[map[k]] = v;
+    const res = await fetch(`https://api.hubapi.com/crm/v3/objects/contacts/${encodeURIComponent(recordId)}`, {
+      method: 'PATCH', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ properties }),
+    });
+    return res.ok ? { ok: true } : { ok: false, error: `HubSpot PATCH ${res.status}: ${(await res.text().catch(() => '')).slice(0, 200)}` };
+  }
+  if (provider === 'pipedrive') {
+    const body: Record<string, unknown> = {};
+    for (const [k, v] of writable) if (map[k] === 'phone') body.phone = [{ value: String(v), primary: true, label: 'work' }];
+    const res = await fetch(`https://api.pipedrive.com/v1/persons/${encodeURIComponent(recordId)}?api_token=${encodeURIComponent(token)}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    return res.ok ? { ok: true } : { ok: false, error: `Pipedrive PUT ${res.status}` };
+  }
+  if (provider === 'attio') {
+    const values: Record<string, unknown> = {};
+    for (const [k, v] of writable) {
+      if (map[k] === 'job_title') values.job_title = [{ value: v }];
+      if (map[k] === 'phone')     values.phone_numbers = [{ phone_number: String(v) }];
+    }
+    const res = await fetch(`https://api.attio.com/v2/objects/people/records/${encodeURIComponent(recordId)}`, {
+      method: 'PATCH', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ data: { values } }),
+    });
+    return res.ok ? { ok: true } : { ok: false, error: `Attio PATCH ${res.status}: ${(await res.text().catch(() => '')).slice(0, 200)}` };
+  }
+  return { ok: false, error: `unknown provider ${provider}` };
+}
+
 // ─── Upsert into the v2 substrate ────────────────────────────────────────────
 // Contacts + companies go through the v1-shape views — the INSTEAD OF triggers
 // translate writes into entity / identifier / observation rows. Deals go
