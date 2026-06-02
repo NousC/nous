@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ScorecardSignal } from '../types.js';
 import type { Claim } from './claims.js';
-import { scoreLead } from './scorecard.js';
+import { scoreToPrediction, modelVersion } from './scorecard.js';
 import { getClaims } from './claims.js';
 
 // The prediction-write half of the compound-intelligence loop.
@@ -90,12 +90,7 @@ export async function scoreAndStake(
   });
   if (!hasScoreableFeature) return null;
 
-  const { score, fired } = scoreLead(features, signals);
-  const fit = score >= 70;
-  const reason = fired.length
-    ? `Scorecard: ${fired.length} signal${fired.length === 1 ? '' : 's'} fired — ` +
-      fired.slice(0, 4).map(f => f.key).join(', ')
-    : 'Scorecard: no signals matched this profile';
+  const { score, fit, reason, fired } = scoreToPrediction(features, signals);
 
   const { data, error } = await supabase
     .from('predictions')
@@ -106,7 +101,7 @@ export async function scoreAndStake(
       predicted_value: { score, fit, reason },
       predicted_confidence: score / 100,
       feature_snapshot: snapshot,
-      model_version: 'scorecard',
+      model_version: modelVersion(signals),
     })
     .select('id')
     .single();
@@ -117,7 +112,7 @@ export async function scoreAndStake(
     entity_id: entityId,
     score,
     fit,
-    fired: fired.length,
+    fired,
   };
 }
 

@@ -66,6 +66,37 @@ export function scoreLead(
   return { score: Math.max(0, Math.min(100, score)), raw, fired };
 }
 
+// A short, stable fingerprint of the active scoring model — the set of active
+// signals with their weights and rules. Two scorecards with the same
+// fingerprint score identically, so a prediction stamped with an older
+// fingerprint was scored under a now-superseded model and is a candidate for
+// re-scoring when the model evolves. Deterministic; order-independent.
+export function modelVersion(signals: ScorecardSignal[]): string {
+  const active = signals
+    .filter(s => s.active)
+    .map(s => `${s.key}:${s.weight}:${s.rule?.feature ?? ''}:${s.rule?.op ?? ''}:${JSON.stringify(s.rule?.value ?? null)}`)
+    .sort();
+  let h = 5381;
+  const str = active.join('|');
+  for (let i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) >>> 0; // djb2
+  return `sc_${h.toString(36)}`;
+}
+
+// The {score, fit, reason} a staked OR re-scored prediction carries — shared so
+// the stake path and the re-score path produce identical shapes.
+export function scoreToPrediction(
+  features: Record<string, unknown>,
+  signals: ScorecardSignal[],
+): { score: number; fit: boolean; reason: string; fired: number } {
+  const { score, fired } = scoreLead(features, signals);
+  const fit = score >= 70;
+  const reason = fired.length
+    ? `Scorecard: ${fired.length} signal${fired.length === 1 ? '' : 's'} fired — ` +
+      fired.slice(0, 4).map(f => f.key).join(', ')
+    : 'Scorecard: no signals matched this profile';
+  return { score, fit, reason, fired: fired.length };
+}
+
 // ── Signal queries ────────────────────────────────────────────────────────────
 
 export async function listSignals(

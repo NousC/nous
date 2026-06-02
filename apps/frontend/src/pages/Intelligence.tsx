@@ -141,6 +141,7 @@ interface IcpRecordRow {
   fit: boolean | null;
   reason: string | null;
   scored_at: string;
+  rescored?: boolean;
   resolved_at: string | null;
   disposition: string | null;
   outcome_score: number | null;
@@ -1186,7 +1187,7 @@ export default function Intelligence() {
                               <span className="absolute -left-[5px] top-1 h-2.5 w-2.5 rounded-full border-2 border-background" style={{ background: isCurrent ? col : "#cbd5e1" }} />
                               <div className="flex items-baseline gap-2 flex-wrap">
                                 <span className="text-[13px] font-medium text-foreground">
-                                  {isCurrent && record.icp!.history.length > 1 ? "Re-scored" : "Scored"} <span className="tabular-nums font-semibold" style={{ color: h.score == null ? "#9ca3af" : h.score >= 70 ? "#15803d" : h.score >= 40 ? "#b45309" : "#b91c1c" }}>{h.score ?? "—"}</span>
+                                  {h.rescored ? "Re-scored" : "Scored"} <span className="tabular-nums font-semibold" style={{ color: h.score == null ? "#9ca3af" : h.score >= 70 ? "#15803d" : h.score >= 40 ? "#b45309" : "#b91c1c" }}>{h.score ?? "—"}</span>
                                 </span>
                                 <span className="text-[12px] text-muted-foreground/60 tabular-nums">{formatDistanceToNow(new Date(h.scored_at), { addSuffix: true })}</span>
                               </div>

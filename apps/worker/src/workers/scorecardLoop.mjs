@@ -25,6 +25,7 @@ import {
   logScorecardRun,
   logWorkerRun,
   discoverSignals,
+  rescoreOpenPredictions,
 } from '@nous/core';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -239,6 +240,15 @@ async function runForWorkspace(supabase, workspaceId, episodes) {
   });
   if (kept) {
     console.log(`[SCORECARD_LOOP] ${workspaceId}: ${kept} change(s), gap ${baseline?.toFixed(3) ?? '—'} → ${current?.toFixed(3) ?? '—'}`);
+    // The model just changed — refresh the current fit of every open account
+    // from its stored features so scores stop going stale. Resolved bets are
+    // untouched; each re-score shows up as a "Re-scored" step in the trail.
+    try {
+      const rs = await rescoreOpenPredictions(supabase, workspaceId);
+      if (rs.rescored) console.log(`[SCORECARD_LOOP] ${workspaceId}: re-scored ${rs.rescored} open account(s) to ${rs.version}`);
+    } catch (e) {
+      console.warn(`[SCORECARD_LOOP] ${workspaceId}: re-score failed:`, e?.message || e);
+    }
   }
 
   await logWorkerRun(supabase, {
