@@ -1,7 +1,9 @@
 import { useState, useEffect, type ComponentType } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Sun, Moon, Monitor, LogOut, Plus, Trash2, X,
   Link2, Calendar, Upload, ArrowRight,
+  FileText, Megaphone, Map, ScrollText, Image as ImageIcon,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "@/contexts/ThemeContext";
@@ -12,6 +14,17 @@ import { PageHeader } from "@/components/ui/page-header";
 import { ChecklistCard } from "@/components/OnboardingChecklist";
 
 const apiUrl = import.meta.env.VITE_API_URL ?? "";
+
+// Operator-only admin tools. The Admin tab + these routes are gated on
+// userData.user.is_admin, which the API only reports for allowlisted emails
+// (ADMIN_EMAILS, empty on self-host) — so self-hosters never see this.
+const ADMIN_LINKS: { label: string; path: string; icon: ComponentType<{ className?: string }> }[] = [
+  { label: "CMS",       path: "/admin/cms",       icon: FileText },
+  { label: "Updates",   path: "/admin/updates",   icon: Megaphone },
+  { label: "Roadmap",   path: "/admin/roadmap",   icon: Map },
+  { label: "Changelog", path: "/admin/changelog", icon: ScrollText },
+  { label: "Media",     path: "/admin/media",     icon: ImageIcon },
+];
 
 // ─── Real brand icons (rendered in currentColor / black) ─────────────────────
 const WhatsAppIcon = ({ className }: { className?: string }) => (
@@ -58,6 +71,8 @@ function ThemeIconBtn({
 
 export default function Settings() {
   const { userData, session, refreshUserData, signOut } = useAuth();
+  const navigate = useNavigate();
+  const isAdmin = userData?.user?.is_admin === true;
   const handleSignOut = async () => { try { await signOut(); } catch { /* ignore */ } };
   const { mode, setMode } = useTheme();
   const token = session?.access_token;
@@ -250,6 +265,7 @@ export default function Settings() {
     { id: "profile", label: "Profile" },
     { id: "team",    label: "Team"    },
     { id: "agora",   label: "Agora"   },
+    ...(isAdmin ? [{ id: "admin" as SettingsTab, label: "Admin" }] : []),
   ];
 
   // ── shared styles (work in both light + dark) ─────────────────────────────
@@ -641,6 +657,31 @@ export default function Settings() {
                 </label>
               )}
             </section>
+          </div>
+        )}
+
+        {/* ── Admin (operator-only — hidden unless is_admin) ── */}
+        {tab === "admin" && isAdmin && (
+          <div className="max-w-md">
+            <h3 className="text-[15px] font-semibold text-foreground mb-1.5">Admin</h3>
+            <p className="text-[12px] text-muted-foreground mb-5">
+              Operator tools for the hosted product. Only you can see this.
+            </p>
+            <div className="space-y-1.5">
+              {ADMIN_LINKS.map((l) => (
+                <button
+                  key={l.path}
+                  onClick={() => navigate(l.path)}
+                  className="group flex w-full items-center justify-between rounded-lg border border-border bg-background px-3.5 py-3 text-left hover:bg-muted/40 transition-colors"
+                >
+                  <span className="flex items-center gap-3">
+                    <l.icon className="h-4 w-4 text-muted-foreground/70" />
+                    <span className="text-[13px] font-medium text-foreground">{l.label}</span>
+                  </span>
+                  <ArrowRight className="h-3.5 w-3.5 text-muted-foreground/40 group-hover:text-foreground transition-colors" />
+                </button>
+              ))}
+            </div>
           </div>
         )}
       </div>
