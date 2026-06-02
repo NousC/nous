@@ -12,7 +12,7 @@
 
 import { Router } from 'express';
 import Anthropic from 'useleak';
-import { getSupabaseClient, listSignals, seedSignals, listNotes, scoreLead, getAttention, saveNote, deleteNote, supersedeNote, getWorkspaceEntityId, getOrCreateEntity, logActivity, discoverSignals, upsertSignal, pipelineFeatures, scoreAndStake, resolveEntityPredictions } from '@nous/core';
+import { getSupabaseClient, listSignals, seedSignals, listNotes, scoreLead, getAttention, saveNote, deleteNote, supersedeNote, getWorkspaceEntityId, getOrCreateEntity, logActivity, discoverSignals, upsertSignal, pipelineFeatures, scoreAndStake, resolveEntityPredictions, NON_FEATURE_PROPS } from '@nous/core';
 import { extractAndRecordWebsiteSignals } from '../../services/websiteSignals.mjs';
 
 export const mindRouter = Router();
@@ -783,6 +783,7 @@ function discoverWinnerSignals(episodes, existing) {
   const tally = new Map();
   const add = (eps, side) => { for (const e of eps) for (const [f, v] of Object.entries(e.features || {})) {
     if (v == null) continue;
+    if (NON_FEATURE_PROPS.has(f)) continue;   // identity/metadata, never a signal
     const isBool = typeof v === 'boolean', isCat = typeof v === 'string' && v.length <= 40;
     if (!isBool && !isCat) continue;
     if (isBool && v === false) continue;
@@ -955,7 +956,7 @@ mindRouter.post('/closed-deals', async (req, res) => {
     // Skip companies already scored so re-runs don't duplicate rows.
     const freshSignals = await listSignals(supabase, workspaceId);
     let surfaced = 0;
-    for (const { companyId } of companyDeals) {
+    for (const { companyId, disposition } of companyDeals) {
       try {
         const { count } = await supabase.from('predictions')
           .select('id', { count: 'exact', head: true })
@@ -963,7 +964,13 @@ mindRouter.post('/closed-deals', async (req, res) => {
         if (count) continue;
         const staked = await scoreAndStake(supabase, workspaceId, companyId, freshSignals);
         if (!staked) continue;
-        await resolveEntityPredictions(supabase, { workspaceId, entityId: companyId });
+        // We KNOW the outcome — it's an imported closed deal — so resolve the
+        // prediction directly (the won/lost obs predates this late stake, so the
+        // observation-based resolver wouldn't see it).
+        await supabase.from('predictions').update({
+          resolved_at: new Date().toISOString(),
+          outcome_value: { disposition, score: disposition === 'won' ? 1 : 0, imported: true },
+        }).eq('id', staked.prediction_id);
         surfaced++;
       } catch { /* best-effort */ }
     }
