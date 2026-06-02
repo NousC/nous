@@ -64,20 +64,10 @@ usersRouter.get('/me/export', verifySupabaseAuth, async (req, res) => {
     const supabase = getSupabaseClient();
     const { user } = await ensureUserAndTeam(req.user);
 
-    const exportData = { export_date: new Date().toISOString(), user_id: user.id, personal_data: {}, documents: [], templates: [] };
+    const exportData = { export_date: new Date().toISOString(), user_id: user.id, personal_data: {} };
 
     const { data: userData } = await supabase.from('users').select('id, email, name, profile_picture_url, created_at').eq('id', user.id).single();
     exportData.personal_data = userData || {};
-
-    const { data: memberships } = await supabase.from('workspace_members').select('workspace_id').eq('user_id', user.id);
-    const workspaceIds = (memberships || []).map(m => m.workspace_id);
-
-    if (workspaceIds.length) {
-      const { data: docs } = await supabase.from('documents').select('id, name, created_at, updated_at').in('workspace_id', workspaceIds).eq('user_id', user.id);
-      exportData.documents = docs || [];
-      const { data: templates } = await supabase.from('templates').select('id, name, type, created_at').in('workspace_id', workspaceIds).eq('user_id', user.id);
-      exportData.templates = templates || [];
-    }
 
     res.setHeader('Content-Disposition', `attachment; filename="nous-export-${user.id}.json"`);
     res.setHeader('Content-Type', 'application/json');
