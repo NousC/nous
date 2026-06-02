@@ -20,14 +20,23 @@ const PAGES = ['', '/about', '/careers', '/jobs', '/pricing', '/product', '/docs
 const normDomain = (d) => String(d || '').trim().replace(/^https?:\/\//i, '').replace(/\/.*$/, '').replace(/^www\./i, '').toLowerCase();
 const slug = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40);
 
-async function fetchPage(url) {
+// A realistic browser UA — many sites 403 a "bot" UA but serve a normal browser.
+const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+
+async function fetchWithTimeout(url, opts = {}, ms = 8000) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 6000);
+  const timer = setTimeout(() => controller.abort(), ms);
   try {
-    const res = await fetch(url, {
-      signal: controller.signal, redirect: 'follow',
-      headers: { 'User-Agent': 'NousBot/1.0 (+https://opennous.cloud)' },
-    });
+    return await fetch(url, { signal: controller.signal, redirect: 'follow', ...opts });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Static fetch + HTML→text. Fast and free; works for most marketing sites.
+async function fetchPage(url) {
+  try {
+    const res = await fetchWithTimeout(url, { headers: { 'User-Agent': UA } }, 8000);
     if (!res.ok) return '';
     const html = await res.text();
     return html
@@ -40,8 +49,21 @@ async function fetchPage(url) {
       .trim();
   } catch {
     return '';
-  } finally {
-    clearTimeout(timer);
+  }
+}
+
+// Rendering fallback for JS-only / bot-blocked sites. Jina Reader (r.jina.ai)
+// fetches, renders JS, bypasses most anti-bot, and returns clean readable text.
+// Free tier works keyless; set JINA_API_KEY for higher rate limits.
+async function fetchViaJina(url) {
+  try {
+    const headers = { 'User-Agent': UA, 'X-Return-Format': 'text' };
+    if (process.env.JINA_API_KEY) headers['Authorization'] = `Bearer ${process.env.JINA_API_KEY}`;
+    const res = await fetchWithTimeout(`https://r.jina.ai/${url}`, { headers }, 20000);
+    if (!res.ok) return '';
+    return (await res.text()).replace(/\s+/g, ' ').trim();
+  } catch {
+    return '';
   }
 }
 
@@ -52,7 +74,15 @@ export async function extractWebsiteSignals(domain) {
   if (!host) return null;
   const base = `https://${host}`;
   const texts = await Promise.all(PAGES.map(p => fetchPage(base + p)));
-  const corpus = texts.filter(Boolean).join('\n\n').slice(0, 14000);
+  let corpus = texts.filter(Boolean).join('\n\n').slice(0, 14000);
+
+  // Thin result → JS-only or bot-blocked. Render a few key pages via Jina and
+  // keep whichever read is richer.
+  if (corpus.length < 800) {
+    const rendered = (await Promise.all(['', '/about', '/pricing'].map(p => fetchViaJina(base + p))))
+      .filter(Boolean).join('\n\n');
+    if (rendered.length > corpus.length) corpus = rendered.slice(0, 14000);
+  }
   if (!corpus) return null;
 
   const prompt =
