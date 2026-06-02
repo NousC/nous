@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { RefreshCw, ChevronRight, Trash2, History, Info, Plus } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
@@ -135,6 +136,7 @@ function Sparkline({ values, width = 96, height = 24 }: { values: (number | null
 
 export default function Intelligence() {
   const { session, userData } = useAuth();
+  const navigate = useNavigate();
   const token = session?.access_token ?? "";
   const workspaceId = userData?.workspace?.id ?? "";
 
@@ -1018,7 +1020,12 @@ export default function Intelligence() {
                         : p.disposition === "no_opportunity" ? { t: "No deal", c: "#64748b", bg: "rgba(100,116,139,0.10)" }
                         : null;
                       return (
-                        <div key={p.id} className="flex items-center gap-4 px-4 py-3 border-b border-border/60 last:border-0 hover:bg-muted/50 transition-colors">
+                        <div
+                          key={p.id}
+                          onClick={() => p.entity_id && navigate(`/people/${p.entity_id}?tab=icp`)}
+                          className="flex items-center gap-4 px-4 py-3 border-b border-border/60 last:border-0 hover:bg-muted/50 transition-colors cursor-pointer"
+                          title="Open this account's ICP trail"
+                        >
                           <span className="flex-1 min-w-0 text-[13px] font-medium text-foreground truncate">{label}</span>
                           <span
                             className="flex-shrink-0 text-right text-[13px] font-semibold tabular-nums"

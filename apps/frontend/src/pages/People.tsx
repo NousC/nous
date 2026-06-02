@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Linkedin, Trash2, RefreshCw, Search, Download, Upload, FileText } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { relTime } from "@/components/mind/shared";
@@ -23,13 +23,18 @@ interface IcpTrailRow {
   resolved_at: string | null;
   disposition: string | null;
   outcome_score: number | null;
+  learned: { status: "changed" | "no_change" | "pending"; at?: string; detail?: string | null } | null;
 }
 interface IcpTrail { current: IcpTrailRow; history: IcpTrailRow[]; }
 
 // ─── PeopleDetail — tabbed contact record ────────────────────────────────────
 
+const DETAIL_TABS: DetailTab[] = ["icp", "activity", "emails", "linkedin", "slack", "calls", "notes", "company", "memory"];
+
 function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token: string; onBack: () => void }) {
-  const [tab, setTab] = useState<DetailTab>("activity");
+  const [searchParams] = useSearchParams();
+  const requestedTab = searchParams.get("tab") as DetailTab | null;
+  const [tab, setTab] = useState<DetailTab>(requestedTab && DETAIL_TABS.includes(requestedTab) ? requestedTab : "activity");
   const [loading, setLoading] = useState(true);
   const [acts, setActs] = useState<any[]>([]);
   const [mems, setMems] = useState<any[]>([]);
@@ -157,11 +162,13 @@ function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token:
                       : d === "lost" ? { t: "Closed-lost", c: "#b45309", bg: "rgba(180,83,9,0.10)" }
                       : d === "no_opportunity" ? { t: "No deal", c: "#64748b", bg: "rgba(100,116,139,0.10)" }
                       : null;
-                    const learnNote = (d: string | null) =>
-                      d === "won"  ? "Fed the model as a win — sharpens what a strong fit looks like."
-                      : d === "lost" ? "Fed the model as a loss — sharpens what to score down."
-                      : d === "no_opportunity" ? "Never entered a buying motion — excluded from learning."
-                      : null;
+                    const learnNote = (h: IcpTrailRow): string | null => {
+                      if (h.disposition === "no_opportunity") return "Never entered a buying motion — excluded from learning.";
+                      const L = h.learned;
+                      if (!L || L.status === "pending") return "In the training set — the next learning run will use it.";
+                      if (L.status === "changed") return `Sharpened the model${L.at ? ` ${relTime(L.at)}` : ""}${L.detail ? ` — ${L.detail}` : ""}.`;
+                      return "In the training set — no model change that run.";
+                    };
                     return (
                       <div className="py-4 space-y-6">
                         {/* Current fit — the headline */}
@@ -198,7 +205,7 @@ function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token:
                                   {oc && (
                                     <div className="mt-2 flex items-baseline gap-2 flex-wrap">
                                       <span className="text-[9px] font-semibold uppercase tracking-wide px-1.5 py-[1px] rounded" style={{ color: oc.c, background: oc.bg }}>{oc.t}</span>
-                                      <span className="text-[12px] text-muted-foreground/70">{learnNote(h.disposition)}</span>
+                                      <span className="text-[12px] text-muted-foreground/70">{learnNote(h)}</span>
                                       {h.resolved_at && <span className="text-[11px] text-muted-foreground/50 tabular-nums">{relTime(h.resolved_at)}</span>}
                                     </div>
                                   )}

@@ -137,7 +137,7 @@ contactsApiRouter.get('/:id', verifySupabaseAuth, async (req, res) => {
       .select('id, predicted_value, predicted_at, resolved_at, outcome_value, model_version')
       .eq('workspace_id', contact.workspace_id).eq('entity_id', id).eq('kind', 'icp_fit')
       .order('predicted_at', { ascending: false }).limit(30);
-    const history = (preds || []).map(p => ({
+    let history = (preds || []).map(p => ({
       id:            p.id,
       score:         p.predicted_value?.score ?? null,
       fit:           p.predicted_value?.fit ?? null,
@@ -147,7 +147,31 @@ contactsApiRouter.get('/:id', verifySupabaseAuth, async (req, res) => {
       disposition:   p.resolved_at ? (p.outcome_value?.disposition ?? null) : null,
       outcome_score: p.resolved_at ? (p.outcome_value?.score ?? null) : null,
       model_version: p.model_version ?? null,
+      learned:       null,
     }));
+
+    // Tie each resolved won/lost outcome to the learning run that consumed it. A
+    // prediction resolved before a run ran was part of that run's training
+    // cohort, so the FIRST scorecard_run after resolved_at is where it fed the
+    // model — and that run's note says whether it changed anything.
+    const learnable = history.filter(h => h.resolved_at && (h.disposition === 'won' || h.disposition === 'lost'));
+    if (learnable.length) {
+      const { data: runs } = await supabase
+        .from('scorecard_runs')
+        .select('note, created_at')
+        .eq('workspace_id', contact.workspace_id)
+        .order('created_at', { ascending: true });
+      const runRows = runs || [];
+      for (const h of learnable) {
+        const run = runRows.find(r => r.created_at >= h.resolved_at);
+        if (!run) { h.learned = { status: 'pending' }; continue; }
+        const changed = typeof run.note === 'string' && run.note.startsWith('kept');
+        // Strip the "kept N: " prefix so the trail can show the change plainly.
+        const detail = changed ? run.note.replace(/^kept\s+\d+:\s*/, '') : null;
+        h.learned = { status: changed ? 'changed' : 'no_change', at: run.created_at, detail };
+      }
+    }
+
     const icp = history.length ? { current: history[0], history } : null;
 
     return res.json({ contact, activities, company, memories, icp });
