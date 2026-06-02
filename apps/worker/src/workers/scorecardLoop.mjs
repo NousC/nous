@@ -240,15 +240,17 @@ async function runForWorkspace(supabase, workspaceId, episodes) {
   });
   if (kept) {
     console.log(`[SCORECARD_LOOP] ${workspaceId}: ${kept} change(s), gap ${baseline?.toFixed(3) ?? '—'} → ${current?.toFixed(3) ?? '—'}`);
-    // The model just changed — refresh the current fit of every open account
-    // from its stored features so scores stop going stale. Resolved bets are
-    // untouched; each re-score shows up as a "Re-scored" step in the trail.
-    try {
-      const rs = await rescoreOpenPredictions(supabase, workspaceId);
-      if (rs.rescored) console.log(`[SCORECARD_LOOP] ${workspaceId}: re-scored ${rs.rescored} open account(s) to ${rs.version}`);
-    } catch (e) {
-      console.warn(`[SCORECARD_LOOP] ${workspaceId}: re-score failed:`, e?.message || e);
-    }
+  }
+  // Refresh the current fit of every open account from its stored features so
+  // scores never go stale — runs every night regardless of whether THIS loop
+  // shipped a change (catches accounts left behind by earlier model changes /
+  // closed-deals imports). Idempotent: no-ops when versions already match.
+  // Resolved bets are untouched; each move shows up as a "Re-scored" trail step.
+  try {
+    const rs = await rescoreOpenPredictions(supabase, workspaceId);
+    if (rs.rescored) console.log(`[SCORECARD_LOOP] ${workspaceId}: re-scored ${rs.rescored} open account(s) to ${rs.version}`);
+  } catch (e) {
+    console.warn(`[SCORECARD_LOOP] ${workspaceId}: re-score failed:`, e?.message || e);
   }
 
   await logWorkerRun(supabase, {
