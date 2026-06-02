@@ -861,6 +861,7 @@ mindRouter.post('/closed-deals', async (req, res) => {
     let enriched = 0;
     const linked = [];        // contacts we recognized and joined to the deal
     const companyDeals = [];  // {companyId, disposition} — scored after discovery
+    const personDeals = [];   // {personId, disposition} — resolved after discovery
     const ingest = async (domain, disposition) => {
       const companyId = await getOrCreateEntity(supabase, workspaceId, 'company', [{ kind: 'domain', value: domain }]);
       const r = await extractAndRecordWebsiteSignals(supabase, workspaceId, companyId, domain).catch(() => null);
@@ -885,6 +886,7 @@ mindRouter.post('/closed-deals', async (req, res) => {
           occurredAt: new Date().toISOString(),
           description: disposition === 'won' ? 'Closed-won (closed-deals import)' : 'Closed-lost (closed-deals import)',
         }).catch(() => {});
+        personDeals.push({ personId, disposition });
       }
 
       // Buyer traits for the episode — the most senior linked contact represents
@@ -976,6 +978,29 @@ mindRouter.post('/closed-deals', async (req, res) => {
           outcome_value: { disposition, score: disposition === 'won' ? 1 : 0, imported: true },
         }).eq('id', staked.prediction_id);
         surfaced++;
+      } catch { /* best-effort */ }
+    }
+
+    // The linked PEOPLE are the real accounts — resolve each directly to the
+    // deal's known outcome (don't rely on the event hook, which is fragile to
+    // timing/dedup). Score them first if they have no prediction yet; skip
+    // anyone already resolved so re-runs don't churn.
+    for (const { personId, disposition } of personDeals) {
+      try {
+        const { data: ex } = await supabase.from('predictions')
+          .select('id, resolved_at').eq('workspace_id', workspaceId).eq('entity_id', personId).eq('kind', 'icp_fit')
+          .order('predicted_at', { ascending: false }).limit(1);
+        if (ex?.[0]?.resolved_at) continue;          // already resolved — leave it
+        let pid = ex?.[0]?.id;
+        if (!pid) {
+          const staked = await scoreAndStake(supabase, workspaceId, personId, freshSignals);
+          pid = staked?.prediction_id;
+        }
+        if (!pid) continue;
+        await supabase.from('predictions').update({
+          resolved_at: new Date().toISOString(),
+          outcome_value: { disposition, score: disposition === 'won' ? 1 : 0, imported: true },
+        }).eq('id', pid);
       } catch { /* best-effort */ }
     }
 
