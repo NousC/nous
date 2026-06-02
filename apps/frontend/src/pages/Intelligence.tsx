@@ -209,6 +209,11 @@ export default function Intelligence() {
   const [cdRunning, setCdRunning] = useState(false);
   const [cdResult, setCdResult] = useState<{ enriched: number; discovered: { label: string; weight: number; note: string }[] } | null>(null);
 
+  // ICP-fit column sort for the analyzed table. Cycle (like the People table):
+  // off → desc (best fits on top) → asc → off.
+  const [sortIcp, setSortIcp] = useState<"asc" | "desc" | null>(null);
+  const cycleIcp = () => setSortIcp(d => (d === null ? "desc" : d === "desc" ? "asc" : null));
+
   // Standalone ICP record drawer — opened from the analyzed table.
   const [recordEntity, setRecordEntity] = useState<{ id: string; label: string } | null>(null);
   const [record, setRecord] = useState<IcpRecord | null>(null);
@@ -1007,12 +1012,27 @@ export default function Intelligence() {
                     {/* Header */}
                     <div className="flex items-center gap-4 px-4 py-2.5 bg-muted/50 border-y border-border">
                       <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-1 min-w-0">Account</span>
-                      <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-shrink-0 text-right" style={{ width: 48 }}>ICP fit</span>
+                      <button
+                        onClick={cycleIcp}
+                        className="text-[11px] font-semibold uppercase tracking-wide flex-shrink-0 flex items-center justify-end gap-0.5 group whitespace-nowrap"
+                        style={{ width: 48 }}
+                        title="Sort by ICP fit"
+                      >
+                        <span className={sortIcp ? "text-foreground/80" : "text-muted-foreground/70 group-hover:text-foreground/80 transition-colors"}>ICP fit</span>
+                        {sortIcp && <span className="text-[10px] text-muted-foreground">{sortIcp === "asc" ? "↑" : "↓"}</span>}
+                      </button>
                       <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-shrink-0" style={{ width: 96 }}>Outcome</span>
                       <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-shrink-0 text-right" style={{ width: 92 }}>Analyzed</span>
                     </div>
-                    {/* Rows */}
-                    {substrate!.recent_predictions.slice(0, 12).map(p => {
+                    {/* Rows — default order is newest-first; clicking ICP fit sorts
+                        by score (unscored sink to the bottom). */}
+                    {[...substrate!.recent_predictions]
+                      .sort((a, b) => {
+                        if (!sortIcp) return 0;
+                        const av = a.score ?? -1, bv = b.score ?? -1;
+                        return sortIcp === "asc" ? av - bv : bv - av;
+                      })
+                      .slice(0, 12).map(p => {
                       const label = p.name || p.email || "Unknown account";
                       const score = typeof p.score === "number" ? Math.round(p.score) : null;
                       const outcome =
