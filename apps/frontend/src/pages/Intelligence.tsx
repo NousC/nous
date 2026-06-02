@@ -1257,7 +1257,7 @@ export default function Intelligence() {
                         const av = a.score ?? -1, bv = b.score ?? -1;
                         return sortIcp === "asc" ? av - bv : bv - av;
                       })
-                      .slice(0, 12).map(p => {
+                      .map(p => {
                       const label = p.name || p.email || "Unknown account";
                       const score = typeof p.score === "number" ? Math.round(p.score) : null;
                       const outcome =

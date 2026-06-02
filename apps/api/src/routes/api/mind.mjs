@@ -229,13 +229,23 @@ mindRouter.get('/substrate', async (req, res) => {
         sample: s.fires,
       }));
 
-    // Recent predictions feed (last 20) — enriched with entity name + email
+    // Analyzed-accounts feed — every account we've scored (newest first), one
+    // row per account (latest prediction wins), enriched with name + email.
     const recentPredsRes = await supabase
       .from('predictions')
       .select('id, entity_id, predicted_value, predicted_at, outcome_value, resolved_at')
       .eq('workspace_id', workspaceId).eq('kind', 'icp_fit')
-      .order('predicted_at', { ascending: false }).limit(20);
-    const recentRows = recentPredsRes.data || [];
+      .order('predicted_at', { ascending: false }).limit(500);
+    // Dedupe by entity — keep the newest prediction per account — then order by
+    // most-recent activity (resolved-now accounts surface above old scores).
+    const seenEntity = new Set();
+    const recentRows = (recentPredsRes.data || [])
+      .filter(r => {
+        if (seenEntity.has(r.entity_id)) return false;
+        seenEntity.add(r.entity_id);
+        return true;
+      })
+      .sort((a, b) => String(b.resolved_at || b.predicted_at).localeCompare(String(a.resolved_at || a.predicted_at)));
     const recentEntityIds = [...new Set(recentRows.map(r => r.entity_id))];
 
     let nameByEntity = {}, emailByEntity = {}, domainByEntity = {};
