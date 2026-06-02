@@ -128,7 +128,29 @@ contactsApiRouter.get('/:id', verifySupabaseAuth, async (req, res) => {
     // Notes on this contact-entity (entity_id == contact.id in v2).
     const memories = await listNotes(supabase, contact.workspace_id, { entityId: id, limit: 30 });
 
-    return res.json({ contact, activities, company, memories });
+    // ICP trail — the prediction(s) Nous staked for this account and how they
+    // resolved. The substance of "what we did": each score, why it scored
+    // (reason = the signals that fired), and the realized outcome. Newest first;
+    // history[0] is the current fit, older rows are superseded re-scores.
+    const { data: preds } = await supabase
+      .from('predictions')
+      .select('id, predicted_value, predicted_at, resolved_at, outcome_value, model_version')
+      .eq('workspace_id', contact.workspace_id).eq('entity_id', id).eq('kind', 'icp_fit')
+      .order('predicted_at', { ascending: false }).limit(30);
+    const history = (preds || []).map(p => ({
+      id:            p.id,
+      score:         p.predicted_value?.score ?? null,
+      fit:           p.predicted_value?.fit ?? null,
+      reason:        p.predicted_value?.reason ?? null,
+      scored_at:     p.predicted_at,
+      resolved_at:   p.resolved_at,
+      disposition:   p.resolved_at ? (p.outcome_value?.disposition ?? null) : null,
+      outcome_score: p.resolved_at ? (p.outcome_value?.score ?? null) : null,
+      model_version: p.model_version ?? null,
+    }));
+    const icp = history.length ? { current: history[0], history } : null;
+
+    return res.json({ contact, activities, company, memories, icp });
   } catch (err) {
     return res.status(500).json({ error: 'internal_error', ...(process.env.NODE_ENV !== 'production' && { detail: String(err.message) }) });
   }
