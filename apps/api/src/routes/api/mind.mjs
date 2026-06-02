@@ -24,6 +24,8 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const FEATURE_VOCAB =
   'job_title (string), seniority (one of: c_suite, vp, director, manager, ic), ' +
   'department (string), industry (string), employee_count (number), ' +
+  'size_band (one of: 1-10, 11-50, 51-200, 201-1000, 1000+), ' +
+  'funding_stage (one of: bootstrapped, seed, series_a, series_b, series_c_plus, public), ' +
   'country (string), company (string). ' +
   // Website-derived signals (from the signal extractor) — niche, differentiated:
   'signal.target_market (b2b|b2c|b2b2c|developer|enterprise|smb), ' +
@@ -405,9 +407,68 @@ mindRouter.get('/account/:entityId', async (req, res) => {
     }
     email = emailIdent?.[0]?.value ?? null;
 
+    // ── Company report — who they are. For a person the firmographics live on
+    // their employer (works_at); for a company entity, on itself. Merge: the
+    // entity's own claims first, the employer fills any gaps.
+    const ownClaimsRes = await supabase.from('claims').select('property, value')
+      .eq('entity_id', entityId).is('invalid_at', null);
+    let companyClaims = ownClaimsRes.data || [];
+    const { data: rels } = await supabase.from('relationships').select('to_entity_id')
+      .eq('workspace_id', workspaceId).eq('from_entity_id', entityId).eq('type', 'works_at').is('valid_to', null).limit(1);
+    const employerId = rels?.[0]?.to_entity_id ?? null;
+    if (employerId) {
+      const { data: empClaims } = await supabase.from('claims').select('property, value')
+        .eq('entity_id', employerId).is('invalid_at', null);
+      const have = new Set(companyClaims.map(c => c.property));
+      companyClaims = [...companyClaims, ...(empClaims || []).filter(c => !have.has(c.property))];
+    }
+    const cm = {};
+    for (const c of companyClaims) cm[c.property] = c.value;
+    const collect = (prefix) => companyClaims
+      .filter(c => c.property.startsWith(prefix) && c.value === true)
+      .map(c => c.property.slice(prefix.length).replace(/_/g, ' '));
+    const company = {
+      what_they_do: cm.what_they_do ?? null,
+      industry: cm.industry ?? null,
+      size_band: cm.size_band ?? (cm.employee_count != null ? String(cm.employee_count) : null),
+      funding_stage: cm.funding_stage ?? null,
+      country: cm.country ?? null,
+      target_market: cm['signal.target_market'] ?? null,
+      pricing_model: cm['signal.pricing_model'] ?? null,
+      recently_funded: cm['signal.recently_funded'] ?? null,
+      product: ['has_api', 'has_docs', 'has_sandbox', 'self_serve_signup', 'free_trial'].filter(k => cm[`signal.${k}`] === true).map(k => k.replace(/_/g, ' ')),
+      tech: collect('signal.tech.'),
+      hiring: collect('signal.hiring.'),
+      compliance: collect('signal.compliance.'),
+    };
+    const hasCompany = Object.values(company).some(v => Array.isArray(v) ? v.length : (v != null && v !== false));
+
+    // ── Pipeline report — how the deal went, derived from the activity log. ──
+    const { data: acts } = await supabase.from('observations')
+      .select('property, source, observed_at')
+      .eq('entity_id', entityId).eq('kind', 'event').like('property', 'interaction.%')
+      .order('observed_at', { ascending: true }).limit(500);
+    const events = acts || [];
+    const typeOf = (p) => (p || '').replace(/^interaction\./, '');
+    const count = (pred) => events.filter(e => pred(typeOf(e.property))).length;
+    const pipeline = events.length ? {
+      n_touches: events.length,
+      n_meetings: count(t => t.includes('meeting') || t.includes('call')),
+      n_emails: count(t => t.includes('email')),
+      n_linkedin: count(t => t.includes('linkedin')),
+      n_replies: count(t => t.includes('reply') || t.includes('replied') || t.includes('received')),
+      first_touch_at: events[0].observed_at,
+      last_touch_at: events[events.length - 1].observed_at,
+      lead_source: events[0].source || null,
+      first_touch_type: typeOf(events[0].property),
+      stage: cm.pipeline_stage ?? null,
+    } : null;
+
     return res.json({
       account: { entity_id: entityId, name, email },
       icp: history.length ? { current: history[0], history } : null,
+      company: hasCompany ? company : null,
+      pipeline,
     });
   } catch (err) {
     console.error('[GET /api/mind/account/:entityId]', err);
