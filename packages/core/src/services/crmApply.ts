@@ -5,7 +5,7 @@
 // See docs/crm-hygiene-phase-2-spec.md, Task B.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { fetchCrmRecordFields, writeCrmRecordFields, type CrmProvider } from '../integrations/crm/index.js';
+import { fetchCrmRecordFields, writeCrmRecordFields, writeCrmIcpFields, type CrmProvider } from '../integrations/crm/index.js';
 import { normalizeFieldValue } from './crmReconcile.js';
 import type { HygieneProposalRow } from './crmHygiene.js';
 
@@ -15,9 +15,9 @@ export interface ApplyResult {
   reason?: string;
 }
 
-// Kinds Task B can write today. icp_rescore needs custom-field provisioning
-// (Task A follow-up); net_new is a bundle; conflict is human-only forever.
-const APPLYABLE = new Set(['field_fill', 'field_update']);
+// Kinds apply can write today. net_new is a bundle (deferred); conflict is
+// human-only forever.
+const APPLYABLE = new Set(['field_fill', 'field_update', 'icp_rescore']);
 
 export function isApplyable(kind: string): boolean {
   return APPLYABLE.has(kind);
@@ -36,7 +36,17 @@ export async function applyProposal(
   if (kind === 'conflict')   return { applied: false, status: 'failed', reason: 'conflicts are never auto-applied — human only' };
   if (!isApplyable(kind))    return { applied: false, status: 'failed', reason: `apply not yet supported for ${kind}` };
   if (!token)                return { applied: false, status: 'failed', reason: 'no CRM token' };
-  if (!crm_record_id || !field) return { applied: false, status: 'failed', reason: 'missing record id or field' };
+  if (!crm_record_id)        return { applied: false, status: 'failed', reason: 'missing record id' };
+
+  // ICP write-back is to Nous-owned fields (provisioned on demand) — no
+  // optimistic-concurrency re-read; we always own those fields.
+  if (kind === 'icp_rescore') {
+    const icp = (proposed_value && typeof proposed_value === 'object') ? proposed_value as Record<string, unknown> : {};
+    const res = await writeCrmIcpFields(provider as CrmProvider, token, crm_record_id, icp);
+    return res.ok ? { applied: true, status: 'applied' } : { applied: false, status: 'failed', reason: res.error || 'ICP write failed' };
+  }
+
+  if (!field) return { applied: false, status: 'failed', reason: 'missing field' };
 
   // Optimistic concurrency — the CRM must still hold what we proposed against,
   // or a human changed it after the proposal was raised. Don't clobber that.
