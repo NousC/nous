@@ -26,6 +26,7 @@ export * from './utils/encryption.js';
 export * from './utils/googleAuth.js';
 export * from './services/crmPush.js';
 export * from './services/outcomes.js';
+export * from './services/rescore.js';
 export * from './services/crmHygiene.js';
 export * from './services/crmProvenance.js';
 export * from './services/crmReconcile.js';

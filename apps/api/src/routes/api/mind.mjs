@@ -337,17 +337,40 @@ mindRouter.get('/account/:entityId', async (req, res) => {
       .eq('workspace_id', workspaceId).eq('entity_id', entityId).eq('kind', 'icp_fit')
       .order('predicted_at', { ascending: false }).limit(30);
 
-    const history = (preds || []).map(p => ({
-      id:            p.id,
-      score:         p.predicted_value?.score ?? null,
-      fit:           p.predicted_value?.fit ?? null,
-      reason:        p.predicted_value?.reason ?? null,
-      scored_at:     p.predicted_at,
-      resolved_at:   p.resolved_at,
-      disposition:   p.resolved_at ? (p.outcome_value?.disposition ?? null) : null,
-      outcome_score: p.resolved_at ? (p.outcome_value?.score ?? null) : null,
-      learned:       null,
-    }));
+    // Flatten each prediction row into trail entries: the row's current
+    // (head) score, then any prior scores from re-scores (predicted_value.history),
+    // so the trail reads "Re-scored 35 → Scored 15". Newest-first throughout.
+    const history = [];
+    for (const p of preds || []) {
+      const pv = p.predicted_value || {};
+      const priors = Array.isArray(pv.history) ? pv.history : [];
+      history.push({
+        id:            p.id,
+        score:         pv.score ?? null,
+        fit:           pv.fit ?? null,
+        reason:        pv.reason ?? null,
+        scored_at:     pv.rescored_at || p.predicted_at,
+        rescored:      priors.length > 0,
+        resolved_at:   p.resolved_at,
+        disposition:   p.resolved_at ? (p.outcome_value?.disposition ?? null) : null,
+        outcome_score: p.resolved_at ? (p.outcome_value?.score ?? null) : null,
+        learned:       null,
+      });
+      for (const h of priors) {
+        history.push({
+          id:            `${p.id}:${h.at}`,
+          score:         h.score ?? null,
+          fit:           h.fit ?? null,
+          reason:        h.reason ?? null,
+          scored_at:     h.at,
+          rescored:      false,
+          resolved_at:   null,
+          disposition:   null,
+          outcome_score: null,
+          learned:       null,
+        });
+      }
+    }
 
     // Tie each resolved won/lost outcome to the first scorecard_run after it
     // resolved — the run whose training cohort it was part of.
