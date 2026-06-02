@@ -405,7 +405,8 @@ export default function Intelligence() {
   // ICP-fit column sort for the analyzed table. Cycle (like the People table):
   // off → desc (best fits on top) → asc → off.
   const [sortIcp, setSortIcp] = useState<"asc" | "desc" | null>(null);
-  const cycleIcp = () => setSortIcp(d => (d === null ? "desc" : d === "desc" ? "asc" : null));
+  const [tablePage, setTablePage] = useState(0);
+  const cycleIcp = () => { setSortIcp(d => (d === null ? "desc" : d === "desc" ? "asc" : null)); setTablePage(0); };
 
   // Model-evolution drawer — opened from the Signals metric. The signals ARE
   // the ICP model; the run history is how it sharpened over time.
@@ -1212,95 +1213,105 @@ export default function Intelligence() {
           {/* ─── 2. How your workspace is getting smarter — the centerpiece. ───
                ─── The compounding story: the model AND the context sharpening ───
                ─── over time. This is the whole point of the page. ─── */}
-          {!needsSetup && ((!hasModel && icpFacts.length > 0) || (hasModel && (substrate?.recent_predictions?.length ?? 0) > 0)) && (
-            <div className="rounded-xl border border-border bg-background overflow-hidden">
-              <div className="px-4 py-4 space-y-5">
-                {/* Build CTA — only before a scoring model exists. */}
-                {!hasModel && (
-                  <div className="flex items-center gap-3 flex-wrap">
-                    <button
-                      onClick={buildScorecard}
-                      disabled={seeding}
-                      className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-primary text-primary-foreground text-[13px] font-semibold hover:bg-primary/90 transition-colors disabled:opacity-30"
-                    >
-                      {seeding ? "Building…" : "Build your scoring model"}
-                    </button>
-                    <span className="text-[12px] text-muted-foreground/70">Turn your context into a model that scores fit — then watch it sharpen from every outcome.</span>
-                  </div>
-                )}
-
-                {/* What we analyzed — the real work, as a People-style table. Each
-                    account Nous scored: its ICP fit and how it actually turned out.
-                    Full-bleed (breaks the card padding) so it reads as a real table. */}
-                {hasModel && (substrate?.recent_predictions?.length ?? 0) > 0 && (
-                  <div className="-mx-4">
-                    {/* Header */}
-                    <div className="flex items-center gap-4 px-4 py-2.5 bg-muted/50 border-y border-border">
-                      <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-1 min-w-0">Account</span>
-                      <button
-                        onClick={cycleIcp}
-                        className="text-[11px] font-semibold uppercase tracking-wide flex-shrink-0 flex items-center justify-end gap-0.5 group whitespace-nowrap"
-                        style={{ width: 48 }}
-                        title="Sort by ICP fit"
-                      >
-                        <span className={sortIcp ? "text-foreground/80" : "text-muted-foreground/70 group-hover:text-foreground/80 transition-colors"}>ICP fit</span>
-                        {sortIcp && <span className="text-[10px] text-muted-foreground">{sortIcp === "asc" ? "↑" : "↓"}</span>}
-                      </button>
-                      <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-shrink-0" style={{ width: 96 }}>Outcome</span>
-                      <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-shrink-0 text-right" style={{ width: 92 }}>Analyzed</span>
-                    </div>
-                    {/* Rows — default order is newest-first; clicking ICP fit sorts
-                        by score (unscored sink to the bottom). */}
-                    {[...substrate!.recent_predictions]
-                      .sort((a, b) => {
-                        if (!sortIcp) return 0;
-                        const av = a.score ?? -1, bv = b.score ?? -1;
-                        return sortIcp === "asc" ? av - bv : bv - av;
-                      })
-                      .map(p => {
-                      const label = p.name || p.email || "Unknown account";
-                      const score = typeof p.score === "number" ? Math.round(p.score) : null;
-                      const outcome =
-                        p.disposition === "won" ? { t: "Closed-won", c: "#15803d", bg: "rgba(21,128,61,0.10)" }
-                        : p.disposition === "lost" ? { t: "Closed-lost", c: "#b45309", bg: "rgba(180,83,9,0.10)" }
-                        : p.replied ? { t: "Replied", c: "#1d4ed8", bg: "rgba(29,78,216,0.10)" }
-                        : p.disposition === "no_opportunity" ? { t: "No deal", c: "#64748b", bg: "rgba(100,116,139,0.10)" }
-                        : null;
-                      return (
-                        <div
-                          key={p.id}
-                          onClick={() => p.entity_id && setRecordEntity({ id: p.entity_id, label })}
-                          className="flex items-center gap-4 px-4 py-3 border-b border-border/60 last:border-0 hover:bg-muted/50 transition-colors cursor-pointer"
-                          title="Open this account's ICP record"
-                        >
-                          <span className="flex-1 min-w-0 text-[13px] font-medium text-foreground truncate">{label}</span>
-                          <span
-                            className="flex-shrink-0 text-right text-[13px] font-semibold tabular-nums"
-                            style={{ width: 48, color: score == null ? "#94a3b8" : score >= 70 ? "#15803d" : score >= 40 ? "#a16207" : "#b91c1c" }}
-                          >
-                            {score ?? "—"}
-                          </span>
-                          <div className="flex-shrink-0" style={{ width: 96 }}>
-                            {outcome ? (
-                              <span className="text-[9px] font-semibold uppercase tracking-wide px-1.5 py-[1px] rounded" style={{ color: outcome.c, background: outcome.bg }}>
-                                {outcome.t}
-                              </span>
-                            ) : (
-                              <span className="text-[12px] text-muted-foreground/45">Pending</span>
-                            )}
-                          </div>
-                          <span className="flex-shrink-0 text-right text-[12px] text-muted-foreground/60 tabular-nums" style={{ width: 92 }}>
-                            {formatDistanceToNow(new Date(p.resolved_at || p.predicted_at), { addSuffix: true })}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-
-              </div>
+          {/* Build CTA — only before a scoring model exists. */}
+          {!needsSetup && !hasModel && icpFacts.length > 0 && (
+            <div className="rounded-xl border border-border bg-background px-4 py-4 flex items-center gap-3 flex-wrap">
+              <button
+                onClick={buildScorecard}
+                disabled={seeding}
+                className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-primary text-primary-foreground text-[13px] font-semibold hover:bg-primary/90 transition-colors disabled:opacity-30"
+              >
+                {seeding ? "Building…" : "Build your scoring model"}
+              </button>
+              <span className="text-[12px] text-muted-foreground/70">Turn your context into a model that scores fit — then watch it sharpen from every outcome.</span>
             </div>
           )}
+
+          {/* Analyzed accounts — a standalone table. Header is fixed; the body
+              scrolls on its own; 50 per page. Clicking ICP fit sorts the whole set. */}
+          {!needsSetup && hasModel && (substrate?.recent_predictions?.length ?? 0) > 0 && (() => {
+            const sorted = [...substrate!.recent_predictions].sort((a, b) => {
+              if (!sortIcp) return 0;
+              const av = a.score ?? -1, bv = b.score ?? -1;
+              return sortIcp === "asc" ? av - bv : bv - av;
+            });
+            const total = sorted.length;
+            const pages = Math.max(1, Math.ceil(total / 50));
+            const page = Math.min(tablePage, pages - 1);
+            const pageRows = sorted.slice(page * 50, page * 50 + 50);
+            return (
+              <div className="rounded-xl border border-border bg-background overflow-hidden">
+                {/* Header (fixed above the scroll area) */}
+                <div className="flex items-center gap-4 px-4 py-2.5 bg-muted/50 border-b border-border">
+                  <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-1 min-w-0">Account</span>
+                  <button
+                    onClick={cycleIcp}
+                    className="text-[11px] font-semibold uppercase tracking-wide flex-shrink-0 flex items-center justify-end gap-0.5 group whitespace-nowrap"
+                    style={{ width: 48 }}
+                    title="Sort by ICP fit"
+                  >
+                    <span className={sortIcp ? "text-foreground/80" : "text-muted-foreground/70 group-hover:text-foreground/80 transition-colors"}>ICP fit</span>
+                    {sortIcp && <span className="text-[10px] text-muted-foreground">{sortIcp === "asc" ? "↑" : "↓"}</span>}
+                  </button>
+                  <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-shrink-0" style={{ width: 96 }}>Outcome</span>
+                  <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-shrink-0 text-right" style={{ width: 92 }}>Analyzed</span>
+                </div>
+                {/* Scrollable body */}
+                <div className="max-h-[58vh] overflow-y-auto">
+                  {pageRows.map(p => {
+                    const label = p.name || p.email || "Unknown account";
+                    const score = typeof p.score === "number" ? Math.round(p.score) : null;
+                    const outcome =
+                      p.disposition === "won" ? { t: "Closed-won", c: "#15803d", bg: "rgba(21,128,61,0.10)" }
+                      : p.disposition === "lost" ? { t: "Closed-lost", c: "#b45309", bg: "rgba(180,83,9,0.10)" }
+                      : p.replied ? { t: "Replied", c: "#1d4ed8", bg: "rgba(29,78,216,0.10)" }
+                      : p.disposition === "no_opportunity" ? { t: "No deal", c: "#64748b", bg: "rgba(100,116,139,0.10)" }
+                      : null;
+                    return (
+                      <div
+                        key={p.id}
+                        onClick={() => p.entity_id && setRecordEntity({ id: p.entity_id, label })}
+                        className="flex items-center gap-4 px-4 py-3 border-b border-border/60 last:border-0 hover:bg-muted/50 transition-colors cursor-pointer"
+                        title="Open this account's ICP record"
+                      >
+                        <span className="flex-1 min-w-0 text-[13px] font-medium text-foreground truncate">{label}</span>
+                        <span
+                          className="flex-shrink-0 text-right text-[13px] font-semibold tabular-nums"
+                          style={{ width: 48, color: score == null ? "#94a3b8" : score >= 70 ? "#15803d" : score >= 40 ? "#a16207" : "#b91c1c" }}
+                        >
+                          {score ?? "—"}
+                        </span>
+                        <div className="flex-shrink-0" style={{ width: 96 }}>
+                          {outcome ? (
+                            <span className="text-[9px] font-semibold uppercase tracking-wide px-1.5 py-[1px] rounded" style={{ color: outcome.c, background: outcome.bg }}>
+                              {outcome.t}
+                            </span>
+                          ) : (
+                            <span className="text-[12px] text-muted-foreground/45">Pending</span>
+                          )}
+                        </div>
+                        <span className="flex-shrink-0 text-right text-[12px] text-muted-foreground/60 tabular-nums" style={{ width: 92 }}>
+                          {formatDistanceToNow(new Date(p.resolved_at || p.predicted_at), { addSuffix: true })}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+                {/* Pagination — 50 per page */}
+                {pages > 1 && (
+                  <div className="flex items-center justify-between px-4 py-2.5 border-t border-border">
+                    <span className="text-[12px] text-muted-foreground/60 tabular-nums">{page * 50 + 1}–{Math.min((page + 1) * 50, total)} of {total}</span>
+                    <div className="flex items-center gap-2">
+                      <button disabled={page === 0} onClick={() => setTablePage(page - 1)}
+                        className="h-7 px-2.5 rounded-md border border-border text-[12px] font-medium text-foreground/80 hover:bg-muted/50 transition-colors disabled:opacity-30">Prev</button>
+                      <button disabled={page >= pages - 1} onClick={() => setTablePage(page + 1)}
+                        className="h-7 px-2.5 rounded-md border border-border text-[12px] font-medium text-foreground/80 hover:bg-muted/50 transition-colors disabled:opacity-30">Next</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
         </div>
       </div>
