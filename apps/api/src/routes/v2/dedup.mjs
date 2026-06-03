@@ -10,16 +10,22 @@ export const dedupV2Router = Router();
 // preview), get back which ones you already have. Buy only the difference.
 //
 // Body — at least one of:
-//   { emails:        string[] }  // up to 10,000
-//   { linkedin_urls: string[] }  // up to 10,000
-//   { emails: [...], linkedin_urls: [...] }   // both, combined response
+//   { emails:        string[] }  // up to 50,000
+//   { linkedin_urls: string[] }  // up to 50,000
+//   { domains:       string[] }  // up to 50,000 — company-level dedup
+//   any combination — combined response
+//
+// `domains` is the pre-spend, company-level gate: "do I already have anyone at
+// this company?" Pass the domains from your discovery source (e.g. DiscoLike),
+// keep only `net_new`, and enrich people only at companies you don't already
+// have — so you never pay to re-enrich the agencies already in your pipeline.
 //
 // Response:
 //   {
 //     results: [
-//       { kind: 'email'|'linkedin_url', value, status, entity_id?, reason? }
+//       { kind: 'email'|'linkedin_url'|'domain', value, status, entity_id?, reason? }
 //     ],
-//     summary: { net_new, engaged, recent, bounced, unsubscribed, suppressed, total }
+//     summary: { net_new, engaged, recent, bounced, unsubscribed, suppressed, known, total }
 //   }
 //
 // Status semantics:
@@ -29,6 +35,7 @@ export const dedupV2Router = Router();
 //   bounced       — last delivery bounced (email-only signal). Skip.
 //   unsubscribed  — opted out or do-not-contact. Skip.
 //   suppressed    — workspace-level suppression policy. Skip.
+//   known         — (domain) a company already in the workspace. Skip.
 
 // The core helper chunks every IN query internally, so this ceiling reflects
 // reasonable per-request work, not a URL-length constraint.
@@ -36,17 +43,18 @@ const MAX_PER_BATCH = 50_000;
 
 dedupV2Router.post('/', async (req, res) => {
   try {
-    const { emails, linkedin_urls } = req.body || {};
+    const { emails, linkedin_urls, domains } = req.body || {};
     const emailList = Array.isArray(emails) ? emails : [];
     const linkedinList = Array.isArray(linkedin_urls) ? linkedin_urls : [];
+    const domainList = Array.isArray(domains) ? domains : [];
 
-    if (emailList.length === 0 && linkedinList.length === 0) {
+    if (emailList.length === 0 && linkedinList.length === 0 && domainList.length === 0) {
       return res.status(400).json({
         error: 'identifiers_required',
-        message: 'Body must include a non-empty `emails` or `linkedin_urls` array (or both).',
+        message: 'Body must include a non-empty `emails`, `linkedin_urls`, or `domains` array.',
       });
     }
-    if (emailList.length > MAX_PER_BATCH || linkedinList.length > MAX_PER_BATCH) {
+    if (emailList.length > MAX_PER_BATCH || linkedinList.length > MAX_PER_BATCH || domainList.length > MAX_PER_BATCH) {
       return res.status(413).json({
         error: 'too_many',
         message: `Maximum ${MAX_PER_BATCH} of each kind per call. Split into batches.`,
@@ -58,11 +66,12 @@ dedupV2Router.post('/', async (req, res) => {
     const results = await classifyIdentifiers(supabase, req.workspaceId, {
       emails: emailList,
       linkedin_urls: linkedinList,
+      domains: domainList,
     });
 
     const summary = {
       net_new: 0, engaged: 0, recent: 0,
-      bounced: 0, unsubscribed: 0, suppressed: 0,
+      bounced: 0, unsubscribed: 0, suppressed: 0, known: 0,
       total: results.length,
     };
     for (const r of results) summary[r.status] = (summary[r.status] || 0) + 1;
