@@ -95,6 +95,30 @@ app.use(express.json({ limit: '10mb' }));
 // ── Health ────────────────────────────────────────────────────────────────────
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
+// ── Public auth config ────────────────────────────────────────────────────────
+// Read by the login/signup UI before auth. Lets a self-host hide the
+// "Create account" path (DISABLE_SIGNUPS) and the Google button when Google
+// OAuth isn't configured. Even with DISABLE_SIGNUPS=true, registration stays
+// OPEN until the first user (the owner) exists, so the owner can still sign up;
+// it closes once an account exists. Mirrors the server gate in ensureUserAndTeam.
+app.get('/api/auth/config', async (_req, res) => {
+  let signupsDisabled = false;
+  if (process.env.DISABLE_SIGNUPS === 'true') {
+    try {
+      const { count } = await getSupabaseClient()
+        .from('users')
+        .select('id', { count: 'exact', head: true });
+      signupsDisabled = (count ?? 0) > 0;
+    } catch {
+      signupsDisabled = false; // on error, don't lock the owner out
+    }
+  }
+  res.json({
+    signupsDisabled,
+    googleEnabled: Boolean(process.env.GOOGLE_CLIENT_ID),
+  });
+});
+
 // ── v2 — Context API (evidence substrate) ────────────────────────────────────
 // Order matters: verifyApiKey populates req.workspaceId; logV2Op reads it
 // after the response finishes and writes a row to workspace_system_log so

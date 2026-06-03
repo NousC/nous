@@ -171,6 +171,9 @@ meRouter.get('/', verifySupabaseAuth, async (req, res) => {
       self_hosted: process.env.SELF_HOSTED === 'true',
     });
   } catch (err) {
+    if (err?.code === 'SIGNUPS_DISABLED') {
+      return res.status(403).json({ error: 'signups_disabled', message: err.message });
+    }
     console.error('[ME_ROUTE_ERROR]', err);
     return res.status(500).json({ error: 'internal_error', ...(process.env.NODE_ENV !== 'production' && { detail: String(err.message || err) }) });
   }
