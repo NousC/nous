@@ -315,12 +315,13 @@ export type EmailClassificationStatus =
   | 'recent'         // contacted within the cooldown window — defer
   | 'bounced'        // last delivery bounced — skip
   | 'unsubscribed'   // opted out or do-not-contact — skip
-  | 'suppressed';    // workspace-level suppression (policy layer)
+  | 'suppressed'     // workspace-level suppression (policy layer)
+  | 'known';         // (domain) a company already in the workspace — skip to save spend
 
 export interface EmailClassification {
   /** @deprecated use `value` (kept for backward compat). */
   email: string;
-  kind: 'email' | 'linkedin_url';
+  kind: 'email' | 'linkedin_url' | 'domain';
   value: string;
   status: EmailClassificationStatus;
   entity_id?: string;
@@ -330,6 +331,20 @@ export interface EmailClassification {
 export interface ClassifyInput {
   emails?: string[];
   linkedin_urls?: string[];
+  /** Company domains — for pre-spend, company-level dedup ("do I already have
+   *  anyone at this company?"). Resolves against entity_identifiers(kind=domain)
+   *  and the companies table. */
+  domains?: string[];
+}
+
+/** Normalize a company domain for matching: lowercase, strip scheme/www/path. */
+function normalizeDomain(d: string | null | undefined): string | null {
+  if (!d) return null;
+  const s = d.toLowerCase().trim()
+    .replace(/^https?:\/\//, '')
+    .replace(/^www\./, '')
+    .replace(/[/?#].*$/, '');
+  return s || null;
 }
 
 const STAGE_ENGAGED = new Set(['aware', 'interested', 'evaluating', 'client']);
@@ -386,7 +401,10 @@ export async function classifyIdentifiers(
   const linkedinUrls = Array.from(new Set(
     (input.linkedin_urls ?? []).map(u => normalizeLinkedInUrl(u)).filter((u): u is string => !!u),
   ));
-  if (emails.length === 0 && linkedinUrls.length === 0) return [];
+  const domains = Array.from(new Set(
+    (input.domains ?? []).map(d => normalizeDomain(d)).filter((d): d is string => !!d),
+  ));
+  if (emails.length === 0 && linkedinUrls.length === 0 && domains.length === 0) return [];
 
   // 1. Workspace policy: suppressions (email-only — LinkedIn doesn't have an
   // equivalent opt-out registry).
@@ -422,10 +440,38 @@ export async function classifyIdentifiers(
   const entityByEmail = new Map<string, string>(emailRows.map(i => [i.value, i.entity_id]));
   const entityByLinkedIn = new Map<string, string>(linkedinRows.map(i => [i.value, i.entity_id]));
 
+  // 2b. Company-level resolution by domain — entity_identifiers(kind=domain)
+  // plus the companies table (some domains live there but not as an identifier).
+  const entityByDomain = new Map<string, string>();
+  if (domains.length) {
+    const [domainIdRows, companyRows] = await Promise.all([
+      chunkedIn<{ value: string; entity_id: string }>(
+        chunk => supabase.from('entity_identifiers').select('value, entity_id')
+          .eq('workspace_id', workspaceId).eq('kind', 'domain').eq('status', 'active')
+          .in('value', chunk),
+        domains,
+      ),
+      chunkedIn<{ id: string; domain: string }>(
+        chunk => supabase.from('companies').select('id, domain')
+          .eq('workspace_id', workspaceId).in('domain', chunk),
+        domains,
+      ),
+    ]);
+    for (const r of domainIdRows) {
+      const d = normalizeDomain(r.value);
+      if (d) entityByDomain.set(d, r.entity_id);
+    }
+    for (const c of companyRows) {
+      const d = normalizeDomain(c.domain);
+      if (d && !entityByDomain.has(d)) entityByDomain.set(d, c.id);
+    }
+  }
+
   // 3. For matched entities — what we know about them.
   const entityIds = [...new Set([
     ...entityByEmail.values(),
     ...entityByLinkedIn.values(),
+    ...entityByDomain.values(),
   ])];
   const claimsByEntity = new Map<string, Record<string, unknown>>();
   const recentByEntity = new Set<string>();
@@ -461,7 +507,7 @@ export async function classifyIdentifiers(
   }
 
   // 4. Classify (suppression > bounced > unsubscribed > engaged > recent > net_new).
-  const classifyOne = (kind: 'email' | 'linkedin_url', value: string, entityId?: string): EmailClassification => {
+  const classifyOne = (kind: 'email' | 'linkedin_url' | 'domain', value: string, entityId?: string): EmailClassification => {
     if (kind === 'email' && supByEmail.has(value)) {
       return { email: value, kind, value, status: 'suppressed',
                reason: supByEmail.get(value) ?? 'workspace suppression' };
@@ -485,12 +531,18 @@ export async function classifyIdentifiers(
     if (recentByEntity.has(entityId)) {
       return { email: value, kind, value, status: 'recent', entity_id: entityId };
     }
+    // Present but cold. For a domain that still means "a company you already
+    // have" — mark it `known` so the skill skips it before paying to enrich.
+    if (kind === 'domain') {
+      return { email: value, kind, value, status: 'known', entity_id: entityId, reason: 'company in workspace' };
+    }
     return { email: value, kind, value, status: 'net_new', entity_id: entityId, reason: 'cold' };
   };
 
   return [
     ...emails.map(e => classifyOne('email', e, entityByEmail.get(e))),
     ...linkedinUrls.map(u => classifyOne('linkedin_url', u, entityByLinkedIn.get(u))),
+    ...domains.map(d => classifyOne('domain', d, entityByDomain.get(d))),
   ];
 }
 
