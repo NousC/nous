@@ -44,6 +44,7 @@ import { crmRouter } from './routes/api/crm.mjs';
 import { contactsApiRouter } from './routes/api/contacts.mjs';
 import { companiesApiRouter } from './routes/api/companies.mjs';
 import { signalsRouter, publicSignalsRouter } from './routes/api/signals.mjs';
+import { skillDownloadsRouter } from './routes/public/skillDownloads.mjs';
 import { requestsRouter } from './routes/api/requests.mjs';
 import { feedbackRouter } from './routes/api/feedback.mjs';
 import { publicLiveRouter } from './routes/api/public/live.mjs';
@@ -129,6 +130,7 @@ app.use('/api/companies',             companiesApiRouter);
 // The public ingest endpoint stays open (its own HMAC token guards it).
 app.use('/api/signals',               verifySupabaseAuth, requireFeature('publicSignalExtraction'), signalsRouter);
 app.use('/api/public/signals',        publicSignalsRouter);
+app.use('/api/public/skill-downloads', skillDownloadsRouter);
 app.use('/api/requests',              requestsRouter);
 app.use('/api/feedback',              feedbackRouter);
 app.use('/api/public/live',           publicLiveRouter);
