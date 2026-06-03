@@ -82,6 +82,22 @@ export async function ensureUserAndTeam(supabaseUser, skipTeamCreation = false) 
       return { user: newUser, team: invitedTeam };
     }
 
+    // Self-host registration gate: when DISABLE_SIGNUPS=true, only the very
+    // first user (who becomes the owner) or an invited user may provision an
+    // account. Everyone else is rejected here — they can still authenticate
+    // with Supabase, but get no Nous account, so a public instance is never an
+    // open free-for-all. Teammates come in through team_invitations instead.
+    if (process.env.DISABLE_SIGNUPS === 'true') {
+      const { count } = await supabase
+        .from('users')
+        .select('id', { count: 'exact', head: true });
+      if ((count ?? 0) > 0) {
+        const err = new Error('Registration is disabled on this instance.');
+        err.code = 'SIGNUPS_DISABLED';
+        throw err;
+      }
+    }
+
     // No pending invitation — create team + user (founder)
     const teamName = name ? `${name}'s Team` : 'My Team';
     const { data: newTeam, error: teamError } = await supabase.from('teams').insert({ name: teamName }).select().single();
