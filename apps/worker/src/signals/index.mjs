@@ -209,6 +209,13 @@ async function extractActivitySignals({ supabase, activityId, contactId, workspa
     const contactCtx = contact
       ? [[contact.first_name, contact.last_name].filter(Boolean).join(' '), contact.company].filter(Boolean).join(' at ')
       : null;
+    const contactName = (contact && [contact.first_name, contact.last_name].filter(Boolean).join(' ')) || 'the contact';
+    // Reaching here means the content is the contact's own words (outbound is
+    // filtered out in extractAfterActivity). State that explicitly so Haiku
+    // never mistakes the user's side of a thread for a fact about the contact.
+    const provenance = type === 'meeting_held'
+      ? `These are notes/transcript from a meeting with ${contactName}.`
+      : `This is a message that ${contactName} sent to you (the user) — these are ${contactName}'s own words, not yours.`;
 
     const channelLabel = {
       slack_dm:         'Slack DM',
@@ -224,7 +231,9 @@ async function extractActivitySignals({ supabase, activityId, contactId, workspa
       feature: 'activity-signals-extract',
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 400,
-      messages: [{ role: 'user', content: `Extract CRM intelligence from this private ${channelLabel}.
+      messages: [{ role: 'user', content: `Extract CRM intelligence about ${contactName} from this private ${channelLabel}.
+${provenance}
+Record facts ONLY about ${contactName}, drawn from what THEY say about themselves, their company, needs, opinions, or plans. NEVER turn the user's own questions, offers, or statements into facts about ${contactName} (e.g. if the user asked "what's behind your product?", that is NOT a fact that ${contactName} is interested in the user's product).
 ${contactCtx ? `Contact: ${contactCtx}` : ''}
 
 Message: "${summary}"
@@ -305,9 +314,14 @@ If nothing meaningful: []` }],
 
 // ── Public export — call this after every logActivity ────────────────────────
 
-export async function extractAfterActivity(supabase, activityResult, { contactId, workspaceId, type, source, summary }) {
+export async function extractAfterActivity(supabase, activityResult, { contactId, workspaceId, type, source, summary, isOutbound }) {
   if (!activityResult?.id) return;
   if (!SIGNAL_WORTHY_TYPES.has(type)) return;
+  // Never extract "facts about the contact" from a message the USER sent — that
+  // would attribute our own questions/offers to them (e.g. "interested in X"
+  // when we were the one asking about X). Only the contact's own words (inbound
+  // messages, meeting transcripts) describe the contact.
+  if (isOutbound === true) return;
   if (!summary || summary.length < 20) return;
   if (SIGNAL_NOISE.some(p => p.test(summary))) return;
 

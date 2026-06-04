@@ -421,6 +421,8 @@ async function scanLinkedIn(supabase, workspaceId, contact, accountId, attendeeM
         type: 'linkedin_message', source: 'linkedin',
         externalId:  `li_msg_${msg.id || msg.provider_id}`,
         occurredAt:  msg.timestamp ? new Date(msg.timestamp).toISOString() : new Date().toISOString(),
+        // is_outbound so the signal extractor skips messages WE sent.
+        rawData:     { is_outbound: !!msg.is_sender },
         description: 'LinkedIn message',
         summary:     msg.is_sender ? `You: ${msg.text.slice(0, 200)}` : msg.text.slice(0, 200),
       });
