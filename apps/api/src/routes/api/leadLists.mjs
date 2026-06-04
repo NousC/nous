@@ -10,6 +10,7 @@ import {
   updateLeadListColumns,
   insertLeads,
   listLeads,
+  deleteLeads,
 } from '@nous/core';
 
 export const leadListsRouter = Router();
@@ -119,6 +120,25 @@ leadListsRouter.post('/:id/leads', async (req, res) => {
     return res.status(201).json(result);
   } catch (err) {
     console.error('[POST /api/lead-lists/:id/leads]', err);
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
+// DELETE /api/lead-lists/:id/leads — remove selected leads from a list.
+// Body: { workspaceId?, ids: [...] }. The operator's manual control step after
+// ICP scoring. Returns { deleted }.
+leadListsRouter.delete('/:id/leads', async (req, res) => {
+  try {
+    const { ids } = req.body;
+    const workspaceId = req.body.workspaceId || req.workspaceId;
+    if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'ids array required' });
+    }
+    const deleted = await deleteLeads(getSupabaseClient(), workspaceId, req.params.id, ids);
+    return res.json({ deleted });
+  } catch (err) {
+    console.error('[DELETE /api/lead-lists/:id/leads]', err);
     return res.status(500).json({ error: 'internal_error' });
   }
 });

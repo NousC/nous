@@ -302,6 +302,29 @@ export async function updateLead(
   return (data as unknown as Lead) ?? null;
 }
 
+// Delete selected leads from a list — the operator's manual control step after
+// ICP scoring (remove confirmed junk, or a misjudged non-ICP row). Scoped to the
+// workspace and list. Returns the count removed. Requires the leads view's
+// INSTEAD OF DELETE trigger (v2 phase 5) to be applied.
+export async function deleteLeads(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  leadListId: string,
+  ids: string[],
+): Promise<number> {
+  const valid = (ids || []).filter(isUUID);
+  if (!isUUID(leadListId) || valid.length === 0) return 0;
+  const { data, error } = await supabase
+    .from('leads')
+    .delete()
+    .eq('workspace_id', workspaceId)
+    .eq('lead_list_id', leadListId)
+    .in('id', valid)
+    .select('id');
+  if (error) throw error;
+  return (data || []).length;
+}
+
 // ── Cold-outbound dedup: classifyEmails ──────────────────────────────────────
 //
 // The pre-flight check for a new CSV upload. Given a list of emails, returns
