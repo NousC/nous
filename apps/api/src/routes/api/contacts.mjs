@@ -454,6 +454,26 @@ contactsApiRouter.post('/import', verifySupabaseAuth, async (req, res) => {
       updated++;
     }
 
+    // Also link existing (updated) contacts to their company, so re-importing a
+    // file backfills associations for people imported before this existed.
+    const emailToId = new Map((existingByEmail || []).map(c => [c.email.toLowerCase(), c.id]));
+    const liToId = new Map((existingByLinkedin || []).map(c => [c.linkedin_url, c.id]));
+    const updateRels = [];
+    for (const r of toUpdateEmail) {
+      const cid = companyIdByKey.get(companyKeyOf(r));
+      const pid = emailToId.get(r.email.toLowerCase().trim());
+      if (cid && pid) updateRels.push({ workspace_id: workspaceId, from_entity_id: pid, to_entity_id: cid, type: 'works_at', valid_from: new Date().toISOString() });
+    }
+    for (const r of toUpdateLinkedin) {
+      const cid = companyIdByKey.get(companyKeyOf(r));
+      const pid = liToId.get(r.linkedin_url.trim());
+      if (cid && pid) updateRels.push({ workspace_id: workspaceId, from_entity_id: pid, to_entity_id: cid, type: 'works_at', valid_from: new Date().toISOString() });
+    }
+    if (updateRels.length) {
+      const { error: relErr } = await supabase.from('relationships').upsert(updateRels, { onConflict: 'workspace_id,from_entity_id,to_entity_id,type', ignoreDuplicates: true });
+      if (relErr) console.error('[CONTACTS_IMPORT_WORKS_AT_UPDATE]', relErr.message);
+    }
+
     // Fire async history enrichment for all imported contacts (new + updated)
     const existingIds = [
       ...(existingByEmail || []).map(c => c.id),
