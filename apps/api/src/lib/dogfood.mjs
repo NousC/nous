@@ -6,6 +6,10 @@ const API_URL = process.env.NOUS_INTERNAL_API_URL || 'https://api.opennous.cloud
 const API_KEY = process.env.NOUS_INTERNAL_API_KEY || null;
 
 function configured() {
+  // Never phone home from a self-hosted instance — a self-hoster's signups and
+  // plan changes must not land in our cloud Nous workspace, even if they happen
+  // to set NOUS_INTERNAL_API_KEY.
+  if (process.env.SELF_HOSTED === 'true') return false;
   return !!API_KEY;
 }
 

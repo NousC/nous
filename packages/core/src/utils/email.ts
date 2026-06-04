@@ -6,8 +6,12 @@
 // (subject/text/html) and any idempotency guard. No-ops without RESEND_API_KEY,
 // mirroring the best-effort pattern used everywhere else (dogfood, pollers).
 
-const DEFAULT_FROM = process.env.RESEND_FROM_EMAIL || 'Nous <bennet@opennous.cloud>';
-const DEFAULT_REPLY_TO = process.env.RESEND_REPLY_TO || 'bennet@opennous.cloud';
+// The shipped default is a neutral role address, not a personal inbox, so an
+// OSS/self-host build never sends as a founder's email. The cloud sets its own
+// RESEND_FROM_EMAIL / RESEND_REPLY_TO; self-hosters set theirs to a verified
+// domain. Reply-to falls back to the from address rather than a hardcoded inbox.
+const DEFAULT_FROM = process.env.RESEND_FROM_EMAIL || 'Nous <noreply@opennous.cloud>';
+const DEFAULT_REPLY_TO = process.env.RESEND_REPLY_TO || DEFAULT_FROM;
 
 export interface SendEmailParams {
   to: string;

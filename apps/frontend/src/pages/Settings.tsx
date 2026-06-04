@@ -73,6 +73,9 @@ export default function Settings() {
   const { userData, session, refreshUserData, signOut } = useAuth();
   const navigate = useNavigate();
   const isAdmin = userData?.user?.is_admin === true;
+  // Agora (founder contact + the cloud Friends page) is a Nous Cloud community
+  // surface — never shown on a self-hosted instance.
+  const selfHosted = (userData as { self_hosted?: boolean })?.self_hosted === true;
   const handleSignOut = async () => { try { await signOut(); } catch { /* ignore */ } };
   const { mode, setMode } = useTheme();
   const token = session?.access_token;
@@ -264,7 +267,7 @@ export default function Settings() {
   const TABS: { id: SettingsTab; label: string }[] = [
     { id: "profile", label: "Profile" },
     { id: "team",    label: "Team"    },
-    { id: "agora",   label: "Agora"   },
+    ...(selfHosted ? [] : [{ id: "agora" as SettingsTab, label: "Agora" }]),
     ...(isAdmin ? [{ id: "admin" as SettingsTab, label: "Admin" }] : []),
   ];
 

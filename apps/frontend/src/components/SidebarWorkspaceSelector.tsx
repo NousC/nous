@@ -263,7 +263,7 @@ export function SidebarWorkspaceSelector({ collapsed = false }: SidebarWorkspace
 
       if (response.status === 402) {
         const data = await response.json();
-        if (data.error === 'billing_confirmation_required') {
+        if (data.error === 'billing_confirmation_required' && !selfHosted) {
           setPendingWorkspace({ name: workspaceName.trim(), icon: workspaceIcon });
           setBillingInfo(data.pricing);
           setCreateDialogOpen(false);
