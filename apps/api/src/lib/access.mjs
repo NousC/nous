@@ -20,8 +20,28 @@ import {
 } from './plans.mjs';
 
 async function resolveTeamAndPlan(req) {
-  const { team } = await ensureUserAndTeam(req.user);
   const supabase = getSupabaseClient();
+  let team;
+  if (req.user) {
+    // JWT auth — resolve the team from the logged-in user.
+    ({ team } = await ensureUserAndTeam(req.user));
+  } else if (req.workspaceId) {
+    // API-key (pk_) auth — there is no logged-in user; resolve the team via the
+    // workspace the key belongs to, mirroring getAuthContext's API-key branch.
+    const { data: workspace } = await supabase
+      .from('workspaces')
+      .select('team_id')
+      .eq('id', req.workspaceId)
+      .single();
+    if (!workspace) throw new Error('workspace_not_found');
+    const { data: keyTeam } = await supabase
+      .from('teams')
+      .select('*')
+      .eq('id', workspace.team_id)
+      .single();
+    team = keyTeam;
+  }
+  if (!team) throw new Error('no_team_context');
   const { data: subscription } = await supabase
     .from('subscriptions')
     .select('*')
