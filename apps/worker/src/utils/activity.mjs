@@ -32,6 +32,9 @@ export async function logActivity(supabase, params) {
       type:        params.type,
       source:      params.source,
       summary:     params.summary || params.description || null,
+      // Direction matters: a message the user SENT must never become a "fact"
+      // about the contact. Forward it so the extractor can skip outbound.
+      isOutbound:  params.rawData?.is_outbound === true,
     }).catch(() => {});
   }
   return result;

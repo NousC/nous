@@ -437,7 +437,9 @@ export async function handleLinkedIn(req, res, workspaceId) {
       source:      'linkedin',
       externalId:  msgId ? `li_msg_${msgId}` : null,
       occurredAt,
-      rawData:     body,
+      // is_outbound drives sent-vs-received fact extraction — a message WE sent
+      // must never become a "fact" about the contact. body carries is_sender.
+      rawData:     { ...body, is_outbound: isSender },
       description: messageText.slice(0, 500) || (isSender ? 'LinkedIn message (sent)' : 'LinkedIn message (received)'),
       summary:     isSender ? `You: ${messageText.slice(0, 200)}` : messageText.slice(0, 200),
     });
