@@ -198,8 +198,8 @@ export default function Lists() {
 
   const activeList = lists.find(l => l.id === activeId) ?? null;
   const customCols = activeList?.columns ?? [];
-  // Show the ICP filter when the list declares an icp column.
-  const hasIcp = customCols.some(c => c.key === "icp");
+  // Show the ICP filter when the list is ICP-scored (icp or icp_score column).
+  const hasIcp = customCols.some(c => c.key === "icp" || c.key === "icp_score");
 
   // Row selection + delete — operates on the current page.
   const allVisibleSelected = leads.length > 0 && leads.every(l => selected.has(l.id));
@@ -684,11 +684,23 @@ export default function Lists() {
                             className="h-3.5 w-3.5 accent-foreground cursor-pointer"
                           />
                         </div>
-                        {allCols.map((c, i) => (
+                        {allCols.map((c, i) => {
+                          const val = cellValue(l, c.key);
+                          const isLink = c.key === "linkedin_url" && val;
+                          return (
                           <div key={c.key} className={`px-3 py-2.5 text-[13px] truncate flex-shrink-0 ${i === 0 ? "text-foreground" : "text-muted-foreground"}`} style={{ width: c.w }}>
-                            {cellValue(l, c.key) || <span className="text-muted-foreground/40">—</span>}
+                            {isLink ? (
+                              <a href={val} target="_blank" rel="noopener noreferrer"
+                                 onClick={e => e.stopPropagation()}
+                                 className="text-blue-600 dark:text-blue-400 hover:underline">
+                                {val.replace(/^https?:\/\/(www\.)?linkedin\.com\//, "").replace(/\/$/, "") || "profile"}
+                              </a>
+                            ) : (
+                              val || <span className="text-muted-foreground/40">—</span>
+                            )}
                           </div>
-                        ))}
+                          );
+                        })}
                         <div className="px-3 py-2.5 text-[12px] capitalize flex-shrink-0" style={{ width: STATUS_W }}>
                           <span className={l.reply_outcome ? "text-green-700 dark:text-green-500" : "text-muted-foreground/60"}>
                             {l.reply_outcome || l.status}
