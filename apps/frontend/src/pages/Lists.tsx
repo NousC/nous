@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { Plus, Upload, RefreshCw, FileText, X, ArrowLeft } from "lucide-react";
+import { Plus, Upload, RefreshCw, FileText, X, ArrowLeft, Trash2 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader } from "@/components/ui/page-header";
 import { parseCSVLine } from "@/components/contacts/PeopleImportModal";
@@ -22,6 +22,7 @@ const FIXED_COLS: { key: string; label: string; w: number }[] = [
 const FIXED_KEYS = new Set(FIXED_COLS.map(c => c.key));
 const CUSTOM_W = 150;
 const STATUS_W = 100;
+const SEL_W = 40;
 const SKIP = "";           // mapping target: ignore this CSV column
 const NEW_COL = "__new__"; // mapping target: create a new column from this header
 
@@ -113,6 +114,10 @@ export default function Lists() {
   const [csvRows, setCsvRows] = useState<Record<string, string>[]>([]);
   const [mapping, setMapping] = useState<Record<string, string>>({});
   const [result, setResult] = useState<{ inserted: number; skipped: number } | null>(null);
+  // ICP segmentation filter — sales-nav-builder tags each lead fields.icp true/false.
+  const [icpFilter, setIcpFilter] = useState<"all" | "icp" | "non">("all");
+  // Selected lead ids — the manual delete control after ICP scoring.
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const fileRef = useRef<HTMLInputElement>(null);
 
   const loadLists = useCallback(async () => {
@@ -146,8 +151,46 @@ export default function Lists() {
     else setLeads([]);
   }, [activeId, loadLeads]);
 
+  // Reset the ICP filter and selection when switching lists.
+  useEffect(() => { setIcpFilter("all"); setSelected(new Set()); }, [activeId]);
+
   const activeList = lists.find(l => l.id === activeId) ?? null;
   const customCols = activeList?.columns ?? [];
+  // ICP segmentation — show the filter only when the list has ICP-scored leads.
+  const icpCount = leads.filter(l => l.fields?.icp === true).length;
+  const nonIcpCount = leads.filter(l => l.fields?.icp === false).length;
+  const hasIcp = icpCount > 0 || nonIcpCount > 0;
+  const visibleLeads =
+    !hasIcp || icpFilter === "all"
+      ? leads
+      : leads.filter(l => (icpFilter === "icp" ? l.fields?.icp === true : l.fields?.icp === false));
+
+  // Row selection + delete (the manual control step).
+  const allVisibleSelected = visibleLeads.length > 0 && visibleLeads.every(l => selected.has(l.id));
+  const toggleOne = (id: string) =>
+    setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const toggleAllVisible = () =>
+    setSelected(prev => {
+      const n = new Set(prev);
+      if (visibleLeads.every(l => prev.has(l.id))) visibleLeads.forEach(l => n.delete(l.id));
+      else visibleLeads.forEach(l => n.add(l.id));
+      return n;
+    });
+  async function deleteSelected() {
+    if (!activeId || selected.size === 0) return;
+    setBusy(true);
+    try {
+      await fetch(`${apiUrl}/api/lead-lists/${activeId}/leads`, {
+        method: "DELETE",
+        headers: { ...authHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ workspaceId, ids: [...selected] }),
+      });
+      setSelected(new Set());
+      await loadLeads(activeId);
+      await loadLists();
+    } catch { /* silent */ }
+    finally { setBusy(false); }
+  }
   const allCols = [
     ...FIXED_COLS,
     ...customCols.map(c => ({ key: c.key, label: c.label, w: CUSTOM_W })),
@@ -319,7 +362,7 @@ export default function Lists() {
     );
   }
 
-  const rowWidth = allCols.reduce((s, c) => s + c.w, 0) + STATUS_W;
+  const rowWidth = allCols.reduce((s, c) => s + c.w, 0) + STATUS_W + SEL_W;
   const mapTargets = [
     ...FIXED_COLS.map(c => ({ value: c.key, label: c.label })),
     ...customCols.map(c => ({ value: c.key, label: c.label })),
@@ -458,6 +501,47 @@ export default function Lists() {
           </div>
         )}
 
+        {/* ICP segmentation filter — only when the active list has scored leads */}
+        {activeList && hasIcp && !leadsLoading && (
+          <div className="flex items-center gap-1.5 mb-3">
+            {([
+              ["all", "All", leads.length],
+              ["icp", "ICP", icpCount],
+              ["non", "Non-ICP", nonIcpCount],
+            ] as const).map(([key, label, n]) => (
+              <button
+                key={key}
+                onClick={() => setIcpFilter(key)}
+                className={`inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md text-[12px] font-medium border transition-colors ${
+                  icpFilter === key
+                    ? "bg-foreground text-background border-foreground"
+                    : "bg-background text-muted-foreground border-border hover:text-foreground"
+                }`}
+              >
+                {label}
+                <span className="tabular-nums opacity-70">{n}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Delete control — appears when rows are selected */}
+        {activeList && selected.size > 0 && (
+          <div className="flex items-center gap-3 mb-3">
+            <span className="text-[12px] text-muted-foreground tabular-nums">{selected.size} selected</span>
+            <button
+              onClick={deleteSelected}
+              disabled={busy}
+              className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md text-[12px] font-medium border border-red-300 text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40 transition-colors disabled:opacity-40"
+            >
+              <Trash2 className="h-3.5 w-3.5" /> Delete selected
+            </button>
+            <button onClick={() => setSelected(new Set())} className="text-[12px] text-muted-foreground hover:text-foreground">
+              Clear
+            </button>
+          </div>
+        )}
+
         {/* Table */}
         {lists.length === 0 && !loading ? (
           <div className="rounded-xl border border-border px-6 py-12 text-center">
@@ -469,6 +553,15 @@ export default function Lists() {
               <div style={{ minWidth: rowWidth + 140 }}>
                 {/* Header */}
                 <div className="flex bg-muted/50 border-b border-border">
+                  <div className="px-2 py-2.5 flex items-center flex-shrink-0" style={{ width: SEL_W }}>
+                    <input
+                      type="checkbox"
+                      aria-label="Select all"
+                      checked={allVisibleSelected}
+                      onChange={toggleAllVisible}
+                      className="h-3.5 w-3.5 accent-foreground cursor-pointer"
+                    />
+                  </div>
                   {allCols.map(c => (
                     <div key={c.key} className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-shrink-0" style={{ width: c.w }}>
                       {c.label}
@@ -499,8 +592,17 @@ export default function Lists() {
                   <div className="text-[13px] text-muted-foreground py-12 text-center">Loading…</div>
                 ) : (
                   <>
-                    {leads.map(l => (
-                      <div key={l.id} className="flex border-b border-border/60 hover:bg-muted/40 transition-colors">
+                    {visibleLeads.map(l => (
+                      <div key={l.id} className={`flex border-b border-border/60 transition-colors ${selected.has(l.id) ? "bg-muted/60" : "hover:bg-muted/40"}`}>
+                        <div className="px-2 py-2.5 flex items-center flex-shrink-0" style={{ width: SEL_W }}>
+                          <input
+                            type="checkbox"
+                            aria-label="Select lead"
+                            checked={selected.has(l.id)}
+                            onChange={() => toggleOne(l.id)}
+                            className="h-3.5 w-3.5 accent-foreground cursor-pointer"
+                          />
+                        </div>
                         {allCols.map((c, i) => (
                           <div key={c.key} className={`px-3 py-2.5 text-[13px] truncate flex-shrink-0 ${i === 0 ? "text-foreground" : "text-muted-foreground"}`} style={{ width: c.w }}>
                             {cellValue(l, c.key) || <span className="text-muted-foreground/40">—</span>}
@@ -517,6 +619,7 @@ export default function Lists() {
                     {/* Add row */}
                     {addingRow ? (
                       <div className="flex border-b border-border/60 bg-muted/40 items-center">
+                        <div className="flex-shrink-0" style={{ width: SEL_W }} />
                         {allCols.map(c => (
                           <div key={c.key} className="px-1.5 py-1.5 flex-shrink-0" style={{ width: c.w }}>
                             <input
@@ -550,7 +653,11 @@ export default function Lists() {
         ) : null}
 
         {activeList && leads.length > 0 && (
-          <p className="text-[12px] text-muted-foreground mt-3 tabular-nums">{leads.length} leads</p>
+          <p className="text-[12px] text-muted-foreground mt-3 tabular-nums">
+            {visibleLeads.length === leads.length
+              ? `${leads.length} leads`
+              : `${visibleLeads.length} of ${leads.length} leads`}
+          </p>
         )}
       </div>
     </div>
