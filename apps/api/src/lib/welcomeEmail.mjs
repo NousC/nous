@@ -36,6 +36,10 @@ P.S. If you're wondering how to get started, check out the resources on the webs
 }
 
 export async function sendWelcomeEmail({ to, firstName }) {
+  // This is our cloud onboarding copy, signed personally and pointing at our
+  // website's resources — it must never go to a self-hoster's own users, even
+  // if they configure RESEND_API_KEY for team invites.
+  if (process.env.SELF_HOSTED === 'true') return { sent: false, reason: 'self_hosted' };
   const { subject, text, html } = render({ firstName });
   return sendEmail({ to, subject, text, html, tag: 'WELCOME_EMAIL' });
 }

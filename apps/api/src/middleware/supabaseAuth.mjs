@@ -1,5 +1,17 @@
 import { getSupabaseClient } from '@nous/core';
 import { setUser } from 'useleak';
+import { isSelfHosted } from '../lib/plans.mjs';
+
+// useleak cost-tracking tags each request with the end user's email + name.
+// That PII must never leave a self-hosted box, so identify() is a no-op there.
+function identify(u) {
+  if (isSelfHosted()) return;
+  setUser({
+    id: String(u.id),
+    email: u.email,
+    name: u.user_metadata?.full_name || u.user_metadata?.name,
+  });
+}
 
 // Short-TTL in-memory cache for the full middleware result. Every authed
 // request used to do up to 3 round-trips: supabase.auth.getUser() over the
@@ -37,11 +49,7 @@ export async function verifySupabaseAuth(req, res, next) {
     req.supabaseUser = cached.user;
     req.internalUserId = cached.internalUserId;
     if (workspaceId) req.workspaceId = workspaceId;
-    setUser({
-      id: String(cached.user.id),
-      email: cached.user.email,
-      name: cached.user.user_metadata?.full_name || cached.user.user_metadata?.name,
-    });
+    identify(cached.user);
     return next();
   }
 
@@ -57,11 +65,7 @@ export async function verifySupabaseAuth(req, res, next) {
 
   req.user = user;
   req.supabaseUser = user;
-  setUser({
-    id: String(user.id),
-    email: user.email,
-    name: user.user_metadata?.full_name || user.user_metadata?.name,
-  });
+  identify(user);
 
   // workspace_members stores the internal users.id, not the auth UUID.
   // Resolve the internal user record so membership checks use the right ID.
