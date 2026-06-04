@@ -3,6 +3,9 @@ import { Link } from "react-router-dom";
 import { Copy, CheckCircle2, Plug, ArrowUpRight, Terminal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
+import { useAuth } from "@/contexts/AuthContext";
+
+const SELF_HOST_API_URL = import.meta.env.VITE_API_URL ?? "";
 
 // ── Brand logos used in the client rail. PNGs render crisp at small sizes;
 // the mascot uses image-rendering: pixelated to keep its 8-bit edges sharp.
@@ -647,6 +650,8 @@ function SdkFooter() {
 export default function Install() {
   const [client, setClient] = useState<Client>("claude");
   const isClaudeClient = CLAUDE_CLIENTS.includes(client);
+  const { userData } = useAuth();
+  const selfHosted = (userData as { self_hosted?: boolean })?.self_hosted === true;
 
   return (
     <div className="h-full overflow-y-auto bg-muted/30">
@@ -666,6 +671,16 @@ export default function Install() {
             title="Add Nous to your tool"
             hint="Pick where your agent runs. Claude Code installs as a plugin; everywhere else takes the MCP server config."
           >
+            {selfHosted && SELF_HOST_API_URL && (
+              <div className="mb-4 rounded-lg border border-amber-300/60 bg-amber-50 dark:border-amber-500/30 dark:bg-amber-500/10 px-4 py-3 text-[13px] leading-relaxed text-amber-900 dark:text-amber-200">
+                <p className="font-semibold mb-1">Self-hosted instance</p>
+                <p>
+                  Add <code className="font-mono text-[12px] bg-amber-100 dark:bg-amber-500/20 px-1 py-0.5 rounded">NOUS_API_URL={SELF_HOST_API_URL}</code> to
+                  the <code className="font-mono text-[12px]">env</code> of any config below, so your agent connects to <span className="font-medium">this</span> instance
+                  instead of the hosted Nous. Your API key is created here under <span className="font-medium">Settings → API Keys</span>.
+                </p>
+              </div>
+            )}
             <ClientPanel client={client} onChange={setClient} />
           </Step>
 
