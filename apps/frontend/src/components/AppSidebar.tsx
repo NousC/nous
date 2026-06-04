@@ -80,6 +80,11 @@ export function AppSidebar() {
   // CRM Sync + Lists are cloud-only — never surfaced on a self-hosted instance.
   const selfHosted = (userData as { self_hosted?: boolean })?.self_hosted === true;
   const showEnterprise = !selfHosted && (plan === "scale" || plan === "enterprise");
+  // Billing is a cloud-only surface — self-host is unmetered with no subscription,
+  // so drop "Usage & Billing" entirely (ops are visible on the Ops page).
+  const visibleBottomNavItems = selfHosted
+    ? bottomNavItems.filter((i) => i.url !== "/usage")
+    : bottomNavItems;
 
   const isItemActive = (url: string) => {
     if (url === "/") return location.pathname === "/";
@@ -219,7 +224,7 @@ export function AppSidebar() {
       {/* Bottom: Usage & Billing + Docs */}
       <nav className="px-2.5 pb-1">
         <ul className="flex flex-col gap-0.5">
-          {bottomNavItems.map(renderNavItem)}
+          {visibleBottomNavItems.map(renderNavItem)}
           {/* Docs — external link to the documentation site */}
           <li>
             <a

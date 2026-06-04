@@ -145,7 +145,7 @@ export function AppRoutes() {
             <Route path="/triggers"   element={<Suspense fallback={<MinimalLoader />}><Triggers /></Suspense>} />
 
             <Route path="/billing" element={<Suspense fallback={<MinimalLoader />}><UsageBilling /></Suspense>} />
-            <Route path="/usage" element={<Suspense fallback={<MinimalLoader />}><UsageBilling /></Suspense>} />
+            <Route path="/usage" element={<CloudOnly><Suspense fallback={<MinimalLoader />}><UsageBilling /></Suspense></CloudOnly>} />
 
             <Route path="/" element={<Navigate to="/ops" replace />} />
             <Route path="/settings" element={<Suspense fallback={<MinimalLoader />}><Settings /></Suspense>} />
