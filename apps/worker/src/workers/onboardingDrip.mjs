@@ -74,6 +74,10 @@ export function decideNextStep(obs, nowMs) {
 }
 
 export async function runOnboardingDrip() {
+  // Self-host never runs the founder drip sequence — it's our cloud lifecycle
+  // marketing. (Already implied by NOUS_DOGFOOD_WORKSPACE_ID being unset, but
+  // guard explicitly so it can never fire on a self-hoster's own users.)
+  if (process.env.SELF_HOSTED === 'true') return;
   const workspaceId = process.env.NOUS_DOGFOOD_WORKSPACE_ID;
   if (!workspaceId) return;  // not configured — cloud-only feature
 

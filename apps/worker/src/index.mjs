@@ -4,6 +4,7 @@
 //   1. A lightweight HTTP server for inbound webhooks (LinkedIn, Fireflies, RB2B, etc.)
 //   2. Scheduled pollers using node-cron for predictable timing
 
+import './bootEnv.mjs'; // first — normalizes APP_URL/API_URL from domains before any module reads them
 import express from 'express';
 import cron from 'node-cron';
 import { getSupabaseClient, registerCrmPushHandler, pushActivityToAllCrms, logWorkerRun } from '@nous/core';

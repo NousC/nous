@@ -509,7 +509,14 @@ async function enrichContactViaProspeo(supabase, contact, prospeoKey) {
 
 export async function enrichCompany(supabase, workspaceId, domain) {
   const prospeoKey = process.env.PROSPERO_API_KEY;
-  if (!prospeoKey) throw new Error('PROSPERO_API_KEY not set');
+  if (!prospeoKey) {
+    // Self-host without an enrichment provider — surface a clean "not
+    // configured" instead of a generic 500, mirroring how contact enrichment
+    // degrades (sets enrichment_status='no_integration' and returns).
+    const err = new Error('PROSPERO_API_KEY not set');
+    err.code = 'enrichment_not_configured';
+    throw err;
+  }
 
   const res = await fetch(`${PROSPEO_BASE}/enrich-company`, {
     method: 'POST',
