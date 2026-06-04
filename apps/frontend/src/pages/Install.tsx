@@ -32,9 +32,27 @@ const CLAUDE_CLIENTS: Client[] = ["claude"];
 
 // ─── Shared bits ──────────────────────────────────────────────────────────────
 
+// Self-host: inject NOUS_API_URL into any MCP config so it's copy-paste ready
+// (the MCP defaults to the hosted api.opennous.cloud otherwise). Only touches
+// blocks that contain NOUS_API_KEY; handles JSON, TOML, and the CLI form.
+function injectSelfHostUrl(code: string): string {
+  const url = SELF_HOST_API_URL;
+  if (!url || !code.includes("NOUS_API_KEY") || code.includes("NOUS_API_URL")) return code;
+  if (code.includes('"NOUS_API_KEY"'))   // JSON
+    return code.replace(/"NOUS_API_KEY": "YOUR_API_KEY"/g, `"NOUS_API_KEY": "YOUR_API_KEY", "NOUS_API_URL": "${url}"`);
+  if (code.includes('NOUS_API_KEY = '))  // TOML
+    return code.replace(/NOUS_API_KEY = "YOUR_API_KEY"/g, `NOUS_API_KEY = "YOUR_API_KEY", NOUS_API_URL = "${url}"`);
+  if (code.includes('-e NOUS_API_KEY=')) // CLI
+    return code.replace('-- npx', `-e NOUS_API_URL=${url} -- npx`);
+  return code;
+}
+
 function CodeSnippet({ code, caption }: { code: string; caption?: string }) {
   const [copied, setCopied] = useState(false);
-  const copy = () => { navigator.clipboard.writeText(code); setCopied(true); setTimeout(() => setCopied(false), 1500); };
+  const { userData } = useAuth();
+  const selfHosted = (userData as { self_hosted?: boolean })?.self_hosted === true;
+  const display = selfHosted ? injectSelfHostUrl(code) : code;
+  const copy = () => { navigator.clipboard.writeText(display); setCopied(true); setTimeout(() => setCopied(false), 1500); };
   return (
     <div className="relative group rounded-lg bg-background border border-border/60 overflow-hidden">
       {caption && (
@@ -42,7 +60,7 @@ function CodeSnippet({ code, caption }: { code: string; caption?: string }) {
           {caption}
         </div>
       )}
-      <pre className="text-[12px] text-foreground/80 px-4 py-3 overflow-x-auto font-mono whitespace-pre leading-relaxed">{code}</pre>
+      <pre className="text-[12px] text-foreground/80 px-4 py-3 overflow-x-auto font-mono whitespace-pre leading-relaxed">{display}</pre>
       <button onClick={copy}
         className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded bg-background border border-border hover:bg-accent">
         {copied
@@ -395,6 +413,18 @@ type N8nMode = "http" | "stdio";
 
 function N8nInstall() {
   const [mode, setMode] = useState<N8nMode>("http");
+  const { userData } = useAuth();
+  const selfHosted = (userData as { self_hosted?: boolean })?.self_hosted === true;
+  // Self-host has its own HTTP MCP endpoint (mcp.<domain>/mcp) and needs
+  // NOUS_API_URL in the stdio env.
+  const mcpUrl = selfHosted && SELF_HOST_API_URL
+    ? SELF_HOST_API_URL.replace("://api.", "://mcp.") + "/mcp"
+    : HOSTED_MCP_URL;
+  const stdioFields = selfHosted && SELF_HOST_API_URL
+    ? N8N_STDIO_FIELDS.map(f => f.label === "Environment"
+        ? { ...f, value: `NOUS_API_KEY=YOUR_API_KEY,NOUS_API_URL=${SELF_HOST_API_URL}` }
+        : f)
+    : N8N_STDIO_FIELDS;
 
   return (
     <div className="space-y-4">
@@ -416,7 +446,7 @@ function N8nInstall() {
           <p className="text-[12px] text-muted-foreground">Cloud or self-hosted, any n8n with the native <span className="text-foreground/80 font-medium">MCP Client Tool</span> node (n8n 1.88+). No community node, no local process.</p>
           <div className="rounded-lg bg-background border border-border/60 p-4 space-y-3">
             <p className="text-[12px] text-muted-foreground">Set <span className="text-foreground/80 font-medium">Server Transport</span> to <code className="bg-muted px-1 rounded text-[11px]">HTTP Streamable</code></p>
-            <FieldRow label="Endpoint URL" value={HOSTED_MCP_URL} />
+            <FieldRow label="Endpoint URL" value={mcpUrl} />
             <p className="text-[12px] text-muted-foreground">Set <span className="text-foreground/80 font-medium">Authentication</span> to <code className="bg-muted px-1 rounded text-[11px]">Bearer Auth</code> and paste your Nous API key as the token.</p>
           </div>
           <ApiKeyHint />
@@ -437,7 +467,7 @@ function N8nInstall() {
             <p className="text-[12px] text-muted-foreground">2. Create an <span className="text-foreground/80 font-medium">MCP Client (STDIO)</span> credential with these fields</p>
           </div>
           <div className="rounded-lg bg-background border border-border/60 p-4 space-y-2.5">
-            {N8N_STDIO_FIELDS.map(f => <FieldRow key={f.label} label={f.label} value={f.value} />)}
+            {stdioFields.map(f => <FieldRow key={f.label} label={f.label} value={f.value} />)}
           </div>
           <FootNote>3. Add the <span className="text-foreground/80 font-medium">MCP Client</span> node to any workflow and select the credential.</FootNote>
           <ApiKeyHint />
@@ -675,9 +705,9 @@ export default function Install() {
               <div className="mb-4 rounded-lg border border-amber-300/60 bg-amber-50 dark:border-amber-500/30 dark:bg-amber-500/10 px-4 py-3 text-[13px] leading-relaxed text-amber-900 dark:text-amber-200">
                 <p className="font-semibold mb-1">Self-hosted instance</p>
                 <p>
-                  Add <code className="font-mono text-[12px] bg-amber-100 dark:bg-amber-500/20 px-1 py-0.5 rounded">NOUS_API_URL={SELF_HOST_API_URL}</code> to
-                  the <code className="font-mono text-[12px]">env</code> of any config below, so your agent connects to <span className="font-medium">this</span> instance
-                  instead of the hosted Nous. Your API key is created here under <span className="font-medium">Settings → API Keys</span>.
+                  The configs below are pre-filled to point at <span className="font-medium">this</span> instance
+                  (<code className="font-mono text-[12px] bg-amber-100 dark:bg-amber-500/20 px-1 py-0.5 rounded">NOUS_API_URL={SELF_HOST_API_URL}</code>).
+                  Just create a key under <span className="font-medium">Settings → API Keys</span> and paste it in.
                 </p>
               </div>
             )}
