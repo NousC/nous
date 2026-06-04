@@ -4,6 +4,17 @@ import { AdminRoute } from "@/components/AdminRoute";
 import { AppSidebar } from "@/components/AppSidebar";
 import { ChecklistToast } from "@/components/OnboardingChecklist";
 import ComingSoon from "@/pages/ComingSoon";
+import { useAuth } from "@/contexts/AuthContext";
+
+// Cloud-only routes (CRM Sync, Lists) — on a self-hosted instance these features
+// don't exist, so redirect home instead of rendering the page.
+function CloudOnly({ children }: { children: React.ReactNode }) {
+  const { userData } = useAuth();
+  if ((userData as { self_hosted?: boolean })?.self_hosted === true) {
+    return <Navigate to="/" replace />;
+  }
+  return <>{children}</>;
+}
 
 const lazyWithErrorBoundary = (importFn: () => Promise<any>) => {
   return lazy(() =>
@@ -145,10 +156,10 @@ export function AppRoutes() {
             <Route path="/companies"     element={<Suspense fallback={<MinimalLoader />}><Companies /></Suspense>} />
             <Route path="/companies/:id" element={<Suspense fallback={<MinimalLoader />}><Companies /></Suspense>} />
             <Route path="/integrations"  element={<Suspense fallback={<MinimalLoader />}><Integrations /></Suspense>} />
-            <Route path="/crm-sync"      element={<Suspense fallback={<MinimalLoader />}><CrmSync /></Suspense>} />
+            <Route path="/crm-sync"      element={<CloudOnly><Suspense fallback={<MinimalLoader />}><CrmSync /></Suspense></CloudOnly>} />
             <Route path="/crm"           element={<Navigate to="/crm-sync" replace />} />
-            <Route path="/lists"         element={<Suspense fallback={<MinimalLoader />}><Lists /></Suspense>} />
-            <Route path="/lists/clean"   element={<Suspense fallback={<MinimalLoader />}><CleanList /></Suspense>} />
+            <Route path="/lists"         element={<CloudOnly><Suspense fallback={<MinimalLoader />}><Lists /></Suspense></CloudOnly>} />
+            <Route path="/lists/clean"   element={<CloudOnly><Suspense fallback={<MinimalLoader />}><CleanList /></Suspense></CloudOnly>} />
             <Route path="/intelligence"  element={<Suspense fallback={<MinimalLoader />}><Intelligence /></Suspense>} />
             <Route path="/settings/*" element={<Navigate to="/settings" replace />} />
 
