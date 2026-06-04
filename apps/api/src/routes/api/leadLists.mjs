@@ -10,6 +10,7 @@ import {
   updateLeadListColumns,
   insertLeads,
   listLeads,
+  countLeadsByIcp,
   deleteLeads,
   deleteLeadList,
 } from '@nous/core';
@@ -96,14 +97,22 @@ leadListsRouter.delete('/:id', async (req, res) => {
 // GET /api/lead-lists/:id/leads?workspaceId=&limit=&offset= — leads in a list.
 leadListsRouter.get('/:id/leads', async (req, res) => {
   try {
-    const { workspaceId, limit, offset, icp } = req.query;
+    const { workspaceId, limit, offset, icp, sort, counts } = req.query;
     if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
-    const leads = await listLeads(getSupabaseClient(), workspaceId, req.params.id, {
+    const supabase = getSupabaseClient();
+    const validSort = ['recent', 'icp_score_desc', 'icp_score_asc'].includes(sort) ? sort : undefined;
+    const leads = await listLeads(supabase, workspaceId, req.params.id, {
       limit: limit ? parseInt(limit, 10) : undefined,
       offset: offset ? parseInt(offset, 10) : undefined,
       icp: icp === 'true' || icp === 'false' ? icp : undefined,
+      sort: validSort,
     });
-    return res.json({ leads });
+    // Return the ICP counts only when asked (the first page) — saves two
+    // count queries on every page turn.
+    const icpCounts = counts === '1'
+      ? await countLeadsByIcp(supabase, workspaceId, req.params.id)
+      : undefined;
+    return res.json({ leads, counts: icpCounts });
   } catch (err) {
     console.error('[GET /api/lead-lists/:id/leads]', err);
     return res.status(500).json({ error: 'internal_error' });

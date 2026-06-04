@@ -255,17 +255,33 @@ export async function listLeads(
   supabase: SupabaseClient,
   workspaceId: string,
   leadListId: string,
-  opts: { limit?: number; offset?: number; icp?: 'true' | 'false' } = {},
+  opts: {
+    limit?: number;
+    offset?: number;
+    icp?: 'true' | 'false';
+    sort?: 'recent' | 'icp_score_desc' | 'icp_score_asc';
+  } = {},
 ): Promise<Lead[]> {
   if (!isUUID(leadListId)) return [];
   const limit = Math.min(opts.limit ?? 100, 1000);
   const offset = opts.offset ?? 0;
+  const sort = opts.sort ?? 'recent';
+
+  // Numeric sort on a JSONB field can't go through PostgREST, so use the RPC.
+  // Falls through to the plain query if the migration isn't applied yet.
+  if (sort === 'icp_score_desc' || sort === 'icp_score_asc') {
+    const { data, error } = await supabase.rpc('lead_list_leads', {
+      p_ws: workspaceId, p_list: leadListId, p_lim: limit, p_off: offset,
+      p_icp: opts.icp ?? null, p_sort: sort,
+    });
+    if (!error) return (data || []) as unknown as Lead[];
+  }
+
   let query = supabase
     .from('leads')
     .select(LEAD_COLUMNS)
     .eq('workspace_id', workspaceId)
     .eq('lead_list_id', leadListId);
-  // Optional ICP segmentation filter — fields.icp is a JSONB boolean.
   if (opts.icp === 'true' || opts.icp === 'false') {
     query = query.filter('fields->>icp', 'eq', opts.icp);
   }
@@ -274,6 +290,26 @@ export async function listLeads(
     .range(offset, offset + limit - 1);
   if (error) throw error;
   return (data || []) as unknown as Lead[];
+}
+
+// ICP segmentation counts for a list — drives the "ICP 168 / Non-ICP 253" chips.
+export async function countLeadsByIcp(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  leadListId: string,
+): Promise<{ icp: number; non_icp: number }> {
+  if (!isUUID(leadListId)) return { icp: 0, non_icp: 0 };
+  const base = () =>
+    supabase
+      .from('leads')
+      .select('*', { count: 'exact', head: true })
+      .eq('workspace_id', workspaceId)
+      .eq('lead_list_id', leadListId);
+  const [icpRes, nonRes] = await Promise.all([
+    base().filter('fields->>icp', 'eq', 'true'),
+    base().filter('fields->>icp', 'eq', 'false'),
+  ]);
+  return { icp: icpRes.count ?? 0, non_icp: nonRes.count ?? 0 };
 }
 
 // Resolve an inbound reply to a lead. Returns the most recent matching lead in

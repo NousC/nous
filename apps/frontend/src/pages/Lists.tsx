@@ -121,6 +121,9 @@ export default function Lists() {
   // Server-side pagination — the leads view is expensive per row, so we never
   // load more than one page (50) at a time.
   const [page, setPage] = useState(0);
+  // Sort + ICP counts (server-side).
+  const [sort, setSort] = useState<"recent" | "icp_score_desc" | "icp_score_asc">("recent");
+  const [counts, setCounts] = useState<{ icp: number; non_icp: number } | null>(null);
   // Per-column width overrides (drag-to-resize), keyed by column key, persisted.
   const [colW, setColW] = useState<Record<string, number>>(() => {
     try { return JSON.parse(localStorage.getItem("lists.colW") || "{}"); } catch { return {}; }
@@ -165,28 +168,33 @@ export default function Lists() {
 
   const PAGE_SIZE = 50;
   const loadLeads = useCallback(
-    async (listId: string, pg: number, filt: "all" | "icp" | "non") => {
+    async (listId: string, pg: number, filt: "all" | "icp" | "non", srt: string) => {
       setLeadsLoading(true);
       try {
         const icpParam = filt === "all" ? "" : `&icp=${filt === "icp" ? "true" : "false"}`;
+        // Ask for the ICP counts only on the first page.
+        const countsParam = pg === 0 ? "&counts=1" : "";
         const res = await fetch(
-          `${apiUrl}/api/lead-lists/${listId}/leads?workspaceId=${workspaceId}&limit=${PAGE_SIZE}&offset=${pg * PAGE_SIZE}${icpParam}`,
+          `${apiUrl}/api/lead-lists/${listId}/leads?workspaceId=${workspaceId}&limit=${PAGE_SIZE}&offset=${pg * PAGE_SIZE}&sort=${srt}${icpParam}${countsParam}`,
           { headers: authHeaders });
         const d = res.ok ? await res.json() : {};
         setLeads(d.leads ?? []);
+        if (d.counts) setCounts(d.counts);
       } catch { setLeads([]); }
       finally { setLeadsLoading(false); }
     }, [workspaceId, token]);
 
   useEffect(() => {
-    if (activeId) loadLeads(activeId, page, icpFilter);
+    if (activeId) loadLeads(activeId, page, icpFilter, sort);
     else setLeads([]);
-  }, [activeId, page, icpFilter, loadLeads]);
+  }, [activeId, page, icpFilter, sort, loadLeads]);
 
-  // Switching lists resets filter, page, selection.
-  useEffect(() => { setIcpFilter("all"); setPage(0); setSelected(new Set()); }, [activeId]);
-  // Changing the filter goes back to page 1 and clears the selection.
-  useEffect(() => { setPage(0); setSelected(new Set()); }, [icpFilter]);
+  // Switching lists resets filter, sort, page, selection, counts.
+  useEffect(() => {
+    setIcpFilter("all"); setSort("recent"); setPage(0); setSelected(new Set()); setCounts(null);
+  }, [activeId]);
+  // Changing the filter or sort goes back to page 1 and clears the selection.
+  useEffect(() => { setPage(0); setSelected(new Set()); }, [icpFilter, sort]);
 
   const activeList = lists.find(l => l.id === activeId) ?? null;
   const customCols = activeList?.columns ?? [];
@@ -214,7 +222,7 @@ export default function Lists() {
         body: JSON.stringify({ workspaceId, ids: [...selected] }),
       });
       setSelected(new Set());
-      await loadLeads(activeId, page, icpFilter);
+      await loadLeads(activeId, page, icpFilter, sort);
       await loadLists();
     } catch { /* silent */ }
     finally { setBusy(false); }
@@ -298,7 +306,7 @@ export default function Lists() {
         }),
       });
       setDraft({}); setAddingRow(false);
-      loadLeads(activeId, page, icpFilter);
+      loadLeads(activeId, page, icpFilter, sort);
       loadLists();
     } catch { /* silent */ }
     finally { setBusy(false); }
@@ -377,7 +385,7 @@ export default function Lists() {
       setResult({ inserted, skipped });
       setImporting(false); setImportStep("upload");
       setCsvHeaders([]); setCsvRows([]); setMapping({});
-      loadLeads(activeId, page, icpFilter);
+      loadLeads(activeId, page, icpFilter, sort);
       loadLists();
     } catch { /* silent */ }
     finally { setBusy(false); }
@@ -553,24 +561,25 @@ export default function Lists() {
           </div>
         )}
 
-        {/* ICP segmentation filter — server-side, only when the list is scored */}
+        {/* ICP segmentation filter — server-side, with live counts */}
         {activeList && hasIcp && (
           <div className="flex items-center gap-1.5 mb-3">
             {([
-              ["all", "All"],
-              ["icp", "ICP"],
-              ["non", "Non-ICP"],
-            ] as const).map(([key, label]) => (
+              ["all", "All", counts ? counts.icp + counts.non_icp : null],
+              ["icp", "ICP", counts?.icp ?? null],
+              ["non", "Non-ICP", counts?.non_icp ?? null],
+            ] as const).map(([key, label, n]) => (
               <button
                 key={key}
                 onClick={() => setIcpFilter(key)}
-                className={`inline-flex items-center h-7 px-2.5 rounded-md text-[12px] font-medium border transition-colors ${
+                className={`inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md text-[12px] font-medium border transition-colors ${
                   icpFilter === key
                     ? "bg-foreground text-background border-foreground"
                     : "bg-background text-muted-foreground border-border hover:text-foreground"
                 }`}
               >
                 {label}
+                {n !== null ? <span className="tabular-nums opacity-70">{n}</span> : null}
               </button>
             ))}
           </div>
@@ -613,16 +622,32 @@ export default function Lists() {
                       className="h-3.5 w-3.5 accent-foreground cursor-pointer"
                     />
                   </div>
-                  {allCols.map(c => (
+                  {allCols.map(c => {
+                    const sortable = c.key === "icp_score";
+                    return (
                     <div key={c.key} className="relative px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-shrink-0" style={{ width: c.w }}>
-                      {c.label}
+                      {sortable ? (
+                        <button
+                          onClick={() => setSort(s => (s === "icp_score_desc" ? "icp_score_asc" : "icp_score_desc"))}
+                          title="Sort by ICP score"
+                          className="inline-flex items-center gap-1 uppercase tracking-wide hover:text-foreground transition-colors"
+                        >
+                          {c.label}
+                          <span className="text-[10px]">
+                            {sort === "icp_score_desc" ? "▼" : sort === "icp_score_asc" ? "▲" : "⇅"}
+                          </span>
+                        </button>
+                      ) : (
+                        c.label
+                      )}
                       <div
                         onMouseDown={e => startResize(e, c.key, c.w)}
                         title="Drag to resize"
                         className="absolute top-0 right-0 h-full w-1.5 cursor-col-resize hover:bg-foreground/20"
                       />
                     </div>
-                  ))}
+                    );
+                  })}
                   <div className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-shrink-0" style={{ width: STATUS_W }}>
                     Status
                   </div>
