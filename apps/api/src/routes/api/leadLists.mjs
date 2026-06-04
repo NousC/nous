@@ -96,11 +96,12 @@ leadListsRouter.delete('/:id', async (req, res) => {
 // GET /api/lead-lists/:id/leads?workspaceId=&limit=&offset= — leads in a list.
 leadListsRouter.get('/:id/leads', async (req, res) => {
   try {
-    const { workspaceId, limit, offset } = req.query;
+    const { workspaceId, limit, offset, icp } = req.query;
     if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
     const leads = await listLeads(getSupabaseClient(), workspaceId, req.params.id, {
       limit: limit ? parseInt(limit, 10) : undefined,
       offset: offset ? parseInt(offset, 10) : undefined,
+      icp: icp === 'true' || icp === 'false' ? icp : undefined,
     });
     return res.json({ leads });
   } catch (err) {

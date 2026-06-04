@@ -255,16 +255,21 @@ export async function listLeads(
   supabase: SupabaseClient,
   workspaceId: string,
   leadListId: string,
-  opts: { limit?: number; offset?: number } = {},
+  opts: { limit?: number; offset?: number; icp?: 'true' | 'false' } = {},
 ): Promise<Lead[]> {
   if (!isUUID(leadListId)) return [];
   const limit = Math.min(opts.limit ?? 100, 1000);
   const offset = opts.offset ?? 0;
-  const { data, error } = await supabase
+  let query = supabase
     .from('leads')
     .select(LEAD_COLUMNS)
     .eq('workspace_id', workspaceId)
-    .eq('lead_list_id', leadListId)
+    .eq('lead_list_id', leadListId);
+  // Optional ICP segmentation filter — fields.icp is a JSONB boolean.
+  if (opts.icp === 'true' || opts.icp === 'false') {
+    query = query.filter('fields->>icp', 'eq', opts.icp);
+  }
+  const { data, error } = await query
     .order('created_at', { ascending: false })
     .range(offset, offset + limit - 1);
   if (error) throw error;
