@@ -95,7 +95,9 @@ ALTER TABLE workspaces ENABLE ROW LEVEL SECURITY;
 CREATE TABLE workspace_members (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   workspace_id UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
-  user_id      UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  -- FK is to public.users(id), NOT auth.users — the app inserts the public
+  -- users.id here. Added via ALTER after the users table is defined below.
+  user_id      UUID NOT NULL,
   role         TEXT NOT NULL DEFAULT 'member' CHECK (role IN ('owner','admin','member')),
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (workspace_id, user_id)
@@ -875,6 +877,9 @@ ALTER TABLE api_keys
 ALTER TABLE workflow_provider_connections
   ADD CONSTRAINT workflow_provider_connections_created_by_fkey
   FOREIGN KEY (created_by) REFERENCES users(id);
+ALTER TABLE workspace_members
+  ADD CONSTRAINT workspace_members_user_id_fkey
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
 
 CREATE TABLE team_members (
   id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
