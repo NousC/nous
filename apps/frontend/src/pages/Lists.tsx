@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { Plus, Upload, RefreshCw, FileText, X, ArrowLeft, Trash2 } from "lucide-react";
+import { Plus, Upload, RefreshCw, FileText, X, ArrowLeft, Trash2, Download } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader } from "@/components/ui/page-header";
 import { parseCSVLine } from "@/components/contacts/PeopleImportModal";
@@ -253,16 +253,45 @@ export default function Lists() {
     finally { setBusy(false); }
   };
 
-  const deleteList = async () => {
-    if (!activeList || busy) return;
-    if (!window.confirm(`Delete the list "${activeList.name}" and all its rows? The contacts and their history stay in Nous.`)) return;
+  const deleteList = async (list: LeadList) => {
+    if (!list || busy) return;
+    if (!window.confirm(`Delete the list "${list.name}" and all its rows? The contacts and their history stay in Nous.`)) return;
     setBusy(true);
     try {
-      await fetch(`${apiUrl}/api/lead-lists/${activeList.id}?workspaceId=${workspaceId}`, {
+      await fetch(`${apiUrl}/api/lead-lists/${list.id}?workspaceId=${workspaceId}`, {
         method: "DELETE", headers: authHeaders,
       });
-      setActiveId(null);
+      if (activeId === list.id) setActiveId(null);
       await loadLists();
+    } catch { /* silent */ }
+    finally { setBusy(false); }
+  };
+
+  // Export the whole list to CSV (all pages) so it can go into a sequencer.
+  const exportCsv = async () => {
+    if (!activeList || busy) return;
+    setBusy(true);
+    try {
+      const all: Lead[] = [];
+      for (let off = 0; ; off += 1000) {
+        const res = await fetch(
+          `${apiUrl}/api/lead-lists/${activeList.id}/leads?workspaceId=${workspaceId}&limit=1000&offset=${off}`,
+          { headers: authHeaders });
+        const batch: Lead[] = (res.ok ? await res.json() : {}).leads ?? [];
+        all.push(...batch);
+        if (batch.length < 1000) break;
+      }
+      const keys = [...FIXED_COLS.map(c => c.key), ...customCols.map(c => c.key)];
+      const labels = [...FIXED_COLS.map(c => c.label), ...customCols.map(c => c.label)];
+      const esc = (v: string) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+      const csv = [labels.map(esc).join(","),
+        ...all.map(l => keys.map(k => esc(cellValue(l, k))).join(","))].join("\n");
+      const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${activeList.name.replace(/[^a-z0-9]+/gi, "_")}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
     } catch { /* silent */ }
     finally { setBusy(false); }
   };
@@ -435,20 +464,20 @@ export default function Lists() {
               </button>
               {activeList && (
                 <button
-                  onClick={() => { if (importing) resetImport(); else { setImporting(true); setResult(null); } }}
-                  className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-foreground text-background text-[13px] font-semibold hover:opacity-90 transition-opacity"
+                  onClick={exportCsv}
+                  disabled={busy}
+                  title="Export this list to CSV"
+                  className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-background border border-border text-foreground/80 text-[13px] font-semibold hover:bg-muted/50 transition-colors disabled:opacity-40"
                 >
-                  <Upload className="h-3.5 w-3.5" /> Import CSV
+                  <Download className="h-3.5 w-3.5" /> Export CSV
                 </button>
               )}
               {activeList && (
                 <button
-                  onClick={deleteList}
-                  disabled={busy}
-                  title="Delete this list"
-                  className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg bg-background border border-border text-red-600 dark:text-red-400 text-[13px] font-semibold hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors disabled:opacity-40"
+                  onClick={() => { if (importing) resetImport(); else { setImporting(true); setResult(null); } }}
+                  className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-foreground text-background text-[13px] font-semibold hover:opacity-90 transition-opacity"
                 >
-                  <Trash2 className="h-3.5 w-3.5" /> Delete list
+                  <Upload className="h-3.5 w-3.5" /> Import CSV
                 </button>
               )}
             </>
@@ -461,6 +490,8 @@ export default function Lists() {
             <button
               key={l.id}
               onClick={() => { setActiveId(l.id); resetImport(); setAddingRow(false); }}
+              onContextMenu={e => { e.preventDefault(); deleteList(l); }}
+              title="Right-click to delete this list"
               className={`flex items-center gap-1.5 px-3 py-2 text-[13px] border-b-2 -mb-px whitespace-nowrap transition-colors ${
                 l.id === activeId
                   ? "border-foreground text-foreground font-medium"
