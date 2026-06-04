@@ -356,6 +356,42 @@ contactsApiRouter.post('/import', verifySupabaseAuth, async (req, res) => {
     const toUpdateEmail = emailRows.filter(r => existingEmailSet.has(r.email.toLowerCase().trim()));
     const toUpdateLinkedin = linkedinOnlyRows.filter(r => existingLinkedinSet.has(r.linkedin_url.trim()));
 
+    // Resolve-or-create a company entity for every distinct company in the
+    // import, so importing people also populates the Companies list. Mirrors the
+    // single-contact create path, batched over distinct companies. Best-effort:
+    // a failed company never blocks the contact import.
+    const normDomain = (d) => d ? d.replace(/^https?:\/\//i, '').replace(/^www\./i, '').toLowerCase().split('/')[0] : null;
+    const companyKeyOf = (r) => {
+      const dom = normDomain(r.domain?.trim());
+      if (dom) return `d:${dom}`;
+      const name = r.company?.trim();
+      if (name) return `n:${name.toLowerCase()}`;
+      return null;
+    };
+    const companyIdByKey = new Map();
+    const distinctCompanies = new Map();
+    for (const r of validRows) {
+      const key = companyKeyOf(r);
+      if (key && !distinctCompanies.has(key)) {
+        distinctCompanies.set(key, { name: r.company?.trim() || null, domain: normDomain(r.domain?.trim()) });
+      }
+    }
+    for (const [key, { name, domain }] of distinctCompanies) {
+      try {
+        let cid = null;
+        if (domain) {
+          const { data: ex } = await supabase.from('companies').select('id').eq('workspace_id', workspaceId).eq('domain', domain).maybeSingle();
+          cid = ex?.id ?? (await supabase.from('companies').insert({ workspace_id: workspaceId, name: name || domain, domain }).select('id').single()).data?.id;
+        } else if (name) {
+          const { data: ex } = await supabase.from('companies').select('id').eq('workspace_id', workspaceId).ilike('name', name).maybeSingle();
+          cid = ex?.id ?? (await supabase.from('companies').insert({ workspace_id: workspaceId, name }).select('id').single()).data?.id;
+        }
+        if (cid) companyIdByKey.set(key, cid);
+      } catch (e) {
+        console.error('[CONTACTS_IMPORT_COMPANY_RESOLVE]', e.message);
+      }
+    }
+
     const buildInsertRow = (r) => ({
       workspace_id: workspaceId,
       email: r.email ? r.email.toLowerCase().trim() : null,
@@ -393,6 +429,18 @@ contactsApiRouter.post('/import', verifySupabaseAuth, async (req, res) => {
       if (!error) {
         created = inserted?.length || 0;
         newContactIds = (inserted || []).map(c => c.id);
+        // Link each new contact to its company via a works_at relationship — the
+        // contacts view derives company_id from this edge (its INSTEAD OF insert
+        // trigger ignores a company_id column). Insert order matches toCreate.
+        const rels = [];
+        for (let i = 0; i < inserted.length; i++) {
+          const cid = companyIdByKey.get(companyKeyOf(toCreate[i]));
+          if (cid) rels.push({ workspace_id: workspaceId, from_entity_id: inserted[i].id, to_entity_id: cid, type: 'works_at', valid_from: new Date().toISOString() });
+        }
+        if (rels.length) {
+          const { error: relErr } = await supabase.from('relationships').upsert(rels, { onConflict: 'workspace_id,from_entity_id,to_entity_id,type', ignoreDuplicates: true });
+          if (relErr) console.error('[CONTACTS_IMPORT_WORKS_AT]', relErr.message);
+        }
       }
     }
     for (const r of toUpdateEmail) {
