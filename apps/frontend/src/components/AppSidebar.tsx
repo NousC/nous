@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { VersionWidget } from "@/components/VersionWidget";
 import {
   Package,
   FlaskConical,
@@ -209,6 +210,9 @@ export function AppSidebar() {
 
       {/* Spacer */}
       <div className="flex-1" />
+
+      {/* Self-host version / update status (only renders when self_hosted) */}
+      <VersionWidget collapsed={collapsed} />
 
       {/* Bottom: Usage & Billing + Docs */}
       <nav className="px-2.5 pb-1">
