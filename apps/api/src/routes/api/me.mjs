@@ -4,6 +4,7 @@ import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
 import { ensureUserAndTeam } from '../../lib/auth.mjs';
 import { getCountryFromRequest } from '../../lib/geo.mjs';
 import { isAdminEmail } from '../../utils/adminAccess.js';
+import { isSelfHosted } from '../../lib/plans.mjs';
 
 export const meRouter = Router();
 
@@ -166,8 +167,10 @@ meRouter.get('/', verifySupabaseAuth, async (req, res) => {
         is_active: trialActive,
         ends_at: trialEndsAt,
       },
-      billing_enabled: process.env.BILLING_ENABLED !== 'false' && !!process.env.STRIPE_SECRET_KEY,
-      plan_enforcement: process.env.PLAN_ENFORCEMENT !== 'false',
+      // Self-host unlocks everything: SELF_HOSTED=true turns off billing and
+      // plan enforcement in the UI too, mirroring the API bypass in access.mjs.
+      billing_enabled: !isSelfHosted() && process.env.BILLING_ENABLED !== 'false' && !!process.env.STRIPE_SECRET_KEY,
+      plan_enforcement: !isSelfHosted() && process.env.PLAN_ENFORCEMENT !== 'false',
       self_hosted: process.env.SELF_HOSTED === 'true',
     });
   } catch (err) {
