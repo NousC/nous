@@ -14,6 +14,15 @@ cd "$(dirname "$0")"
 echo "→ Pulling latest code…"
 git pull --ff-only
 
+# Stamp the running build so the in-app version widget can show it + detect updates.
+COMMIT=$(git rev-parse --short HEAD)
+if grep -q '^APP_COMMIT=' nous.env 2>/dev/null; then
+  sed -i.bak "s|^APP_COMMIT=.*|APP_COMMIT=${COMMIT}|" nous.env && rm -f nous.env.bak
+else
+  echo "APP_COMMIT=${COMMIT}" >> nous.env
+fi
+echo "  build: ${COMMIT}"
+
 echo "→ Rebuilding and restarting containers (this can take a few minutes)…"
 docker compose --env-file nous.env up -d --build
 

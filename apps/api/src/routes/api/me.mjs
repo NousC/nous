@@ -172,6 +172,9 @@ meRouter.get('/', verifySupabaseAuth, async (req, res) => {
       billing_enabled: !isSelfHosted() && process.env.BILLING_ENABLED !== 'false' && !!process.env.STRIPE_SECRET_KEY,
       plan_enforcement: !isSelfHosted() && process.env.PLAN_ENFORCEMENT !== 'false',
       self_hosted: process.env.SELF_HOSTED === 'true',
+      // Running build, for the self-host "update available" widget. Set by
+      // update.sh (APP_COMMIT=$(git rev-parse --short HEAD)).
+      app_commit: process.env.APP_COMMIT || null,
     });
   } catch (err) {
     if (err?.code === 'SIGNUPS_DISABLED') {
