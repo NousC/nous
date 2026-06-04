@@ -99,6 +99,9 @@ export function getPlan(planId) {
  * Past_due/canceled/incomplete fall back to Free.
  */
 export function getPlanFromSubscription(subscription) {
+  // Self-host has no billing — report the top tier so every plan-gated surface
+  // (CRM sync, lead lists, signal extraction, the Enterprise nav) is unlocked.
+  if (isSelfHosted()) return PLANS.scale;
   if (!subscription) return PLANS.free;
   const status = subscription.status;
   if (status === 'canceled' || status === 'incomplete_expired' || status === 'past_due') {
