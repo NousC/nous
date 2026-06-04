@@ -247,8 +247,22 @@ export default function Settings() {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ email: inviteEmail.trim(), role: inviteRole }),
       });
-      if (res.ok) { toast.success(`Invitation sent to ${inviteEmail}`); setInviteEmail(""); setShowInvite(false); await loadTeam(); }
-      else { const e = await res.json().catch(() => ({})); toast.error(e.error || "Failed to send invitation"); }
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        if (data.emailSent) {
+          toast.success(`Invitation email sent to ${inviteEmail}`);
+        } else if (data.inviteLink) {
+          // Email isn't configured (or the provider rejected it) — hand the
+          // owner the link so the invite still works.
+          await navigator.clipboard?.writeText(data.inviteLink).catch(() => {});
+          toast.success(`Invite created. Email couldn't be sent, so the link was copied to your clipboard — share it with ${inviteEmail}.`, { duration: 9000 });
+        } else {
+          toast.success(`Invitation created for ${inviteEmail}.`);
+        }
+        setInviteEmail(""); setShowInvite(false); await loadTeam();
+      } else {
+        toast.error(data.error || "Failed to send invitation");
+      }
     } finally { setInviting(false); }
   };
 
@@ -490,6 +504,18 @@ export default function Settings() {
                     <div key={inv.id} className="flex items-center gap-3 px-3.5 py-2.5 group">
                       <span className="flex-1 text-[13px] text-foreground/80">{inv.email}</span>
                       <span className="text-[11px] text-amber-600 flex-shrink-0">Pending</span>
+                      {inv.token && (
+                        <button
+                          onClick={() => {
+                            const link = `${window.location.origin}/accept-invitation?token=${inv.token}`;
+                            navigator.clipboard?.writeText(link);
+                            toast.success("Invite link copied");
+                          }}
+                          className="text-[11px] text-muted-foreground/60 hover:text-foreground opacity-0 group-hover:opacity-100 transition-all flex-shrink-0"
+                        >
+                          Copy link
+                        </button>
+                      )}
                       <button
                         onClick={() => cancelInvitation(inv.id)}
                         className="text-muted-foreground/50 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0"
