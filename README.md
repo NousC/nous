@@ -65,9 +65,49 @@ Nous resolves the fragmentation into one customer graph your agents can query.
 
 ---
 
-## Quick start
+## Self-host
 
-→ [Full setup guide](https://docs.opennous.cloud/getting-started/quickstart)
+Run the whole stack — API, worker, MCP server, frontend, Redis, and Caddy (automatic HTTPS) — with Docker Compose. You bring an external [Supabase](https://supabase.com) project (Postgres + auth) and an Anthropic API key; everything else runs in containers.
+
+**Prerequisites**
+
+- A Linux server with Docker + Docker Compose
+- A [Supabase](https://supabase.com) project (free tier is fine)
+- An [Anthropic API key](https://console.anthropic.com)
+- Three DNS records — `app`, `api`, `mcp` — pointing at your server
+
+```bash
+# 1. Clone
+git clone https://github.com/NousC/nous.git
+cd nous
+
+# 2. Configure
+cp nous.env.example nous.env
+#    Fill in: APP_DOMAIN / API_DOMAIN / MCP_DOMAIN, your Supabase URL + keys,
+#    and ANTHROPIC_API_KEY. Generate the encryption key:
+openssl rand -hex 32      # paste the output into ENCRYPTION_KEY=
+#    SELF_HOSTED=true is already set — it unlocks every feature, unmetered.
+
+# 3. Create the database
+#    Open supabase/schema.sql in your Supabase SQL editor and run it once.
+
+# 4. Launch (Caddy provisions TLS automatically once your DNS resolves)
+docker compose --env-file nous.env up -d --build
+```
+
+Open `https://app.yourdomain.com` and create the first account — it becomes the **owner**. To close public registration afterward, set `DISABLE_SIGNUPS=true` in `nous.env` (and turn off signups in Supabase → Authentication), then re-run `./update.sh`. Invite teammates from **Settings → Team**.
+
+**Updating**
+
+```bash
+./update.sh      # pulls latest, rebuilds the containers, flags any new DB migrations
+```
+
+CRM Sync and Lead Lists are the only features reserved for [Nous Cloud](https://opennous.cloud) — everything else (the customer graph, MCP server, ICP scoring, enrichment, integrations) is fully open on self-host.
+
+## Local development
+
+For contributing to Nous — runs the apps directly against your Supabase project, no Docker:
 
 ```bash
 git clone https://github.com/NousC/nous.git
@@ -77,7 +117,7 @@ pnpm install
 pnpm dev
 ```
 
-For production, see [docs.opennous.cloud/installation/docker](https://docs.opennous.cloud/installation/docker).
+→ [Full docs](https://docs.opennous.cloud)
 
 ---
 
@@ -93,12 +133,14 @@ Add to your `mcp.json` (Claude Desktop, Cursor, or any MCP host):
       "args": ["-y", "@opennous/mcp"],
       "env": {
         "NOUS_API_KEY": "your-api-key",
-        "NOUS_API_URL": "http://localhost:3000"
+        "NOUS_API_URL": "https://api.yourdomain.com"
       }
     }
   }
 }
 ```
+
+Set `NOUS_API_URL` to your own API domain when self-hosting, or `https://api.opennous.cloud` on Nous Cloud. Grab your `NOUS_API_KEY` from **Settings → API Keys** (the in-app Install page generates this exact snippet for you).
 
 → [Full MCP docs](https://docs.opennous.cloud/mcp/introduction)
 
