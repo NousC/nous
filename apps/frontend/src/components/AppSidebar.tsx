@@ -77,7 +77,9 @@ export function AppSidebar() {
       .then(d => { if (d?.plan) setPlan(String(d.plan).toLowerCase()); })
       .catch(() => {});
   }, [session?.access_token]);
-  const showEnterprise = plan === "scale" || plan === "enterprise";
+  // CRM Sync + Lists are cloud-only — never surfaced on a self-hosted instance.
+  const selfHosted = (userData as { self_hosted?: boolean })?.self_hosted === true;
+  const showEnterprise = !selfHosted && (plan === "scale" || plan === "enterprise");
 
   const isItemActive = (url: string) => {
     if (url === "/") return location.pathname === "/";
