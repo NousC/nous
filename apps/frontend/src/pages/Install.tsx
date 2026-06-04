@@ -103,17 +103,18 @@ function TabBar<T extends string>({
 
 // A numbered step in the install spine. The content sits in its own muted
 // sub-panel, so each step reads as a distinct block lifted off the white card.
-function Step({ n, title, hint, children }: { n: number; title: string; hint?: React.ReactNode; children: React.ReactNode }) {
+function Step({ n, title, hint, children, action }: { n: number; title: string; hint?: React.ReactNode; children: React.ReactNode; action?: React.ReactNode }) {
   return (
     <section className="space-y-4">
       <div className="flex items-baseline gap-3">
         <span className="flex-shrink-0 w-6 h-6 rounded-full bg-foreground text-background text-[12px] font-semibold flex items-center justify-center translate-y-[3px]">
           {n}
         </span>
-        <div>
+        <div className="min-w-0">
           <h2 className="text-[15px] font-semibold text-foreground leading-tight">{title}</h2>
           {hint && <p className="text-[12px] text-muted-foreground/70 mt-1 leading-relaxed">{hint}</p>}
         </div>
+        {action && <div className="ml-auto self-start flex-shrink-0">{action}</div>}
       </div>
       <div className="rounded-xl border border-border/50 bg-muted/40 p-4 sm:p-5 space-y-4">{children}</div>
     </section>
@@ -695,19 +696,19 @@ export default function Install() {
 
         {/* The whole guided flow sits in one elevated white card, lifted off
             the muted page behind it. */}
-        <div className="relative rounded-2xl border border-border/60 bg-background shadow-sm p-6 sm:p-8 space-y-9">
-          {selfHosted && (
-            <div className="group absolute top-3.5 right-3.5 z-20">
-              <Info className="h-4 w-4 text-amber-500 cursor-help" strokeWidth={2} />
-              <div className="hidden group-hover:block absolute top-full right-0 mt-1.5 w-[260px] rounded-lg border border-amber-300/60 bg-amber-50 dark:border-amber-500/30 dark:bg-amber-500/10 px-3 py-2.5 text-[12px] leading-relaxed text-amber-900 dark:text-amber-200 shadow-lg">
-                This is a <span className="font-medium">self-hosted</span> instance — the install differs from the cloud. The configs below are pre-filled with your server's API URL (<code className="font-mono text-[11px]">NOUS_API_URL</code>); just add your API key.
-              </div>
-            </div>
-          )}
+        <div className="rounded-2xl border border-border/60 bg-background shadow-sm p-6 sm:p-8 space-y-9">
           <Step
             n={1}
             title="Add Nous to your tool"
             hint="Pick where your agent runs. Claude Code installs as a plugin; everywhere else takes the MCP server config."
+            action={selfHosted ? (
+              <div className="group relative">
+                <Info className="h-4 w-4 text-amber-500 cursor-help" strokeWidth={2} />
+                <div className="hidden group-hover:block absolute top-full right-0 mt-1.5 w-[260px] rounded-lg border border-amber-300/60 bg-amber-50 dark:border-amber-500/30 dark:bg-amber-500/10 px-3 py-2.5 text-[12px] leading-relaxed text-amber-900 dark:text-amber-200 shadow-lg z-20">
+                  This is a <span className="font-medium">self-hosted</span> instance — the install differs from the cloud. The configs below are pre-filled with your server's API URL (<code className="font-mono text-[11px]">NOUS_API_URL</code>); just add your API key.
+                </div>
+              </div>
+            ) : undefined}
           >
             <ClientPanel client={client} onChange={setClient} />
           </Step>

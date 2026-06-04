@@ -69,6 +69,8 @@ export function SidebarWorkspaceSelector({ collapsed = false }: SidebarWorkspace
   const [renaming, setRenaming] = useState(false);
 
   const currentWorkspace = userData?.workspace;
+  // Self-host is single-workspace: no switcher, no "New workspace" — just the name.
+  const selfHosted = (userData as { self_hosted?: boolean })?.self_hosted === true;
 
   // Check if workspace limit is reached
   const isWorkspaceLimitReached = usageData?.usage?.workspaces
@@ -460,7 +462,24 @@ export function SidebarWorkspaceSelector({ collapsed = false }: SidebarWorkspace
     <>
       <div ref={popoverRef} className="relative w-full">
         {/* Trigger */}
-        {collapsed ? (
+        {selfHosted ? (
+          // Self-host: single workspace, static (no switcher / no "New workspace")
+          collapsed ? (
+            <div className="flex items-center justify-center w-8 h-8 rounded-lg">
+              {WorkspaceIcon ? (
+                <WorkspaceIcon className="h-4 w-4 text-gray-600 dark:text-foreground/80" />
+              ) : (
+                <Folder className="h-4 w-4 text-gray-600 dark:text-foreground/80" />
+              )}
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5 w-full px-2 py-1.5 min-w-0">
+              <span className="flex-1 text-[13px] font-semibold text-gray-800 dark:text-foreground truncate text-left leading-tight">
+                {currentWorkspace?.name || 'Workspace'}
+              </span>
+            </div>
+          )
+        ) : collapsed ? (
           <button
             onClick={() => setDropdownOpen(o => !o)}
             className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-gray-100/70 dark:hover:bg-white/[0.05] transition-all duration-150"
@@ -485,8 +504,8 @@ export function SidebarWorkspaceSelector({ collapsed = false }: SidebarWorkspace
           </button>
         )}
 
-        {/* Inline popover — no external popup */}
-        {dropdownOpen && (
+        {/* Inline popover — no external popup (hidden on self-host) */}
+        {!selfHosted && dropdownOpen && (
           <div className="absolute left-0 top-full mt-1 w-full z-50 bg-popover text-popover-foreground rounded-xl border border-border shadow-lg dark:shadow-2xl dark:shadow-black/40 py-1 overflow-hidden">
             {workspaces.map((workspace) => {
               const isCurrent = currentWorkspace?.id === workspace.id;
