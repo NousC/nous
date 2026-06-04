@@ -4,14 +4,18 @@ import { getSupabaseClient } from '@nous/core';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
 import { ensureUserAndTeam } from '../../lib/auth.mjs';
 
+// Returns { sent, link, reason?, error? }. The invite link is ALWAYS returned
+// so the caller can surface it even when email can't be sent (self-host with no
+// Resend, or a cloud send Resend rejects). Never throws.
 async function sendInviteEmail({ to, inviterName, teamName, token }) {
-  const key = process.env.RESEND_API_KEY;
-  if (!key) return;
   const appDomain = process.env.APP_DOMAIN || 'app.opennous.cloud';
   const link = `https://${appDomain}/accept-invitation?token=${token}`;
+  const key = process.env.RESEND_API_KEY;
+  // No email provider configured (typical self-host) — caller shares the link.
+  if (!key) return { sent: false, reason: 'not_configured', link };
   const from = process.env.RESEND_FROM_EMAIL || 'Nous <noreply@opennous.cloud>';
   try {
-    await fetch('https://api.resend.com/emails', {
+    const resp = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
       body: JSON.stringify({
@@ -28,8 +32,18 @@ async function sendInviteEmail({ to, inviterName, teamName, token }) {
         `,
       }),
     });
+    // fetch does NOT throw on 4xx/5xx — check explicitly, or a Resend rejection
+    // (unverified sender domain, test-mode key, etc.) is silently swallowed and
+    // we'd wrongly report the email as sent.
+    if (!resp.ok) {
+      const body = await resp.text().catch(() => '');
+      console.error(`[INVITE_EMAIL] Resend rejected (${resp.status}): ${body}`);
+      return { sent: false, reason: 'send_failed', error: `Resend ${resp.status}: ${body.slice(0, 300)}`, link };
+    }
+    return { sent: true, link };
   } catch (err) {
     console.error('[INVITE_EMAIL] Failed to send:', err.message);
+    return { sent: false, reason: 'exception', error: err.message, link };
   }
 }
 
@@ -169,14 +183,19 @@ teamsRouter.post('/:teamId/invitations', verifySupabaseAuth, async (req, res) =>
     if (error) throw error;
 
     const { data: teamData } = await supabase.from('teams').select('name').eq('id', teamId).single();
-    const emailSent = await sendInviteEmail({
+    const emailResult = await sendInviteEmail({
       to: normalizedEmail,
       inviterName: user.name || user.email,
       teamName: teamData?.name || 'Your Team',
       token,
-    }).then(() => true).catch(() => false);
+    });
 
-    return res.json({ invitation: { id: invitation.id, email: invitation.email, role: invitation.role, status: invitation.status, expires_at: invitation.expires_at, created_at: invitation.created_at }, emailSent });
+    return res.json({
+      invitation: { id: invitation.id, email: invitation.email, role: invitation.role, status: invitation.status, expires_at: invitation.expires_at, created_at: invitation.created_at },
+      emailSent: emailResult.sent,
+      inviteLink: emailResult.link,
+      ...(emailResult.error ? { emailError: emailResult.error } : {}),
+    });
   } catch (err) {
     return res.status(500).json({ error: 'internal_error', ...(process.env.NODE_ENV !== 'production' && { detail: String(err.message) }) });
   }
