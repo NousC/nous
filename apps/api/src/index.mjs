@@ -1,3 +1,4 @@
+import './bootEnv.mjs'; // first — normalizes APP_URL/API_URL from domains before any module reads them
 import express from 'express';
 import cors from 'cors';
 import { registerCrmPushHandler, pushActivityToAllCrms, getSupabaseClient } from '@nous/core';

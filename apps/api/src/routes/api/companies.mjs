@@ -98,6 +98,12 @@ companiesApiRouter.post('/enrich', verifySupabaseAuth, async (req, res) => {
 
     return res.json({ enriched: true, company });
   } catch (err) {
+    if (err.code === 'enrichment_not_configured') {
+      return res.status(503).json({
+        error: 'enrichment_not_configured',
+        message: 'Company enrichment requires PROSPERO_API_KEY. Add it to enable this feature.',
+      });
+    }
     console.error('[POST /api/companies/enrich]', err);
     return res.status(500).json({ error: 'internal_error' });
   }
