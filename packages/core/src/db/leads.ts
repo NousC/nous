@@ -113,6 +113,25 @@ export async function getLeadList(
   return (data as unknown as LeadList) ?? null;
 }
 
+// Delete an entire lead list. Removes the list (collection) and its membership;
+// the underlying entities + engagement history are never hard-deleted. Requires
+// the lead_lists view's INSTEAD OF DELETE trigger. Returns true if a row matched.
+export async function deleteLeadList(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  id: string,
+): Promise<boolean> {
+  if (!isUUID(id)) return false;
+  const { data, error } = await supabase
+    .from('lead_lists')
+    .delete()
+    .eq('id', id)
+    .eq('workspace_id', workspaceId)
+    .select('id');
+  if (error) throw error;
+  return (data || []).length > 0;
+}
+
 // ── Leads ─────────────────────────────────────────────────────────────────────
 
 export interface LeadInput {

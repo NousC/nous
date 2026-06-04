@@ -118,6 +118,30 @@ export default function Lists() {
   const [icpFilter, setIcpFilter] = useState<"all" | "icp" | "non">("all");
   // Selected lead ids — the manual delete control after ICP scoring.
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  // Per-column width overrides (drag-to-resize), keyed by column key, persisted.
+  const [colW, setColW] = useState<Record<string, number>>(() => {
+    try { return JSON.parse(localStorage.getItem("lists.colW") || "{}"); } catch { return {}; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("lists.colW", JSON.stringify(colW)); } catch { /* ignore */ }
+  }, [colW]);
+  const resizeRef = useRef<{ key: string; startX: number; startW: number } | null>(null);
+  function startResize(e: React.MouseEvent, key: string, w: number) {
+    e.preventDefault();
+    resizeRef.current = { key, startX: e.clientX, startW: w };
+    const onMove = (ev: MouseEvent) => {
+      const r = resizeRef.current;
+      if (!r) return;
+      setColW(prev => ({ ...prev, [r.key]: Math.max(60, r.startW + (ev.clientX - r.startX)) }));
+    };
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      resizeRef.current = null;
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }
   const fileRef = useRef<HTMLInputElement>(null);
 
   const loadLists = useCallback(async () => {
@@ -194,7 +218,7 @@ export default function Lists() {
   const allCols = [
     ...FIXED_COLS,
     ...customCols.map(c => ({ key: c.key, label: c.label, w: CUSTOM_W })),
-  ];
+  ].map(c => ({ ...c, w: Math.max(60, colW[c.key] ?? c.w) }));
 
   const resetImport = () => {
     setImporting(false); setImportStep("upload");
@@ -213,6 +237,20 @@ export default function Lists() {
       setNewName(""); setCreating(false);
       await loadLists();
       if (d?.lead_list?.id) setActiveId(d.lead_list.id);
+    } catch { /* silent */ }
+    finally { setBusy(false); }
+  };
+
+  const deleteList = async () => {
+    if (!activeList || busy) return;
+    if (!window.confirm(`Delete the list "${activeList.name}" and all its rows? The contacts and their history stay in Nous.`)) return;
+    setBusy(true);
+    try {
+      await fetch(`${apiUrl}/api/lead-lists/${activeList.id}?workspaceId=${workspaceId}`, {
+        method: "DELETE", headers: authHeaders,
+      });
+      setActiveId(null);
+      await loadLists();
     } catch { /* silent */ }
     finally { setBusy(false); }
   };
@@ -391,6 +429,16 @@ export default function Lists() {
                   <Upload className="h-3.5 w-3.5" /> Import CSV
                 </button>
               )}
+              {activeList && (
+                <button
+                  onClick={deleteList}
+                  disabled={busy}
+                  title="Delete this list"
+                  className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg bg-background border border-border text-red-600 dark:text-red-400 text-[13px] font-semibold hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors disabled:opacity-40"
+                >
+                  <Trash2 className="h-3.5 w-3.5" /> Delete list
+                </button>
+              )}
             </>
           }
         />
@@ -563,8 +611,13 @@ export default function Lists() {
                     />
                   </div>
                   {allCols.map(c => (
-                    <div key={c.key} className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-shrink-0" style={{ width: c.w }}>
+                    <div key={c.key} className="relative px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-shrink-0" style={{ width: c.w }}>
                       {c.label}
+                      <div
+                        onMouseDown={e => startResize(e, c.key, c.w)}
+                        title="Drag to resize"
+                        className="absolute top-0 right-0 h-full w-1.5 cursor-col-resize hover:bg-foreground/20"
+                      />
                     </div>
                   ))}
                   <div className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-shrink-0" style={{ width: STATUS_W }}>

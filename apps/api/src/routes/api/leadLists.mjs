@@ -11,6 +11,7 @@ import {
   insertLeads,
   listLeads,
   deleteLeads,
+  deleteLeadList,
 } from '@nous/core';
 
 export const leadListsRouter = Router();
@@ -73,6 +74,21 @@ leadListsRouter.patch('/:id', async (req, res) => {
     return res.json({ lead_list });
   } catch (err) {
     console.error('[PATCH /api/lead-lists/:id]', err);
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
+// DELETE /api/lead-lists/:id — delete an entire list. Body/query: { workspaceId? }.
+// Removes the list; the underlying entities + engagement history are kept.
+leadListsRouter.delete('/:id', async (req, res) => {
+  try {
+    const workspaceId = req.body?.workspaceId || req.query.workspaceId || req.workspaceId;
+    if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
+    const deleted = await deleteLeadList(getSupabaseClient(), workspaceId, req.params.id);
+    if (!deleted) return res.status(404).json({ error: 'not_found' });
+    return res.json({ deleted: true });
+  } catch (err) {
+    console.error('[DELETE /api/lead-lists/:id]', err);
     return res.status(500).json({ error: 'internal_error' });
   }
 });
