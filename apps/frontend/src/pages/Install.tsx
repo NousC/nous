@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Copy, CheckCircle2, Plug, ArrowUpRight, Terminal } from "lucide-react";
+import { Copy, CheckCircle2, Plug, ArrowUpRight, Terminal, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
 import { useAuth } from "@/contexts/AuthContext";
@@ -695,22 +695,20 @@ export default function Install() {
 
         {/* The whole guided flow sits in one elevated white card, lifted off
             the muted page behind it. */}
-        <div className="rounded-2xl border border-border/60 bg-background shadow-sm p-6 sm:p-8 space-y-9">
+        <div className="relative rounded-2xl border border-border/60 bg-background shadow-sm p-6 sm:p-8 space-y-9">
+          {selfHosted && (
+            <div className="group absolute top-3.5 right-3.5 z-20">
+              <Info className="h-4 w-4 text-amber-500 cursor-help" strokeWidth={2} />
+              <div className="hidden group-hover:block absolute top-full right-0 mt-1.5 w-[260px] rounded-lg border border-amber-300/60 bg-amber-50 dark:border-amber-500/30 dark:bg-amber-500/10 px-3 py-2.5 text-[12px] leading-relaxed text-amber-900 dark:text-amber-200 shadow-lg">
+                This is a <span className="font-medium">self-hosted</span> instance — the install differs from the cloud. The configs below are pre-filled with your server's API URL (<code className="font-mono text-[11px]">NOUS_API_URL</code>); just add your API key.
+              </div>
+            </div>
+          )}
           <Step
             n={1}
             title="Add Nous to your tool"
             hint="Pick where your agent runs. Claude Code installs as a plugin; everywhere else takes the MCP server config."
           >
-            {selfHosted && SELF_HOST_API_URL && (
-              <div className="mb-4 rounded-lg border border-amber-300/60 bg-amber-50 dark:border-amber-500/30 dark:bg-amber-500/10 px-4 py-3 text-[13px] leading-relaxed text-amber-900 dark:text-amber-200">
-                <p className="font-semibold mb-1">Self-hosted instance</p>
-                <p>
-                  The configs below are pre-filled to point at <span className="font-medium">this</span> instance
-                  (<code className="font-mono text-[12px] bg-amber-100 dark:bg-amber-500/20 px-1 py-0.5 rounded">NOUS_API_URL={SELF_HOST_API_URL}</code>).
-                  Just create a key under <span className="font-medium">Settings → API Keys</span> and paste it in.
-                </p>
-              </div>
-            )}
             <ClientPanel client={client} onChange={setClient} />
           </Step>
 
