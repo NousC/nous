@@ -7,8 +7,10 @@ import {
   resolveEntity,
   getOrCreateEntity,
   identifiersFromContactData,
+  saveNote,
 } from '@nous/core';
 import { enrichContact } from './enrichContact.mjs';
+import { corroboratesIdentity, emailDomain } from './identityMatch.mjs';
 
 // ── Company upsert ────────────────────────────────────────────────────────────
 
@@ -107,6 +109,10 @@ export async function resolveContact(supabase, workspaceId, data, { createIfMiss
     email, linkedin_url, hubspot_id, pipedrive_id, apollo_id,
   });
 
+  // Set when a name matches an existing contact but nothing corroborates the
+  // new email — used to flag the contact we end up creating (Step 3) for review.
+  let duplicateCandidates = null;
+
   // Step 1 — resolve via entity_identifiers (the v2 lookup); fetch the contact
   // row by id (entity.id == contact.id under the migration convention).
   for (const ident of identifiers) {
@@ -139,6 +145,56 @@ export async function resolveContact(supabase, workspaceId, data, { createIfMiss
           console.log(`[IDENTITY] Name heal "${name}" → ${cleanEmail} (entity ${nameMatches[0].id})`);
           return { contact: await mergeContact(supabase, { ...nameMatches[0], email: cleanEmail }, data), created: false };
         }
+      }
+    }
+  }
+
+  // Step 2.5 — corroborated cross-email match: the person already exists (WITH an
+  // email) but is reaching us from a new, unseen address — e.g. they booked with
+  // a work email when we only had their personal one. Matching on name alone is
+  // unsafe (two people can share a name), so we require domain/company
+  // corroboration. With it → attach the new email to the existing entity instead
+  // of spawning a duplicate. Without it → fall through to create + flag (Step 3)
+  // for human review. Never an automatic merge on name alone.
+  if (email && createIfMissing) {
+    const nm = full_name || [first_name, last_name].filter(Boolean).join(' ') || null;
+    const p = nm?.trim().split(/\s+/) || [];
+    const fn = p[0], ln = p.slice(1).join(' ');
+    if (fn && ln) {
+      const { data: nameMatches } = await supabase.from('contacts')
+        .select('id, first_name, last_name, email, domain, company, workspace_id')
+        .eq('workspace_id', workspaceId)
+        .ilike('first_name', fn).ilike('last_name', ln)
+        .not('email', 'is', null);
+      if (nameMatches?.length) {
+        const incomingDomain = emailDomain(email);
+        const corroborated = [];
+        for (const c of nameMatches) {
+          const { data: ids } = await supabase.from('entity_identifiers')
+            .select('value').eq('workspace_id', workspaceId)
+            .eq('entity_id', c.id).eq('kind', 'email').eq('status', 'active');
+          const emailDomains = (ids || []).map(r => emailDomain(r.value)).filter(Boolean);
+          if (corroboratesIdentity({ domain: c.domain, company: c.company, emailDomains }, incomingDomain)) {
+            corroborated.push(c);
+          }
+        }
+        if (corroborated.length === 1) {
+          const target = corroborated[0];
+          const cleanEmail = email.toLowerCase().trim();
+          await supabase.from('entity_identifiers').insert({
+            workspace_id: workspaceId, entity_id: target.id, kind: 'email', value: cleanEmail,
+          }).then(() => {}, () => {});
+          console.log(`[IDENTITY] Corroborated match "${nm}" + ${incomingDomain} → attach ${cleanEmail} to entity ${target.id}`);
+          const { data: full } = await supabase.from('contacts').select(SELECT).eq('id', target.id).maybeSingle();
+          return { contact: await mergeContact(supabase, full || target, data), created: false };
+        }
+        // Ambiguous: name matches but nothing corroborates (or >1 corroborates).
+        // Remember the candidates so the contact we create can be flagged.
+        duplicateCandidates = nameMatches.slice(0, 3).map(c => ({
+          id: c.id,
+          name: [c.first_name, c.last_name].filter(Boolean).join(' '),
+          email: c.email,
+        }));
       }
     }
   }
@@ -195,6 +251,22 @@ export async function resolveContact(supabase, workspaceId, data, { createIfMiss
   // (No explicit state observation mirror: the contacts view's INSERT trigger
   // already wrote the entity, identifiers, and state observations for every
   // claim-worthy field above.)
+
+  // Flag for review: a same-name contact already exists but nothing corroborated
+  // this new email, so we created rather than merged. Leave a Data Quality note
+  // so a human can confirm + merge — we never auto-merge on name alone.
+  if (duplicateCandidates?.length) {
+    const refs = duplicateCandidates
+      .map(d => `${d.name || 'unknown'} (${d.email || 'no email'}, id ${d.id})`).join('; ');
+    saveNote(supabase, workspaceId, {
+      entityId: created.id,
+      category: 'Data Quality',
+      content: `Possible duplicate — created from ${source || 'webhook'} with a new email (${email}). A same-name contact already exists: ${refs}. Review and merge if this is the same person.`,
+      source: 'identity_resolution',
+      confidence: 0.5,
+      metadata: { flag: 'possible_duplicate', candidate_ids: duplicateCandidates.map(d => d.id), new_email: email },
+    }).catch(() => {});
+  }
 
   // Fire-and-forget enrichment — never block the webhook response
   enrichContact(supabase, { ...created, workspace_id: workspaceId }).catch(() => {});
