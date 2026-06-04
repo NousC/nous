@@ -37,9 +37,22 @@ async function resolveTeamAndPlan(req) {
  * Usage:
  *   router.post('/sync-now', verifySupabaseAuth, requireFeature('crmSync'), handler);
  */
+// Features that are NOT available on self-host (cloud-only). Self-host gets
+// everything else, unmetered. Add governance/enterprise features here later.
+const CLOUD_ONLY_FEATURES = new Set(['crmSync', 'leadLists']);
+
 export function requireFeature(feature) {
   return async function requireFeatureMiddleware(req, res, next) {
-    if (isSelfHosted()) return next();
+    if (isSelfHosted()) {
+      if (CLOUD_ONLY_FEATURES.has(feature)) {
+        return res.status(403).json({
+          error: 'cloud_only_feature',
+          feature,
+          message: `${feature} is available on Nous Cloud only.`,
+        });
+      }
+      return next();
+    }
     try {
       const { plan } = await resolveTeamAndPlan(req);
       if (!hasFeature(plan.id, feature)) {
@@ -112,7 +125,15 @@ export async function requireEnrichmentQuota(req, res, next) {
  * middleware shape for parity.
  */
 export function assertFeature(planId, feature) {
-  if (isSelfHosted()) return;
+  if (isSelfHosted()) {
+    if (CLOUD_ONLY_FEATURES.has(feature)) {
+      const err = new Error(`cloud_only_feature:${feature}`);
+      err.code = 'cloud_only_feature';
+      err.feature = feature;
+      throw err;
+    }
+    return;
+  }
   if (!hasFeature(planId, feature)) {
     const err = new Error(`feature_not_in_plan:${feature}`);
     err.code = 'feature_not_in_plan';
