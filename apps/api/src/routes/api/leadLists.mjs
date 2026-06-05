@@ -17,6 +17,7 @@ import {
 import { hasFeature } from '../../lib/plans.mjs';
 import { requireEnrichmentQuota } from '../../lib/access.mjs';
 import { enrichContact } from '../../services/enrichment.mjs';
+import { listCampaigns, pushLeads, SEQUENCERS } from '../../services/sequencerPush.mjs';
 
 export const leadListsRouter = Router();
 
@@ -253,6 +254,66 @@ leadListsRouter.post('/:id/enrich', requireEnrichmentQuota, async (req, res) => 
     return res.json({ enriched, skipped_quota: skippedQuota, skipped_no_identifier: skippedNoId, requested: ids.length });
   } catch (err) {
     console.error('[POST /api/lead-lists/:id/enrich]', err);
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
+// GET /api/lead-lists/sequencer/campaigns?workspaceId=&provider=instantly
+// Lists the connected sequencer's campaigns for the export picker.
+leadListsRouter.get('/sequencer/campaigns', async (req, res) => {
+  try {
+    const { workspaceId, provider } = req.query;
+    if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
+    if (!SEQUENCERS.includes(provider)) return res.status(400).json({ error: 'unsupported_provider', supported: SEQUENCERS });
+    const out = await listCampaigns(getSupabaseClient(), workspaceId, provider);
+    return res.json(out);
+  } catch (err) {
+    console.error('[GET /api/lead-lists/sequencer/campaigns]', err);
+    return res.status(502).json({ error: 'provider_error', message: err.message });
+  }
+});
+
+// POST /api/lead-lists/:id/push — push selected leads into a sequencer campaign,
+// then tag each pushed lead with the channel it went out on.
+const MAX_PUSH = 1000;
+leadListsRouter.post('/:id/push', async (req, res) => {
+  try {
+    const supabase = getSupabaseClient();
+    const workspaceId = req.body.workspaceId || req.workspaceId;
+    const { provider, campaignId, campaignName } = req.body;
+    const ids = Array.isArray(req.body.ids) ? req.body.ids.slice(0, MAX_PUSH) : [];
+    if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
+    if (!SEQUENCERS.includes(provider)) return res.status(400).json({ error: 'unsupported_provider' });
+    if (!campaignId) return res.status(400).json({ error: 'campaignId required' });
+    if (ids.length === 0) return res.status(400).json({ error: 'ids array required' });
+
+    const { data: rows } = await supabase
+      .from('leads').select('id, email, name, company')
+      .eq('workspace_id', workspaceId).eq('lead_list_id', req.params.id).in('id', ids);
+    const leads = (rows || []).map(l => {
+      const [first, ...rest] = (l.name || '').trim().split(' ');
+      return { id: l.id, email: l.email, first_name: first || null, last_name: rest.join(' ') || null, company: l.company };
+    });
+
+    const result = await pushLeads(supabase, workspaceId, provider, campaignId, leads);
+    if (!result.ok) return res.status(result.error === 'not_connected' ? 409 : 502).json(result);
+
+    // Tag pushed leads — an interaction observation so the Channel column reflects
+    // where they went (instantly = Email) and the timeline shows the campaign.
+    const pushed = leads.filter(l => l.email).slice(0, result.pushed);
+    if (pushed.length) {
+      const nowISO = new Date().toISOString();
+      const obs = pushed.map(l => ({
+        workspace_id: workspaceId, entity_id: l.id, kind: 'event',
+        property: 'interaction.added_to_campaign',
+        value: { provider, campaign_id: campaignId, campaign_name: campaignName || null },
+        source: provider, method: 'api', observed_at: nowISO,
+      }));
+      await supabase.from('observations').insert(obs).then(() => {}, e => console.warn('[push] tag insert failed', e.message));
+    }
+    return res.json({ ...result, requested: ids.length });
+  } catch (err) {
+    console.error('[POST /api/lead-lists/:id/push]', err);
     return res.status(500).json({ error: 'internal_error' });
   }
 });

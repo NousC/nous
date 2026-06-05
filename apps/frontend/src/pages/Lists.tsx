@@ -142,6 +142,12 @@ export default function Lists() {
   // Outbound filters — by lifecycle status and reply outcome.
   const [statusFilter, setStatusFilter] = useState("");
   const [replyFilter, setReplyFilter] = useState("");
+  // Export-to-sequencer (push selected leads into a campaign).
+  const [pushOpen, setPushOpen] = useState(false);
+  const [campaigns, setCampaigns] = useState<{ id: string; name: string }[]>([]);
+  const [campaignsConn, setCampaignsConn] = useState<boolean | null>(null);
+  const [pushCampaign, setPushCampaign] = useState("");
+  const [pushing, setPushing] = useState(false);
   // Selected lead ids — the manual delete control after ICP scoring.
   const [selected, setSelected] = useState<Set<string>>(new Set());
   // Server-side pagination — the leads view is expensive per row, so we never
@@ -277,6 +283,37 @@ export default function Lists() {
       await loadLeads(activeId, page, icpFilter, sort);
     } catch { toast("Couldn't enrich — try again."); }
     finally { setBusy(false); }
+  }
+
+  // Load the connected sequencer's campaigns when the export modal opens.
+  useEffect(() => {
+    if (!pushOpen || !workspaceId) return;
+    setCampaigns([]); setCampaignsConn(null); setPushCampaign("");
+    fetch(`${apiUrl}/api/lead-lists/sequencer/campaigns?workspaceId=${workspaceId}&provider=instantly`, { headers: authHeaders })
+      .then(r => r.ok ? r.json() : { connected: false, campaigns: [] })
+      .then(d => { setCampaignsConn(!!d.connected); setCampaigns(d.campaigns || []); })
+      .catch(() => setCampaignsConn(false));
+  }, [pushOpen, workspaceId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function pushToCampaign() {
+    if (!activeId || !pushCampaign || selected.size === 0) return;
+    setPushing(true);
+    try {
+      const camp = campaigns.find(c => c.id === pushCampaign);
+      const res = await fetch(`${apiUrl}/api/lead-lists/${activeId}/push`, {
+        method: "POST", headers: { ...authHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ workspaceId, provider: "instantly", campaignId: pushCampaign, campaignName: camp?.name, ids: [...selected] }),
+      });
+      if (res.ok) {
+        const d = await res.json();
+        toast.success(`Pushed ${d.pushed} to Instantly · ${camp?.name || "campaign"}${d.skipped ? ` · ${d.skipped} skipped (no email)` : ""}`);
+        setPushOpen(false); setSelected(new Set());
+        await loadLeads(activeId, page, icpFilter, sort);
+      } else if (res.status === 409) {
+        toast("Instantly isn't connected — add it in Integrations first.");
+      } else { toast("Push failed — try again."); }
+    } catch { toast("Push failed — try again."); }
+    finally { setPushing(false); }
   }
 
   const allCols = [
@@ -530,6 +567,15 @@ export default function Lists() {
                   className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-background border border-border text-foreground/80 text-[13px] font-semibold hover:bg-muted/50 transition-colors disabled:opacity-40"
                 >
                   <Download className="h-3.5 w-3.5" /> Export CSV
+                </button>
+              )}
+              {activeList && (
+                <button
+                  onClick={() => setPushOpen(true)}
+                  title="Push selected leads into an Instantly campaign"
+                  className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-background border border-border text-foreground/80 text-[13px] font-semibold hover:bg-muted/50 transition-colors"
+                >
+                  Export to campaign →
                 </button>
               )}
               {activeList && (
@@ -884,6 +930,43 @@ export default function Lists() {
           </div>
         )}
       </div>
+
+      {/* Export-to-campaign modal */}
+      {pushOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => !pushing && setPushOpen(false)}>
+          <div onClick={e => e.stopPropagation()} className="w-full max-w-md rounded-xl border border-border bg-background p-5 shadow-xl">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-[15px] font-semibold text-foreground">Export to a campaign</span>
+              <button onClick={() => setPushOpen(false)} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+            </div>
+            <p className="text-[12px] text-muted-foreground mb-3">
+              Push the {selected.size} selected lead{selected.size === 1 ? "" : "s"} into an Instantly campaign. Leads without an email are skipped.
+            </p>
+            <div className="text-[11px] font-medium text-muted-foreground/70 mb-1.5">Platform</div>
+            <div className="h-9 rounded-lg border border-border bg-muted/40 px-3 flex items-center text-[13px] text-foreground mb-3">Instantly</div>
+            <div className="text-[11px] font-medium text-muted-foreground/70 mb-1.5">Campaign</div>
+            {campaignsConn === false ? (
+              <div className="text-[12px] text-amber-700 border border-amber-200 bg-amber-50 rounded-lg px-3 py-2 mb-3">Instantly isn't connected — add it in Integrations first.</div>
+            ) : campaignsConn === null ? (
+              <div className="text-[12px] text-muted-foreground px-1 py-2 mb-3">Loading campaigns…</div>
+            ) : (
+              <select value={pushCampaign} onChange={e => setPushCampaign(e.target.value)}
+                className="w-full h-9 rounded-lg border border-border bg-background px-3 text-[13px] text-foreground mb-3 outline-none focus:border-muted-foreground">
+                <option value="">Select a campaign…</option>
+                {campaigns.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            )}
+            <div className="flex items-center justify-end gap-2">
+              <button onClick={() => setPushOpen(false)} className="text-[13px] text-muted-foreground hover:text-foreground px-3 py-1.5">Cancel</button>
+              <button onClick={pushToCampaign} disabled={pushing || !pushCampaign || selected.size === 0}
+                className="h-9 px-4 rounded-lg bg-foreground text-background text-[13px] font-semibold hover:opacity-90 disabled:opacity-40">
+                {pushing ? "Pushing…" : `Push ${selected.size} lead${selected.size === 1 ? "" : "s"}`}
+              </button>
+            </div>
+            {selected.size === 0 && <p className="text-[11px] text-muted-foreground/70 mt-2">Tip: tick leads in the table first, then export.</p>}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
