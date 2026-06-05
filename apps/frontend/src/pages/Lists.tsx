@@ -4,6 +4,7 @@ import { Plus, Upload, RefreshCw, FileText, X, ArrowLeft, Trash2, Download, Lock
 import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader } from "@/components/ui/page-header";
 import { parseCSVLine } from "@/components/contacts/PeopleImportModal";
+import { relTime } from "@/components/mind/shared";
 import { toast } from "@/components/ui/sonner";
 
 // Lists — the Enterprise lead-list workspace. Each list is a small table the
@@ -63,6 +64,9 @@ function cellValue(lead: Lead, key: string): string {
   if (key === "email") return lead.email ?? "";
   if (key === "company") return lead.company ?? "";
   if (key === "linkedin_url") return lead.linkedin_url ?? "";
+  // Synthetic column: when the lead joined this list (collection added_at). On the
+  // engagers list that's when they engaged; elsewhere it's when they were added.
+  if (key === "__added") return lead.created_at ? relTime(lead.created_at) : "";
   const v = lead.fields?.[key];
   return v == null ? "" : String(v);
 }
@@ -231,6 +235,7 @@ export default function Lists() {
   const allCols = [
     ...FIXED_COLS,
     ...customCols.map(c => ({ key: c.key, label: c.label, w: CUSTOM_W })),
+    { key: "__added", label: activeList?.source === "linkedin_engagement" ? "Engaged" : "Added", w: 96 },
   ].map(c => ({ ...c, w: Math.max(60, colW[c.key] ?? c.w) }));
 
   const resetImport = () => {
