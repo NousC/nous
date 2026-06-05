@@ -187,13 +187,15 @@ async function runForWorkspace(supabase, conn) {
 
   const res = await insertLeads(supabase, workspaceId, list.id, rows, { importDuplicates: false });
 
-  // Attach an engagement observation to each engager's entity (idempotent per run).
-  // We read back the list's leads to resolve entity ids for everyone we scraped —
-  // including those skipped as duplicates (already a lead, but engaged again now).
-  const urls = rows.map(r => r.linkedin_url);
+  // Attach an engagement observation to each engager's entity (idempotent per run)
+  // so it lands on their People timeline too — including engagers who are ALREADY
+  // known contacts. Resolve entity ids from the list's leads matched by NORMALIZED
+  // URL: an existing contact resolved by identity may store a differently-formatted
+  // URL (trailing slash / case) than the scraped one, so an exact match would miss
+  // them and silently drop their engagement signal.
   const { data: leadRows } = await supabase
     .from('leads').select('id, linkedin_url')
-    .eq('workspace_id', workspaceId).eq('lead_list_id', list.id).in('linkedin_url', urls);
+    .eq('workspace_id', workspaceId).eq('lead_list_id', list.id).limit(5000);
 
   const byUrl = new Map((leadRows || []).map(r => [normUrl(r.linkedin_url), r.id]));
   const rundate = new Date().toISOString().slice(0, 10);
@@ -202,17 +204,22 @@ async function runForWorkspace(supabase, conn) {
   for (const e of engagers.values()) {
     const entityId = byUrl.get(normUrl(e.linkedin_url));
     if (!entityId) continue;
+    const kindStr = [...e.kinds].sort().join('+'); // 'comment' | 'reaction' | 'comment+reaction'
+    // What renders as the activity body on the timeline: the comment text if they
+    // commented, otherwise the reaction.
+    const summary = e.sample_comment || (e.reaction ? `Reacted ${e.reaction}` : null);
     obs.push({
       workspace_id: workspaceId,
       entity_id: entityId,
       kind: 'event',
       property: ENGAGE_PROP,
       value: {
-        kind: [...e.kinds].sort().join('+'),
+        kind: kindStr,
         post_urls: [...e.post_urls],
         sample_comment: e.sample_comment,
         reaction: e.reaction,
         profile_name: e.name,
+        summary,
       },
       source: 'apify_linkedin',
       method: 'cron',

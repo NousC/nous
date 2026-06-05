@@ -101,6 +101,13 @@ contactsApiRouter.get('/:id', verifySupabaseAuth, async (req, res) => {
       }
       if (prop === 'interaction.subscription_updated') return `Plan updated${value?.plan ? ` to ${value.plan}` : ''}`;
       if (prop === 'interaction.subscription_canceled') return 'Canceled subscription';
+      if (prop === 'interaction.linkedin_post_engagement') {
+        const k = value?.kind || '';
+        if (k.includes('comment') && k.includes('reaction')) return 'Commented and reacted on your post';
+        if (k.includes('comment')) return 'Commented on your post';
+        if (k.includes('reaction')) return value?.reaction ? `Reacted ${value.reaction} to your post` : 'Reacted to your post';
+        return 'Engaged with your post';
+      }
       return value?.description || (prop || '').replace(/^interaction\./, '').replace(/_/g, ' ') || 'Activity';
     };
 
