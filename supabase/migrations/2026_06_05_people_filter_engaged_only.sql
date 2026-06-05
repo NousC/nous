@@ -3,9 +3,11 @@
 -- The prior filter showed anyone with any non-scrape observation, which let bare
 -- LinkedIn connections (source='linkedin', interaction.linkedin_connected) flood
 -- People. Now a person shows only with a genuine two-way interaction, a CRM/
--- customer record, an advanced pipeline stage, or a manual add. Bare connections,
--- post likes/comments, cold leads, enriched-only, and outbound-only people are
--- still stored (and queryable) — just not displayed. Column set unchanged.
+-- customer record, an advanced pipeline stage, or a manual add. A LinkedIn
+-- message counts only when inbound (is_outbound != true) so cold outreach we sent
+-- doesn't qualify. Bare connections, post likes/comments, cold leads, enriched-
+-- only, and outbound-only people stay stored + queryable, just not displayed.
+-- Column set unchanged.
 
 CREATE OR REPLACE VIEW contacts AS
  SELECT
@@ -83,17 +85,21 @@ CREATE OR REPLACE VIEW contacts AS
    AND (
      EXISTS (
        SELECT 1 FROM observations o
-       WHERE o.entity_id = e.id AND o.kind = 'event' AND o.property IN (
-         'interaction.reply', 'interaction.email_reply', 'interaction.email_replied',
-         'interaction.email_received', 'interaction.outbound_positive_reply',
-         'interaction.linkedin_message', 'interaction.linkedin_message_received',
-         'interaction.meeting_held', 'interaction.meeting_scheduled',
-         'interaction.call', 'interaction.call_held',
-         'interaction.deal_won', 'interaction.deal_lost', 'interaction.deal_disqualified',
-         'interaction.proposal_sent', 'interaction.proposal_signed',
-         'interaction.payment_received', 'interaction.subscription_started',
-         'interaction.subscription_updated', 'interaction.subscription_canceled',
-         'interaction.signed_up'
+       WHERE o.entity_id = e.id AND o.kind = 'event' AND (
+         o.property IN (
+           'interaction.reply', 'interaction.email_reply', 'interaction.email_replied',
+           'interaction.email_received', 'interaction.outbound_positive_reply',
+           'interaction.linkedin_message_received',
+           'interaction.meeting_held', 'interaction.meeting_scheduled',
+           'interaction.call', 'interaction.call_held',
+           'interaction.deal_won', 'interaction.deal_lost', 'interaction.deal_disqualified',
+           'interaction.proposal_sent', 'interaction.proposal_signed',
+           'interaction.payment_received', 'interaction.subscription_started',
+           'interaction.subscription_updated', 'interaction.subscription_canceled',
+           'interaction.signed_up'
+         )
+         OR (o.property = 'interaction.linkedin_message'
+             AND COALESCE((o.raw ->> 'is_outbound')::boolean, false) = false)
        )
      )
      OR EXISTS (
