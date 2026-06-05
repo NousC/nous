@@ -77,9 +77,18 @@ export default function Integrations() {
   const [connSuccess, setConnSuccess] = useState<string|null>(null);
   const [connOAuthLoading, setConnOAuthLoading] = useState(false);
   const [liveConns, setLiveConns] = useState<IntegrationConn[]>([]);
+  const [linkedinStatus, setLinkedinStatus] = useState<{connected:boolean; needs_reconnect?:boolean; connection:any}|null>(null);
+  const [linkedinBusy, setLinkedinBusy] = useState(false);
+
+  const fetchLinkedInStatus = () => {
+    if (!token || !workspaceId) return;
+    fetch(`${apiUrl}/api/linkedin/status?workspaceId=${workspaceId}`, { headers:{ Authorization:`Bearer ${token}` } })
+      .then(r=>r.ok?r.json():null).then(d=>{ if (d) setLinkedinStatus(d); }).catch(()=>{});
+  };
 
   useEffect(() => {
     if (!token || !workspaceId) return;
+    fetchLinkedInStatus();
     fetch(`${apiUrl}/api/workflow-providers/connections?workspace_id=${workspaceId}`, { headers:{ Authorization:`Bearer ${token}` } })
       .then(r=>r.ok?r.json():{}).then(d=>setLiveConns(d.connections??[])).catch(()=>{});
     fetch(`${apiUrl}/api/workflow-providers`, { headers:{ Authorization:`Bearer ${token}` } })
@@ -105,6 +114,42 @@ export default function Integrations() {
     const merged = hardcoded ? { ...p, auth_fields: hardcoded.auth_fields, auth_type: hardcoded.auth_type } : p;
     setConnecting(merged); setConnApiKey(""); setConnCreds({}); setConnName(merged.display_name);
     setConnTestResult(null); setConnSuccess(null); setConnOAuthLoading(false);
+  };
+
+  // LinkedIn (Unipile) — its own native connection, separate from the
+  // workflow-provider OAuth/API-key flow. Opens the Unipile hosted-auth popup.
+  const connectLinkedIn = async () => {
+    if (!token || !workspaceId) return;
+    setLinkedinBusy(true);
+    try {
+      const res = await fetch(`${apiUrl}/api/linkedin/connect?workspaceId=${workspaceId}`, { headers:{ Authorization:`Bearer ${token}` } });
+      if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.error || "Couldn't start LinkedIn connection"); }
+      const { url } = await res.json();
+      const w = 600, h = 700;
+      window.open(url, "LinkedInUnipile", `width=${w},height=${h},left=${window.screenX+(window.outerWidth-w)/2},top=${window.screenY+(window.outerHeight-h)/2}`);
+      let cleanup: (()=>void)|null = null;
+      const onMessage = (e: MessageEvent) => {
+        if (e.data?.type !== "linkedin_auth") return;
+        window.removeEventListener("message", onMessage); cleanup?.(); setLinkedinBusy(false);
+        if (e.data.success) { toast.success("LinkedIn connected"); fetchLinkedInStatus(); }
+        else toast.error("LinkedIn connection failed. Please try again.");
+      };
+      window.addEventListener("message", onMessage);
+      cleanup = watchOAuthPopup({ onClose: () => { window.removeEventListener("message", onMessage); setLinkedinBusy(false); fetchLinkedInStatus(); } });
+    } catch (err: any) { toast.error(err.message || "Failed to connect LinkedIn"); setLinkedinBusy(false); }
+  };
+
+  const disconnectLinkedIn = async () => {
+    if (!token || !workspaceId) return;
+    if (!window.confirm("Disconnect LinkedIn? This removes the Unipile link and stops LinkedIn signals + the weekly engagement run.")) return;
+    setLinkedinBusy(true);
+    try {
+      const res = await fetch(`${apiUrl}/api/linkedin/disconnect?workspaceId=${workspaceId}`, { method:"DELETE", headers:{ Authorization:`Bearer ${token}` } });
+      if (!res.ok) throw new Error("Failed to disconnect");
+      toast.success("LinkedIn disconnected");
+      setLinkedinStatus({ connected: false, connection: null });
+    } catch (err: any) { toast.error(err.message || "Failed to disconnect"); }
+    finally { setLinkedinBusy(false); }
   };
 
   const handleOAuthConnect = async () => {
@@ -269,6 +314,36 @@ export default function Integrations() {
               {label}
             </button>
           ))}
+        </div>
+
+        {/* LinkedIn (Unipile) — native connection, always shown so new users can connect */}
+        <div className="rounded-xl border border-border overflow-hidden mb-4">
+          <div className="flex items-center gap-4 px-4 py-3.5 hover:bg-muted/50 transition-colors group">
+            <IntegrationLogo url="/provider-logos/linkedin.png" name="LinkedIn" />
+            <div className="flex-1 min-w-0">
+              <div className="text-[13px] font-semibold text-foreground">LinkedIn</div>
+              <div className="text-[12px] text-muted-foreground/70 truncate">
+                {linkedinStatus?.connected
+                  ? `Connected${linkedinStatus.connection?.linkedin_name ? ` as ${linkedinStatus.connection.linkedin_name}` : ""}`
+                  : "Sync your LinkedIn messages, connections, and post engagers"}
+              </div>
+            </div>
+            <span className={`text-[11px] px-2 py-0.5 rounded-md border flex-shrink-0 ${linkedinStatus?.connected ? "text-emerald-700 border-emerald-200 bg-emerald-50" : linkedinStatus?.needs_reconnect ? "text-amber-700 border-amber-200 bg-amber-50" : "text-muted-foreground border-border bg-muted/30"}`}>
+              {linkedinStatus?.connected ? "Connected" : linkedinStatus?.needs_reconnect ? "Needs reconnect" : "Not connected"}
+            </span>
+            {linkedinStatus?.connected ? (
+              <button onClick={disconnectLinkedIn} disabled={linkedinBusy}
+                title="Disconnect LinkedIn"
+                className="text-[12px] font-medium text-muted-foreground hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100 flex-shrink-0 rounded-md border border-border px-2.5 py-1 hover:border-red-200 disabled:opacity-40">
+                {linkedinBusy ? "Removing…" : "Disconnect"}
+              </button>
+            ) : (
+              <button onClick={connectLinkedIn} disabled={linkedinBusy}
+                className="text-[12px] font-medium flex-shrink-0 rounded-md bg-primary text-primary-foreground px-3 py-1.5 hover:bg-primary/90 disabled:opacity-40">
+                {linkedinBusy ? "Connecting…" : linkedinStatus?.needs_reconnect ? "Reconnect" : "Connect"}
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Connected integrations list */}
