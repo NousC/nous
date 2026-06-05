@@ -10,7 +10,8 @@ const LEAD_LIST_COLUMNS = 'id, workspace_id, name, source, columns, created_at, 
 const LEAD_COLUMNS =
   'id, lead_list_id, workspace_id, email, name, company, linkedin_url, ' +
   'sent_at, send_variant, is_repeat_contact, features, fields, scorecard_score, ' +
-  'reply_outcome, replied_at, status, contact_id, created_at, updated_at';
+  'reply_outcome, replied_at, status, contact_id, created_at, updated_at, ' +
+  'domain, email_status, last_channel';
 
 // Columns a new list starts with, beyond the fixed name / email / company /
 // linkedin / status. Stored on lead_lists.columns; values live in leads.fields.
@@ -288,6 +289,9 @@ export async function listLeads(
     offset?: number;
     icp?: 'true' | 'false';
     sort?: 'recent' | 'icp_score_desc' | 'icp_score_asc';
+    status?: string;        // pending | sent | replied | bounced
+    reply?: string;         // interested | objection | wrong_fit | unsubscribe
+    verified?: string;      // email_status value, e.g. 'verified'
   } = {},
 ): Promise<Lead[]> {
   if (!isUUID(leadListId)) return [];
@@ -297,7 +301,9 @@ export async function listLeads(
 
   // Numeric sort on a JSONB field can't go through PostgREST, so use the RPC.
   // Falls through to the plain query if the migration isn't applied yet.
-  if (sort === 'icp_score_desc' || sort === 'icp_score_asc') {
+  // The icp-score sort RPC only knows the icp filter; if a status/reply/verified
+  // filter is active, fall through to the plain query so those apply correctly.
+  if ((sort === 'icp_score_desc' || sort === 'icp_score_asc') && !opts.status && !opts.reply && !opts.verified) {
     const { data, error } = await supabase.rpc('lead_list_leads', {
       p_ws: workspaceId, p_list: leadListId, p_lim: limit, p_off: offset,
       p_icp: opts.icp ?? null, p_sort: sort,
@@ -313,6 +319,9 @@ export async function listLeads(
   if (opts.icp === 'true' || opts.icp === 'false') {
     query = query.filter('fields->>icp', 'eq', opts.icp);
   }
+  if (opts.status)   query = query.eq('status', opts.status);
+  if (opts.reply)    query = query.eq('reply_outcome', opts.reply);
+  if (opts.verified) query = query.eq('email_status', opts.verified);
   const { data, error } = await query
     .order('created_at', { ascending: false })
     .range(offset, offset + limit - 1);

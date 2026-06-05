@@ -132,7 +132,7 @@ leadListsRouter.delete('/:id', async (req, res) => {
 // GET /api/lead-lists/:id/leads?workspaceId=&limit=&offset= — leads in a list.
 leadListsRouter.get('/:id/leads', async (req, res) => {
   try {
-    const { workspaceId, limit, offset, icp, sort, counts } = req.query;
+    const { workspaceId, limit, offset, icp, sort, counts, status, reply, verified } = req.query;
     if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
     const supabase = getSupabaseClient();
     const validSort = ['recent', 'icp_score_desc', 'icp_score_asc'].includes(sort) ? sort : undefined;
@@ -141,6 +141,9 @@ leadListsRouter.get('/:id/leads', async (req, res) => {
       offset: offset ? parseInt(offset, 10) : undefined,
       icp: icp === 'true' || icp === 'false' ? icp : undefined,
       sort: validSort,
+      status:   typeof status === 'string'   ? status   : undefined,
+      reply:    typeof reply === 'string'    ? reply    : undefined,
+      verified: typeof verified === 'string' ? verified : undefined,
     });
     // Return the ICP counts only when asked (the first page) — saves two
     // count queries on every page turn.

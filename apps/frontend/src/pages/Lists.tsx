@@ -53,7 +53,22 @@ interface Lead {
   linkedin_url: string | null;
   status: string;
   reply_outcome: string | null;
+  domain: string | null;
+  email_status: string | null;
+  last_channel: string | null;
+  created_at: string | null;
   fields: Record<string, unknown>;
+}
+
+// Map an interaction observation source to a human outbound channel.
+function channelLabel(source: string | null): string {
+  if (!source) return "";
+  const s = source.toLowerCase();
+  if (["heyreach", "linkedin", "apify_linkedin", "unipile"].some(k => s.includes(k))) return "LinkedIn";
+  if (["instantly", "smartlead", "lemlist", "emailbison", "gmail", "smtp", "imap"].some(k => s.includes(k))) return "Email";
+  if (s.includes("slack")) return "Slack";
+  if (s.includes("calendly") || s.includes("cal_com") || s.includes("calendar")) return "Meeting";
+  return "";
 }
 
 const slugify = (s: string) =>
@@ -67,6 +82,9 @@ function cellValue(lead: Lead, key: string): string {
   // Synthetic column: when the lead joined this list (collection added_at). On the
   // engagers list that's when they engaged; elsewhere it's when they were added.
   if (key === "__added") return lead.created_at ? relTime(lead.created_at) : "";
+  if (key === "__domain") return lead.domain ?? "";
+  if (key === "__email_status") return lead.email_status ?? "";
+  if (key === "__channel") return channelLabel(lead.last_channel);
   const v = lead.fields?.[key];
   return v == null ? "" : String(v);
 }
@@ -121,6 +139,9 @@ export default function Lists() {
   const [result, setResult] = useState<{ inserted: number; skipped: number } | null>(null);
   // ICP segmentation filter — sales-nav-builder tags each lead fields.icp true/false.
   const [icpFilter, setIcpFilter] = useState<"all" | "icp" | "non">("all");
+  // Outbound filters — by lifecycle status and reply outcome.
+  const [statusFilter, setStatusFilter] = useState("");
+  const [replyFilter, setReplyFilter] = useState("");
   // Selected lead ids — the manual delete control after ICP scoring.
   const [selected, setSelected] = useState<Set<string>>(new Set());
   // Server-side pagination — the leads view is expensive per row, so we never
@@ -177,29 +198,30 @@ export default function Lists() {
       setLeadsLoading(true);
       try {
         const icpParam = filt === "all" ? "" : `&icp=${filt === "icp" ? "true" : "false"}`;
+        const outParam = `${statusFilter ? `&status=${statusFilter}` : ""}${replyFilter ? `&reply=${replyFilter}` : ""}`;
         // Ask for the ICP counts only on the first page.
         const countsParam = pg === 0 ? "&counts=1" : "";
         const res = await fetch(
-          `${apiUrl}/api/lead-lists/${listId}/leads?workspaceId=${workspaceId}&limit=${PAGE_SIZE}&offset=${pg * PAGE_SIZE}&sort=${srt}${icpParam}${countsParam}`,
+          `${apiUrl}/api/lead-lists/${listId}/leads?workspaceId=${workspaceId}&limit=${PAGE_SIZE}&offset=${pg * PAGE_SIZE}&sort=${srt}${icpParam}${outParam}${countsParam}`,
           { headers: authHeaders });
         const d = res.ok ? await res.json() : {};
         setLeads(d.leads ?? []);
         if (d.counts) setCounts(d.counts);
       } catch { setLeads([]); }
       finally { setLeadsLoading(false); }
-    }, [workspaceId, token]);
+    }, [workspaceId, token, statusFilter, replyFilter]);
 
   useEffect(() => {
     if (activeId) loadLeads(activeId, page, icpFilter, sort);
     else setLeads([]);
-  }, [activeId, page, icpFilter, sort, loadLeads]);
+  }, [activeId, page, icpFilter, sort, statusFilter, replyFilter, loadLeads]);
 
   // Switching lists resets filter, sort, page, selection, counts.
   useEffect(() => {
-    setIcpFilter("all"); setSort("recent"); setPage(0); setSelected(new Set()); setCounts(null);
+    setIcpFilter("all"); setStatusFilter(""); setReplyFilter(""); setSort("recent"); setPage(0); setSelected(new Set()); setCounts(null);
   }, [activeId]);
   // Changing the filter or sort goes back to page 1 and clears the selection.
-  useEffect(() => { setPage(0); setSelected(new Set()); }, [icpFilter, sort]);
+  useEffect(() => { setPage(0); setSelected(new Set()); }, [icpFilter, sort, statusFilter, replyFilter]);
 
   const activeList = lists.find(l => l.id === activeId) ?? null;
   const customCols = activeList?.columns ?? [];
@@ -234,7 +256,10 @@ export default function Lists() {
   }
   const allCols = [
     ...FIXED_COLS,
+    { key: "__domain", label: "Domain", w: 120 },
     ...customCols.map(c => ({ key: c.key, label: c.label, w: CUSTOM_W })),
+    { key: "__channel", label: "Channel", w: 84 },
+    { key: "__email_status", label: "Email status", w: 100 },
     { key: "__added", label: activeList?.source === "linkedin_engagement" ? "Engaged" : "Added", w: 96 },
   ].map(c => ({ ...c, w: Math.max(60, colW[c.key] ?? c.w) }));
 
@@ -624,6 +649,32 @@ export default function Lists() {
                 {n !== null ? <span className="tabular-nums opacity-70">{n}</span> : null}
               </button>
             ))}
+          </div>
+        )}
+
+        {/* Outbound filters — lifecycle status + reply outcome (server-side) */}
+        {activeList && (
+          <div className="flex items-center gap-2 mb-3">
+            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
+              className="h-7 rounded-md border border-border bg-background text-[12px] text-foreground px-2 outline-none focus:border-muted-foreground">
+              <option value="">All statuses</option>
+              <option value="pending">Pending</option>
+              <option value="sent">Sent</option>
+              <option value="replied">Replied</option>
+              <option value="bounced">Bounced</option>
+            </select>
+            <select value={replyFilter} onChange={e => setReplyFilter(e.target.value)}
+              className="h-7 rounded-md border border-border bg-background text-[12px] text-foreground px-2 outline-none focus:border-muted-foreground">
+              <option value="">Any reply</option>
+              <option value="interested">Interested</option>
+              <option value="objection">Objection</option>
+              <option value="wrong_fit">Wrong fit</option>
+              <option value="unsubscribe">Unsubscribe / DNC</option>
+            </select>
+            {(statusFilter || replyFilter) && (
+              <button onClick={() => { setStatusFilter(""); setReplyFilter(""); }}
+                className="text-[12px] text-muted-foreground hover:text-foreground">Clear</button>
+            )}
           </div>
         )}
 

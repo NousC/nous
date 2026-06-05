@@ -1293,7 +1293,13 @@ CREATE VIEW leads AS
      END, 'pending') AS status,
    CASE WHEN EXISTS (SELECT 1 FROM observations WHERE entity_id = e.id LIMIT 1) THEN e.id ELSE NULL::uuid END AS contact_id,
    ce.added_at AS created_at,
-   COALESCE((SELECT max(computed_at) FROM claims WHERE entity_id = e.id), ce.added_at) AS updated_at
+   COALESCE((SELECT max(computed_at) FROM claims WHERE entity_id = e.id), ce.added_at) AS updated_at,
+   -- Outbound foundation columns: company domain (from enrichment), email
+   -- verification status (verified/bounced/catch_all/…), and the channel of the
+   -- most recent interaction (source of the latest interaction.* event).
+   (SELECT value #>> '{}'::text[] FROM claims WHERE entity_id = e.id AND property = 'domain' AND invalid_at IS NULL LIMIT 1) AS domain,
+   (SELECT value #>> '{}'::text[] FROM claims WHERE entity_id = e.id AND property = 'reachability_status' AND invalid_at IS NULL LIMIT 1) AS email_status,
+   (SELECT source FROM observations WHERE entity_id = e.id AND kind = 'event' AND property LIKE 'interaction.%' ORDER BY observed_at DESC LIMIT 1) AS last_channel
  FROM entities e
    JOIN collection_entities ce ON ce.entity_id = e.id
    JOIN collections c ON c.id = ce.collection_id AND c.kind = 'list'
