@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { Plus, Upload, RefreshCw, FileText, X, ArrowLeft, Trash2, Download, Lock, Sparkles } from "lucide-react";
+import { Plus, Upload, RefreshCw, FileText, X, ArrowLeft, Download, Lock } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader } from "@/components/ui/page-header";
 import { parseCSVLine } from "@/components/contacts/PeopleImportModal";
@@ -653,77 +653,67 @@ export default function Lists() {
           </div>
         )}
 
-        {/* ICP segmentation filter — server-side, with live counts */}
-        {activeList && hasIcp && (
-          <div className="flex items-center gap-1.5 mb-3">
-            {([
-              ["all", "All", counts ? counts.icp + counts.non_icp : null],
-              ["icp", "ICP", counts?.icp ?? null],
-              ["non", "Non-ICP", counts?.non_icp ?? null],
-            ] as const).map(([key, label, n]) => (
-              <button
-                key={key}
-                onClick={() => setIcpFilter(key)}
-                className={`inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md text-[12px] font-medium border transition-colors ${
-                  icpFilter === key
-                    ? "bg-foreground text-background border-foreground"
-                    : "bg-background text-muted-foreground border-border hover:text-foreground"
-                }`}
-              >
-                {label}
-                {n !== null ? <span className="tabular-nums opacity-70">{n}</span> : null}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* Outbound filters — lifecycle status + reply outcome (server-side) */}
+        {/* Filters — ICP segmentation (left) + status / reply (right) on one line */}
         {activeList && (
-          <div className="flex items-center gap-2 mb-3">
-            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
-              className="h-7 rounded-md border border-border bg-background text-[12px] text-foreground px-2 outline-none focus:border-muted-foreground">
-              <option value="">All statuses</option>
-              <option value="pending">Pending</option>
-              <option value="sent">Sent</option>
-              <option value="replied">Replied</option>
-              <option value="bounced">Bounced</option>
-            </select>
-            <select value={replyFilter} onChange={e => setReplyFilter(e.target.value)}
-              className="h-7 rounded-md border border-border bg-background text-[12px] text-foreground px-2 outline-none focus:border-muted-foreground">
-              <option value="">Any reply</option>
-              <option value="interested">Interested</option>
-              <option value="objection">Objection</option>
-              <option value="wrong_fit">Wrong fit</option>
-              <option value="unsubscribe">Unsubscribe / DNC</option>
-            </select>
-            {(statusFilter || replyFilter) && (
-              <button onClick={() => { setStatusFilter(""); setReplyFilter(""); }}
-                className="text-[12px] text-muted-foreground hover:text-foreground">Clear</button>
-            )}
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <div className="flex items-center gap-1.5">
+              {hasIcp && ([
+                ["all", "All", counts ? counts.icp + counts.non_icp : null],
+                ["icp", "ICP", counts?.icp ?? null],
+                ["non", "Non-ICP", counts?.non_icp ?? null],
+              ] as const).map(([key, label, n]) => (
+                <button
+                  key={key}
+                  onClick={() => setIcpFilter(key)}
+                  className={`inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md text-[12px] font-medium border transition-colors ${
+                    icpFilter === key
+                      ? "bg-foreground text-background border-foreground"
+                      : "bg-background text-muted-foreground border-border hover:text-foreground"
+                  }`}
+                >
+                  {label}
+                  {n !== null ? <span className="tabular-nums opacity-70">{n}</span> : null}
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
+                className="h-7 rounded-md border border-border bg-background text-[12px] text-foreground px-2 outline-none focus:border-muted-foreground">
+                <option value="">All statuses</option>
+                <option value="pending">Pending</option>
+                <option value="sent">Sent</option>
+                <option value="replied">Replied</option>
+                <option value="bounced">Bounced</option>
+              </select>
+              <select value={replyFilter} onChange={e => setReplyFilter(e.target.value)}
+                className="h-7 rounded-md border border-border bg-background text-[12px] text-foreground px-2 outline-none focus:border-muted-foreground">
+                <option value="">Any reply</option>
+                <option value="interested">Interested</option>
+                <option value="objection">Objection</option>
+                <option value="wrong_fit">Wrong fit</option>
+                <option value="unsubscribe">Unsubscribe / DNC</option>
+              </select>
+              {(statusFilter || replyFilter) && (
+                <button onClick={() => { setStatusFilter(""); setReplyFilter(""); }}
+                  className="text-[12px] text-muted-foreground hover:text-foreground">Clear</button>
+              )}
+            </div>
           </div>
         )}
 
-        {/* Delete control — appears when rows are selected */}
+        {/* Selection actions — right-aligned, minimal */}
         {activeList && selected.size > 0 && (
-          <div className="flex items-center gap-3 mb-3">
-            <span className="text-[12px] text-muted-foreground tabular-nums">{selected.size} selected</span>
-            <button
-              onClick={enrichSelected}
-              disabled={busy}
-              className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md text-[12px] font-medium border border-border text-foreground/80 hover:bg-muted/50 transition-colors disabled:opacity-40"
-            >
-              <Sparkles className="h-3.5 w-3.5" /> {busy ? "Enriching…" : "Enrich — find emails"}
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-[12px] text-muted-foreground tabular-nums mr-auto">{selected.size} selected</span>
+            <button onClick={enrichSelected} disabled={busy}
+              className="h-7 px-2.5 rounded-md text-[12px] font-medium border border-border text-foreground/80 hover:bg-muted/50 transition-colors disabled:opacity-40">
+              {busy ? "Enriching…" : "Enrich"}
             </button>
-            <button
-              onClick={deleteSelected}
-              disabled={busy}
-              className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md text-[12px] font-medium border border-red-300 text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40 transition-colors disabled:opacity-40"
-            >
-              <Trash2 className="h-3.5 w-3.5" /> Delete selected
+            <button onClick={deleteSelected} disabled={busy}
+              className="h-7 px-2.5 rounded-md text-[12px] font-medium border border-red-300 text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40 transition-colors disabled:opacity-40">
+              Delete
             </button>
-            <button onClick={() => setSelected(new Set())} className="text-[12px] text-muted-foreground hover:text-foreground">
-              Clear
-            </button>
+            <button onClick={() => setSelected(new Set())} className="text-[12px] text-muted-foreground hover:text-foreground">Clear</button>
           </div>
         )}
 
