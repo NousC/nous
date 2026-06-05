@@ -188,16 +188,23 @@ async function runForWorkspace(supabase, conn) {
   const res = await insertLeads(supabase, workspaceId, list.id, rows, { importDuplicates: false });
 
   // Attach an engagement observation to each engager's entity (idempotent per run)
-  // so it lands on their People timeline too — including engagers who are ALREADY
-  // known contacts. Resolve entity ids from the list's leads matched by NORMALIZED
-  // URL: an existing contact resolved by identity may store a differently-formatted
-  // URL (trailing slash / case) than the scraped one, so an exact match would miss
-  // them and silently drop their engagement signal.
-  const { data: leadRows } = await supabase
-    .from('leads').select('id, linkedin_url')
-    .eq('workspace_id', workspaceId).eq('lead_list_id', list.id).limit(5000);
-
-  const byUrl = new Map((leadRows || []).map(r => [normUrl(r.linkedin_url), r.id]));
+  // so it lands on their People timeline too. Resolve by linkedin_url INDEPENDENT
+  // of list membership: workspace-wide dedup means an engager who is already a
+  // contact/lead elsewhere is skipped from this list (so reading the list misses
+  // them), but their engagement must still land on their existing record. Pull
+  // the workspace's linkedin_url identifiers (paginated) and match on normalized
+  // URL — handles trailing-slash / case differences between scraped and stored.
+  const byUrl = new Map();
+  for (let from = 0; ; from += 1000) {
+    const { data: ids } = await supabase
+      .from('entity_identifiers')
+      .select('entity_id, value')
+      .eq('workspace_id', workspaceId).eq('kind', 'linkedin_url').eq('status', 'active')
+      .range(from, from + 999);
+    if (!ids?.length) break;
+    for (const r of ids) { const k = normUrl(r.value); if (k && !byUrl.has(k)) byUrl.set(k, r.entity_id); }
+    if (ids.length < 1000) break;
+  }
   const rundate = new Date().toISOString().slice(0, 10);
   const nowISO = new Date().toISOString();
   const obs = [];

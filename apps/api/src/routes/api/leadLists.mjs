@@ -50,6 +50,11 @@ leadListsRouter.get('/', async (req, res) => {
       const created = await createLeadList(supabase, workspaceId, { name: ENGAGEMENT_LIST_NAME, source: ENGAGEMENT_SOURCE });
       lead_lists = [{ ...created, lead_count: 0 }, ...lead_lists];
     }
+    // Native engagers list is always pinned leftmost (it's the locked default).
+    lead_lists = [
+      ...lead_lists.filter(l => l.source === ENGAGEMENT_SOURCE),
+      ...lead_lists.filter(l => l.source !== ENGAGEMENT_SOURCE),
+    ];
     return res.json({ lead_lists });
   } catch (err) {
     console.error('[GET /api/lead-lists]', err);
