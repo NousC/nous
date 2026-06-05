@@ -316,46 +316,37 @@ export default function Integrations() {
           ))}
         </div>
 
-        {/* LinkedIn (Unipile) — native connection, always shown so new users can connect */}
-        <div className="rounded-xl border border-border overflow-hidden mb-4">
-          <div className="flex items-center gap-4 px-4 py-3.5 hover:bg-muted/50 transition-colors group">
-            <IntegrationLogo url="/provider-logos/linkedin.png" name="LinkedIn" />
-            <div className="flex-1 min-w-0">
-              <div className="text-[13px] font-semibold text-foreground">LinkedIn</div>
-              <div className="text-[12px] text-muted-foreground/70 truncate">
-                {linkedinStatus?.connected
-                  ? `Connected${linkedinStatus.connection?.linkedin_name ? ` as ${linkedinStatus.connection.linkedin_name}` : ""}`
-                  : "Sync your LinkedIn messages, connections, and post engagers"}
-              </div>
-            </div>
-            <span className={`text-[11px] px-2 py-0.5 rounded-md border flex-shrink-0 ${linkedinStatus?.connected ? "text-emerald-700 border-emerald-200 bg-emerald-50" : linkedinStatus?.needs_reconnect ? "text-amber-700 border-amber-200 bg-amber-50" : "text-muted-foreground border-border bg-muted/30"}`}>
-              {linkedinStatus?.connected ? "Connected" : linkedinStatus?.needs_reconnect ? "Needs reconnect" : "Not connected"}
-            </span>
-            {linkedinStatus?.connected ? (
-              <button onClick={disconnectLinkedIn} disabled={linkedinBusy}
-                title="Disconnect LinkedIn"
-                className="text-[12px] font-medium text-muted-foreground hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100 flex-shrink-0 rounded-md border border-border px-2.5 py-1 hover:border-red-200 disabled:opacity-40">
-                {linkedinBusy ? "Removing…" : "Disconnect"}
-              </button>
-            ) : (
-              <button onClick={connectLinkedIn} disabled={linkedinBusy}
-                className="text-[12px] font-medium flex-shrink-0 rounded-md bg-primary text-primary-foreground px-3 py-1.5 hover:bg-primary/90 disabled:opacity-40">
-                {linkedinBusy ? "Connecting…" : linkedinStatus?.needs_reconnect ? "Reconnect" : "Connect"}
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Connected integrations list */}
-        {allConns.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-border py-12 text-center">
-            <p className="text-[13px] font-medium text-foreground/80 mb-1">No integrations connected yet</p>
-            <p className="text-[12px] text-muted-foreground/70">Click the + button to connect your first tool.</p>
-          </div>
-        ) : filteredConns.length === 0 ? (
-          <div className="text-[13px] text-muted-foreground/70 text-center py-12">No integrations in this category</div>
-        ) : (
+        {/* Integrations list — LinkedIn (native Unipile) sits inline as the first row */}
+        {((catTab === "all" || catTab === "communication") || filteredConns.length > 0) ? (
           <div className="rounded-xl border border-border overflow-hidden">
+            {(catTab === "all" || catTab === "communication") && (
+              <div className="flex items-center gap-4 px-4 py-3.5 border-b border-border/60 last:border-0 hover:bg-muted/50 transition-colors group">
+                <IntegrationLogo url="/provider-logos/linkedin.png" name="LinkedIn" />
+                <div className="flex-1 min-w-0">
+                  <div className="text-[13px] font-semibold text-foreground">LinkedIn</div>
+                  <div className="text-[12px] text-muted-foreground/70 truncate">
+                    {linkedinStatus?.connected
+                      ? `Connected${linkedinStatus.connection?.linkedin_name ? ` as ${linkedinStatus.connection.linkedin_name}` : ""}`
+                      : "Sync your LinkedIn messages, connections, and post engagers"}
+                  </div>
+                </div>
+                <span className={`text-[11px] px-2 py-0.5 rounded-md border flex-shrink-0 ${linkedinStatus?.connected ? "text-emerald-700 border-emerald-200 bg-emerald-50" : linkedinStatus?.needs_reconnect ? "text-amber-700 border-amber-200 bg-amber-50" : "text-muted-foreground border-border bg-muted/30"}`}>
+                  {linkedinStatus?.connected ? "Connected" : linkedinStatus?.needs_reconnect ? "Needs reconnect" : "Not connected"}
+                </span>
+                {linkedinStatus?.connected ? (
+                  <button onClick={disconnectLinkedIn} disabled={linkedinBusy}
+                    title="Disconnect LinkedIn"
+                    className="text-[12px] font-medium text-muted-foreground hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100 flex-shrink-0 rounded-md border border-border px-2.5 py-1 hover:border-red-200 disabled:opacity-40">
+                    {linkedinBusy ? "Removing…" : "Disconnect"}
+                  </button>
+                ) : (
+                  <button onClick={connectLinkedIn} disabled={linkedinBusy}
+                    className="text-[12px] font-medium flex-shrink-0 rounded-md bg-primary text-primary-foreground px-3 py-1.5 hover:bg-primary/90 disabled:opacity-40">
+                    {linkedinBusy ? "Connecting…" : linkedinStatus?.needs_reconnect ? "Reconnect" : "Connect"}
+                  </button>
+                )}
+              </div>
+            )}
             {filteredConns.map((conn: any) => {
               const providerForConnect: AvailableProvider = {
                 id: conn.provider?.name ?? conn.name,
@@ -395,6 +386,13 @@ export default function Integrations() {
               );
             })}
           </div>
+        ) : allConns.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-border py-12 text-center">
+            <p className="text-[13px] font-medium text-foreground/80 mb-1">No integrations connected yet</p>
+            <p className="text-[12px] text-muted-foreground/70">Click the + button to connect your first tool.</p>
+          </div>
+        ) : (
+          <div className="text-[13px] text-muted-foreground/70 text-center py-12">No integrations in this category</div>
         )}
       </div>
 
