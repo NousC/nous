@@ -235,8 +235,22 @@ async function runForWorkspace(supabase, conn) {
     });
   }
   if (obs.length) {
-    await supabase.from('observations')
-      .upsert(obs, { onConflict: 'workspace_id,source,external_id', ignoreDuplicates: true });
+    // De-dupe manually instead of ON CONFLICT: the observations dedup index is
+    // PARTIAL (WHERE external_id IS NOT NULL), which Postgres can't use for
+    // conflict inference, so an upsert errored silently and nothing was written.
+    // Read the external_ids already present, insert only the new ones, and check
+    // the error so this can never fail quietly again.
+    const wantIds = obs.map(o => o.external_id);
+    const { data: existing } = await supabase.from('observations')
+      .select('external_id').eq('workspace_id', workspaceId).eq('source', 'apify_linkedin')
+      .in('external_id', wantIds);
+    const have = new Set((existing || []).map(r => r.external_id));
+    const fresh = obs.filter(o => !have.has(o.external_id));
+    if (fresh.length) {
+      const { error: obsErr } = await supabase.from('observations').insert(fresh);
+      if (obsErr) console.error('[ENGAGE] observation insert failed:', obsErr.message);
+      else console.log(`[ENGAGE] ${fresh.length} engagement observation(s) recorded for ${workspaceId}`);
+    }
   }
 
   await logSysEvent(supabase, {

@@ -1660,10 +1660,24 @@ DECLARE
   ws UUID := NEW.workspace_id;
   fn_part TEXT := NULLIF(trim(split_part(COALESCE(NEW.name,''), ' ', 1)),'');
   ln_part TEXT := NULLIF(trim(substring(COALESCE(NEW.name,'') FROM position(' ' IN COALESCE(NEW.name,'')||' ') + 1)),'');
+  e_email TEXT := lower(NULLIF(trim(NEW.email),''));
+  e_li    TEXT := NULLIF(trim(NEW.linkedin_url),'');
+  e_li_norm TEXT := regexp_replace(regexp_replace(lower(split_part(NULLIF(trim(NEW.linkedin_url),''), '?', 1)), '^https?://(www\.)?', ''), '/+$', '');
+  existing_id UUID;
 BEGIN
-  -- Ensure entity (use contact_id if provided, else assign new)
+  -- Resolve to an existing entity by a strong identifier so a lead doesn't spawn
+  -- a duplicate person. LinkedIn match is normalized (lowercase, drop query, strip
+  -- protocol/www, strip trailing slash) so URL-shape differences still merge.
   IF NEW.contact_id IS NOT NULL THEN
     new_id := NEW.contact_id;
+  ELSE
+    SELECT entity_id INTO existing_id FROM entity_identifiers
+     WHERE workspace_id = ws AND status = 'active'
+       AND ((e_email IS NOT NULL AND kind = 'email' AND value = e_email)
+         OR (e_li_norm IS NOT NULL AND e_li_norm <> '' AND kind = 'linkedin_url'
+             AND regexp_replace(regexp_replace(lower(split_part(value, '?', 1)), '^https?://(www\.)?', ''), '/+$', '') = e_li_norm))
+     LIMIT 1;
+    IF existing_id IS NOT NULL THEN new_id := existing_id; END IF;
   END IF;
 
   INSERT INTO entities (id, workspace_id, type, status, created_at)
@@ -1673,8 +1687,8 @@ BEGIN
   -- Identifiers
   INSERT INTO entity_identifiers (workspace_id, entity_id, kind, value)
   SELECT ws, new_id, k.kind, k.value FROM (VALUES
-    ('email',        lower(NULLIF(trim(NEW.email),''))),
-    ('linkedin_url', NULLIF(trim(NEW.linkedin_url),''))
+    ('email',        e_email),
+    ('linkedin_url', e_li)
   ) AS k(kind, value)
   WHERE k.value IS NOT NULL
   ON CONFLICT DO NOTHING;
