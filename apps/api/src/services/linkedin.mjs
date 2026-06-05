@@ -622,11 +622,16 @@ export function registerLinkedInRoutes(app, supabase, verifySupabaseAuth, verify
     }
 
     try {
-      // Fetch account details from Unipile
+      // Fetch account details from Unipile. The LinkedIn identity lives under
+      // connection_params.im — `sources` is an array of {id,status} channels,
+      // NOT an object keyed by 'LINKEDIN', and there's no profile_url field.
+      // We build the profile URL from the public identifier (the vanity slug).
       const details = await getAccountDetails(account_id);
-      const profileUrl = details?.sources?.LINKEDIN?.profile_url || null;
-      const name = details?.name || null;
-      const headline = details?.sources?.LINKEDIN?.headline || null;
+      const im = details?.connection_params?.im || {};
+      const publicId = im.public_identifier || im.publicIdentifier || null;
+      const profileUrl = publicId ? `https://www.linkedin.com/in/${publicId}` : null;
+      const name = im.username || details?.name || null;
+      const headline = im.headline || null;
 
       // Upsert into DB
       await supabase.from('workspace_linkedin_connections').upsert({
