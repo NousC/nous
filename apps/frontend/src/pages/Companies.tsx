@@ -14,8 +14,8 @@ const PAGE_SIZE = 50;
 // is flex-1 and not listed here — it absorbs the leftover space. Persisted per
 // user in localStorage; see useColumnWidths.
 const CO_COL_DEFAULTS: Record<string, number> = {
-  name: 160, domain: 100, industry: 84, location: 104, lastActivity: 78,
-  employees: 52, contacts: 56, stage: 92, icp: 44, health: 54,
+  name: 160, domain: 100, topContacts: 150, industry: 84, location: 104,
+  lastActivity: 78, employees: 52, contacts: 56, stage: 92, icp: 44, health: 54,
 };
 
 type CoTab = "overview" | "activity" | "facts";
@@ -477,7 +477,7 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
           <div className="flex items-center px-4 py-2.5 bg-muted/50 border-b border-border">
             <SortHdr col="name"         label="Company"  />
             <PlainHdr label="Domain"    widthKey="domain" />
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-1 min-w-0">Top Contacts</span>
+            <PlainHdr label="Top Contacts" widthKey="topContacts" />
             <SortHdr col="industry"     label="Industry" />
             <SortHdr col="location"     label="Location" />
             <SortHdr col="lastActivity" label="Last Act." firstDir="desc" />
@@ -486,6 +486,9 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
             <SortHdr col="stage"        label="Stage"     firstDir="desc" />
             <SortHdr col="icp"          label="ICP"       className="justify-end" firstDir="desc" />
             <SortHdr col="dealHealthScore" label="Health" widthKey="health" className="justify-end" firstDir="desc" />
+            {/* Elastic spacer — keeps the slack to the RIGHT of every resizable
+                column so each drag handle tracks the cursor (matches People). */}
+            <div className="flex-1 min-w-0" />
             <span className="flex-shrink-0" style={{width:28}} />
           </div>
           {/* Rows */}
@@ -498,7 +501,7 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
                 <span className="text-[13px] font-medium text-foreground truncate">{co.name}</span>
               </button>
               <span className="text-[13px] text-muted-foreground flex-shrink-0 truncate pr-2" style={{width:colW("domain")}}>{co.domain??"—"}</span>
-              <button onClick={()=>setDetail(co)} className="text-[13px] text-muted-foreground flex-1 min-w-0 truncate pr-2 text-left">{topContacts||"—"}</button>
+              <button onClick={()=>setDetail(co)} className="text-[13px] text-muted-foreground flex-shrink-0 truncate pr-2 text-left" style={{width:colW("topContacts")}}>{topContacts||"—"}</button>
               <span className="text-[13px] text-muted-foreground flex-shrink-0 truncate pr-2" style={{width:colW("industry")}}>{co.industry??"—"}</span>
               <span className="text-[13px] text-muted-foreground flex-shrink-0 truncate pr-2" style={{width:colW("location")}}>{co.location??"—"}</span>
               <span className="text-[13px] text-muted-foreground flex-shrink-0 pr-2 truncate" style={{width:colW("lastActivity")}}>{relTime(co.lastActivityAt)}</span>
@@ -511,6 +514,7 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
               <span className="text-[13px] flex-shrink-0 text-right tabular-nums" style={{width:colW("health"),color:co.dealHealthScore!=null?healthColor(co.dealHealthScore):""}}>
                 {co.dealHealthScore!=null?`${co.dealHealthScore}`:"—"}
               </span>
+              <div className="flex-1 min-w-0" />
               <button onClick={e=>deleteCompany(co.id,e)}
                 className="opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 flex justify-end text-muted-foreground/50 hover:text-red-500" style={{width:28}}>
                 <Trash2 className="h-3.5 w-3.5"/>
