@@ -699,9 +699,9 @@ export default function Lists() {
           </div>
         )}
 
-        {/* Filters — ICP segmentation (left) + status / reply (right) on one line */}
+        {/* Filters — all packed to the right (ICP chips + status + reply) */}
         {activeList && (
-          <div className="flex items-center justify-between gap-3 mb-3">
+          <div className="flex items-center justify-end gap-2 mb-3">
             <div className="flex items-center gap-1.5">
               {hasIcp && ([
                 ["all", "All", counts ? counts.icp + counts.non_icp : null],
@@ -769,12 +769,12 @@ export default function Lists() {
             <p className="text-[13px] text-muted-foreground">No lists yet — create one to upload leads into.</p>
           </div>
         ) : activeList ? (
-          <div className="rounded-xl border border-border overflow-hidden">
-            <div className="overflow-x-auto">
+          <div className="rounded-xl border border-border overflow-auto" style={{ maxHeight: "calc(100vh - 330px)" }}>
+            <div>
               <div style={{ minWidth: rowWidth + 140 }}>
-                {/* Header */}
-                <div className="flex bg-muted/50 border-b border-border">
-                  <div className="px-2 py-2.5 flex items-center flex-shrink-0" style={{ width: SEL_W }}>
+                {/* Header — sticky to the top while scrolling */}
+                <div className="flex bg-muted/50 border-b border-border sticky top-0 z-20">
+                  <div className="px-2 py-2.5 flex items-center flex-shrink-0 sticky left-0 z-30 bg-muted/50" style={{ width: SEL_W }}>
                     <input
                       type="checkbox"
                       aria-label="Select all"
@@ -783,10 +783,10 @@ export default function Lists() {
                       className="h-3.5 w-3.5 accent-foreground cursor-pointer"
                     />
                   </div>
-                  {allCols.map(c => {
+                  {allCols.map((c, i) => {
                     const sortable = c.key === "icp_score";
                     return (
-                    <div key={c.key} className="relative px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-shrink-0" style={{ width: c.w }}>
+                    <div key={c.key} className={`relative px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-shrink-0 ${i === 0 ? "sticky left-10 z-30 bg-muted/50 border-r border-border" : ""}`} style={{ width: c.w }}>
                       {sortable ? (
                         <button
                           onClick={() => setSort(s => (s === "icp_score_desc" ? "icp_score_asc" : "icp_score_desc"))}
@@ -835,8 +835,8 @@ export default function Lists() {
                 ) : (
                   <>
                     {leads.map(l => (
-                      <div key={l.id} className={`flex border-b border-border/60 transition-colors ${selected.has(l.id) ? "bg-muted/60" : "hover:bg-muted/40"}`}>
-                        <div className="px-2 py-2.5 flex items-center flex-shrink-0" style={{ width: SEL_W }}>
+                      <div key={l.id} className={`group flex border-b border-border/60 transition-colors ${selected.has(l.id) ? "bg-muted/60" : "hover:bg-muted/40"}`}>
+                        <div className={`px-2 py-2.5 flex items-center flex-shrink-0 sticky left-0 z-10 ${selected.has(l.id) ? "bg-muted/60" : "bg-background group-hover:bg-muted/40"}`} style={{ width: SEL_W }}>
                           <input
                             type="checkbox"
                             aria-label="Select lead"
@@ -849,7 +849,7 @@ export default function Lists() {
                           const val = cellValue(l, c.key);
                           const isLink = c.key === "linkedin_url" && val;
                           return (
-                          <div key={c.key} className={`px-3 py-2.5 text-[13px] truncate flex-shrink-0 ${i === 0 ? "text-foreground" : "text-muted-foreground"}`} style={{ width: c.w }}>
+                          <div key={c.key} className={`px-3 py-2.5 text-[13px] truncate flex-shrink-0 ${i === 0 ? `text-foreground font-medium sticky left-10 z-10 border-r border-border ${selected.has(l.id) ? "bg-muted/60" : "bg-background group-hover:bg-muted/40"}` : "text-muted-foreground"}`} style={{ width: c.w }}>
                             {isLink ? (
                               <a href={val} target="_blank" rel="noopener noreferrer"
                                  onClick={e => e.stopPropagation()}
