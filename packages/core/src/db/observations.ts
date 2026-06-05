@@ -118,6 +118,7 @@ export async function recordObservations(
 // duplicate. See docs/crm-hygiene-phase-1b-spec.md, Task 0.
 export const ENRICHMENT_ATTRIBUTES = [
   'job_title', 'seniority', 'department', 'company', 'phone', 'city', 'country', 'linkedin_url',
+  'domain', 'reachability_status',
 ] as const;
 
 export async function recordEnrichmentObservations(

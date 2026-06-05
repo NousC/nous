@@ -419,6 +419,12 @@ async function enrichContactViaProspeo(supabase, contact, prospeoKey) {
     const person = body.person;
     if (!person) throw new Error('No person returned');
 
+    // Prospeo returns the found email under person.email = { email, status }.
+    const _emailObj = person.email;
+    const foundEmail = (_emailObj && typeof _emailObj === 'object' ? _emailObj.email : _emailObj) || null;
+    const foundEmailStatus = _emailObj && typeof _emailObj === 'object' ? (_emailObj.status || null) : null;
+    console.log('[ENRICH_PROSPEO] found email:', foundEmail || '(none)', '| status:', foundEmailStatus || '-');
+
     const currentJob = person.job_history?.find(j => j.current) || person.job_history?.[0];
 
     const updates = {
@@ -464,10 +470,20 @@ async function enrichContactViaProspeo(supabase, contact, prospeoKey) {
       }
     }
 
+    if (foundEmailStatus) updates.reachability_status = foundEmailStatus;
     await recordEnrichmentObservations(supabase, contact.workspace_id, contact.id, 'prospeo', updates);
     const viewUpdate = { ...updates };
     for (const f of ENRICH_STRIP) delete viewUpdate[f];
     if (Object.keys(viewUpdate).length) await supabase.from('contacts').update(viewUpdate).eq('id', contact.id);
+
+    // Persist the found email as the entity's email identifier — works whether or
+    // not the entity is a "contact" (cold leads aren't in the contacts view, so
+    // the contacts.update above is a no-op for them).
+    if (foundEmail && !realEmail) {
+      await supabase.from('entity_identifiers')
+        .insert({ workspace_id: contact.workspace_id, entity_id: contact.id, kind: 'email', value: foundEmail.toLowerCase().trim(), status: 'active' })
+        .then(() => {}, () => {}); // ignore unique conflict (email already on another entity)
+    }
 
     await logActivity(supabase, {
       workspaceId: contact.workspace_id, contactId: contact.id,
