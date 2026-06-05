@@ -80,6 +80,9 @@ export const PLANS = {
       crmSync: true,
       leadLists: true,
       publicSignalExtraction: true,
+      // Scale-only: the weekly background run that scrapes engagers off the
+      // workspace's own LinkedIn posts into the native "LinkedIn Engagers" list.
+      linkedinEngagement: true,
       supportTier: 'priority',
     },
   },

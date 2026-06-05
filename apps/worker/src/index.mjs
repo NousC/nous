@@ -25,6 +25,7 @@ import { runCrmAutoSync } from './workers/crmSync.mjs';
 import { runCrmHygieneSweep } from './workers/crmHygiene.mjs';
 import { runStageDerivation } from './workers/stageDerivation.mjs';
 import { runOnboardingDrip } from './workers/onboardingDrip.mjs';
+import { runLinkedInEngagement } from './workers/linkedinEngagement.mjs';
 
 // Wire webhook-driven activity logging → CRM push at module load.
 // Worker is where most logActivity() calls originate (Instantly/Lemlist replies,
@@ -172,6 +173,21 @@ async function runScorecard() {
 
 cron.schedule('0 4 * * *', runScorecard, { timezone: 'UTC' });
 console.log('[WORKER] Scorecard learning loop — daily at 04:00 UTC');
+
+// ── LinkedIn engagement run — weekly, Monday 06:00 UTC ───────────────────────
+// Scrapes engagers off each Scale workspace's own recent LinkedIn posts into the
+// native "LinkedIn Engagers" lead list. No frontend trigger; ops-log only. Whole
+// thing is a no-op unless APIFY_TOKEN is set. See workers/linkedinEngagement.mjs.
+async function runWeeklyEngagement() {
+  try {
+    await runLinkedInEngagement();
+  } catch (err) {
+    console.error('[WORKER] LinkedIn engagement error:', err.message);
+  }
+}
+
+cron.schedule('0 6 * * 1', runWeeklyEngagement, { timezone: 'UTC' });
+console.log('[WORKER] LinkedIn engagement — weekly Monday 06:00 UTC');
 
 // ── Webhook retry queue — every minute ───────────────────────────────────────
 // Picks up rows from webhook_inbox whose handlers failed (DB hiccup, Haiku

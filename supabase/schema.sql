@@ -1208,7 +1208,22 @@ CREATE VIEW contacts AS
    NULL::uuid AS created_by,
    COALESCE((SELECT max(computed_at) FROM claims WHERE entity_id = e.id), created_at) AS updated_at
  FROM entities e
- WHERE type = 'person' AND status = 'active';
+ WHERE e.type = 'person' AND e.status = 'active'
+   AND (
+     -- A real relationship: any observation from a non-scrape source
+     -- (manual add, CRM sync, inbound reply, meeting, calendar, etc.).
+     EXISTS (
+       SELECT 1 FROM observations o
+       WHERE o.entity_id = e.id AND o.source NOT IN ('lead_list', 'apify_linkedin')
+     )
+     -- ...or the pipeline advanced past the cold/engaged top of funnel
+     -- (covers a replied lead even if the reply was logged via the lead UI).
+     OR COALESCE(
+       (SELECT value #>> '{}'::text[] FROM claims
+        WHERE entity_id = e.id AND property = 'pipeline_stage' AND invalid_at IS NULL LIMIT 1),
+       'cold'
+     ) NOT IN ('cold', 'aware', 'engaged')
+   );
 
 CREATE VIEW lead_lists AS
  SELECT

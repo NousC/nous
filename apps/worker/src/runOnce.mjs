@@ -17,6 +17,7 @@ import { resolveOutcomes } from './workers/mindOutcomes.mjs';
 import { runScorecardLoop } from './workers/scorecardLoop.mjs';
 import { processLeadReplies } from './workers/leadReplies.mjs';
 import { runCrmAutoSync } from './workers/crmSync.mjs';
+import { runLinkedInEngagement } from './workers/linkedinEngagement.mjs';
 import { getSupabaseClient, logWorkerRun } from '@nous/core';
 
 // Ordered the same way the cron would in a single nightly cycle:
@@ -54,6 +55,7 @@ const WORKERS = {
   mind_outcomes:   resolveOutcomes,
   scorecard_loop:  runScorecardLoop,
   lead_replies:    processLeadReplies,
+  linkedin_engagement: runLinkedInEngagement,
 };
 
 const arg = process.argv[2];
