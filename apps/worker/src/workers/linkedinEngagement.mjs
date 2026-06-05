@@ -152,7 +152,11 @@ async function runForWorkspace(supabase, conn) {
   const workspaceId = conn.workspace_id;
   const profileUrl = conn.linkedin_profile_url;
   if (!profileUrl) return null;
-  if (!(await isEligible(supabase, workspaceId))) return null;
+  if (!(await isEligible(supabase, workspaceId))) {
+    console.log(`[ENGAGE] ${workspaceId} not eligible (needs active Scale plan or allowlist) — skipping`);
+    return null;
+  }
+  console.log(`[ENGAGE] ${workspaceId} eligible — scraping ${profileUrl}`);
 
   const { engagers, postsMined } = await scrapeEngagers(profileUrl);
   if (engagers.size === 0) {
@@ -232,7 +236,7 @@ async function runForWorkspace(supabase, conn) {
 
 // ── entrypoint ───────────────────────────────────────────────────────────────
 export async function runLinkedInEngagement() {
-  if (!hasApifyToken()) return; // feature off — no token configured
+  if (!hasApifyToken()) { console.log('[ENGAGE] APIFY_TOKEN not set — feature off, skipping'); return; }
 
   const startedAt = new Date().toISOString();
   const supabase = getSupabaseClient();
@@ -241,7 +245,11 @@ export async function runLinkedInEngagement() {
     .select('workspace_id, linkedin_profile_url')
     .not('linkedin_profile_url', 'is', null);
   if (error) { console.error('[ENGAGE] load connections failed', error.message); return; }
-  if (!conns?.length) return;
+  if (!conns?.length) {
+    console.log('[ENGAGE] no LinkedIn connections with a profile URL — connect LinkedIn (Unipile) on a workspace first. Nothing to scrape.');
+    return;
+  }
+  console.log(`[ENGAGE] ${conns.length} LinkedIn connection(s) found`);
 
   let workspaces = 0, totalEngagers = 0, totalInserted = 0;
   for (const conn of conns) {
