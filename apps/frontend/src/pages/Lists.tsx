@@ -82,7 +82,7 @@ function cellValue(lead: Lead, key: string): string {
   // Synthetic column: when the lead joined this list (collection added_at). On the
   // engagers list that's when they engaged; elsewhere it's when they were added.
   if (key === "__added") return lead.created_at ? relTime(lead.created_at) : "";
-  if (key === "__domain") return lead.domain ?? "";
+  if (key === "__domain") return lead.domain ?? (typeof lead.fields?.domain === "string" ? lead.fields.domain : "");
   if (key === "__email_status") return lead.email_status ?? "";
   if (key === "__channel") return channelLabel(lead.last_channel);
   const v = lead.fields?.[key];
