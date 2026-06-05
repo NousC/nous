@@ -139,6 +139,12 @@ export interface LeadInput {
   name?: string | null;
   company?: string | null;
   linkedin_url?: string | null;
+  // Stable LinkedIn member URN (e.g. "ACoAA…"). Slug-proof — the resolver matches
+  // on this first so an engager merges into an existing contact even when their
+  // vanity URL differs (…/dominic-brummell vs …/dominic-brummell-72bb828a).
+  linkedin_member_id?: string | null;
+  // Pre-resolved entity to attach this lead to (skips identity resolution).
+  contact_id?: string | null;
   send_variant?: string | null;
   is_repeat_contact?: boolean;
   features?: Record<string, unknown>;
@@ -182,19 +188,41 @@ export async function insertLeads(
     return { inserted: 0, skipped: 0, duplicate_skipped: 0 };
   }
 
+  // Identity waterfall — top tier: resolve to an existing entity by STABLE
+  // LinkedIn member id before insert, so an engager who is already a contact
+  // merges into that record instead of forking a duplicate (the vanity slug can
+  // differ; the member URN can't). Email / normalized-url are handled downstream
+  // by the leads_insert_handler when no contact_id is supplied.
+  const memberIds = Array.from(new Set(
+    rows.map(r => r.linkedin_member_id?.trim()).filter((v): v is string => !!v),
+  ));
+  const midToEntity = new Map<string, string>();
+  if (memberIds.length) {
+    const { data: mids } = await supabase
+      .from('entity_identifiers')
+      .select('entity_id, value')
+      .eq('workspace_id', workspaceId).eq('kind', 'linkedin_member_id').eq('status', 'active')
+      .in('value', memberIds);
+    for (const m of mids || []) midToEntity.set(m.value as string, m.entity_id as string);
+  }
+
   const payload = rows
-    .map(r => ({
-      lead_list_id: leadListId,
-      workspace_id: workspaceId,
-      email: cleanEmail(r.email),
-      name: r.name?.trim() || null,
-      company: r.company?.trim() || null,
-      linkedin_url: r.linkedin_url?.trim() || null,
-      send_variant: r.send_variant ?? null,
-      is_repeat_contact: r.is_repeat_contact ?? false,
-      features: r.features ?? {},
-      fields: r.fields ?? {},
-    }))
+    .map(r => {
+      const mid = r.linkedin_member_id?.trim() || null;
+      return {
+        lead_list_id: leadListId,
+        workspace_id: workspaceId,
+        contact_id: r.contact_id ?? (mid ? midToEntity.get(mid) ?? null : null),
+        email: cleanEmail(r.email),
+        name: r.name?.trim() || null,
+        company: r.company?.trim() || null,
+        linkedin_url: r.linkedin_url?.trim() || null,
+        send_variant: r.send_variant ?? null,
+        is_repeat_contact: r.is_repeat_contact ?? false,
+        features: r.features ?? {},
+        fields: r.fields ?? {},
+      };
+    })
     .filter(r => r.email || r.linkedin_url);
 
   const droppedNoIdentifier = rows.length - payload.length;

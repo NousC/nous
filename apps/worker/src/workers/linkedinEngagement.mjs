@@ -122,9 +122,13 @@ async function scrapeEngagers(profileUrl) {
     const k = normUrl(actor.linkedinUrl);
     const e = eng.get(k) || {
       name: actor.name || null, linkedin_url: actor.linkedinUrl.trim(),
+      // Stable LinkedIn member URN — slug-proof identity key for merging an
+      // engager into their existing contact.
+      member_id: actor.id || actor.objectUrn || null,
       position: actor.position || null, kinds: new Set(), post_urls: new Set(),
       sample_comment: null, reaction: null,
     };
+    if (!e.member_id && (actor.id || actor.objectUrn)) e.member_id = actor.id || actor.objectUrn;
     e.kinds.add(kind);
     if (postUrl) e.post_urls.add(postUrl);
     if (text && !e.sample_comment) e.sample_comment = text;
@@ -174,6 +178,7 @@ async function runForWorkspace(supabase, conn) {
     return {
       name: e.name,
       linkedin_url: e.linkedin_url,
+      linkedin_member_id: e.member_id, // slug-proof merge into an existing contact
       fields: {
         title: e.position,
         source: 'Engaged with your LinkedIn post',
