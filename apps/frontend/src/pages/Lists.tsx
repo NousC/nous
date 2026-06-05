@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { Plus, Upload, RefreshCw, FileText, X, ArrowLeft, Trash2, Download } from "lucide-react";
+import { Plus, Upload, RefreshCw, FileText, X, ArrowLeft, Trash2, Download, Lock } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader } from "@/components/ui/page-header";
 import { parseCSVLine } from "@/components/contacts/PeopleImportModal";
+import { toast } from "@/components/ui/sonner";
 
 // Lists — the Enterprise lead-list workspace. Each list is a small table the
 // user shapes: fixed columns (name/email/company/linkedin) plus user-defined
@@ -255,6 +256,10 @@ export default function Lists() {
 
   const deleteList = async (list: LeadList) => {
     if (!list || busy) return;
+    if (list.source === "linkedin_engagement") {
+      toast("LinkedIn Engagers is managed automatically and can't be deleted.");
+      return;
+    }
     if (!window.confirm(`Delete the list "${list.name}" and all its rows? The contacts and their history stay in Nous.`)) return;
     setBusy(true);
     try {
@@ -491,13 +496,14 @@ export default function Lists() {
               key={l.id}
               onClick={() => { setActiveId(l.id); resetImport(); setAddingRow(false); }}
               onContextMenu={e => { e.preventDefault(); deleteList(l); }}
-              title="Right-click to delete this list"
+              title={l.source === "linkedin_engagement" ? "Managed automatically — fills from your LinkedIn post engagers" : "Right-click to delete this list"}
               className={`flex items-center gap-1.5 px-3 py-2 text-[13px] border-b-2 -mb-px whitespace-nowrap transition-colors ${
                 l.id === activeId
                   ? "border-foreground text-foreground font-medium"
                   : "border-transparent text-muted-foreground hover:text-foreground"
               }`}
             >
+              {l.source === "linkedin_engagement" && <Lock className="h-3 w-3 opacity-50" />}
               {l.name}
               <span className="text-[11px] text-muted-foreground/60 tabular-nums">{l.lead_count ?? 0}</span>
             </button>

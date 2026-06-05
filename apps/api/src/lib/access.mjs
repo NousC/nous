@@ -75,6 +75,7 @@ export function requireFeature(feature) {
     }
     try {
       const { plan } = await resolveTeamAndPlan(req);
+      req.plan = plan; // stash for downstream handlers (e.g. native-list eligibility)
       if (!hasFeature(plan.id, feature)) {
         return res.status(402).json({
           error: 'feature_not_in_plan',

@@ -19,7 +19,15 @@ linkedinRouter.get('/status', verifySupabaseAuth, async (req, res) => {
       .eq('workspace_id', workspaceId)
       .single();
 
-    return res.json({ connected: !!data, connection: data || null });
+    // A row with no profile URL means the LinkedIn link never captured (or went
+    // stale on Unipile's side) — it's not usefully connected, so surface it as
+    // "needs reconnect" rather than "connected" so the Connect button shows.
+    const connected = !!(data && data.linkedin_profile_url);
+    return res.json({
+      connected,
+      needs_reconnect: !!(data && !data.linkedin_profile_url),
+      connection: data || null,
+    });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }

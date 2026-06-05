@@ -14,18 +14,42 @@ import {
   deleteLeads,
   deleteLeadList,
 } from '@nous/core';
+import { hasFeature } from '../../lib/plans.mjs';
 
 export const leadListsRouter = Router();
 
 // Max leads accepted per import request. The frontend chunks larger uploads.
 const MAX_IMPORT = 2000;
 
+// The native, system-managed "LinkedIn Engagers" list — auto-created for
+// engagement-eligible workspaces and not user-deletable. The weekly worker
+// fills it; this source value is the marker for both behaviours.
+const ENGAGEMENT_SOURCE = 'linkedin_engagement';
+const ENGAGEMENT_LIST_NAME = 'LinkedIn Engagers';
+const ENGAGEMENT_ALLOWLIST = new Set(
+  (process.env.LINKEDIN_ENGAGEMENT_WORKSPACES || '')
+    .split(',').map(s => s.trim()).filter(Boolean),
+);
+
+// Scale plan (linkedinEngagement feature) or explicit allowlist → eligible.
+function engagementEligible(req, workspaceId) {
+  if (ENGAGEMENT_ALLOWLIST.has(workspaceId)) return true;
+  return !!(req.plan && hasFeature(req.plan.id, 'linkedinEngagement'));
+}
+
 // GET /api/lead-lists?workspaceId=… — all lists in the workspace, with counts.
+// For engagement-eligible workspaces, the native LinkedIn Engagers list is
+// ensured to exist so it always shows as a default.
 leadListsRouter.get('/', async (req, res) => {
   try {
     const { workspaceId } = req.query;
     if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
-    const lead_lists = await listLeadLists(getSupabaseClient(), workspaceId);
+    const supabase = getSupabaseClient();
+    let lead_lists = await listLeadLists(supabase, workspaceId);
+    if (engagementEligible(req, workspaceId) && !lead_lists.some(l => l.source === ENGAGEMENT_SOURCE)) {
+      const created = await createLeadList(supabase, workspaceId, { name: ENGAGEMENT_LIST_NAME, source: ENGAGEMENT_SOURCE });
+      lead_lists = [{ ...created, lead_count: 0 }, ...lead_lists];
+    }
     return res.json({ lead_lists });
   } catch (err) {
     console.error('[GET /api/lead-lists]', err);
@@ -85,7 +109,13 @@ leadListsRouter.delete('/:id', async (req, res) => {
   try {
     const workspaceId = req.body?.workspaceId || req.query.workspaceId || req.workspaceId;
     if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
-    const deleted = await deleteLeadList(getSupabaseClient(), workspaceId, req.params.id);
+    const supabase = getSupabaseClient();
+    // The native LinkedIn Engagers list is system-managed and not deletable.
+    const list = await getLeadList(supabase, workspaceId, req.params.id);
+    if (list?.source === ENGAGEMENT_SOURCE) {
+      return res.status(403).json({ error: 'system_list', message: 'The LinkedIn Engagers list is managed automatically and can\'t be deleted.' });
+    }
+    const deleted = await deleteLeadList(supabase, workspaceId, req.params.id);
     if (!deleted) return res.status(404).json({ error: 'not_found' });
     return res.json({ deleted: true });
   } catch (err) {
