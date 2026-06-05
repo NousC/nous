@@ -35,7 +35,7 @@ interface Substrate {
   };
   top_signals: { key: string; label: string; weight: number; fires: number; hits: number; hit_rate: number; lift?: number | null; sample?: number }[];
   recent_predictions: {
-    id: string; entity_id: string; name: string | null; email: string | null;
+    id: string; entity_id: string; name: string | null; company: string | null; email: string | null;
     score: number | null; fit: boolean | null;
     predicted_at: string; resolved_at: string | null;
     outcome_score: number | null; disposition: string | null; replied: boolean | null;
@@ -168,7 +168,7 @@ interface PipelineReport {
   lead_source: string | null; first_touch_type: string; stage: string | null;
 }
 interface IcpRecord {
-  account: { entity_id: string; name: string | null; email: string | null };
+  account: { entity_id: string; name: string | null; email: string | null; company: string | null };
   icp: { current: IcpRecordRow; history: IcpRecordRow[] } | null;
   company?: CompanyReport | null;
   pipeline?: PipelineReport | null;
@@ -236,6 +236,7 @@ function IcpAccountView({ data, loading, fallbackName, onBack }: {
         </div>
         <div className="pl-11 mb-3 flex items-center gap-2 flex-wrap">
           <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/55">ICP record</span>
+          {data?.account.company && <span className="text-[13px] font-medium text-foreground/80">· {data.account.company}</span>}
           {data?.account.email && <span className="text-[13px] text-muted-foreground">· {data.account.email}</span>}
         </div>
         {cur && (
@@ -1246,6 +1247,7 @@ export default function Intelligence() {
                 {/* Header (fixed above the scroll area) */}
                 <div className="flex items-center gap-4 px-4 py-2.5 bg-muted/50 border-b border-border">
                   <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-1 min-w-0">Account</span>
+                  <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-shrink-0 min-w-0 hidden sm:block" style={{ width: 160 }}>Company</span>
                   <button
                     onClick={cycleIcp}
                     className="text-[11px] font-semibold uppercase tracking-wide flex-shrink-0 flex items-center justify-end gap-0.5 group whitespace-nowrap"
@@ -1277,6 +1279,9 @@ export default function Intelligence() {
                         title="Open this account's ICP record"
                       >
                         <span className="flex-1 min-w-0 text-[13px] font-medium text-foreground truncate">{label}</span>
+                        <span className="flex-shrink-0 min-w-0 text-[13px] text-muted-foreground/80 truncate hidden sm:block" style={{ width: 160 }} title={p.company || undefined}>
+                          {p.company || "—"}
+                        </span>
                         <span
                           className="flex-shrink-0 text-right text-[13px] font-semibold tabular-nums"
                           style={{ width: 48, color: score == null ? "#94a3b8" : score >= 70 ? "#15803d" : score >= 40 ? "#a16207" : "#b91c1c" }}

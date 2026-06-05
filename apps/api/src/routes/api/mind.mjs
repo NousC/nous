@@ -249,18 +249,22 @@ mindRouter.get('/substrate', async (req, res) => {
       .sort((a, b) => String(b.resolved_at || b.predicted_at).localeCompare(String(a.resolved_at || a.predicted_at)));
     const recentEntityIds = [...new Set(recentRows.map(r => r.entity_id))];
 
-    let nameByEntity = {}, emailByEntity = {}, domainByEntity = {};
+    let nameByEntity = {}, emailByEntity = {}, domainByEntity = {}, companyByEntity = {};
     if (recentEntityIds.length) {
       const [{ data: claimsForNames }, { data: emailIdents }, { data: domainIdents }] = await Promise.all([
         supabase.from('claims').select('entity_id, property, value')
           .in('entity_id', recentEntityIds).is('invalid_at', null)
-          .in('property', ['first_name', 'last_name']),
+          .in('property', ['first_name', 'last_name', 'company']),
         supabase.from('entity_identifiers').select('entity_id, value')
           .in('entity_id', recentEntityIds).eq('kind', 'email').eq('status', 'active'),
         supabase.from('entity_identifiers').select('entity_id, value')
           .in('entity_id', recentEntityIds).eq('kind', 'domain').eq('status', 'active'),
       ]);
       for (const c of claimsForNames || []) {
+        if (c.property === 'company') {
+          if (!companyByEntity[c.entity_id] && c.value != null) companyByEntity[c.entity_id] = c.value;
+          continue;
+        }
         if (!nameByEntity[c.entity_id]) nameByEntity[c.entity_id] = { first_name: null, last_name: null };
         nameByEntity[c.entity_id][c.property] = c.value;
       }
@@ -281,6 +285,7 @@ mindRouter.get('/substrate', async (req, res) => {
         id: p.id,
         entity_id: p.entity_id,
         name,
+        company: companyByEntity[p.entity_id] || domainByEntity[p.entity_id] || null,
         email: emailByEntity[p.entity_id] || null,
         score: p.predicted_value?.score ?? null,
         fit: p.predicted_value?.fit ?? null,
@@ -486,7 +491,7 @@ mindRouter.get('/account/:entityId', async (req, res) => {
     } : null;
 
     return res.json({
-      account: { entity_id: entityId, name, email },
+      account: { entity_id: entityId, name, email, company: cm.company ?? cm.name ?? null },
       icp: history.length ? { current: history[0], history } : null,
       company: hasCompany ? company : null,
       pipeline,

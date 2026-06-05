@@ -47,19 +47,26 @@ function buildSnapshot(claims: Claim[]): {
   return { features, snapshot };
 }
 
+export interface EntityFeatures {
+  features: Record<string, unknown>;
+  snapshot: Record<string, { value: unknown; confidence: number }>;
+}
+
 /**
- * Score one person-entity from its claims and stake an `icp_fit` prediction.
+ * Build the CURRENT feature map + snapshot for an entity from its live claims:
+ * the entity's own claims, the company-level claims of its employer (via
+ * works_at), and pipeline-engagement features derived from its activity log.
  *
- * Features come from the entity's own claims plus the company-level claims of
- * its employer (followed via the works_at relationship). Returns null when the
- * entity has no claims to score yet.
+ * This is the single source of feature extraction shared by `scoreAndStake`
+ * (the first score) and `rescoreEntityFromClaims` (re-scoring an open
+ * prediction after enrichment changes the underlying data) — so the two paths
+ * never drift. Returns null when the entity carries no claims yet.
  */
-export async function scoreAndStake(
+export async function buildEntityFeatures(
   supabase: SupabaseClient,
   workspaceId: string,
   entityId: string,
-  signals: ScorecardSignal[],
-): Promise<StakeResult | null> {
+): Promise<EntityFeatures | null> {
   const personClaims = await getClaims(supabase, workspaceId, entityId);
   if (personClaims.length === 0) return null;
 
@@ -85,8 +92,7 @@ export async function scoreAndStake(
   // Pipeline-engagement features — *how the deal is going* (lead source, channel,
   // inbound/outbound, replied, banded meeting/touch counts), derived from the
   // entity's activity log. Captured into the snapshot so the Mind can learn lift
-  // on engagement, not just firmographics. (As of scoring time — the snapshot
-  // freezes engagement-so-far against the eventual outcome.)
+  // on engagement, not just firmographics.
   const { data: acts } = await supabase
     .from('observations')
     .select('property, source, observed_at')
@@ -97,14 +103,40 @@ export async function scoreAndStake(
     snapshot[k] = { value: v, confidence: 1 };
   }
 
-  // Gate: only stake on accounts we can actually score. If the entity carries
-  // none of the scoreable ICP features yet, it's awaiting enrichment — skip,
-  // don't record a hollow 0. It will be picked up once enrichment lands.
-  const hasScoreableFeature = SCOREABLE_FEATURES.some(k => {
+  return { features, snapshot };
+}
+
+// Whether a feature map carries at least one scoreable ICP feature. Entities
+// with none are awaiting enrichment — scoring them records a hollow 0 that's
+// indistinguishable from a genuine bad fit and pollutes calibration.
+export function hasScoreableFeature(features: Record<string, unknown>): boolean {
+  return SCOREABLE_FEATURES.some(k => {
     const v = features[k];
     return v !== undefined && v !== null && v !== '';
   });
-  if (!hasScoreableFeature) return null;
+}
+
+/**
+ * Score one person-entity from its claims and stake an `icp_fit` prediction.
+ *
+ * Features come from the entity's own claims plus the company-level claims of
+ * its employer (followed via the works_at relationship). Returns null when the
+ * entity has no claims to score yet.
+ */
+export async function scoreAndStake(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  entityId: string,
+  signals: ScorecardSignal[],
+): Promise<StakeResult | null> {
+  const built = await buildEntityFeatures(supabase, workspaceId, entityId);
+  if (!built) return null;
+  const { features, snapshot } = built;
+
+  // Gate: only stake on accounts we can actually score. If the entity carries
+  // none of the scoreable ICP features yet, it's awaiting enrichment — skip,
+  // don't record a hollow 0. It will be picked up once enrichment lands.
+  if (!hasScoreableFeature(features)) return null;
 
   const { score, fit, reason, fired } = scoreToPrediction(features, signals);
 
