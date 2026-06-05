@@ -433,11 +433,11 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
   const SortBtn = ({ col, label, widthKey, firstDir = "asc" }: { col:"deal"|"icp"; label:string; widthKey?:string; firstDir?:"asc"|"desc" }) => {
     const wk = widthKey ?? col;
     return (
-      <div className="relative flex items-center flex-shrink-0" style={{width: colW(wk)}}>
+      <div className="relative flex items-center flex-shrink-0 overflow-hidden" style={{width: colW(wk)}}>
         <button onClick={() => { cycleSort(col, firstDir); setPage(0); }}
           className="w-full min-w-0 text-[11px] font-semibold uppercase tracking-wide flex items-center gap-0.5 group">
-          <span className={`truncate ${sortCol===col ? "text-foreground/80" : "text-muted-foreground/70 group-hover:text-foreground/80 transition-colors"}`}>{label}</span>
-          {sortCol===col && <span className="text-[10px] text-muted-foreground ml-0.5">{sortDir==="asc"?"↑":"↓"}</span>}
+          <span className={`truncate min-w-0 ${sortCol===col ? "text-foreground/80" : "text-muted-foreground/70 group-hover:text-foreground/80 transition-colors"}`}>{label}</span>
+          {sortCol===col && <span className="text-[10px] text-muted-foreground ml-0.5 flex-shrink-0">{sortDir==="asc"?"↑":"↓"}</span>}
         </button>
         <ColResizer onMouseDown={e=>startResize(wk, e)} />
       </div>
@@ -456,7 +456,7 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
 
   // Static (non-sortable) but still resizable header cell.
   const PlainHdr = ({ label, widthKey }: { label:string; widthKey:string }) => (
-    <div className="relative flex items-center flex-shrink-0" style={{width: colW(widthKey)}}>
+    <div className="relative flex items-center flex-shrink-0 overflow-hidden" style={{width: colW(widthKey)}}>
       <span className="w-full min-w-0 truncate text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">{label}</span>
       <ColResizer onMouseDown={e=>startResize(widthKey, e)} />
     </div>

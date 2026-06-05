@@ -15,7 +15,7 @@ const PAGE_SIZE = 50;
 // user in localStorage; see useColumnWidths.
 const CO_COL_DEFAULTS: Record<string, number> = {
   name: 160, domain: 100, topContacts: 150, industry: 84, location: 104,
-  lastActivity: 78, employees: 52, contacts: 56, stage: 92, icp: 44, health: 54,
+  lastActivity: 78, employees: 56, contacts: 72, stage: 92, icp: 46, health: 64,
 };
 
 type CoTab = "overview" | "activity" | "facts";
@@ -107,7 +107,7 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
   const [coLocalOverrides, setCoLocalOverrides] = useState<Record<string, string | null>>({});
   const [coSort, setCoSort] = useState<CoSort>({ col:"dealHealthScore", dir:"desc" });
   const [page, setPage] = useState(0);
-  const { widths, startResize } = useColumnWidths("nous.companies.colWidths", CO_COL_DEFAULTS);
+  const { widths, startResize } = useColumnWidths("nous.companies.colWidths.v2", CO_COL_DEFAULTS);
   const colW = (c: string) => widths[c] ?? CO_COL_DEFAULTS[c];
 
   const deleteCompany = async (cid: string, e: React.MouseEvent) => {
@@ -187,10 +187,10 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
   const SortHdr = ({ col, label, widthKey, className, firstDir="asc" }: { col:string; label:string; widthKey?:string; className?:string; firstDir?:"asc"|"desc" }) => {
     const wk = widthKey ?? col;
     return (
-      <div className="relative flex items-center flex-shrink-0" style={{width: colW(wk)}}>
+      <div className="relative flex items-center flex-shrink-0 overflow-hidden" style={{width: colW(wk)}}>
         <button onClick={()=>cycleSort(col, firstDir)}
           className={`w-full min-w-0 text-[11px] font-semibold uppercase tracking-wide flex items-center gap-0.5 hover:text-foreground/80 transition-colors ${coSort.col===col?"text-foreground/80":"text-muted-foreground/70"} ${className??""}`}>
-          <span className="truncate">{label}</span>{coSort.col===col&&<span className="text-[8px]">{coSort.dir==="asc"?"▲":"▼"}</span>}
+          <span className="truncate min-w-0">{label}</span>{coSort.col===col&&<span className="text-[8px] flex-shrink-0">{coSort.dir==="asc"?"▲":"▼"}</span>}
         </button>
         <ColResizer onMouseDown={e=>startResize(wk, e)} />
       </div>
@@ -199,7 +199,7 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
 
   // Static (non-sortable) but still resizable header cell.
   const PlainHdr = ({ label, widthKey, className }: { label:string; widthKey:string; className?:string }) => (
-    <div className="relative flex items-center flex-shrink-0" style={{width: colW(widthKey)}}>
+    <div className="relative flex items-center flex-shrink-0 overflow-hidden" style={{width: colW(widthKey)}}>
       <span className={`w-full min-w-0 truncate text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 ${className??""}`}>{label}</span>
       <ColResizer onMouseDown={e=>startResize(widthKey, e)} />
     </div>
@@ -482,7 +482,7 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
             <SortHdr col="location"     label="Location" />
             <SortHdr col="lastActivity" label="Last Act." firstDir="desc" />
             <SortHdr col="employees"    label="Emp."      className="justify-end" firstDir="desc" />
-            <SortHdr col="contacts"     label="Contacts"  className="justify-end" firstDir="desc" />
+            <SortHdr col="contacts"     label="Contacts"  className="justify-end pr-2" firstDir="desc" />
             <SortHdr col="stage"        label="Stage"     firstDir="desc" />
             <SortHdr col="icp"          label="ICP"       className="justify-end" firstDir="desc" />
             <SortHdr col="dealHealthScore" label="Health" widthKey="health" className="justify-end" firstDir="desc" />
@@ -506,7 +506,7 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
               <span className="text-[13px] text-muted-foreground flex-shrink-0 truncate pr-2" style={{width:colW("location")}}>{co.location??"—"}</span>
               <span className="text-[13px] text-muted-foreground flex-shrink-0 pr-2 truncate" style={{width:colW("lastActivity")}}>{relTime(co.lastActivityAt)}</span>
               <span className="text-[13px] text-muted-foreground flex-shrink-0 text-right tabular-nums" style={{width:colW("employees")}}>{co.employeeCount!=null?co.employeeCount.toLocaleString():"—"}</span>
-              <span className="text-[13px] text-foreground/80 flex-shrink-0 text-right tabular-nums" style={{width:colW("contacts")}}>{co.contactCount}</span>
+              <span className="text-[13px] text-foreground/80 flex-shrink-0 text-right tabular-nums pr-2" style={{width:colW("contacts")}}>{co.contactCount}</span>
               <span className="text-[13px] flex-shrink-0 truncate pr-2" style={{width:colW("stage"),color:co.stage?stageColor(co.stage):""}}>{co.stage??"—"}</span>
               <span className="text-[13px] flex-shrink-0 text-right tabular-nums" style={{width:colW("icp"),color:co.icpScore!=null?icpColor(co.icpScore):""}}>
                 {co.icpScore!=null?co.icpScore:"—"}
