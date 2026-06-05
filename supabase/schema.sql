@@ -1210,19 +1210,40 @@ CREATE VIEW contacts AS
  FROM entities e
  WHERE e.type = 'person' AND e.status = 'active'
    AND (
-     -- A real relationship: any observation from a non-scrape source
-     -- (manual add, CRM sync, inbound reply, meeting, calendar, etc.).
+     -- People = someone you've actually engaged, not merely connected with or
+     -- scraped. A genuine two-way interaction qualifies — NOT a bare LinkedIn
+     -- connection, a post like/comment, a cold lead, or an outbound-only touch.
      EXISTS (
        SELECT 1 FROM observations o
-       WHERE o.entity_id = e.id AND o.source NOT IN ('lead_list', 'apify_linkedin')
+       WHERE o.entity_id = e.id AND o.kind = 'event' AND o.property IN (
+         'interaction.reply', 'interaction.email_reply', 'interaction.email_replied',
+         'interaction.email_received', 'interaction.outbound_positive_reply',
+         'interaction.linkedin_message', 'interaction.linkedin_message_received',
+         'interaction.meeting_held', 'interaction.meeting_scheduled',
+         'interaction.call', 'interaction.call_held',
+         'interaction.deal_won', 'interaction.deal_lost', 'interaction.deal_disqualified',
+         'interaction.proposal_sent', 'interaction.proposal_signed',
+         'interaction.payment_received', 'interaction.subscription_started',
+         'interaction.subscription_updated', 'interaction.subscription_canceled',
+         'interaction.signed_up'
+       )
      )
-     -- ...or the pipeline advanced past the cold/engaged top of funnel
-     -- (covers a replied lead even if the reply was logged via the lead UI).
+     -- ...or they're in your CRM / a customer
+     OR EXISTS (
+       SELECT 1 FROM entity_identifiers ei
+       WHERE ei.entity_id = e.id AND ei.status = 'active'
+         AND ei.kind IN ('hubspot', 'salesforce', 'pipedrive', 'attio', 'crm', 'stripe')
+     )
+     -- ...or the pipeline advanced past the top of funnel (interested+)
      OR COALESCE(
        (SELECT value #>> '{}'::text[] FROM claims
         WHERE entity_id = e.id AND property = 'pipeline_stage' AND invalid_at IS NULL LIMIT 1),
-       'cold'
-     ) NOT IN ('cold', 'aware', 'engaged')
+       'identified'
+     ) NOT IN ('identified', 'aware', 'cold', 'engaged')
+     -- ...or you added them yourself
+     OR EXISTS (
+       SELECT 1 FROM observations o WHERE o.entity_id = e.id AND o.source = 'manual'
+     )
    );
 
 CREATE VIEW lead_lists AS
