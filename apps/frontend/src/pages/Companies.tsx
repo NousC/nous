@@ -55,7 +55,7 @@ const claimValue = (v: unknown): string => {
   return String(v);
 };
 
-export default function Companies() {
+export default function Companies({ embedded = false, leadingTab = null }: { embedded?: boolean; leadingTab?: React.ReactNode } = {}) {
   const { session, userData } = useAuth();
   const token = session?.access_token ?? "";
   const workspaceId = userData?.workspace?.id ?? "";
@@ -88,7 +88,7 @@ export default function Companies() {
     () => id ? companies.find(c => c.id === id) ?? null : null,
     [id, companies]
   );
-  const setDetail = (c: Company | null) => navigate(c ? `/companies/${c.id}` : "/companies");
+  const setDetail = (c: Company | null) => navigate(c ? `/companies/${c.id}` : "/accounts?tab=companies");
   const [coTab, setCoTab] = useState<CoTab>("overview");
   const [cd, setCd] = useState<CompanyDetail | null>(null);
   const [coLoading, setCoLoading] = useState(false);
@@ -402,15 +402,20 @@ export default function Companies() {
 
   return (
     <div className="h-full overflow-y-auto bg-background">
-      <div className="px-8 py-7">
-        <PageHeader title="Companies" subtitle="Every account in your workspace, ranked by deal health." />
+      <div className={embedded ? "px-8 pb-7" : "px-8 py-7"}>
+        {embedded
+          ? <PageHeader title="Accounts" subtitle="Everyone and every company you're working with." />
+          : <PageHeader title="Companies" subtitle="Every account in your workspace, ranked by deal health." />}
 
         {/* Toolbar */}
         <div className="flex items-center justify-between gap-3 mb-4">
-          <div className="relative w-full max-w-xs">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/70 pointer-events-none" />
-            <input value={q} onChange={e=>{setQ(e.target.value);setPage(0);}} placeholder="Search companies…" autoFocus
-              className="h-9 w-full rounded-lg border border-border bg-background pl-9 pr-3 text-[13px] text-foreground placeholder:text-muted-foreground/70 focus:border-foreground/40 outline-none" />
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            {leadingTab}
+            <div className="relative w-full max-w-xs">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/70 pointer-events-none" />
+              <input value={q} onChange={e=>{setQ(e.target.value);setPage(0);}} placeholder="Search companies…" autoFocus
+                className="h-9 w-full rounded-lg border border-border bg-background pl-9 pr-3 text-[13px] text-foreground placeholder:text-muted-foreground/70 focus:border-foreground/40 outline-none" />
+            </div>
           </div>
           <span className="text-[12px] text-muted-foreground/70 flex-shrink-0 tabular-nums">{filtered.length} of {companies.length}</span>
         </div>

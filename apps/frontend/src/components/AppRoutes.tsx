@@ -47,6 +47,7 @@ const Triggers        = lazyWithErrorBoundary(() => import("@/pages/Triggers"));
 const Ops             = lazyWithErrorBoundary(() => import("@/pages/Ops"));
 const People          = lazyWithErrorBoundary(() => import("@/pages/People"));
 const Companies       = lazyWithErrorBoundary(() => import("@/pages/Companies"));
+const Accounts        = lazyWithErrorBoundary(() => import("@/pages/Accounts"));
 const Integrations    = lazyWithErrorBoundary(() => import("@/pages/Integrations"));
 const CrmSync         = lazyWithErrorBoundary(() => import("@/pages/CrmSync"));
 const UsageBilling    = lazyWithErrorBoundary(() => import("@/pages/UsageBilling"));
@@ -151,9 +152,10 @@ export function AppRoutes() {
             <Route path="/settings" element={<Suspense fallback={<MinimalLoader />}><Settings /></Suspense>} />
 
             {/* Standalone pages — extracted from Mind */}
-            <Route path="/people"        element={<Suspense fallback={<MinimalLoader />}><People /></Suspense>} />
+            <Route path="/accounts"      element={<Suspense fallback={<MinimalLoader />}><Accounts /></Suspense>} />
+            <Route path="/people"        element={<Navigate to="/accounts?tab=people" replace />} />
             <Route path="/people/:id"    element={<Suspense fallback={<MinimalLoader />}><People /></Suspense>} />
-            <Route path="/companies"     element={<Suspense fallback={<MinimalLoader />}><Companies /></Suspense>} />
+            <Route path="/companies"     element={<Navigate to="/accounts?tab=companies" replace />} />
             <Route path="/companies/:id" element={<Suspense fallback={<MinimalLoader />}><Companies /></Suspense>} />
             <Route path="/integrations"  element={<Suspense fallback={<MinimalLoader />}><Integrations /></Suspense>} />
             <Route path="/crm-sync"      element={<CloudOnly><Suspense fallback={<MinimalLoader />}><CrmSync /></Suspense></CloudOnly>} />

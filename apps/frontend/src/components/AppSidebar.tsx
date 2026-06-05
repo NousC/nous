@@ -7,7 +7,6 @@ import {
   Key,
   Activity,
   Users,
-  Building2,
   Plug,
   Webhook,
   Zap,
@@ -39,8 +38,7 @@ const setupItems: NavItem[] = [
 // Main navigation
 const mainNavItems: NavItem[] = [
   { title: "Ops",          url: "/ops",          icon: Activity  },
-  { title: "People",       url: "/people",       icon: Users     },
-  { title: "Companies",    url: "/companies",    icon: Building2 },
+  { title: "Accounts",     url: "/accounts",     icon: Users     },
   { title: "Integrations", url: "/integrations", icon: Plug      },
   { title: "Webhooks",     url: "/webhooks",     icon: Webhook   },
   { title: "Triggers",     url: "/triggers",     icon: Zap       },
