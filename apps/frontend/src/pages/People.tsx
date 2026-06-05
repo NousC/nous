@@ -425,10 +425,15 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
     </button>
   );
 
-  if (detail) {
+  // When the route carries an id we're in detail mode — render the record (or a
+  // brief loader while the contact resolves), never the list. Avoids flashing the
+  // table for a moment before the detail appears.
+  if (id) {
     return (
       <div className="h-full bg-background">
-        <PeopleDetail contact={detail} token={token} onBack={() => setDetail(null)} />
+        {detail
+          ? <PeopleDetail contact={detail} token={token} onBack={() => setDetail(null)} />
+          : <div className="h-full flex items-center justify-center text-[13px] text-muted-foreground/70">Loading…</div>}
       </div>
     );
   }
@@ -436,27 +441,23 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
   return (
     <div className="h-full overflow-y-auto bg-background">
       {showImport && <PeopleImportModal workspaceId={workspaceId} token={token} onClose={()=>setShowImport(false)} onDone={()=>{ setShowImport(false); load(); }}/>}
-      <div className={embedded ? "px-8 pb-7" : "px-8 py-7"}>
-        {embedded ? (
-          <PageHeader title="Accounts" subtitle="Everyone and every company you're working with." />
-        ) : (
-          <PageHeader
-            title="People"
-            subtitle="Every contact in your workspace, ranked by recent activity."
-            actions={
-              <>
-                <button onClick={handleExport}
-                  className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-background border border-border text-foreground/80 text-[13px] font-semibold hover:bg-muted/50 transition-colors">
-                  <Download className="h-3.5 w-3.5" /> Export
-                </button>
-                <button onClick={() => setShowImport(true)}
-                  className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-background border border-border text-foreground/80 text-[13px] font-semibold hover:bg-muted/50 transition-colors">
-                  <Upload className="h-3.5 w-3.5" /> Import
-                </button>
-              </>
-            }
-          />
-        )}
+      <div className="px-8 py-7">
+        <PageHeader
+          title={embedded ? "Accounts" : "People"}
+          subtitle={embedded ? "Everyone and every company you're working with." : "Every contact in your workspace, ranked by recent activity."}
+          actions={
+            <>
+              <button onClick={handleExport}
+                className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-background border border-border text-foreground/80 text-[13px] font-semibold hover:bg-muted/50 transition-colors">
+                <Download className="h-3.5 w-3.5" /> Export
+              </button>
+              <button onClick={() => setShowImport(true)}
+                className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-background border border-border text-foreground/80 text-[13px] font-semibold hover:bg-muted/50 transition-colors">
+                <Upload className="h-3.5 w-3.5" /> Import
+              </button>
+            </>
+          }
+        />
 
         {/* Toolbar */}
         <div className="flex items-center justify-between gap-3 mb-4">
@@ -476,18 +477,6 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
               </button>
             ))}
             <span className="text-[12px] text-muted-foreground/70 ml-1 tabular-nums">{sorted.length} of {contacts.length}</span>
-            {embedded && (
-              <>
-                <button onClick={handleExport} title="Export CSV"
-                  className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md border border-border text-foreground/80 text-[12px] font-medium hover:bg-muted/50 transition-colors ml-1">
-                  <Download className="h-3.5 w-3.5" /> Export
-                </button>
-                <button onClick={() => setShowImport(true)} title="Import CSV"
-                  className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md border border-border text-foreground/80 text-[12px] font-medium hover:bg-muted/50 transition-colors">
-                  <Upload className="h-3.5 w-3.5" /> Import
-                </button>
-              </>
-            )}
           </div>
         </div>
 

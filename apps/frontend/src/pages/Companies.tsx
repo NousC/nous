@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, ChevronLeft, ChevronRight, Trash2, Search } from "lucide-react";
+import { ArrowLeft, ChevronLeft, ChevronRight, Trash2, Search, Download } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { relTime } from "@/components/mind/shared";
 import { Company, healthColor, stageColor, ActivityIcon, mapContact, buildCompanies, STAGE_ORDER } from "@/components/mind/entities";
@@ -177,7 +177,23 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
     </button>
   );
 
-  if (detail) {
+  const handleExport = () => {
+    const headers = ["Company","Domain","Industry","Location","Employees","Contacts","Stage","ICP","Health"];
+    const rows = companies.map(co => [
+      co.name, co.domain??"", co.industry??"", co.location??"",
+      co.employeeCount!=null?String(co.employeeCount):"", String(co.contactCount ?? 0),
+      co.stage??"", co.icpScore!=null?String(co.icpScore):"", co.dealHealthScore!=null?String(co.dealHealthScore):""
+    ]);
+    const csv = [headers,...rows].map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(",")).join("\n");
+    const url = URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
+    const a = document.createElement("a"); a.href=url; a.download="companies.csv"; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // Detail mode is keyed off the route id — show the record or a brief loader,
+  // never the list, so the table doesn't flash before the detail appears.
+  if (id) {
+    if (!detail) return <div className="h-full flex items-center justify-center text-[13px] text-muted-foreground/70 bg-background">Loading…</div>;
     const CO_TABS: { id: CoTab; label: string; count?: number }[] = [
       { id:"overview",  label:"Overview"                          },
       { id:"activity",  label:"Activity",  count:cd?.activity.length ?? 0 },
@@ -402,10 +418,17 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
 
   return (
     <div className="h-full overflow-y-auto bg-background">
-      <div className={embedded ? "px-8 pb-7" : "px-8 py-7"}>
-        {embedded
-          ? <PageHeader title="Accounts" subtitle="Everyone and every company you're working with." />
-          : <PageHeader title="Companies" subtitle="Every account in your workspace, ranked by deal health." />}
+      <div className="px-8 py-7">
+        <PageHeader
+          title={embedded ? "Accounts" : "Companies"}
+          subtitle={embedded ? "Everyone and every company you're working with." : "Every account in your workspace, ranked by deal health."}
+          actions={
+            <button onClick={handleExport}
+              className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-background border border-border text-foreground/80 text-[13px] font-semibold hover:bg-muted/50 transition-colors">
+              <Download className="h-3.5 w-3.5" /> Export
+            </button>
+          }
+        />
 
         {/* Toolbar */}
         <div className="flex items-center justify-between gap-3 mb-4">
