@@ -15,6 +15,8 @@ import {
   deleteLeadList,
 } from '@nous/core';
 import { hasFeature } from '../../lib/plans.mjs';
+import { requireEnrichmentQuota } from '../../lib/access.mjs';
+import { enrichContact } from '../../services/enrichment.mjs';
 
 export const leadListsRouter = Router();
 
@@ -203,6 +205,54 @@ leadListsRouter.delete('/:id/leads', async (req, res) => {
     return res.json({ deleted });
   } catch (err) {
     console.error('[DELETE /api/lead-lists/:id/leads]', err);
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
+// POST /api/lead-lists/:id/enrich — find emails for selected leads (single or bulk)
+// via the workspace's own Prospeo/Apollo key. Capped to the plan's remaining
+// enrichment allowance; writes email + verification status back onto each lead.
+const MAX_ENRICH = 200;
+leadListsRouter.post('/:id/enrich', requireEnrichmentQuota, async (req, res) => {
+  try {
+    const supabase = getSupabaseClient();
+    const workspaceId = req.body.workspaceId || req.workspaceId;
+    const ids = Array.isArray(req.body.ids) ? req.body.ids.slice(0, MAX_ENRICH) : [];
+    if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
+    if (ids.length === 0) return res.status(400).json({ error: 'ids array required' });
+
+    // Cap to the remaining monthly allowance (Infinity on self-host / BYOK).
+    const cap = typeof req.enrichRemaining === 'number' ? req.enrichRemaining : Infinity;
+    const { data: leads } = await supabase
+      .from('leads')
+      .select('id, workspace_id, email, linkedin_url, name, company, domain')
+      .eq('workspace_id', workspaceId).eq('lead_list_id', req.params.id).in('id', ids);
+
+    let enriched = 0, skippedQuota = 0, skippedNoId = 0;
+    for (const l of leads || []) {
+      if (!l.email && !l.linkedin_url) { skippedNoId++; continue; }
+      if (enriched >= cap) { skippedQuota++; continue; }
+      const [first, ...rest] = (l.name || '').trim().split(' ');
+      const contact = {
+        id: l.id, workspace_id: l.workspace_id, email: l.email, linkedin_url: l.linkedin_url,
+        first_name: first || null, last_name: rest.join(' ') || null,
+        company: l.company || null, domain: l.domain || null,
+      };
+      try {
+        await enrichContact(supabase, contact);
+        enriched++;
+        await supabase.from('workspace_system_log').insert({
+          workspace_id: workspaceId, source: 'enrichment', event_type: 'enrichment_run',
+          summary: `Enriched ${l.name || l.email || 'lead'}`, contact_id: l.id,
+          metadata: { from: 'lead_list' }, billable_ops: 0, occurred_at: new Date().toISOString(),
+        }).then(() => {}, () => {});
+      } catch (e) {
+        console.warn('[POST /api/lead-lists/:id/enrich] enrich failed', l.id, e.message);
+      }
+    }
+    return res.json({ enriched, skipped_quota: skippedQuota, skipped_no_identifier: skippedNoId, requested: ids.length });
+  } catch (err) {
+    console.error('[POST /api/lead-lists/:id/enrich]', err);
     return res.status(500).json({ error: 'internal_error' });
   }
 });

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { Plus, Upload, RefreshCw, FileText, X, ArrowLeft, Trash2, Download, Lock } from "lucide-react";
+import { Plus, Upload, RefreshCw, FileText, X, ArrowLeft, Trash2, Download, Lock, Sparkles } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader } from "@/components/ui/page-header";
 import { parseCSVLine } from "@/components/contacts/PeopleImportModal";
@@ -254,6 +254,31 @@ export default function Lists() {
     } catch { /* silent */ }
     finally { setBusy(false); }
   }
+
+  // Find emails for the selected leads via the workspace's Prospeo/Apollo key.
+  async function enrichSelected() {
+    if (!activeId || selected.size === 0) return;
+    setBusy(true);
+    try {
+      const res = await fetch(`${apiUrl}/api/lead-lists/${activeId}/enrich`, {
+        method: "POST",
+        headers: { ...authHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ workspaceId, ids: [...selected] }),
+      });
+      if (res.ok) {
+        const d = await res.json();
+        toast.success(`Enriched ${d.enriched} of ${d.requested}${d.skipped_quota ? ` · ${d.skipped_quota} skipped (allowance)` : ""}`);
+      } else if (res.status === 402) {
+        toast("Enrichment allowance exhausted — connect Prospeo/Apollo in Integrations or upgrade.");
+      } else {
+        toast("Couldn't enrich — try again.");
+      }
+      setSelected(new Set());
+      await loadLeads(activeId, page, icpFilter, sort);
+    } catch { toast("Couldn't enrich — try again."); }
+    finally { setBusy(false); }
+  }
+
   const allCols = [
     ...FIXED_COLS,
     { key: "__domain", label: "Domain", w: 120 },
@@ -682,6 +707,13 @@ export default function Lists() {
         {activeList && selected.size > 0 && (
           <div className="flex items-center gap-3 mb-3">
             <span className="text-[12px] text-muted-foreground tabular-nums">{selected.size} selected</span>
+            <button
+              onClick={enrichSelected}
+              disabled={busy}
+              className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md text-[12px] font-medium border border-border text-foreground/80 hover:bg-muted/50 transition-colors disabled:opacity-40"
+            >
+              <Sparkles className="h-3.5 w-3.5" /> {busy ? "Enriching…" : "Enrich — find emails"}
+            </button>
             <button
               onClick={deleteSelected}
               disabled={busy}

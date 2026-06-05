@@ -133,6 +133,7 @@ export async function requireEnrichmentQuota(req, res, next) {
         upgrade_url: '/settings?section=billing',
       });
     }
+    req.enrichRemaining = enrich.remaining; // so bulk enrich can cap to the allowance
     return next();
   } catch (err) {
     console.error('[requireEnrichmentQuota]', err);
