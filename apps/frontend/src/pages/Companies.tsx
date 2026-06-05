@@ -481,11 +481,11 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
             <SortHdr col="industry"     label="Industry" />
             <SortHdr col="location"     label="Location" />
             <SortHdr col="lastActivity" label="Last Act." firstDir="desc" />
-            <SortHdr col="employees"    label="Emp."      className="justify-end" firstDir="desc" />
-            <SortHdr col="contacts"     label="Contacts"  className="justify-end pr-2" firstDir="desc" />
+            <SortHdr col="employees"    label="Emp."      firstDir="desc" />
+            <SortHdr col="contacts"     label="Contacts"  firstDir="desc" />
             <SortHdr col="stage"        label="Stage"     firstDir="desc" />
-            <SortHdr col="icp"          label="ICP"       className="justify-end" firstDir="desc" />
-            <SortHdr col="dealHealthScore" label="Health" widthKey="health" className="justify-end" firstDir="desc" />
+            <SortHdr col="icp"          label="ICP"       firstDir="desc" />
+            <SortHdr col="dealHealthScore" label="Health" widthKey="health" firstDir="desc" />
             {/* Elastic spacer — keeps the slack to the RIGHT of every resizable
                 column so each drag handle tracks the cursor (matches People). */}
             <div className="flex-1 min-w-0" />
@@ -505,13 +505,13 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
               <span className="text-[13px] text-muted-foreground flex-shrink-0 truncate pr-2" style={{width:colW("industry")}}>{co.industry??"—"}</span>
               <span className="text-[13px] text-muted-foreground flex-shrink-0 truncate pr-2" style={{width:colW("location")}}>{co.location??"—"}</span>
               <span className="text-[13px] text-muted-foreground flex-shrink-0 pr-2 truncate" style={{width:colW("lastActivity")}}>{relTime(co.lastActivityAt)}</span>
-              <span className="text-[13px] text-muted-foreground flex-shrink-0 text-right tabular-nums" style={{width:colW("employees")}}>{co.employeeCount!=null?co.employeeCount.toLocaleString():"—"}</span>
-              <span className="text-[13px] text-foreground/80 flex-shrink-0 text-right tabular-nums pr-2" style={{width:colW("contacts")}}>{co.contactCount}</span>
+              <span className="text-[13px] text-muted-foreground flex-shrink-0 tabular-nums" style={{width:colW("employees")}}>{co.employeeCount!=null?co.employeeCount.toLocaleString():"—"}</span>
+              <span className="text-[13px] text-foreground/80 flex-shrink-0 tabular-nums" style={{width:colW("contacts")}}>{co.contactCount}</span>
               <span className="text-[13px] flex-shrink-0 truncate pr-2" style={{width:colW("stage"),color:co.stage?stageColor(co.stage):""}}>{co.stage??"—"}</span>
-              <span className="text-[13px] flex-shrink-0 text-right tabular-nums" style={{width:colW("icp"),color:co.icpScore!=null?icpColor(co.icpScore):""}}>
+              <span className="text-[13px] flex-shrink-0 tabular-nums" style={{width:colW("icp"),color:co.icpScore!=null?icpColor(co.icpScore):""}}>
                 {co.icpScore!=null?co.icpScore:"—"}
               </span>
-              <span className="text-[13px] flex-shrink-0 text-right tabular-nums" style={{width:colW("health"),color:co.dealHealthScore!=null?healthColor(co.dealHealthScore):""}}>
+              <span className="text-[13px] flex-shrink-0 tabular-nums" style={{width:colW("health"),color:co.dealHealthScore!=null?healthColor(co.dealHealthScore):""}}>
                 {co.dealHealthScore!=null?`${co.dealHealthScore}`:"—"}
               </span>
               <div className="flex-1 min-w-0" />
