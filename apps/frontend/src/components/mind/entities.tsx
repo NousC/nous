@@ -237,6 +237,13 @@ export function buildCompanies(rawCompanies: any[], contacts: ContactInfo[]): Co
       if (r < 0) return best;
       return best === null || r > STAGE_ORDER.indexOf(best) ? c.pipelineStage : best;
     }, null);
+    // An account's ICP fit reads off its best-fitting individual — the person
+    // you'd actually target. The company-level score is only a fallback for
+    // accounts that have no scored contacts.
+    const contactIcps = coContacts
+      .map(c => c.icpScore)
+      .filter((s): s is number => s != null);
+    const bestContactIcp = contactIcps.length ? Math.max(...contactIcps) : null;
     return {
       id: co.id,
       name: co.name,
@@ -247,7 +254,7 @@ export function buildCompanies(rawCompanies: any[], contacts: ContactInfo[]): Co
       contactCount: coContacts.length,
       contacts: coContacts,
       dealHealthScore: co.deal_health_score ?? null,
-      icpScore: co.icp_score ?? null,
+      icpScore: bestContactIcp ?? co.icp_score ?? null,
       stage,
       lastActivityAt,
       employeeCount: co.employee_count ?? co.employees ?? null,

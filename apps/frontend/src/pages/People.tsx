@@ -5,11 +5,20 @@ import { useAuth } from "@/contexts/AuthContext";
 import { relTime } from "@/components/mind/shared";
 import { PeopleImportModal } from "@/components/contacts/PeopleImportModal";
 import { ContactInfo, healthColor, stageColor, ActivityIcon, mapContact } from "@/components/mind/entities";
+import { useColumnWidths, ColResizer } from "@/components/mind/resizableColumns";
 import { PageHeader } from "@/components/ui/page-header";
 
 const apiUrl = import.meta.env.VITE_API_URL ?? "";
 const PAGE_SIZE = 50;
 const PIPELINE_STAGES = ["identified", "aware", "interested", "evaluating", "client"];
+
+// Default widths for the resizable columns. "Last Int." is the elastic flex-1
+// column and the action "Enrich" cell is fixed, so neither is listed here.
+// Persisted per user in localStorage; see useColumnWidths.
+const PEOPLE_COL_DEFAULTS: Record<string, number> = {
+  name: 170, company: 115, domain: 100, li: 40, stage: 88,
+  icp: 42, deal: 88, segment: 72, health: 60,
+};
 
 type DetailTab = "activity" | "emails" | "linkedin" | "slack" | "calls" | "notes" | "company" | "memory";
 
@@ -324,6 +333,8 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
   const [page, setPage] = useState(0);
   const [sortCol, setSortCol] = useState<"lastActivity"|"deal"|"icp"|null>(null);
   const [sortDir, setSortDir] = useState<"asc"|"desc">("asc");
+  const { widths, startResize } = useColumnWidths("nous.people.colWidths", PEOPLE_COL_DEFAULTS);
+  const colW = (c: string) => widths[c] ?? PEOPLE_COL_DEFAULTS[c];
   const [showImport, setShowImport] = useState(false);
   const [enriching, setEnriching] = useState<Set<string>>(new Set());
   const [enriched, setEnriched] = useState<Set<string>>(new Set());
@@ -416,13 +427,39 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
     URL.revokeObjectURL(url);
   };
 
-  const SortBtn = ({ col, label, w, firstDir = "asc" }: { col:"lastActivity"|"deal"|"icp"; label:string; w:number; firstDir?:"asc"|"desc" }) => (
+  // Sortable + resizable header cell (fixed-width columns). The relative wrapper
+  // anchors the drag handle to the cell's right edge; widthKey ties the width to
+  // the persisted store (defaults to the sort column name).
+  const SortBtn = ({ col, label, widthKey, firstDir = "asc" }: { col:"deal"|"icp"; label:string; widthKey?:string; firstDir?:"asc"|"desc" }) => {
+    const wk = widthKey ?? col;
+    return (
+      <div className="relative flex items-center flex-shrink-0" style={{width: colW(wk)}}>
+        <button onClick={() => { cycleSort(col, firstDir); setPage(0); }}
+          className="w-full min-w-0 text-[11px] font-semibold uppercase tracking-wide flex items-center gap-0.5 group">
+          <span className={`truncate ${sortCol===col ? "text-foreground/80" : "text-muted-foreground/70 group-hover:text-foreground/80 transition-colors"}`}>{label}</span>
+          {sortCol===col && <span className="text-[10px] text-muted-foreground ml-0.5">{sortDir==="asc"?"↑":"↓"}</span>}
+        </button>
+        <ColResizer onMouseDown={e=>startResize(wk, e)} />
+      </div>
+    );
+  };
+
+  // Elastic sortable header — the flex-1 "Last Int." column that absorbs the
+  // leftover space, so it carries no resize handle.
+  const SortBtnFlex = ({ col, label, firstDir = "asc" }: { col:"lastActivity"; label:string; firstDir?:"asc"|"desc" }) => (
     <button onClick={() => { cycleSort(col, firstDir); setPage(0); }}
-      className="text-[11px] font-semibold uppercase tracking-wide flex items-center gap-0.5 flex-shrink-0 group"
-      style={{width:w}}>
+      className="text-[11px] font-semibold uppercase tracking-wide flex items-center gap-0.5 flex-1 min-w-0 group text-left">
       <span className={sortCol===col ? "text-foreground/80" : "text-muted-foreground/70 group-hover:text-foreground/80 transition-colors"}>{label}</span>
       {sortCol===col && <span className="text-[10px] text-muted-foreground ml-0.5">{sortDir==="asc"?"↑":"↓"}</span>}
     </button>
+  );
+
+  // Static (non-sortable) but still resizable header cell.
+  const PlainHdr = ({ label, widthKey }: { label:string; widthKey:string }) => (
+    <div className="relative flex items-center flex-shrink-0" style={{width: colW(widthKey)}}>
+      <span className="w-full min-w-0 truncate text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">{label}</span>
+      <ColResizer onMouseDown={e=>startResize(widthKey, e)} />
+    </div>
   );
 
   // When the route carries an id we're in detail mode — render the record (or a
@@ -484,29 +521,29 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
         <div className="rounded-xl border border-border overflow-hidden">
           {/* Table header */}
           <div className="flex items-center px-4 py-2.5 bg-muted/50 border-b border-border">
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-shrink-0" style={{width:170}}>Name</span>
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-shrink-0" style={{width:115}}>Company</span>
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-shrink-0" style={{width:100}}>Domain</span>
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-shrink-0" style={{width:40}}>LI</span>
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-shrink-0" style={{width:88}}>Stage</span>
-            <SortBtn col="icp" label="ICP" w={42} firstDir="desc" />
-            <SortBtn col="deal" label="Deal" w={88} />
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-shrink-0" style={{width:72}}>Segment</span>
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-shrink-0" style={{width:60}}>Health</span>
-            <SortBtn col="lastActivity" label="Last Int." w={96} />
+            <PlainHdr label="Name"    widthKey="name" />
+            <PlainHdr label="Company" widthKey="company" />
+            <PlainHdr label="Domain"  widthKey="domain" />
+            <PlainHdr label="LI"      widthKey="li" />
+            <PlainHdr label="Stage"   widthKey="stage" />
+            <SortBtn  col="icp"  label="ICP"  firstDir="desc" />
+            <SortBtn  col="deal" label="Deal" />
+            <PlainHdr label="Segment" widthKey="segment" />
+            <PlainHdr label="Health"  widthKey="health" />
+            <SortBtnFlex col="lastActivity" label="Last Int." />
             <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-shrink-0 text-right" style={{width:78}}>Enrich</span>
           </div>
           {/* Rows */}
           {loading && contacts.length === 0 && <div className="text-[13px] text-muted-foreground/70 text-center py-12">Loading…</div>}
           {pageRows.map(c => (
             <div key={c.id} className="flex items-center px-4 py-3 border-b border-border/60 last:border-0 hover:bg-muted/50 transition-colors group">
-              <button onClick={() => setDetail(c)} className="flex-shrink-0 text-left min-w-0 pr-3" style={{width:170}}>
+              <button onClick={() => setDetail(c)} className="flex-shrink-0 text-left min-w-0 pr-3" style={{width:colW("name")}}>
                 <div className="text-[13px] font-medium text-foreground truncate">{c.name}</div>
                 {c.title && <div className="text-[12px] text-muted-foreground/70 truncate">{c.title}</div>}
               </button>
-              <button onClick={() => setDetail(c)} className="text-[13px] text-muted-foreground truncate pr-2 flex-shrink-0 text-left" style={{width:115}}>{c.companyName ?? "—"}</button>
-              <span className="text-[13px] text-muted-foreground/70 truncate pr-2 flex-shrink-0" style={{width:100}}>{c.domain ?? "—"}</span>
-              <div className="flex-shrink-0" style={{width:40}}>
+              <button onClick={() => setDetail(c)} className="text-[13px] text-muted-foreground truncate pr-2 flex-shrink-0 text-left" style={{width:colW("company")}}>{c.companyName ?? "—"}</button>
+              <span className="text-[13px] text-muted-foreground/70 truncate pr-2 flex-shrink-0" style={{width:colW("domain")}}>{c.domain ?? "—"}</span>
+              <div className="flex-shrink-0" style={{width:colW("li")}}>
                 {c.linkedinUrl
                   ? <a href={c.linkedinUrl} target="_blank" rel="noopener noreferrer" onClick={e=>e.stopPropagation()}
                       className="text-muted-foreground/70 hover:text-foreground transition-colors flex items-center">
@@ -515,11 +552,11 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
                   : <span className="text-muted-foreground/50 text-[12px]">—</span>
                 }
               </div>
-              <button onClick={() => setDetail(c)} className="text-[13px] pr-2 flex-shrink-0 text-left capitalize" style={{width:88,color:stageColor(c.pipelineStage)}}>{c.pipelineStage}</button>
-              <button onClick={() => setDetail(c)} className="text-[13px] text-muted-foreground pr-2 flex-shrink-0 text-left tabular-nums" style={{width:42}}>{c.icpScore != null ? c.icpScore : "—"}</button>
-              <button onClick={() => setDetail(c)} className="text-[13px] text-muted-foreground truncate pr-2 flex-shrink-0 text-left" style={{width:88}}>{c.dealStage ?? "—"}</button>
-              <button onClick={() => setDetail(c)} className="text-[13px] text-muted-foreground truncate pr-2 flex-shrink-0 text-left" style={{width:72}}>{c.segmentLabel ?? "—"}</button>
-              <button onClick={() => setDetail(c)} className="text-[13px] tabular-nums pr-2 flex-shrink-0 text-left" style={{width:60,color:c.dealHealthScore!=null?healthColor(c.dealHealthScore):""}}>
+              <button onClick={() => setDetail(c)} className="text-[13px] pr-2 flex-shrink-0 text-left capitalize" style={{width:colW("stage"),color:stageColor(c.pipelineStage)}}>{c.pipelineStage}</button>
+              <button onClick={() => setDetail(c)} className="text-[13px] text-muted-foreground pr-2 flex-shrink-0 text-left tabular-nums" style={{width:colW("icp")}}>{c.icpScore != null ? c.icpScore : "—"}</button>
+              <button onClick={() => setDetail(c)} className="text-[13px] text-muted-foreground truncate pr-2 flex-shrink-0 text-left" style={{width:colW("deal")}}>{c.dealStage ?? "—"}</button>
+              <button onClick={() => setDetail(c)} className="text-[13px] text-muted-foreground truncate pr-2 flex-shrink-0 text-left" style={{width:colW("segment")}}>{c.segmentLabel ?? "—"}</button>
+              <button onClick={() => setDetail(c)} className="text-[13px] tabular-nums pr-2 flex-shrink-0 text-left" style={{width:colW("health"),color:c.dealHealthScore!=null?healthColor(c.dealHealthScore):""}}>
                 {c.dealHealthScore!=null ? `${c.dealHealthScore}` : "—"}
               </button>
               <button onClick={() => setDetail(c)} className="text-[13px] text-muted-foreground flex-1 text-left" style={{minWidth:0}}>{relTime(c.lastActivityAt)}</button>

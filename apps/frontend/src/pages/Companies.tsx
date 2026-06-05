@@ -1,13 +1,22 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, ChevronLeft, ChevronRight, Trash2, Search, Download } from "lucide-react";
+import { ArrowLeft, Trash2, Search, Download } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { relTime } from "@/components/mind/shared";
 import { Company, healthColor, stageColor, ActivityIcon, mapContact, buildCompanies, STAGE_ORDER } from "@/components/mind/entities";
+import { useColumnWidths, ColResizer } from "@/components/mind/resizableColumns";
 import { PageHeader } from "@/components/ui/page-header";
 
 const apiUrl = import.meta.env.VITE_API_URL ?? "";
 const PAGE_SIZE = 50;
+
+// Default widths for the resizable columns. The elastic "Top Contacts" column
+// is flex-1 and not listed here — it absorbs the leftover space. Persisted per
+// user in localStorage; see useColumnWidths.
+const CO_COL_DEFAULTS: Record<string, number> = {
+  name: 160, domain: 100, industry: 84, location: 104, lastActivity: 78,
+  employees: 52, contacts: 56, stage: 92, icp: 44, health: 54,
+};
 
 type CoTab = "overview" | "activity" | "facts";
 type CoSort = { col: string | null; dir: "asc"|"desc" };
@@ -98,6 +107,8 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
   const [coLocalOverrides, setCoLocalOverrides] = useState<Record<string, string | null>>({});
   const [coSort, setCoSort] = useState<CoSort>({ col:"dealHealthScore", dir:"desc" });
   const [page, setPage] = useState(0);
+  const { widths, startResize } = useColumnWidths("nous.companies.colWidths", CO_COL_DEFAULTS);
+  const colW = (c: string) => widths[c] ?? CO_COL_DEFAULTS[c];
 
   const deleteCompany = async (cid: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -170,11 +181,28 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
   const totalPages = Math.ceil(sortedList.length / PAGE_SIZE);
   const pageRows = sortedList.slice(page*PAGE_SIZE, (page+1)*PAGE_SIZE);
 
-  const SortHdr = ({ col, label, style, className, firstDir="asc" }: { col:string; label:string; style?:React.CSSProperties; className?:string; firstDir?:"asc"|"desc" }) => (
-    <button onClick={()=>cycleSort(col, firstDir)} style={style}
-      className={`text-[11px] font-semibold uppercase tracking-wide flex-shrink-0 flex items-center gap-0.5 hover:text-foreground/80 transition-colors ${coSort.col===col?"text-foreground/80":"text-muted-foreground/70"} ${className??""}`}>
-      {label}{coSort.col===col&&<span className="text-[8px]">{coSort.dir==="asc"?"▲":"▼"}</span>}
-    </button>
+  // Sortable + resizable header cell. The relative wrapper anchors the drag
+  // handle to the cell's right edge; widthKey ties the width to the persisted
+  // store (defaults to the sort column name).
+  const SortHdr = ({ col, label, widthKey, className, firstDir="asc" }: { col:string; label:string; widthKey?:string; className?:string; firstDir?:"asc"|"desc" }) => {
+    const wk = widthKey ?? col;
+    return (
+      <div className="relative flex items-center flex-shrink-0" style={{width: colW(wk)}}>
+        <button onClick={()=>cycleSort(col, firstDir)}
+          className={`w-full min-w-0 text-[11px] font-semibold uppercase tracking-wide flex items-center gap-0.5 hover:text-foreground/80 transition-colors ${coSort.col===col?"text-foreground/80":"text-muted-foreground/70"} ${className??""}`}>
+          <span className="truncate">{label}</span>{coSort.col===col&&<span className="text-[8px]">{coSort.dir==="asc"?"▲":"▼"}</span>}
+        </button>
+        <ColResizer onMouseDown={e=>startResize(wk, e)} />
+      </div>
+    );
+  };
+
+  // Static (non-sortable) but still resizable header cell.
+  const PlainHdr = ({ label, widthKey, className }: { label:string; widthKey:string; className?:string }) => (
+    <div className="relative flex items-center flex-shrink-0" style={{width: colW(widthKey)}}>
+      <span className={`w-full min-w-0 truncate text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 ${className??""}`}>{label}</span>
+      <ColResizer onMouseDown={e=>startResize(widthKey, e)} />
+    </div>
   );
 
   const handleExport = () => {
@@ -447,17 +475,17 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
         <div className="rounded-xl border border-border overflow-hidden">
           {/* Table header */}
           <div className="flex items-center px-4 py-2.5 bg-muted/50 border-b border-border">
-            <SortHdr col="name"         label="Company"   style={{width:160}} />
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-shrink-0" style={{width:100}}>Domain</span>
+            <SortHdr col="name"         label="Company"  />
+            <PlainHdr label="Domain"    widthKey="domain" />
             <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-1 min-w-0">Top Contacts</span>
-            <SortHdr col="industry"     label="Industry"  style={{width:84}} />
-            <SortHdr col="location"     label="Location"  style={{width:104}} />
-            <SortHdr col="lastActivity" label="Last Act." style={{width:78}} firstDir="desc" />
-            <SortHdr col="employees"    label="Emp."      style={{width:52}} className="justify-end" firstDir="desc" />
-            <SortHdr col="contacts"     label="Contacts"  style={{width:56}} className="justify-end" firstDir="desc" />
-            <SortHdr col="stage"        label="Stage"     style={{width:92}} firstDir="desc" />
-            <SortHdr col="icp"          label="ICP"       style={{width:44}} className="justify-end" firstDir="desc" />
-            <SortHdr col="dealHealthScore" label="Health" style={{width:54}} className="justify-end" firstDir="desc" />
+            <SortHdr col="industry"     label="Industry" />
+            <SortHdr col="location"     label="Location" />
+            <SortHdr col="lastActivity" label="Last Act." firstDir="desc" />
+            <SortHdr col="employees"    label="Emp."      className="justify-end" firstDir="desc" />
+            <SortHdr col="contacts"     label="Contacts"  className="justify-end" firstDir="desc" />
+            <SortHdr col="stage"        label="Stage"     firstDir="desc" />
+            <SortHdr col="icp"          label="ICP"       className="justify-end" firstDir="desc" />
+            <SortHdr col="dealHealthScore" label="Health" widthKey="health" className="justify-end" firstDir="desc" />
             <span className="flex-shrink-0" style={{width:28}} />
           </div>
           {/* Rows */}
@@ -466,22 +494,21 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
             const topContacts = co.contacts.slice(0,3).map(c=>c.name.split(" ")[0]).join(", ");
             return (
             <div key={co.id} className="flex items-center px-4 py-3 border-b border-border/60 last:border-0 hover:bg-muted/50 transition-colors group">
-              <button onClick={() => setDetail(co)} className="flex items-center gap-2 flex-shrink-0 text-left" style={{width:160}}>
-                <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{backgroundColor:healthColor(co.dealHealthScore)}} />
+              <button onClick={() => setDetail(co)} className="flex items-center flex-shrink-0 text-left" style={{width:colW("name")}}>
                 <span className="text-[13px] font-medium text-foreground truncate">{co.name}</span>
               </button>
-              <span className="text-[13px] text-muted-foreground flex-shrink-0 truncate pr-2" style={{width:100}}>{co.domain??"—"}</span>
+              <span className="text-[13px] text-muted-foreground flex-shrink-0 truncate pr-2" style={{width:colW("domain")}}>{co.domain??"—"}</span>
               <button onClick={()=>setDetail(co)} className="text-[13px] text-muted-foreground flex-1 min-w-0 truncate pr-2 text-left">{topContacts||"—"}</button>
-              <span className="text-[13px] text-muted-foreground flex-shrink-0 truncate pr-2" style={{width:84}}>{co.industry??"—"}</span>
-              <span className="text-[13px] text-muted-foreground flex-shrink-0 truncate pr-2" style={{width:104}}>{co.location??"—"}</span>
-              <span className="text-[13px] text-muted-foreground flex-shrink-0 pr-2" style={{width:78}}>{relTime(co.lastActivityAt)}</span>
-              <span className="text-[13px] text-muted-foreground flex-shrink-0 text-right tabular-nums" style={{width:52}}>{co.employeeCount!=null?co.employeeCount.toLocaleString():"—"}</span>
-              <span className="text-[13px] text-foreground/80 flex-shrink-0 text-right tabular-nums" style={{width:56}}>{co.contactCount}</span>
-              <span className="text-[13px] flex-shrink-0 truncate pr-2" style={{width:92,color:co.stage?stageColor(co.stage):""}}>{co.stage??"—"}</span>
-              <span className="text-[13px] flex-shrink-0 text-right tabular-nums" style={{width:44,color:co.icpScore!=null?icpColor(co.icpScore):""}}>
+              <span className="text-[13px] text-muted-foreground flex-shrink-0 truncate pr-2" style={{width:colW("industry")}}>{co.industry??"—"}</span>
+              <span className="text-[13px] text-muted-foreground flex-shrink-0 truncate pr-2" style={{width:colW("location")}}>{co.location??"—"}</span>
+              <span className="text-[13px] text-muted-foreground flex-shrink-0 pr-2 truncate" style={{width:colW("lastActivity")}}>{relTime(co.lastActivityAt)}</span>
+              <span className="text-[13px] text-muted-foreground flex-shrink-0 text-right tabular-nums" style={{width:colW("employees")}}>{co.employeeCount!=null?co.employeeCount.toLocaleString():"—"}</span>
+              <span className="text-[13px] text-foreground/80 flex-shrink-0 text-right tabular-nums" style={{width:colW("contacts")}}>{co.contactCount}</span>
+              <span className="text-[13px] flex-shrink-0 truncate pr-2" style={{width:colW("stage"),color:co.stage?stageColor(co.stage):""}}>{co.stage??"—"}</span>
+              <span className="text-[13px] flex-shrink-0 text-right tabular-nums" style={{width:colW("icp"),color:co.icpScore!=null?icpColor(co.icpScore):""}}>
                 {co.icpScore!=null?co.icpScore:"—"}
               </span>
-              <span className="text-[13px] flex-shrink-0 text-right tabular-nums" style={{width:54,color:co.dealHealthScore!=null?healthColor(co.dealHealthScore):""}}>
+              <span className="text-[13px] flex-shrink-0 text-right tabular-nums" style={{width:colW("health"),color:co.dealHealthScore!=null?healthColor(co.dealHealthScore):""}}>
                 {co.dealHealthScore!=null?`${co.dealHealthScore}`:"—"}
               </span>
               <button onClick={e=>deleteCompany(co.id,e)}
@@ -494,22 +521,18 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
           {!loading && pageRows.length===0 && <div className="text-[13px] text-muted-foreground/70 text-center py-12">No results</div>}
         </div>
 
-        {/* Pagination footer */}
-        {totalPages > 1 && (
-          <div className="mt-4 flex items-center justify-between">
+        {/* Pagination footer — always shown, matching the People page so the
+            50-per-page cap and the next control read identically everywhere
+            (including the embedded Accounts view). */}
+        <div className="mt-4 flex items-center justify-between">
+          <span className="text-[12px] text-muted-foreground/70 tabular-nums">page {page+1} of {Math.max(1,totalPages)} · {sortedList.length} companies</span>
+          <div className="flex items-center gap-2">
             <button onClick={()=>setPage(p=>Math.max(0,p-1))} disabled={page===0}
-              className="inline-flex items-center gap-1 text-[13px] font-medium text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30">
-              <ChevronLeft className="h-4 w-4"/>Prev
-            </button>
-            <span className="text-[12px] text-muted-foreground/70 tabular-nums">
-              {page*PAGE_SIZE+1}–{Math.min((page+1)*PAGE_SIZE,sortedList.length)} of {sortedList.length}
-            </span>
+              className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-background border border-border text-foreground/80 text-[13px] font-semibold hover:bg-muted/50 transition-colors disabled:opacity-30">Prev</button>
             <button onClick={()=>setPage(p=>Math.min(totalPages-1,p+1))} disabled={page>=totalPages-1}
-              className="inline-flex items-center gap-1 text-[13px] font-medium text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30">
-              Next<ChevronRight className="h-4 w-4"/>
-            </button>
+              className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-background border border-border text-foreground/80 text-[13px] font-semibold hover:bg-muted/50 transition-colors disabled:opacity-30">Next</button>
           </div>
-        )}
+        </div>
       </div>
     </div>
   );
