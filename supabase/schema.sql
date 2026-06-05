@@ -1926,6 +1926,33 @@ CREATE TRIGGER trigger_workflow_providers_updated_at BEFORE UPDATE ON workflow_p
 
 
 -- ============================================================
+-- Skill download counter — public, unauthenticated vanity metric powering the
+-- install-count social proof on the marketing site's /resources/skills. The
+-- API route (/api/public/skill-downloads) ships in every build, so the table
+-- belongs in the canonical schema. Self-contained: no FKs, no dependencies.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS skill_downloads (
+  slug       TEXT        PRIMARY KEY,
+  count      BIGINT      NOT NULL DEFAULT 0,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE OR REPLACE FUNCTION increment_skill_download(p_slug TEXT)
+RETURNS BIGINT
+LANGUAGE plpgsql
+AS $$
+DECLARE new_count BIGINT;
+BEGIN
+  INSERT INTO skill_downloads (slug, count) VALUES (p_slug, 1)
+  ON CONFLICT (slug) DO UPDATE
+    SET count = skill_downloads.count + 1, updated_at = now()
+  RETURNING count INTO new_count;
+  RETURN new_count;
+END;
+$$;
+
+
+-- ============================================================
 -- Done.
 --
 -- The whole model: entities are anchors; observations are
