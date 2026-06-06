@@ -581,7 +581,7 @@ function StepIndicator({ current, total }: { current: number; total: number }) {
 // ─── Main ────────────────────────────────────────────────────────────────────
 type Phase = "welcome" | "connect" | "business" | "import" | "apikey" | "finishing";
 
-export default function Onboarding({ preview = false }: { preview?: boolean }) {
+export default function Onboarding() {
   const navigate = useNavigate();
   const { session, userData, refreshUserData } = useAuth();
 
@@ -628,10 +628,10 @@ export default function Onboarding({ preview = false }: { preview?: boolean }) {
   const storageKey = userId ? `${STORAGE_KEY_PREFIX}${userId}` : null;
 
   useEffect(() => {
-    if (!preview && userData?.onboarding_completed) {
+    if (userData?.onboarding_completed) {
       navigate("/", { replace: true });
     }
-  }, [preview, userData?.onboarding_completed, navigate]);
+  }, [userData?.onboarding_completed, navigate]);
 
   // Once we know the user, restore (or migrate) their state. Anything stored
   // under a legacy un-scoped key gets wiped so it can't leak to another login.
