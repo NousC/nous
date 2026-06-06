@@ -176,8 +176,12 @@ export default function Lists() {
   const [addingCol, setAddingCol] = useState(false);
   const [newColLabel, setNewColLabel] = useState("");
 
+  // Right-click → styled delete confirmation (replaces window.confirm).
+  const [deleteTarget, setDeleteTarget] = useState<LeadList | null>(null);
+
   // Mapped CSV import
   const [importing, setImporting] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
   const [importStep, setImportStep] = useState<"upload" | "mapping">("upload");
   const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
   const [csvRows, setCsvRows] = useState<Record<string, string>[]>([]);
@@ -456,19 +460,25 @@ export default function Lists() {
     finally { setBusy(false); }
   };
 
-  const deleteList = async (list: LeadList) => {
-    if (!list || busy) return;
+  // Right-click a list → open the styled confirm (engagers list is protected).
+  const requestDeleteList = (list: LeadList) => {
+    if (!list) return;
     if (list.source === "linkedin_engagement") {
       toast("LinkedIn Engagers is managed automatically and can't be deleted.");
       return;
     }
-    if (!window.confirm(`Delete the list "${list.name}" and all its rows? The contacts and their history stay in Nous.`)) return;
+    setDeleteTarget(list);
+  };
+  const confirmDeleteList = async () => {
+    const list = deleteTarget;
+    if (!list || busy) return;
     setBusy(true);
     try {
       await fetch(`${apiUrl}/api/lead-lists/${list.id}?workspaceId=${workspaceId}`, {
         method: "DELETE", headers: authHeaders,
       });
       if (activeId === list.id) setActiveId(null);
+      setDeleteTarget(null);
       await loadLists();
     } catch { /* silent */ }
     finally { setBusy(false); }
@@ -726,7 +736,7 @@ export default function Lists() {
             <button
               key={l.id}
               onClick={() => { setActiveId(l.id); resetImport(); setAddingRow(false); }}
-              onContextMenu={e => { e.preventDefault(); deleteList(l); }}
+              onContextMenu={e => { e.preventDefault(); requestDeleteList(l); }}
               title={l.source === "linkedin_engagement" ? "Managed automatically — fills from your LinkedIn post engagers" : "Right-click to delete this list"}
               className={`flex items-center gap-1.5 px-3 py-1.5 text-[13px] rounded-t-lg border border-b-0 whitespace-nowrap transition-colors ${
                 l.id === activeId
@@ -762,69 +772,6 @@ export default function Lists() {
             </button>
           )}
         </div>
-
-        {/* Import — upload → map */}
-        {importing && activeList && (
-          <div className="rounded-xl border border-border bg-muted/40 p-4 mb-4">
-            {importStep === "upload" ? (
-              <>
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-[13px] font-semibold text-foreground">Import a CSV into “{activeList.name}”</span>
-                  <button onClick={resetImport} className="text-muted-foreground hover:text-foreground"><X className="h-3.5 w-3.5" /></button>
-                </div>
-                <p className="text-[12px] text-muted-foreground mb-3">
-                  Any CSV — a Clay export, an Apollo download. The next step maps its columns to this list.
-                </p>
-                <input ref={fileRef} type="file" accept=".csv,.txt" className="hidden"
-                  onChange={e => { const f = e.target.files?.[0]; e.target.value = ""; if (f) onFile(f); }} />
-                <button onClick={() => fileRef.current?.click()}
-                  className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-background border border-border text-foreground text-[13px] font-semibold hover:bg-muted/50 transition-colors">
-                  <FileText className="h-3.5 w-3.5" /> Choose CSV file
-                </button>
-              </>
-            ) : (
-              <>
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-[13px] font-semibold text-foreground">
-                    Map columns — {csvRows.length.toLocaleString()} rows
-                  </span>
-                  <button onClick={resetImport} className="text-muted-foreground hover:text-foreground"><X className="h-3.5 w-3.5" /></button>
-                </div>
-                <p className="text-[12px] text-muted-foreground mb-3">
-                  Match each CSV column to a list column, create a new one, or skip it.
-                </p>
-                <div className="space-y-1.5 mb-3">
-                  {csvHeaders.map(h => (
-                    <div key={h} className="flex items-center gap-3">
-                      <span className="text-[13px] text-foreground/80 truncate flex-1" title={h}>{h}</span>
-                      <span className="text-[12px] text-muted-foreground/50">→</span>
-                      <select
-                        value={mapping[h] ?? SKIP}
-                        onChange={e => setMapping(m => ({ ...m, [h]: e.target.value }))}
-                        className="h-8 w-52 flex-shrink-0 rounded-md border border-border bg-background text-[13px] text-foreground px-2 outline-none focus:border-muted-foreground"
-                      >
-                        {mapTargets.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-                        <option value={NEW_COL}>+ New column “{h}”</option>
-                        <option value={SKIP}>Skip</option>
-                      </select>
-                    </div>
-                  ))}
-                </div>
-                <div className="flex items-center gap-3">
-                  <button onClick={() => { setImportStep("upload"); setCsvHeaders([]); setCsvRows([]); }}
-                    className="inline-flex items-center gap-1 text-[12px] text-muted-foreground hover:text-foreground">
-                    <ArrowLeft className="h-3.5 w-3.5" /> Choose another file
-                  </button>
-                  <div className="flex-1" />
-                  <button onClick={runImport} disabled={busy}
-                    className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-foreground text-background text-[13px] font-semibold hover:opacity-90 transition-opacity disabled:opacity-30">
-                    {busy ? <><RefreshCw className="h-3.5 w-3.5 animate-spin" /> Importing…</> : `Import ${csvRows.length.toLocaleString()} rows`}
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        )}
 
         {result && (
           <div className="mb-4 text-[13px] text-green-700 dark:text-green-500">
@@ -1125,6 +1072,99 @@ export default function Lists() {
             </button>
           </div>
         )}
+
+      {/* Import CSV modal — drag-and-drop upload, then column mapping */}
+      {importing && activeList && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => !busy && resetImport()}>
+          <div onClick={e => e.stopPropagation()} className="w-full max-w-lg rounded-xl border border-border bg-background p-5 shadow-xl">
+            {importStep === "upload" ? (
+              <>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[15px] font-semibold text-foreground">Import a CSV into “{activeList.name}”</span>
+                  <button onClick={resetImport} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+                </div>
+                <p className="text-[12px] text-muted-foreground mb-3">
+                  Any CSV — a Clay export, an Apollo download. The next step maps its columns to this list.
+                </p>
+                <input ref={fileRef} type="file" accept=".csv,.txt" className="hidden"
+                  onChange={e => { const f = e.target.files?.[0]; e.target.value = ""; if (f) onFile(f); }} />
+                <div
+                  onClick={() => fileRef.current?.click()}
+                  onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+                  onDragLeave={() => setDragOver(false)}
+                  onDrop={e => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files?.[0]; if (f) onFile(f); }}
+                  className={`flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed px-6 py-12 text-center cursor-pointer transition-colors ${
+                    dragOver ? "border-foreground bg-muted/50" : "border-border hover:border-foreground/40 hover:bg-muted/30"
+                  }`}
+                >
+                  <Upload className="h-6 w-6 text-muted-foreground" />
+                  <div className="text-[13px] font-medium text-foreground">Drop a CSV here, or click to choose</div>
+                  <div className="text-[12px] text-muted-foreground">We’ll map its columns in the next step</div>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[15px] font-semibold text-foreground">
+                    Map columns — {csvRows.length.toLocaleString()} rows
+                  </span>
+                  <button onClick={resetImport} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+                </div>
+                <p className="text-[12px] text-muted-foreground mb-3">
+                  Match each CSV column to a list column, create a new one, or skip it.
+                </p>
+                <div className="space-y-1.5 mb-3 max-h-[50vh] overflow-y-auto pr-1">
+                  {csvHeaders.map(h => (
+                    <div key={h} className="flex items-center gap-3">
+                      <span className="text-[13px] text-foreground/80 truncate flex-1" title={h}>{h}</span>
+                      <span className="text-[12px] text-muted-foreground/50">→</span>
+                      <select
+                        value={mapping[h] ?? SKIP}
+                        onChange={e => setMapping(m => ({ ...m, [h]: e.target.value }))}
+                        className="h-8 w-52 flex-shrink-0 rounded-md border border-border bg-background text-[13px] text-foreground px-2 outline-none focus:border-muted-foreground"
+                      >
+                        {mapTargets.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                        <option value={NEW_COL}>+ New column “{h}”</option>
+                        <option value={SKIP}>Skip</option>
+                      </select>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex items-center gap-3">
+                  <button onClick={() => { setImportStep("upload"); setCsvHeaders([]); setCsvRows([]); }}
+                    className="inline-flex items-center gap-1 text-[12px] text-muted-foreground hover:text-foreground">
+                    <ArrowLeft className="h-3.5 w-3.5" /> Choose another file
+                  </button>
+                  <div className="flex-1" />
+                  <button onClick={runImport} disabled={busy}
+                    className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-foreground text-background text-[13px] font-semibold hover:opacity-90 transition-opacity disabled:opacity-30">
+                    {busy ? <><RefreshCw className="h-3.5 w-3.5 animate-spin" /> Importing…</> : `Import ${csvRows.length.toLocaleString()} rows`}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Delete-list confirmation */}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => !busy && setDeleteTarget(null)}>
+          <div onClick={e => e.stopPropagation()} className="w-full max-w-sm rounded-xl border border-border bg-background p-5 shadow-xl">
+            <span className="text-[15px] font-semibold text-foreground">Delete “{deleteTarget.name}”?</span>
+            <p className="text-[13px] text-muted-foreground mt-1.5">
+              The list and all its rows are removed. The contacts and their history stay in Nous.
+            </p>
+            <div className="flex items-center justify-end gap-2 mt-4">
+              <button onClick={() => setDeleteTarget(null)} className="text-[13px] text-muted-foreground hover:text-foreground px-3 py-1.5">Cancel</button>
+              <button onClick={confirmDeleteList} disabled={busy}
+                className="h-9 px-4 rounded-lg bg-red-600 text-white text-[13px] font-semibold hover:bg-red-700 transition-colors disabled:opacity-40">
+                {busy ? "Deleting…" : "Delete list"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Export-to-CSV modal — names the channel so the export is tracked */}
       {csvOpen && (

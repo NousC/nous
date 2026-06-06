@@ -492,6 +492,9 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
             <SortHdr col="stage"        label="Stage"     firstDir="desc" />
             <SortHdr col="icp"          label="ICP"       firstDir="desc" />
             <SortHdr col="dealHealthScore" label="Health" widthKey="health" firstDir="desc" />
+            {/* Trailing filler — grows only on wide screens, shrinks to 0 (then the
+                grid scrolls) so it never steals width from a column being resized. */}
+            <div className="flex-1 min-w-0" />
             <span className="flex-shrink-0" style={{width:28}} />
           </div>
           {/* Rows */}
@@ -517,6 +520,7 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
               <span className="text-[13px] flex-shrink-0 tabular-nums" style={{width:colW("health"),color:co.dealHealthScore!=null?healthColor(co.dealHealthScore):""}}>
                 {co.dealHealthScore!=null?`${co.dealHealthScore}`:"—"}
               </span>
+              <div className="flex-1 min-w-0" />
               <button onClick={e=>deleteCompany(co.id,e)}
                 className="opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 flex justify-end text-muted-foreground/50 hover:text-red-500" style={{width:28}}>
                 <Trash2 className="h-3.5 w-3.5"/>

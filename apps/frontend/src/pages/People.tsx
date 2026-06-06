@@ -543,6 +543,9 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
             <PlainHdr label="Segment" widthKey="segment" />
             <PlainHdr label="Health"  widthKey="health" />
             <SortBtnFlex col="lastActivity" label="Last Int." />
+            {/* Trailing filler — grows only on wide screens, shrinks to 0 (then the
+                grid scrolls) so it never steals width from a column being resized. */}
+            <div className="flex-1 min-w-0" />
             <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-shrink-0 text-right" style={{width:78}}>Enrich</span>
           </div>
           {/* Rows */}
@@ -572,6 +575,7 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
                 {c.dealHealthScore!=null ? `${c.dealHealthScore}` : "—"}
               </button>
               <button onClick={() => setDetail(c)} className="text-[13px] text-muted-foreground flex-shrink-0 truncate pr-2 text-left" style={{width:colW("lastActivity")}}>{relTime(c.lastActivityAt)}</button>
+              <div className="flex-1 min-w-0" />
               <div className="flex-shrink-0 flex items-center justify-end gap-2" style={{width:78}}>
                 {enriched.has(c.id) ? (
                   <span className="text-[11px] text-emerald-600">enriched</span>

@@ -60,7 +60,13 @@ export function AppSidebar() {
   const { userData, session } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
-  const [collapsed, setCollapsed] = useState(false);
+  // Persist the collapsed state so a page reload keeps the sidebar as the user left it.
+  const [collapsed, setCollapsed] = useState(() => {
+    try { return localStorage.getItem("nous.sidebar.collapsed") === "1"; } catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("nous.sidebar.collapsed", collapsed ? "1" : "0"); } catch { /* ignore */ }
+  }, [collapsed]);
   const [setupOpen, setSetupOpen] = useState(true);
   const [enterpriseOpen, setEnterpriseOpen] = useState(true);
   const [plan, setPlan] = useState<string | null>(null);
