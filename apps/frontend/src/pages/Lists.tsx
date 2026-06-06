@@ -91,17 +91,22 @@ interface Lead {
   fields: Record<string, unknown>;
 }
 
-// Known interaction sources map to a human channel.
+// Known interaction sources map to the platform/tool the lead went out on, so the
+// Channel column shows where they were contacted or exported (Instantly, HeyReach…).
 const CHANNEL_LABELS: Record<string, string> = {
-  heyreach: "LinkedIn", linkedin: "LinkedIn", apify_linkedin: "LinkedIn", unipile: "LinkedIn",
-  instantly: "Email", smartlead: "Email", lemlist: "Email", emailbison: "Email", gmail: "Email", smtp: "Email", imap: "Email",
-  slack: "Slack", calendly: "Meeting", cal_com: "Meeting", calendar: "Meeting",
+  instantly: "Instantly", heyreach: "HeyReach", lemlist: "Lemlist", smartlead: "Smartlead", emailbison: "EmailBison",
+  gmail: "Gmail", smtp: "Email", imap: "Email",
+  linkedin: "LinkedIn", apify_linkedin: "LinkedIn", unipile: "LinkedIn",
+  slack: "Slack", calendly: "Calendly", cal_com: "Cal.com", calendar: "Meeting",
+  // Enrichment is not a channel — never surface it (also excluded server-side).
+  prospeo: "", apollo: "",
 };
-// Map an interaction source to a human channel. Anything not in the known set is
-// a custom channel the user named on a CSV export — shown verbatim so it tracks.
+// Map an interaction source to its platform label. Anything not in the known set
+// is a custom channel the user named on a CSV export — shown verbatim so it tracks.
 function channelLabel(source: string | null): string {
   if (!source) return "";
-  return CHANNEL_LABELS[source.toLowerCase()] ?? source;
+  const known = CHANNEL_LABELS[source.toLowerCase()];
+  return known !== undefined ? known : source;
 }
 
 const slugify = (s: string) =>
@@ -634,7 +639,7 @@ export default function Lists() {
     return (
       <div className="h-full overflow-y-auto bg-background">
         <div className="px-8 py-7">
-          <PageHeader title="Lists" subtitle="Upload and store lead lists as workspace context." />
+          <PageHeader title="Lists" />
           <div className="rounded-xl border border-border bg-muted/40 px-6 py-10 text-center">
             <p className="text-[14px] font-semibold text-foreground">Lists is a Scale-plan feature</p>
             <p className="text-[13px] text-muted-foreground mt-1.5 max-w-md mx-auto">
@@ -661,7 +666,6 @@ export default function Lists() {
       <div className="px-8 pt-7 flex-shrink-0">
         <PageHeader
           title="Lists"
-          subtitle="Upload lead lists and store them as context for the workspace."
           actions={
             <>
               <button
@@ -718,18 +722,18 @@ export default function Lists() {
           }
         />
 
-        {/* Tabs — one per list */}
-        <div className="flex items-center gap-1 border-b border-border mb-4 overflow-x-auto">
+        {/* Tabs — one per list, rounded-top folder tabs on a gray bar */}
+        <div className="flex items-end gap-1 mb-4 overflow-x-auto rounded-lg bg-muted/60 px-1.5 pt-1.5">
           {lists.map(l => (
             <button
               key={l.id}
               onClick={() => { setActiveId(l.id); resetImport(); setAddingRow(false); }}
               onContextMenu={e => { e.preventDefault(); deleteList(l); }}
               title={l.source === "linkedin_engagement" ? "Managed automatically — fills from your LinkedIn post engagers" : "Right-click to delete this list"}
-              className={`flex items-center gap-1.5 px-3 py-2 text-[13px] border-b-2 -mb-px whitespace-nowrap transition-colors ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-[13px] rounded-t-lg border border-b-0 whitespace-nowrap transition-colors ${
                 l.id === activeId
-                  ? "border-foreground text-foreground font-medium"
-                  : "border-transparent text-muted-foreground hover:text-foreground"
+                  ? "bg-background border-border text-foreground font-medium shadow-[0_-1px_2px_rgba(0,0,0,0.03)]"
+                  : "bg-transparent border-transparent text-muted-foreground hover:text-foreground hover:bg-background/50"
               }`}
             >
               {l.source === "linkedin_engagement" && <Lock className="h-3 w-3 opacity-50" />}
@@ -738,7 +742,7 @@ export default function Lists() {
             </button>
           ))}
           {creating ? (
-            <span className="flex items-center gap-1.5 px-2 py-1">
+            <span className="flex items-center gap-1.5 px-1.5 pb-1.5">
               <input
                 value={newName} onChange={e => setNewName(e.target.value)} autoFocus placeholder="List name"
                 onKeyDown={e => { if (e.key === "Enter") createList(); if (e.key === "Escape") { setCreating(false); setNewName(""); } }}
@@ -750,9 +754,9 @@ export default function Lists() {
                 className="text-[12px] text-muted-foreground hover:text-foreground">Cancel</button>
             </span>
           ) : (
-            <button onClick={() => setCreating(true)}
-              className="flex items-center gap-1 px-3 py-2 text-[13px] text-muted-foreground hover:text-foreground transition-colors whitespace-nowrap">
-              <Plus className="h-3.5 w-3.5" /> New list
+            <button onClick={() => setCreating(true)} title="New list"
+              className="flex items-center justify-center h-7 w-7 mb-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-background/70 transition-colors flex-shrink-0">
+              <Plus className="h-4 w-4" />
             </button>
           )}
         </div>

@@ -1299,7 +1299,11 @@ CREATE VIEW leads AS
    -- most recent interaction (source of the latest interaction.* event).
    (SELECT value #>> '{}'::text[] FROM claims WHERE entity_id = e.id AND property = 'domain' AND invalid_at IS NULL LIMIT 1) AS domain,
    (SELECT value #>> '{}'::text[] FROM claims WHERE entity_id = e.id AND property = 'reachability_status' AND invalid_at IS NULL LIMIT 1) AS email_status,
-   (SELECT source FROM observations WHERE entity_id = e.id AND kind = 'event' AND property LIKE 'interaction.%' ORDER BY observed_at DESC LIMIT 1) AS last_channel
+   (SELECT source FROM observations
+      WHERE entity_id = e.id AND kind = 'event' AND property LIKE 'interaction.%'
+        AND property <> 'interaction.enrichment_run'
+        AND source NOT IN ('prospeo', 'apollo')
+      ORDER BY observed_at DESC LIMIT 1) AS last_channel
  FROM entities e
    JOIN collection_entities ce ON ce.entity_id = e.id
    JOIN collections c ON c.id = ce.collection_id AND c.kind = 'list'
