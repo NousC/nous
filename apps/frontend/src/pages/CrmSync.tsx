@@ -346,7 +346,6 @@ export default function CrmSync() {
         <div className="flex items-start justify-between gap-4">
           <PageHeader
             title="CRM Sync"
-            subtitle="Connect a CRM and Nous keeps it in sync — pull, push, create, and hygiene."
           />
           <button onClick={() => setShowHelp(true)} title="How CRM sync works"
             className="mt-1 inline-flex h-8 items-center gap-1.5 flex-shrink-0 rounded-lg border border-border px-2.5 text-[12px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors">

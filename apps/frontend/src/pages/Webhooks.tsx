@@ -550,7 +550,6 @@ export default function Webhooks() {
       <div className="px-8 py-7">
         <PageHeader
           title="Webhooks"
-          subtitle="Paste these URLs into your tools, or rely on the auto-registered providers. The status pill shows whether events are actually arriving — proof, not promises."
         />
 
         {/* Legend */}

@@ -296,7 +296,6 @@ export default function Integrations() {
       <div className="px-8 py-7">
         <PageHeader
           title="Integrations"
-          subtitle="Connect the tools your team already uses to push signals into Nous."
           actions={
             <button onClick={() => { setConnecting(null); setAddOpen(true); }}
               aria-label="Add an integration"

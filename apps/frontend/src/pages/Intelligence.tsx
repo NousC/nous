@@ -888,7 +888,6 @@ export default function Intelligence() {
       <div className="px-8 py-7 max-w-[1240px] mx-auto">
         <PageHeader
           title="Context"
-          subtitle="What your agents know about your business."
           actions={
             <div className="flex items-center gap-2">
               {!needsSetup && (

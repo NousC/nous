@@ -241,7 +241,6 @@ export default function Triggers() {
       <div className="px-8 py-7">
         <PageHeader
           title="Triggers"
-          subtitle="Outbound webhooks. Nous POSTs to your URL the moment a tracked interaction happens — no per-tool subscriptions, one unified stream."
         />
 
         {/* Actions row */}

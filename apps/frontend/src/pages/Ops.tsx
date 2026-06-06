@@ -139,7 +139,6 @@ export default function Ops() {
       <div className="px-8 py-7">
         <PageHeader
           title="Ops"
-          subtitle="Live operations log — every signal ingested, scan run, and agent call across your workspace, in real time."
         />
 
         {/* ── Metrics row ── */}

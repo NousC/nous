@@ -72,7 +72,6 @@ export default function ApiKeys() {
       <div className="px-8 py-7">
         <PageHeader
           title="API Keys"
-          subtitle="Create and manage API keys for your workspace endpoints."
         />
 
         {/* Actions row */}
