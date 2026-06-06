@@ -280,6 +280,16 @@ export async function insertLeads(
   };
 }
 
+// Channel filter → the interaction sources that map to each human channel.
+// Mirrors channelLabel() in the Lists UI so "Channel is LinkedIn" filters the
+// same way the column displays.
+const CHANNEL_SOURCES: Record<string, string[]> = {
+  linkedin: ['heyreach', 'linkedin', 'apify_linkedin', 'unipile'],
+  email: ['instantly', 'smartlead', 'lemlist', 'emailbison', 'gmail', 'smtp', 'imap'],
+  meeting: ['calendly', 'cal_com', 'calendar'],
+  slack: ['slack'],
+};
+
 export async function listLeads(
   supabase: SupabaseClient,
   workspaceId: string,
@@ -292,6 +302,11 @@ export async function listLeads(
     status?: string;        // pending | sent | replied | bounced
     reply?: string;         // interested | objection | wrong_fit | unsubscribe
     verified?: string;      // email_status value, e.g. 'verified'
+    // Filter-builder dimensions ("Where <column> is <value>").
+    channel?: string;       // linkedin | email | meeting | slack | none (last_channel group)
+    emailStatus?: string;   // has | none | <exact email_status value>
+    domain?: string;        // has | none
+    size?: string;          // substring match on fields->>company_size
   } = {},
 ): Promise<Lead[]> {
   if (!isUUID(leadListId)) return [];
@@ -303,7 +318,8 @@ export async function listLeads(
   // Falls through to the plain query if the migration isn't applied yet.
   // The icp-score sort RPC only knows the icp filter; if a status/reply/verified
   // filter is active, fall through to the plain query so those apply correctly.
-  if ((sort === 'icp_score_desc' || sort === 'icp_score_asc') && !opts.status && !opts.reply && !opts.verified) {
+  if ((sort === 'icp_score_desc' || sort === 'icp_score_asc') && !opts.status && !opts.reply
+      && !opts.verified && !opts.channel && !opts.emailStatus && !opts.domain && !opts.size) {
     const { data, error } = await supabase.rpc('lead_list_leads', {
       p_ws: workspaceId, p_list: leadListId, p_lim: limit, p_off: offset,
       p_icp: opts.icp ?? null, p_sort: sort,
@@ -322,6 +338,15 @@ export async function listLeads(
   if (opts.status)   query = query.eq('status', opts.status);
   if (opts.reply)    query = query.eq('reply_outcome', opts.reply);
   if (opts.verified) query = query.eq('email_status', opts.verified);
+  // ── Filter-builder dimensions ──
+  if (opts.channel === 'none') query = query.is('last_channel', null);
+  else if (opts.channel && CHANNEL_SOURCES[opts.channel]) query = query.in('last_channel', CHANNEL_SOURCES[opts.channel]);
+  if (opts.emailStatus === 'has') query = query.not('email', 'is', null);
+  else if (opts.emailStatus === 'none') query = query.is('email', null);
+  else if (opts.emailStatus) query = query.eq('email_status', opts.emailStatus);
+  if (opts.domain === 'has') query = query.not('domain', 'is', null);
+  else if (opts.domain === 'none') query = query.is('domain', null);
+  if (opts.size) query = query.ilike('fields->>company_size', `%${opts.size}%`);
   const { data, error } = await query
     .order('created_at', { ascending: false })
     .range(offset, offset + limit - 1);

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useNavigate } from "react-router-dom";
-import { Plus, Upload, RefreshCw, FileText, X, ArrowLeft, Download, Lock } from "lucide-react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { Plus, Upload, RefreshCw, FileText, X, ArrowLeft, Download, Lock, Filter } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader } from "@/components/ui/page-header";
 import { parseCSVLine } from "@/components/contacts/PeopleImportModal";
@@ -27,6 +27,29 @@ const STATUS_W = 100;
 const SEL_W = 40;
 const SKIP = "";           // mapping target: ignore this CSV column
 const NEW_COL = "__new__"; // mapping target: create a new column from this header
+
+// Filter-builder dimensions — "Where <column> is <value>". Each field key is the
+// query param sent to the leads endpoint; values map to that param's accepted set.
+const FB_FIELDS: { key: string; label: string; values: { v: string; l: string }[] }[] = [
+  { key: "size", label: "Company size", values: [
+    { v: "1 to 10", l: "1–10" }, { v: "11 to 50", l: "11–50" }, { v: "51 to 200", l: "51–200" },
+    { v: "201 to 500", l: "201–500" }, { v: "501 to 1,000", l: "501–1,000" },
+    { v: "1,001 to 5,000", l: "1,001–5,000" }, { v: "5,001", l: "5,001–10,000" }, { v: "10,001", l: "10,000+" },
+  ] },
+  { key: "emailStatus", label: "Email status", values: [
+    { v: "has", l: "Has email" }, { v: "none", l: "No email" },
+    { v: "DELIVERABLE", l: "Deliverable" }, { v: "RISKY", l: "Risky" }, { v: "UNAVAILABLE", l: "Unavailable" },
+  ] },
+  { key: "channel", label: "Channel", values: [
+    { v: "linkedin", l: "LinkedIn" }, { v: "email", l: "Email" }, { v: "meeting", l: "Meeting" },
+    { v: "slack", l: "Slack" }, { v: "none", l: "Not contacted" },
+  ] },
+  { key: "domain", label: "Domain", values: [ { v: "has", l: "Has domain" }, { v: "none", l: "No domain" } ] },
+];
+const fbLabel = (field: string, value: string) => {
+  const f = FB_FIELDS.find(x => x.key === field);
+  return `${f?.label ?? field}: ${f?.values.find(v => v.v === value)?.l ?? value}`;
+};
 
 // CSV-header aliases for auto-mapping to the fixed columns.
 const FIXED_ALIASES: Record<string, string[]> = {
@@ -111,6 +134,14 @@ export default function Lists() {
   const token = session?.access_token ?? "";
   const workspaceId = userData?.workspace?.id ?? "";
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  // List + page restored from the URL on first load (so a refresh stays put,
+  // instead of bouncing back to the first/native list).
+  const initialListRef = useRef(searchParams.get("list"));
+  const firstActiveRef = useRef(true);
+  // Per-(list+page+filters) leads cache — stale-while-revalidate so switching
+  // back to a list or page shows instantly and only re-fetches in the background.
+  const leadsCache = useRef<Map<string, { leads: Lead[]; counts: { icp: number; non_icp: number } | null }>>(new Map());
 
   const jsonHeaders = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
   const authHeaders = { Authorization: `Bearer ${token}` };
@@ -142,6 +173,11 @@ export default function Lists() {
   // Outbound filters — by lifecycle status and reply outcome.
   const [statusFilter, setStatusFilter] = useState("");
   const [replyFilter, setReplyFilter] = useState("");
+  // Filter builder — extra "Where <column> is <value>" filters (size/email/channel/domain).
+  const [fbFilters, setFbFilters] = useState<{ field: string; value: string }[]>([]);
+  const [fbOpen, setFbOpen] = useState(false);
+  const [fbField, setFbField] = useState(FB_FIELDS[0].key);
+  const [fbValue, setFbValue] = useState("");
   // Export-to-sequencer (push selected leads into a campaign).
   const [pushOpen, setPushOpen] = useState(false);
   const [campaigns, setCampaigns] = useState<{ id: string; name: string }[]>([]);
@@ -151,8 +187,11 @@ export default function Lists() {
   // Selected lead ids — the manual delete control after ICP scoring.
   const [selected, setSelected] = useState<Set<string>>(new Set());
   // Server-side pagination — the leads view is expensive per row, so we never
-  // load more than one page (50) at a time.
-  const [page, setPage] = useState(0);
+  // load more than one page (50) at a time. Initial page comes from the URL.
+  const [page, setPage] = useState(() => {
+    const p = parseInt(searchParams.get("page") || "1", 10);
+    return Number.isFinite(p) && p > 1 ? p - 1 : 0;
+  });
   // Sort + ICP counts (server-side).
   const [sort, setSort] = useState<"recent" | "icp_score_desc" | "icp_score_asc">("recent");
   const [counts, setCounts] = useState<{ icp: number; non_icp: number } | null>(null);
@@ -191,7 +230,12 @@ export default function Lists() {
       const d = res.ok ? await res.json() : {};
       const next: LeadList[] = d.lead_lists ?? [];
       setLists(next);
-      setActiveId(prev => (prev && next.some(l => l.id === prev) ? prev : next[0]?.id ?? null));
+      setActiveId(prev => {
+        if (prev && next.some(l => l.id === prev)) return prev;
+        const fromUrl = initialListRef.current;
+        if (fromUrl && next.some(l => l.id === fromUrl)) return fromUrl;
+        return next[0]?.id ?? null;
+      });
     } catch { /* silent */ }
     finally { setLoading(false); }
   }, [workspaceId, token]);
@@ -201,38 +245,71 @@ export default function Lists() {
   const PAGE_SIZE = 50;
   const loadLeads = useCallback(
     async (listId: string, pg: number, filt: "all" | "icp" | "non", srt: string) => {
-      setLeadsLoading(true);
+      const icpParam = filt === "all" ? "" : `&icp=${filt === "icp" ? "true" : "false"}`;
+      const outParam = `${statusFilter ? `&status=${statusFilter}` : ""}${replyFilter ? `&reply=${replyFilter}` : ""}`;
+      const fbParam = fbFilters.map(f => `&${f.field}=${encodeURIComponent(f.value)}`).join("");
+      const cacheKey = `${listId}|${pg}|${filt}|${srt}|${outParam}|${fbParam}`;
+      // Stale-while-revalidate: paint the cached page instantly (no spinner), then
+      // refresh in the background. Cold pages show the loading state.
+      const cached = leadsCache.current.get(cacheKey);
+      if (cached) { setLeads(cached.leads); if (cached.counts) setCounts(cached.counts); setLeadsLoading(false); }
+      else setLeadsLoading(true);
       try {
-        const icpParam = filt === "all" ? "" : `&icp=${filt === "icp" ? "true" : "false"}`;
-        const outParam = `${statusFilter ? `&status=${statusFilter}` : ""}${replyFilter ? `&reply=${replyFilter}` : ""}`;
         // Ask for the ICP counts only on the first page.
         const countsParam = pg === 0 ? "&counts=1" : "";
         const res = await fetch(
-          `${apiUrl}/api/lead-lists/${listId}/leads?workspaceId=${workspaceId}&limit=${PAGE_SIZE}&offset=${pg * PAGE_SIZE}&sort=${srt}${icpParam}${outParam}${countsParam}`,
+          `${apiUrl}/api/lead-lists/${listId}/leads?workspaceId=${workspaceId}&limit=${PAGE_SIZE}&offset=${pg * PAGE_SIZE}&sort=${srt}${icpParam}${outParam}${fbParam}${countsParam}`,
           { headers: authHeaders });
         const d = res.ok ? await res.json() : {};
-        setLeads(d.leads ?? []);
+        const nextLeads: Lead[] = d.leads ?? [];
+        const nextCounts = d.counts ?? cached?.counts ?? null;
+        setLeads(nextLeads);
         if (d.counts) setCounts(d.counts);
-      } catch { setLeads([]); }
+        leadsCache.current.set(cacheKey, { leads: nextLeads, counts: nextCounts });
+      } catch { if (!cached) setLeads([]); }
       finally { setLeadsLoading(false); }
-    }, [workspaceId, token, statusFilter, replyFilter]);
+    }, [workspaceId, token, statusFilter, replyFilter, fbFilters]);
 
   useEffect(() => {
     if (activeId) loadLeads(activeId, page, icpFilter, sort);
     else setLeads([]);
   }, [activeId, page, icpFilter, sort, statusFilter, replyFilter, loadLeads]);
 
-  // Switching lists resets filter, sort, page, selection, counts.
+  // Switching lists resets filters, sort, selection, counts. The page is kept on
+  // the very first activeId (restored from the URL); later switches reset it.
   useEffect(() => {
-    setIcpFilter("all"); setStatusFilter(""); setReplyFilter(""); setSort("recent"); setPage(0); setSelected(new Set()); setCounts(null);
+    if (!activeId) return;
+    setIcpFilter("all"); setStatusFilter(""); setReplyFilter(""); setFbFilters([]); setSort("recent"); setSelected(new Set()); setCounts(null);
+    if (firstActiveRef.current) firstActiveRef.current = false;
+    else setPage(0);
   }, [activeId]);
-  // Changing the filter or sort goes back to page 1 and clears the selection.
-  useEffect(() => { setPage(0); setSelected(new Set()); }, [icpFilter, sort, statusFilter, replyFilter]);
+  // Changing any filter or sort goes back to page 1 and clears the selection.
+  useEffect(() => { setPage(0); setSelected(new Set()); }, [icpFilter, sort, statusFilter, replyFilter, fbFilters]);
+
+  // Keep the URL in sync with the active list + page so a refresh stays put.
+  useEffect(() => {
+    if (!activeId) return;
+    setSearchParams(prev => {
+      const p = new URLSearchParams(prev);
+      p.set("list", activeId);
+      if (page > 0) p.set("page", String(page + 1)); else p.delete("page");
+      return p;
+    }, { replace: true });
+  }, [activeId, page, setSearchParams]);
 
   const activeList = lists.find(l => l.id === activeId) ?? null;
   const customCols = activeList?.columns ?? [];
   // Show the ICP filter when the list is ICP-scored (icp or icp_score column).
   const hasIcp = customCols.some(c => c.key === "icp" || c.key === "icp_score");
+
+  // Filter builder — add/replace (one active value per field) and remove.
+  const fbFieldDef = FB_FIELDS.find(f => f.key === fbField) ?? FB_FIELDS[0];
+  const addFbFilter = () => {
+    if (!fbValue) return;
+    setFbFilters(prev => [...prev.filter(f => f.field !== fbField), { field: fbField, value: fbValue }]);
+    setFbValue(""); setFbOpen(false);
+  };
+  const removeFbFilter = (field: string) => setFbFilters(prev => prev.filter(f => f.field !== field));
 
   // Row selection + delete — operates on the current page.
   const allVisibleSelected = leads.length > 0 && leads.every(l => selected.has(l.id));
@@ -255,6 +332,7 @@ export default function Lists() {
         body: JSON.stringify({ workspaceId, ids: [...selected] }),
       });
       setSelected(new Set());
+      leadsCache.current.clear();
       await loadLeads(activeId, page, icpFilter, sort);
       await loadLists();
     } catch { /* silent */ }
@@ -280,6 +358,7 @@ export default function Lists() {
         toast("Couldn't enrich — try again.");
       }
       setSelected(new Set());
+      leadsCache.current.clear();
       await loadLeads(activeId, page, icpFilter, sort);
     } catch { toast("Couldn't enrich — try again."); }
     finally { setBusy(false); }
@@ -308,6 +387,7 @@ export default function Lists() {
         const d = await res.json();
         toast.success(`Pushed ${d.pushed} to Instantly · ${camp?.name || "campaign"}${d.skipped ? ` · ${d.skipped} skipped (no email)` : ""}`);
         setPushOpen(false); setSelected(new Set());
+        leadsCache.current.clear();
         await loadLeads(activeId, page, icpFilter, sort);
       } else if (res.status === 409) {
         toast("Instantly isn't connected — add it in Integrations first.");
@@ -432,6 +512,7 @@ export default function Lists() {
         }),
       });
       setDraft({}); setAddingRow(false);
+      leadsCache.current.clear();
       loadLeads(activeId, page, icpFilter, sort);
       loadLists();
     } catch { /* silent */ }
@@ -511,6 +592,7 @@ export default function Lists() {
       setResult({ inserted, skipped });
       setImporting(false); setImportStep("upload");
       setCsvHeaders([]); setCsvRows([]); setMapping({});
+      leadsCache.current.clear();
       loadLeads(activeId, page, icpFilter, sort);
       loadLists();
     } catch { /* silent */ }
@@ -699,9 +781,64 @@ export default function Lists() {
           </div>
         )}
 
-        {/* Filters — all packed to the right (ICP chips + status + reply) */}
+        {/* Filters — all packed to the right (active chips + filter builder + ICP + status + reply) */}
         {activeList && (
-          <div className="flex items-center justify-end gap-2 mb-3">
+          <div className="flex items-center justify-end gap-2 mb-3 flex-wrap">
+            {/* Active filter-builder chips */}
+            {fbFilters.map(f => (
+              <span key={f.field} className="inline-flex items-center gap-1 h-7 pl-2.5 pr-1 rounded-md text-[12px] font-medium bg-foreground text-background">
+                {fbLabel(f.field, f.value)}
+                <button onClick={() => removeFbFilter(f.field)} className="rounded p-0.5 hover:bg-background/20" aria-label="Remove filter">
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            ))}
+            {/* Filter builder */}
+            <div className="relative">
+              <button
+                onClick={() => setFbOpen(o => !o)}
+                title="Add a filter"
+                className={`inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md text-[12px] font-medium border transition-colors ${
+                  fbOpen ? "bg-muted border-border text-foreground" : "bg-background border-border text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Filter className="h-3.5 w-3.5" /> Filter
+              </button>
+              {fbOpen && (
+                <>
+                  <div className="fixed inset-0 z-20" onClick={() => setFbOpen(false)} />
+                  <div className="absolute right-0 top-9 z-30 w-72 rounded-lg border border-border bg-background shadow-xl p-3">
+                    <div className="text-[11px] font-medium text-muted-foreground/70 mb-2">Add a filter</div>
+                    <div className="flex items-center gap-1.5 text-[12px] mb-2">
+                      <span className="text-muted-foreground">Where</span>
+                      <select
+                        value={fbField}
+                        onChange={e => { setFbField(e.target.value); setFbValue(""); }}
+                        className="h-8 flex-1 rounded-md border border-border bg-background text-[12px] text-foreground px-2 outline-none focus:border-muted-foreground"
+                      >
+                        {FB_FIELDS.map(f => <option key={f.key} value={f.key}>{f.label}</option>)}
+                      </select>
+                      <span className="text-muted-foreground">is</span>
+                    </div>
+                    <select
+                      value={fbValue}
+                      onChange={e => setFbValue(e.target.value)}
+                      className="h-8 w-full rounded-md border border-border bg-background text-[12px] text-foreground px-2 outline-none focus:border-muted-foreground"
+                    >
+                      <option value="">Select a value…</option>
+                      {fbFieldDef.values.map(v => <option key={v.v} value={v.v}>{v.l}</option>)}
+                    </select>
+                    <button
+                      onClick={addFbFilter}
+                      disabled={!fbValue}
+                      className="mt-3 w-full h-8 rounded-md bg-foreground text-background text-[12px] font-semibold hover:opacity-90 transition-opacity disabled:opacity-30"
+                    >
+                      Add filter
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
             <div className="flex items-center gap-1.5">
               {hasIcp && ([
                 ["all", "All", counts ? counts.icp + counts.non_icp : null],
