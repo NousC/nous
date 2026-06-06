@@ -294,19 +294,20 @@ leadListsRouter.post('/:id/push', async (req, res) => {
     if (ids.length === 0) return res.status(400).json({ error: 'ids array required' });
 
     const { data: rows } = await supabase
-      .from('leads').select('id, email, name, company')
+      .from('leads').select('id, email, linkedin_url, name, company')
       .eq('workspace_id', workspaceId).eq('lead_list_id', req.params.id).in('id', ids);
     const leads = (rows || []).map(l => {
       const [first, ...rest] = (l.name || '').trim().split(' ');
-      return { id: l.id, email: l.email, first_name: first || null, last_name: rest.join(' ') || null, company: l.company };
+      return { id: l.id, email: l.email, linkedin_url: l.linkedin_url, first_name: first || null, last_name: rest.join(' ') || null, company: l.company };
     });
 
     const result = await pushLeads(supabase, workspaceId, provider, campaignId, leads);
     if (!result.ok) return res.status(result.error === 'not_connected' ? 409 : 502).json(result);
 
     // Tag pushed leads — an interaction observation so the Channel column reflects
-    // where they went (instantly = Email) and the timeline shows the campaign.
-    const pushed = leads.filter(l => l.email).slice(0, result.pushed);
+    // where they went (instantly/lemlist = Email, heyreach = LinkedIn) and the
+    // timeline shows the campaign.
+    const pushed = leads.filter(l => l.email || l.linkedin_url).slice(0, result.pushed);
     if (pushed.length) {
       const nowISO = new Date().toISOString();
       const obs = pushed.map(l => ({

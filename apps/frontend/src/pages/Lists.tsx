@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Plus, Upload, RefreshCw, FileText, X, ArrowLeft, Download, Lock, Filter } from "lucide-react";
+import { Plus, Upload, RefreshCw, FileText, X, ArrowLeft, Download, Lock, Filter, ChevronDown } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader } from "@/components/ui/page-header";
 import { parseCSVLine } from "@/components/contacts/PeopleImportModal";
@@ -58,6 +58,14 @@ const FIXED_ALIASES: Record<string, string[]> = {
   company:      ["company", "company name", "organization", "organisation", "account", "employer"],
   linkedin_url: ["linkedin", "linkedin url", "linkedin profile", "linkedin_url", "li url", "li"],
 };
+
+// Outbound sequencers the list can export into. `kind` decides the required
+// identifier (email vs LinkedIn URL) and the modal copy.
+const SEQUENCER_APPS: { id: string; label: string; kind: "email" | "linkedin" }[] = [
+  { id: "instantly", label: "Instantly", kind: "email" },
+  { id: "heyreach",  label: "HeyReach",  kind: "linkedin" },
+  { id: "lemlist",   label: "Lemlist",   kind: "email" },
+];
 
 interface LeadColumn { key: string; label: string; }
 interface LeadList {
@@ -178,8 +186,10 @@ export default function Lists() {
   const [fbOpen, setFbOpen] = useState(false);
   const [fbField, setFbField] = useState(FB_FIELDS[0].key);
   const [fbValue, setFbValue] = useState("");
-  // Export-to-sequencer (push selected leads into a campaign).
+  // Export menu + export-to-sequencer (push selected leads into a campaign).
+  const [exportOpen, setExportOpen] = useState(false);
   const [pushOpen, setPushOpen] = useState(false);
+  const [pushProvider, setPushProvider] = useState("instantly");
   const [campaigns, setCampaigns] = useState<{ id: string; name: string }[]>([]);
   const [campaignsConn, setCampaignsConn] = useState<boolean | null>(null);
   const [pushCampaign, setPushCampaign] = useState("");
@@ -310,6 +320,7 @@ export default function Lists() {
     setFbValue(""); setFbOpen(false);
   };
   const removeFbFilter = (field: string) => setFbFilters(prev => prev.filter(f => f.field !== field));
+  const pushApp = SEQUENCER_APPS.find(a => a.id === pushProvider) ?? SEQUENCER_APPS[0];
 
   // Row selection + delete — operates on the current page.
   const allVisibleSelected = leads.length > 0 && leads.every(l => selected.has(l.id));
@@ -368,29 +379,31 @@ export default function Lists() {
   useEffect(() => {
     if (!pushOpen || !workspaceId) return;
     setCampaigns([]); setCampaignsConn(null); setPushCampaign("");
-    fetch(`${apiUrl}/api/lead-lists/sequencer/campaigns?workspaceId=${workspaceId}&provider=instantly`, { headers: authHeaders })
+    fetch(`${apiUrl}/api/lead-lists/sequencer/campaigns?workspaceId=${workspaceId}&provider=${pushProvider}`, { headers: authHeaders })
       .then(r => r.ok ? r.json() : { connected: false, campaigns: [] })
       .then(d => { setCampaignsConn(!!d.connected); setCampaigns(d.campaigns || []); })
       .catch(() => setCampaignsConn(false));
-  }, [pushOpen, workspaceId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [pushOpen, pushProvider, workspaceId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function pushToCampaign() {
     if (!activeId || !pushCampaign || selected.size === 0) return;
     setPushing(true);
     try {
       const camp = campaigns.find(c => c.id === pushCampaign);
+      const app = SEQUENCER_APPS.find(a => a.id === pushProvider);
       const res = await fetch(`${apiUrl}/api/lead-lists/${activeId}/push`, {
         method: "POST", headers: { ...authHeaders, "Content-Type": "application/json" },
-        body: JSON.stringify({ workspaceId, provider: "instantly", campaignId: pushCampaign, campaignName: camp?.name, ids: [...selected] }),
+        body: JSON.stringify({ workspaceId, provider: pushProvider, campaignId: pushCampaign, campaignName: camp?.name, ids: [...selected] }),
       });
       if (res.ok) {
         const d = await res.json();
-        toast.success(`Pushed ${d.pushed} to Instantly · ${camp?.name || "campaign"}${d.skipped ? ` · ${d.skipped} skipped (no email)` : ""}`);
+        const missing = app?.kind === "linkedin" ? "no LinkedIn URL" : "no email";
+        toast.success(`Pushed ${d.pushed} to ${app?.label || "campaign"} · ${camp?.name || "campaign"}${d.skipped ? ` · ${d.skipped} skipped (${missing})` : ""}`);
         setPushOpen(false); setSelected(new Set());
         leadsCache.current.clear();
         await loadLeads(activeId, page, icpFilter, sort);
       } else if (res.status === 409) {
-        toast("Instantly isn't connected — add it in Integrations first.");
+        toast(`${app?.label || "That sequencer"} isn't connected — add it in Integrations first.`);
       } else { toast("Push failed — try again."); }
     } catch { toast("Push failed — try again."); }
     finally { setPushing(false); }
@@ -642,23 +655,38 @@ export default function Lists() {
                 Clean a list →
               </button>
               {activeList && (
-                <button
-                  onClick={exportCsv}
-                  disabled={busy}
-                  title="Export this list to CSV"
-                  className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-background border border-border text-foreground/80 text-[13px] font-semibold hover:bg-muted/50 transition-colors disabled:opacity-40"
-                >
-                  <Download className="h-3.5 w-3.5" /> Export CSV
-                </button>
-              )}
-              {activeList && (
-                <button
-                  onClick={() => setPushOpen(true)}
-                  title="Push selected leads into an Instantly campaign"
-                  className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-background border border-border text-foreground/80 text-[13px] font-semibold hover:bg-muted/50 transition-colors"
-                >
-                  Export to campaign →
-                </button>
+                <div className="relative">
+                  <button
+                    onClick={() => setExportOpen(o => !o)}
+                    disabled={busy}
+                    title="Export this list"
+                    className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-background border border-border text-foreground/80 text-[13px] font-semibold hover:bg-muted/50 transition-colors disabled:opacity-40"
+                  >
+                    <Download className="h-3.5 w-3.5" /> Export
+                    <ChevronDown className="h-3.5 w-3.5 opacity-60" />
+                  </button>
+                  {exportOpen && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setExportOpen(false)} />
+                      <div className="absolute right-0 top-10 z-50 w-56 rounded-lg border border-border bg-background shadow-xl py-1.5">
+                        <button onClick={() => { setExportOpen(false); exportCsv(); }}
+                          className="flex items-center gap-2 w-full px-3 py-2 text-[13px] text-foreground hover:bg-muted/50 transition-colors">
+                          <FileText className="h-3.5 w-3.5 text-muted-foreground" /> Download CSV
+                        </button>
+                        <div className="my-1 border-t border-border/60" />
+                        <div className="px-3 pt-1 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60">Send to campaign</div>
+                        {SEQUENCER_APPS.map(app => (
+                          <button key={app.id}
+                            onClick={() => { setPushProvider(app.id); setPushOpen(true); setExportOpen(false); }}
+                            className="flex items-center justify-between w-full px-3 py-2 text-[13px] text-foreground hover:bg-muted/50 transition-colors">
+                            <span>{app.label}</span>
+                            <span className="text-[10px] text-muted-foreground/60">{app.kind === "linkedin" ? "LinkedIn" : "Email"}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
               )}
               {activeList && (
                 <button
@@ -1077,13 +1105,16 @@ export default function Lists() {
               <button onClick={() => setPushOpen(false)} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
             </div>
             <p className="text-[12px] text-muted-foreground mb-3">
-              Push the {selected.size} selected lead{selected.size === 1 ? "" : "s"} into an Instantly campaign. Leads without an email are skipped.
+              Push the {selected.size} selected lead{selected.size === 1 ? "" : "s"} into a {pushApp.label} campaign. Leads without {pushApp.kind === "linkedin" ? "a LinkedIn URL" : "an email"} are skipped.
             </p>
             <div className="text-[11px] font-medium text-muted-foreground/70 mb-1.5">Platform</div>
-            <div className="h-9 rounded-lg border border-border bg-muted/40 px-3 flex items-center text-[13px] text-foreground mb-3">Instantly</div>
+            <div className="h-9 rounded-lg border border-border bg-muted/40 px-3 flex items-center justify-between text-[13px] text-foreground mb-3">
+              <span>{pushApp.label}</span>
+              <span className="text-[11px] text-muted-foreground/60">{pushApp.kind === "linkedin" ? "LinkedIn" : "Email"}</span>
+            </div>
             <div className="text-[11px] font-medium text-muted-foreground/70 mb-1.5">Campaign</div>
             {campaignsConn === false ? (
-              <div className="text-[12px] text-amber-700 border border-amber-200 bg-amber-50 rounded-lg px-3 py-2 mb-3">Instantly isn't connected — add it in Integrations first.</div>
+              <div className="text-[12px] text-amber-700 border border-amber-200 bg-amber-50 rounded-lg px-3 py-2 mb-3">{pushApp.label} isn't connected — add it in Integrations first.</div>
             ) : campaignsConn === null ? (
               <div className="text-[12px] text-muted-foreground px-1 py-2 mb-3">Loading campaigns…</div>
             ) : (
