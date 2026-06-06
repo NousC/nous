@@ -61,10 +61,10 @@ const FIXED_ALIASES: Record<string, string[]> = {
 
 // Outbound sequencers the list can export into. `kind` decides the required
 // identifier (email vs LinkedIn URL) and the modal copy.
-const SEQUENCER_APPS: { id: string; label: string; kind: "email" | "linkedin" }[] = [
-  { id: "instantly", label: "Instantly", kind: "email" },
-  { id: "heyreach",  label: "HeyReach",  kind: "linkedin" },
-  { id: "lemlist",   label: "Lemlist",   kind: "email" },
+const SEQUENCER_APPS: { id: string; label: string; kind: "email" | "linkedin"; logo: string }[] = [
+  { id: "instantly", label: "Instantly", kind: "email",    logo: "/provider-logos/instantly.svg" },
+  { id: "heyreach",  label: "HeyReach",  kind: "linkedin", logo: "/provider-logos/heyreach.png" },
+  { id: "lemlist",   label: "Lemlist",   kind: "email",    logo: "/provider-logos/lemlist.svg" },
 ];
 
 interface LeadColumn { key: string; label: string; }
@@ -91,15 +91,17 @@ interface Lead {
   fields: Record<string, unknown>;
 }
 
-// Map an interaction observation source to a human outbound channel.
+// Known interaction sources map to a human channel.
+const CHANNEL_LABELS: Record<string, string> = {
+  heyreach: "LinkedIn", linkedin: "LinkedIn", apify_linkedin: "LinkedIn", unipile: "LinkedIn",
+  instantly: "Email", smartlead: "Email", lemlist: "Email", emailbison: "Email", gmail: "Email", smtp: "Email", imap: "Email",
+  slack: "Slack", calendly: "Meeting", cal_com: "Meeting", calendar: "Meeting",
+};
+// Map an interaction source to a human channel. Anything not in the known set is
+// a custom channel the user named on a CSV export — shown verbatim so it tracks.
 function channelLabel(source: string | null): string {
   if (!source) return "";
-  const s = source.toLowerCase();
-  if (["heyreach", "linkedin", "apify_linkedin", "unipile"].some(k => s.includes(k))) return "LinkedIn";
-  if (["instantly", "smartlead", "lemlist", "emailbison", "gmail", "smtp", "imap"].some(k => s.includes(k))) return "Email";
-  if (s.includes("slack")) return "Slack";
-  if (s.includes("calendly") || s.includes("cal_com") || s.includes("calendar")) return "Meeting";
-  return "";
+  return CHANNEL_LABELS[source.toLowerCase()] ?? source;
 }
 
 const slugify = (s: string) =>
@@ -188,6 +190,10 @@ export default function Lists() {
   const [fbValue, setFbValue] = useState("");
   // Export menu + export-to-sequencer (push selected leads into a campaign).
   const [exportOpen, setExportOpen] = useState(false);
+  // CSV export — names the channel/tool so even a plain download is tracked.
+  const [csvOpen, setCsvOpen] = useState(false);
+  const [csvName, setCsvName] = useState("");
+  const [csvBusy, setCsvBusy] = useState(false);
   const [pushOpen, setPushOpen] = useState(false);
   const [pushProvider, setPushProvider] = useState("instantly");
   const [campaigns, setCampaigns] = useState<{ id: string; name: string }[]>([]);
@@ -457,10 +463,12 @@ export default function Lists() {
     finally { setBusy(false); }
   };
 
-  // Export the whole list to CSV (all pages) so it can go into a sequencer.
-  const exportCsv = async () => {
-    if (!activeList || busy) return;
-    setBusy(true);
+  // Export the whole list to CSV (all pages), then tag every exported lead with
+  // the named channel/tool so the export is tracked like a native push.
+  const exportCsvNamed = async () => {
+    const channel = csvName.trim();
+    if (!activeList || csvBusy || !channel) return;
+    setCsvBusy(true);
     try {
       const all: Lead[] = [];
       for (let off = 0; ; off += 1000) {
@@ -471,19 +479,28 @@ export default function Lists() {
         all.push(...batch);
         if (batch.length < 1000) break;
       }
-      const keys = [...FIXED_COLS.map(c => c.key), ...customCols.map(c => c.key)];
-      const labels = [...FIXED_COLS.map(c => c.label), ...customCols.map(c => c.label)];
+      const keys = [...FIXED_COLS.map(c => c.key), "__domain", ...customCols.map(c => c.key)];
+      const labels = [...FIXED_COLS.map(c => c.label), "Domain", ...customCols.map(c => c.label)];
       const esc = (v: string) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-      const csv = [labels.map(esc).join(","),
-        ...all.map(l => keys.map(k => esc(cellValue(l, k))).join(","))].join("\n");
+      const csv = [[...labels, "Channel"].map(esc).join(","),
+        ...all.map(l => [...keys.map(k => cellValue(l, k)), channel].map(esc).join(","))].join("\n");
       const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
       const a = document.createElement("a");
       a.href = url;
       a.download = `${activeList.name.replace(/[^a-z0-9]+/gi, "_")}.csv`;
       a.click();
       URL.revokeObjectURL(url);
-    } catch { /* silent */ }
-    finally { setBusy(false); }
+      // Tag the exported leads with the channel so the Channel column tracks it.
+      await fetch(`${apiUrl}/api/lead-lists/${activeList.id}/tag-channel`, {
+        method: "POST", headers: jsonHeaders,
+        body: JSON.stringify({ workspaceId, channel }),
+      }).catch(() => {});
+      leadsCache.current.clear();
+      toast.success(`Exported ${all.length} lead${all.length === 1 ? "" : "s"} · tagged channel “${channel}”`);
+      setCsvOpen(false); setCsvName("");
+      if (activeId) await loadLeads(activeId, page, icpFilter, sort);
+    } catch { toast("Export failed — try again."); }
+    finally { setCsvBusy(false); }
   };
 
   const addColumn = async () => {
@@ -668,21 +685,22 @@ export default function Lists() {
                   {exportOpen && (
                     <>
                       <div className="fixed inset-0 z-40" onClick={() => setExportOpen(false)} />
-                      <div className="absolute right-0 top-10 z-50 w-56 rounded-lg border border-border bg-background shadow-xl py-1.5">
-                        <button onClick={() => { setExportOpen(false); exportCsv(); }}
-                          className="flex items-center gap-2 w-full px-3 py-2 text-[13px] text-foreground hover:bg-muted/50 transition-colors">
-                          <FileText className="h-3.5 w-3.5 text-muted-foreground" /> Download CSV
-                        </button>
-                        <div className="my-1 border-t border-border/60" />
+                      <div className="absolute right-0 top-10 z-50 w-60 rounded-lg border border-border bg-background shadow-xl py-1.5">
                         <div className="px-3 pt-1 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60">Send to campaign</div>
                         {SEQUENCER_APPS.map(app => (
                           <button key={app.id}
                             onClick={() => { setPushProvider(app.id); setPushOpen(true); setExportOpen(false); }}
-                            className="flex items-center justify-between w-full px-3 py-2 text-[13px] text-foreground hover:bg-muted/50 transition-colors">
-                            <span>{app.label}</span>
+                            className="flex items-center gap-2.5 w-full px-3 py-2 text-[13px] text-foreground hover:bg-muted/50 transition-colors">
+                            <img src={app.logo} alt="" className="h-4 w-4 object-contain rounded-sm" />
+                            <span className="flex-1 text-left">{app.label}</span>
                             <span className="text-[10px] text-muted-foreground/60">{app.kind === "linkedin" ? "LinkedIn" : "Email"}</span>
                           </button>
                         ))}
+                        <div className="my-1 border-t border-border/60" />
+                        <button onClick={() => { setExportOpen(false); setCsvName(""); setCsvOpen(true); }}
+                          className="flex items-center gap-2.5 w-full px-3 py-2 text-[13px] text-foreground hover:bg-muted/50 transition-colors">
+                          <FileText className="h-4 w-4 text-muted-foreground" /> Export to CSV
+                        </button>
                       </div>
                     </>
                   )}
@@ -809,19 +827,42 @@ export default function Lists() {
           </div>
         )}
 
-        {/* Filters — all packed to the right (active chips + filter builder + ICP + status + reply) */}
+        {/* Filters — ICP segmentation on the left, filter builder + status/reply on the right */}
         {activeList && (
-          <div className="flex items-center justify-end gap-2 mb-3 flex-wrap">
-            {/* Active filter-builder chips */}
-            {fbFilters.map(f => (
-              <span key={f.field} className="inline-flex items-center gap-1 h-7 pl-2.5 pr-1 rounded-md text-[12px] font-medium bg-foreground text-background">
-                {fbLabel(f.field, f.value)}
-                <button onClick={() => removeFbFilter(f.field)} className="rounded p-0.5 hover:bg-background/20" aria-label="Remove filter">
-                  <X className="h-3 w-3" />
+          <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
+            {/* LEFT — ICP segmentation chips */}
+            <div className="flex items-center gap-1.5">
+              {hasIcp && ([
+                ["all", "All", counts ? counts.icp + counts.non_icp : null],
+                ["icp", "ICP", counts?.icp ?? null],
+                ["non", "Non-ICP", counts?.non_icp ?? null],
+              ] as const).map(([key, label, n]) => (
+                <button
+                  key={key}
+                  onClick={() => setIcpFilter(key)}
+                  className={`inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md text-[12px] font-medium border transition-colors ${
+                    icpFilter === key
+                      ? "bg-foreground text-background border-foreground"
+                      : "bg-background text-muted-foreground border-border hover:text-foreground"
+                  }`}
+                >
+                  {label}
+                  {n !== null ? <span className="tabular-nums opacity-70">{n}</span> : null}
                 </button>
-              </span>
-            ))}
-            {/* Filter builder */}
+              ))}
+            </div>
+            {/* RIGHT — active filter chips + filter builder + status/reply */}
+            <div className="flex items-center gap-2 flex-wrap justify-end">
+              {/* Active filter-builder chips */}
+              {fbFilters.map(f => (
+                <span key={f.field} className="inline-flex items-center gap-1 h-7 pl-2.5 pr-1 rounded-md text-[12px] font-medium bg-foreground text-background">
+                  {fbLabel(f.field, f.value)}
+                  <button onClick={() => removeFbFilter(f.field)} className="rounded p-0.5 hover:bg-background/20" aria-label="Remove filter">
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              ))}
+              {/* Filter builder */}
             <div className="relative">
               <button
                 onClick={() => setFbOpen(o => !o)}
@@ -867,26 +908,6 @@ export default function Lists() {
                 </>
               )}
             </div>
-            <div className="flex items-center gap-1.5">
-              {hasIcp && ([
-                ["all", "All", counts ? counts.icp + counts.non_icp : null],
-                ["icp", "ICP", counts?.icp ?? null],
-                ["non", "Non-ICP", counts?.non_icp ?? null],
-              ] as const).map(([key, label, n]) => (
-                <button
-                  key={key}
-                  onClick={() => setIcpFilter(key)}
-                  className={`inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md text-[12px] font-medium border transition-colors ${
-                    icpFilter === key
-                      ? "bg-foreground text-background border-foreground"
-                      : "bg-background text-muted-foreground border-border hover:text-foreground"
-                  }`}
-                >
-                  {label}
-                  {n !== null ? <span className="tabular-nums opacity-70">{n}</span> : null}
-                </button>
-              ))}
-            </div>
             <div className="flex items-center gap-2 flex-shrink-0">
               <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
                 className="h-7 rounded-md border border-border bg-background text-[12px] text-foreground px-2 outline-none focus:border-muted-foreground">
@@ -908,6 +929,7 @@ export default function Lists() {
                 <button onClick={() => { setStatusFilter(""); setReplyFilter(""); }}
                   className="text-[12px] text-muted-foreground hover:text-foreground">Clear</button>
               )}
+            </div>
             </div>
           </div>
         )}
@@ -935,6 +957,7 @@ export default function Lists() {
           <p className="text-[13px] text-muted-foreground">No lists yet — create one to upload leads into.</p>
         </div>
       ) : activeList ? (
+        <div className="flex-1 min-h-0 pl-8 flex flex-col">
           <div className="flex-1 min-h-0 border-t border-border overflow-auto">
             <div>
               <div style={{ minWidth: rowWidth + 140 }}>
@@ -1070,6 +1093,7 @@ export default function Lists() {
               </div>
             </div>
           </div>
+        </div>
         ) : null}
 
         {/* Pagination — the leads view is heavy, so 50 per page, server-side */}
@@ -1095,6 +1119,37 @@ export default function Lists() {
             </button>
           </div>
         )}
+
+      {/* Export-to-CSV modal — names the channel so the export is tracked */}
+      {csvOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => !csvBusy && setCsvOpen(false)}>
+          <div onClick={e => e.stopPropagation()} className="w-full max-w-md rounded-xl border border-border bg-background p-5 shadow-xl">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-[15px] font-semibold text-foreground">Export to CSV</span>
+              <button onClick={() => setCsvOpen(false)} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+            </div>
+            <p className="text-[12px] text-muted-foreground mb-3">
+              Name the channel or tool you're sending these leads into. Every exported lead is tagged with it, so you can track where they went — even for tools Nous doesn't integrate with directly.
+            </p>
+            <div className="text-[11px] font-medium text-muted-foreground/70 mb-1.5">Channel name</div>
+            <input
+              value={csvName}
+              onChange={e => setCsvName(e.target.value)}
+              autoFocus
+              placeholder="e.g. LinkedIn sequencer, Email Campaign 1, Custom tool"
+              onKeyDown={e => { if (e.key === "Enter") exportCsvNamed(); if (e.key === "Escape") setCsvOpen(false); }}
+              className="w-full h-9 rounded-lg border border-border bg-background px-3 text-[13px] text-foreground mb-4 outline-none focus:border-muted-foreground"
+            />
+            <div className="flex items-center justify-end gap-2">
+              <button onClick={() => setCsvOpen(false)} className="text-[13px] text-muted-foreground hover:text-foreground px-3 py-1.5">Cancel</button>
+              <button onClick={exportCsvNamed} disabled={csvBusy || !csvName.trim()}
+                className="h-9 px-4 rounded-lg bg-foreground text-background text-[13px] font-semibold hover:opacity-90 disabled:opacity-40">
+                {csvBusy ? "Exporting…" : "Export to CSV"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Export-to-campaign modal */}
       {pushOpen && (

@@ -264,6 +264,45 @@ leadListsRouter.post('/:id/enrich', requireEnrichmentQuota, async (req, res) => 
   }
 });
 
+// POST /api/lead-lists/:id/tag-channel — tag leads with the channel/tool they were
+// exported into (e.g. a CSV download into a non-integrated sequencer) so the
+// Channel column tracks where they went. Body: { workspaceId?, channel, ids? }.
+// With no ids, tags every lead in the list (capped). Mirrors the /push tagging.
+const MAX_TAG = 5000;
+leadListsRouter.post('/:id/tag-channel', async (req, res) => {
+  try {
+    const supabase = getSupabaseClient();
+    const workspaceId = req.body.workspaceId || req.workspaceId;
+    const channel = typeof req.body.channel === 'string' ? req.body.channel.trim() : '';
+    if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
+    if (!channel) return res.status(400).json({ error: 'channel required' });
+
+    let ids = Array.isArray(req.body.ids) && req.body.ids.length ? req.body.ids.slice(0, MAX_TAG) : null;
+    if (!ids) {
+      const { data } = await supabase.from('leads').select('id')
+        .eq('workspace_id', workspaceId).eq('lead_list_id', req.params.id).limit(MAX_TAG);
+      ids = (data || []).map(r => r.id);
+    }
+    if (ids.length === 0) return res.json({ tagged: 0 });
+
+    const nowISO = new Date().toISOString();
+    const obs = ids.map(id => ({
+      workspace_id: workspaceId, entity_id: id, kind: 'event',
+      property: 'interaction.added_to_campaign',
+      value: { provider: 'csv_export', channel },
+      source: channel, method: 'csv_export', observed_at: nowISO,
+    }));
+    for (let i = 0; i < obs.length; i += 1000) {
+      await supabase.from('observations').insert(obs.slice(i, i + 1000))
+        .then(() => {}, e => console.warn('[tag-channel] insert failed', e.message));
+    }
+    return res.json({ tagged: ids.length, channel });
+  } catch (err) {
+    console.error('[POST /api/lead-lists/:id/tag-channel]', err);
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
 // GET /api/lead-lists/sequencer/campaigns?workspaceId=&provider=instantly
 // Lists the connected sequencer's campaigns for the export picker.
 leadListsRouter.get('/sequencer/campaigns', async (req, res) => {
