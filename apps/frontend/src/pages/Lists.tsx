@@ -640,8 +640,8 @@ export default function Lists() {
   ];
 
   return (
-    <div className="h-full overflow-y-auto bg-background">
-      <div className="px-8 py-7">
+    <div className="h-full flex flex-col bg-background">
+      <div className="px-8 pt-7 flex-shrink-0">
         <PageHeader
           title="Lists"
           subtitle="Upload lead lists and store them as context for the workspace."
@@ -927,14 +927,15 @@ export default function Lists() {
             <button onClick={() => setSelected(new Set())} className="text-[12px] text-muted-foreground hover:text-foreground">Clear</button>
           </div>
         )}
+      </div>
 
-        {/* Table */}
-        {lists.length === 0 && !loading ? (
-          <div className="rounded-xl border border-border px-6 py-12 text-center">
-            <p className="text-[13px] text-muted-foreground">No lists yet — create one to upload leads into.</p>
-          </div>
-        ) : activeList ? (
-          <div className="rounded-xl border border-border overflow-auto" style={{ maxHeight: "calc(100vh - 330px)" }}>
+      {/* Table — full-bleed Airtable-style grid that fills to the bottom */}
+      {lists.length === 0 && !loading ? (
+        <div className="mx-8 rounded-xl border border-border px-6 py-12 text-center">
+          <p className="text-[13px] text-muted-foreground">No lists yet — create one to upload leads into.</p>
+        </div>
+      ) : activeList ? (
+          <div className="flex-1 min-h-0 border-t border-border overflow-auto">
             <div>
               <div style={{ minWidth: rowWidth + 140 }}>
                 {/* Header — sticky to the top while scrolling */}
@@ -1073,7 +1074,7 @@ export default function Lists() {
 
         {/* Pagination — the leads view is heavy, so 50 per page, server-side */}
         {activeList && (page > 0 || leads.length === PAGE_SIZE) && (
-          <div className="flex items-center gap-3 mt-3">
+          <div className="flex items-center gap-3 px-8 py-2.5 border-t border-border flex-shrink-0">
             <button
               onClick={() => setPage(p => Math.max(0, p - 1))}
               disabled={page === 0 || leadsLoading}
@@ -1094,7 +1095,6 @@ export default function Lists() {
             </button>
           </div>
         )}
-      </div>
 
       {/* Export-to-campaign modal */}
       {pushOpen && (
