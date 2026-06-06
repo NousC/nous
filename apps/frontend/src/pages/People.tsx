@@ -476,12 +476,11 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
   }
 
   return (
-    <div className="h-full overflow-y-auto bg-background">
+    <div className="h-full flex flex-col bg-background">
       {showImport && <PeopleImportModal workspaceId={workspaceId} token={token} onClose={()=>setShowImport(false)} onDone={()=>{ setShowImport(false); load(); }}/>}
-      <div className="px-8 py-7">
+      <div className="px-8 pt-7 flex-shrink-0">
         <PageHeader
           title={embedded ? "Accounts" : "People"}
-          subtitle={embedded ? "Everyone and every company you're working with." : "Every contact in your workspace, ranked by recent activity."}
           actions={
             <>
               <button onClick={handleExport}
@@ -516,11 +515,13 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
             <span className="text-[12px] text-muted-foreground/70 ml-1 tabular-nums">{sorted.length} of {contacts.length}</span>
           </div>
         </div>
+      </div>
 
-        {/* Table */}
-        <div className="rounded-xl border border-border overflow-hidden">
-          {/* Table header */}
-          <div className="flex items-center px-4 py-2.5 bg-muted/50 border-b border-border">
+      {/* Table — full-bleed, fills to the right and bottom (left padding kept) */}
+      <div className="flex-1 min-h-0 pl-8 flex flex-col">
+        <div className="flex-1 min-h-0 border-t border-border overflow-auto">
+          {/* Table header — sticky while scrolling */}
+          <div className="flex items-center px-4 py-2.5 bg-muted/50 border-b border-border sticky top-0 z-10">
             <PlainHdr label="Name"    widthKey="name" />
             <PlainHdr label="Company" widthKey="company" />
             <PlainHdr label="Domain"  widthKey="domain" />
@@ -579,10 +580,11 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
             </div>
           ))}
           {!loading && sorted.length===0 && <div className="text-[13px] text-muted-foreground/70 text-center py-12">No results</div>}
+          </div>
         </div>
 
         {/* Pagination footer */}
-        <div className="mt-4 flex items-center justify-between">
+        <div className="flex items-center justify-between px-8 py-2.5 border-t border-border flex-shrink-0">
           <span className="text-[12px] text-muted-foreground/70 tabular-nums">page {page+1} of {totalPages} · {sorted.length} people</span>
           <div className="flex items-center gap-2">
             <button onClick={() => setPage(p=>p-1)} disabled={page===0}
@@ -591,7 +593,6 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
               className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-background border border-border text-foreground/80 text-[13px] font-semibold hover:bg-muted/50 transition-colors disabled:opacity-30">Next</button>
           </div>
         </div>
-      </div>
     </div>
   );
 }

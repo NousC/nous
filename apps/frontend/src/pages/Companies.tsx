@@ -445,11 +445,10 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
   }
 
   return (
-    <div className="h-full overflow-y-auto bg-background">
-      <div className="px-8 py-7">
+    <div className="h-full flex flex-col bg-background">
+      <div className="px-8 pt-7 flex-shrink-0">
         <PageHeader
           title={embedded ? "Accounts" : "Companies"}
-          subtitle={embedded ? "Everyone and every company you're working with." : "Every account in your workspace, ranked by deal health."}
           actions={
             <button onClick={handleExport}
               className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-background border border-border text-foreground/80 text-[13px] font-semibold hover:bg-muted/50 transition-colors">
@@ -470,11 +469,13 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
           </div>
           <span className="text-[12px] text-muted-foreground/70 flex-shrink-0 tabular-nums">{filtered.length} of {companies.length}</span>
         </div>
+      </div>
 
-        {/* Table */}
-        <div className="rounded-xl border border-border overflow-hidden">
-          {/* Table header */}
-          <div className="flex items-center px-4 py-2.5 bg-muted/50 border-b border-border">
+      {/* Table — full-bleed, fills to the right and bottom (left padding kept) */}
+      <div className="flex-1 min-h-0 pl-8 flex flex-col">
+        <div className="flex-1 min-h-0 border-t border-border overflow-auto">
+          {/* Table header — sticky while scrolling */}
+          <div className="flex items-center px-4 py-2.5 bg-muted/50 border-b border-border sticky top-0 z-10">
             <SortHdr col="name"         label="Company"  />
             <PlainHdr label="Domain"    widthKey="domain" />
             <PlainHdr label="Top Contacts" widthKey="topContacts" />
@@ -523,12 +524,13 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
             );
           })}
           {!loading && pageRows.length===0 && <div className="text-[13px] text-muted-foreground/70 text-center py-12">No results</div>}
+          </div>
         </div>
 
         {/* Pagination footer — always shown, matching the People page so the
             50-per-page cap and the next control read identically everywhere
             (including the embedded Accounts view). */}
-        <div className="mt-4 flex items-center justify-between">
+        <div className="flex items-center justify-between px-8 py-2.5 border-t border-border flex-shrink-0">
           <span className="text-[12px] text-muted-foreground/70 tabular-nums">page {page+1} of {Math.max(1,totalPages)} · {sortedList.length} companies</span>
           <div className="flex items-center gap-2">
             <button onClick={()=>setPage(p=>Math.max(0,p-1))} disabled={page===0}
@@ -537,7 +539,6 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
               className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-background border border-border text-foreground/80 text-[13px] font-semibold hover:bg-muted/50 transition-colors disabled:opacity-30">Next</button>
           </div>
         </div>
-      </div>
     </div>
   );
 }
