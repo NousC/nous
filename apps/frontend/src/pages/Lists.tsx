@@ -434,7 +434,10 @@ export default function Lists() {
     setCsvHeaders([]); setCsvRows([]); setMapping({}); setResult(null);
   };
 
-  const createList = async () => {
+  // Create a list. With { thenImport }, jump straight into the CSV import for the
+  // new list (the "+" flow lets you name, then either Add empty or Import).
+  const createList = async (opts?: { thenImport?: boolean }) => {
+    const thenImport = opts?.thenImport === true;
     if (!newName.trim() || busy) return;
     setBusy(true);
     try {
@@ -445,7 +448,10 @@ export default function Lists() {
       const d = res.ok ? await res.json() : null;
       setNewName(""); setCreating(false);
       await loadLists();
-      if (d?.lead_list?.id) setActiveId(d.lead_list.id);
+      if (d?.lead_list?.id) {
+        setActiveId(d.lead_list.id);
+        if (thenImport) { setImporting(true); setResult(null); }
+      }
     } catch { /* silent */ }
     finally { setBusy(false); }
   };
@@ -710,14 +716,6 @@ export default function Lists() {
                   )}
                 </div>
               )}
-              {activeList && (
-                <button
-                  onClick={() => { if (importing) resetImport(); else { setImporting(true); setResult(null); } }}
-                  className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-foreground text-background text-[13px] font-semibold hover:opacity-90 transition-opacity"
-                >
-                  <Upload className="h-3.5 w-3.5" /> Import CSV
-                </button>
-              )}
             </>
           }
         />
@@ -748,8 +746,12 @@ export default function Lists() {
                 onKeyDown={e => { if (e.key === "Enter") createList(); if (e.key === "Escape") { setCreating(false); setNewName(""); } }}
                 className="h-7 w-36 rounded-md border border-border bg-background px-2 text-[13px] outline-none focus:border-muted-foreground"
               />
-              <button onClick={createList} disabled={busy || !newName.trim()}
+              <button onClick={() => createList()} disabled={busy || !newName.trim()}
                 className="h-7 px-2.5 rounded-md bg-foreground text-background text-[12px] font-medium disabled:opacity-30">Add</button>
+              <button onClick={() => createList({ thenImport: true })} disabled={busy || !newName.trim()} title="Create the list and import a CSV into it"
+                className="inline-flex items-center gap-1 h-7 px-2.5 rounded-md border border-border text-foreground/80 text-[12px] font-medium hover:bg-muted/50 transition-colors disabled:opacity-30">
+                <Upload className="h-3 w-3" /> Import
+              </button>
               <button onClick={() => { setCreating(false); setNewName(""); }}
                 className="text-[12px] text-muted-foreground hover:text-foreground">Cancel</button>
             </span>
@@ -962,7 +964,7 @@ export default function Lists() {
         </div>
       ) : activeList ? (
         <div className="flex-1 min-h-0 pl-8 flex flex-col">
-          <div className="flex-1 min-h-0 border-t border-border overflow-auto">
+          <div className="flex-1 min-h-0 border-t border-l border-border overflow-auto">
             <div>
               <div style={{ minWidth: rowWidth + 140 }}>
                 {/* Header — sticky to the top while scrolling */}

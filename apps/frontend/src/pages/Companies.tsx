@@ -473,7 +473,7 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
 
       {/* Table — full-bleed, fills to the right and bottom (left padding kept) */}
       <div className="flex-1 min-h-0 pl-8 flex flex-col">
-        <div className="flex-1 min-h-0 border-t border-border overflow-auto">
+        <div className="flex-1 min-h-0 border-t border-l border-border overflow-auto">
           {/* Table header — sticky while scrolling */}
           <div className="flex items-center px-4 py-2.5 bg-muted/50 border-b border-border sticky top-0 z-10">
             <SortHdr col="name"         label="Company"  />
