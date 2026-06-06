@@ -112,6 +112,14 @@ function channelLabel(source: string | null): string {
 const slugify = (s: string) =>
   s.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || `col_${Date.now()}`;
 
+// Split an array into fixed-size batches — used to chunk bulk delete/push so a
+// single request never blows past the sequencer cap or the PostgREST URL limit.
+const chunk = <T,>(arr: T[], size: number): T[][] => {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+};
+
 function cellValue(lead: Lead, key: string): string {
   if (key === "name") return lead.name ?? "";
   if (key === "email") return lead.email ?? "";
@@ -199,6 +207,9 @@ export default function Lists() {
   const [fbValue, setFbValue] = useState("");
   // Export menu + export-to-sequencer (push selected leads into a campaign).
   const [exportOpen, setExportOpen] = useState(false);
+  // Which set the open export menu/modals act on: the whole (filtered) list, or
+  // just the ticked rows. Set when an Export button is clicked.
+  const [exportScope, setExportScope] = useState<"all" | "selected">("all");
   // CSV export — names the channel/tool so even a plain download is tracked.
   const [csvOpen, setCsvOpen] = useState(false);
   const [csvName, setCsvName] = useState("");
@@ -211,6 +222,10 @@ export default function Lists() {
   const [pushing, setPushing] = useState(false);
   // Selected lead ids — the manual delete control after ICP scoring.
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  // "Select all N matching" — the selection spans every record matching the
+  // current filters, not just the loaded page. Resolved to concrete ids/rows at
+  // action time (via fetchAllMatching), so it survives paging.
+  const [selectAllMatching, setSelectAllMatching] = useState(false);
   // Server-side pagination — the leads view is expensive per row, so we never
   // load more than one page (50) at a time. Initial page comes from the URL.
   const [page, setPage] = useState(() => {
@@ -295,6 +310,33 @@ export default function Lists() {
       finally { setLeadsLoading(false); }
     }, [workspaceId, token, statusFilter, replyFilter, fbFilters]);
 
+  // The active filter set as a query string (icp + status/reply + filter-builder),
+  // shared by the leads view and by full-list fetches so they always agree.
+  const buildFilterQS = useCallback(() => {
+    const icpParam = icpFilter === "all" ? "" : `&icp=${icpFilter === "icp" ? "true" : "false"}`;
+    const outParam = `${statusFilter ? `&status=${statusFilter}` : ""}${replyFilter ? `&reply=${replyFilter}` : ""}`;
+    const fbParam = fbFilters.map(f => `&${f.field}=${encodeURIComponent(f.value)}`).join("");
+    return `${icpParam}${outParam}${fbParam}`;
+  }, [icpFilter, statusFilter, replyFilter, fbFilters]);
+
+  // Every lead matching the current filters across all pages — paged in 1000s.
+  // Backs "select all matching" and whole-list exports; the variable cost is one
+  // fetch at action time, so paging the table never has to load everything.
+  const fetchAllMatching = useCallback(async (): Promise<Lead[]> => {
+    if (!activeId) return [];
+    const qs = buildFilterQS();
+    const all: Lead[] = [];
+    for (let off = 0; ; off += 1000) {
+      const res = await fetch(
+        `${apiUrl}/api/lead-lists/${activeId}/leads?workspaceId=${workspaceId}&limit=1000&offset=${off}${qs}`,
+        { headers: authHeaders });
+      const batch: Lead[] = (res.ok ? await res.json() : {}).leads ?? [];
+      all.push(...batch);
+      if (batch.length < 1000) break;
+    }
+    return all;
+  }, [activeId, workspaceId, token, buildFilterQS]);
+
   useEffect(() => {
     if (activeId) loadLeads(activeId, page, icpFilter, sort);
     else setLeads([]);
@@ -304,12 +346,13 @@ export default function Lists() {
   // the very first activeId (restored from the URL); later switches reset it.
   useEffect(() => {
     if (!activeId) return;
-    setIcpFilter("all"); setStatusFilter(""); setReplyFilter(""); setFbFilters([]); setSort("recent"); setSelected(new Set()); setCounts(null);
+    setIcpFilter("all"); setStatusFilter(""); setReplyFilter(""); setFbFilters([]); setSort("recent"); setSelected(new Set()); setSelectAllMatching(false); setCounts(null);
     if (firstActiveRef.current) firstActiveRef.current = false;
     else setPage(0);
   }, [activeId]);
-  // Changing any filter or sort goes back to page 1 and clears the selection.
-  useEffect(() => { setPage(0); setSelected(new Set()); }, [icpFilter, sort, statusFilter, replyFilter, fbFilters]);
+  // Changing any filter or sort goes back to page 1 and clears the selection
+  // (the matching set changed, so "all matching" no longer means the same thing).
+  useEffect(() => { setPage(0); setSelected(new Set()); setSelectAllMatching(false); }, [icpFilter, sort, statusFilter, replyFilter, fbFilters]);
 
   // Keep the URL in sync with the active list + page so a refresh stays put.
   useEffect(() => {
@@ -337,27 +380,81 @@ export default function Lists() {
   const removeFbFilter = (field: string) => setFbFilters(prev => prev.filter(f => f.field !== field));
   const pushApp = SEQUENCER_APPS.find(a => a.id === pushProvider) ?? SEQUENCER_APPS[0];
 
-  // Row selection + delete — operates on the current page.
-  const allVisibleSelected = leads.length > 0 && leads.every(l => selected.has(l.id));
-  const toggleOne = (id: string) =>
-    setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  const toggleAllVisible = () =>
+  // Total records matching the current filters, when it's known from data already
+  // in hand (no extra request). Null when status/reply/filter-builder filters are
+  // active — the exact figure is then resolved at action time. Drives the
+  // "Select all N matching" affordance and the scoped export counts.
+  const matchingTotal: number | null =
+    statusFilter || replyFilter || fbFilters.length
+      ? null
+      : icpFilter === "icp"
+        ? counts?.icp ?? null
+        : icpFilter === "non"
+          ? counts?.non_icp ?? null
+          : hasIcp && counts
+            ? counts.icp + counts.non_icp
+            : activeList?.lead_count ?? null;
+
+  // Row selection. `selectAllMatching` means "every record matching the filters",
+  // so a row reads as checked regardless of the per-page `selected` set.
+  const allVisibleSelected = selectAllMatching || (leads.length > 0 && leads.every(l => selected.has(l.id)));
+  const isRowSelected = (id: string) => selectAllMatching || selected.has(id);
+  const clearSelection = () => { setSelected(new Set()); setSelectAllMatching(false); };
+  const toggleOne = (id: string) => {
+    if (selectAllMatching) {
+      // Stepping out of "all matching" into an explicit, page-local selection.
+      const n = new Set(leads.map(l => l.id));
+      n.delete(id);
+      setSelectAllMatching(false);
+      setSelected(n);
+      return;
+    }
+    setSelected(prev => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id); else n.add(id);
+      return n;
+    });
+  };
+  const toggleAllVisible = () => {
+    if (selectAllMatching) { clearSelection(); return; }
     setSelected(prev => {
       const n = new Set(prev);
       if (leads.every(l => prev.has(l.id))) leads.forEach(l => n.delete(l.id));
       else leads.forEach(l => n.add(l.id));
       return n;
     });
+  };
+  // How many leads the open export menu/modals will act on. Null = "matching"
+  // (count resolved at action time when extra filters hide the exact figure).
+  const exportCount: number | null =
+    exportScope === "all" || selectAllMatching ? matchingTotal : selected.size;
+  // Human phrase for the export scope, shown in the CSV / campaign modals.
+  const exportNoun: string =
+    exportScope === "all"
+      ? exportCount != null ? `${exportCount.toLocaleString()} lead${exportCount === 1 ? "" : "s"}` : "every matching lead"
+      : selectAllMatching
+        ? exportCount != null ? `all ${exportCount.toLocaleString()} matching lead${exportCount === 1 ? "" : "s"}` : "all matching leads"
+        : `${selected.size} selected lead${selected.size === 1 ? "" : "s"}`;
+  // The lead ids a selection-bar action targets: the explicit ticks, or — when
+  // "all matching" is on — every record matching the current filters (resolved
+  // across all pages).
+  const resolveSelectedIds = async (): Promise<string[]> =>
+    selectAllMatching ? (await fetchAllMatching()).map(l => l.id) : [...selected];
+
   async function deleteSelected() {
-    if (!activeId || selected.size === 0) return;
+    if (!activeId || (selected.size === 0 && !selectAllMatching)) return;
     setBusy(true);
     try {
-      await fetch(`${apiUrl}/api/lead-lists/${activeId}/leads`, {
-        method: "DELETE",
-        headers: { ...authHeaders, "Content-Type": "application/json" },
-        body: JSON.stringify({ workspaceId, ids: [...selected] }),
-      });
-      setSelected(new Set());
+      const ids = await resolveSelectedIds();
+      // Chunk so a single DELETE never exceeds the PostgREST IN-list URL limit.
+      for (const batch of chunk(ids, 500)) {
+        await fetch(`${apiUrl}/api/lead-lists/${activeId}/leads`, {
+          method: "DELETE",
+          headers: { ...authHeaders, "Content-Type": "application/json" },
+          body: JSON.stringify({ workspaceId, ids: batch }),
+        });
+      }
+      clearSelection();
       leadsCache.current.clear();
       await loadLeads(activeId, page, icpFilter, sort);
       await loadLists();
@@ -367,13 +464,14 @@ export default function Lists() {
 
   // Find emails for the selected leads via the workspace's Prospeo/Apollo key.
   async function enrichSelected() {
-    if (!activeId || selected.size === 0) return;
+    if (!activeId || (selected.size === 0 && !selectAllMatching)) return;
     setBusy(true);
     try {
+      const ids = await resolveSelectedIds();
       const res = await fetch(`${apiUrl}/api/lead-lists/${activeId}/enrich`, {
         method: "POST",
         headers: { ...authHeaders, "Content-Type": "application/json" },
-        body: JSON.stringify({ workspaceId, ids: [...selected] }),
+        body: JSON.stringify({ workspaceId, ids }),
       });
       if (res.ok) {
         const d = await res.json();
@@ -383,7 +481,7 @@ export default function Lists() {
       } else {
         toast("Couldn't enrich — try again.");
       }
-      setSelected(new Set());
+      clearSelection();
       leadsCache.current.clear();
       await loadLeads(activeId, page, icpFilter, sort);
     } catch { toast("Couldn't enrich — try again."); }
@@ -401,25 +499,39 @@ export default function Lists() {
   }, [pushOpen, pushProvider, workspaceId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function pushToCampaign() {
-    if (!activeId || !pushCampaign || selected.size === 0) return;
+    if (!activeId || !pushCampaign) return;
     setPushing(true);
     try {
+      // The whole filtered list, or just the ticked rows — depending on which
+      // Export button opened the menu (and whether "all matching" is on).
+      const ids = exportScope === "all"
+        ? (await fetchAllMatching()).map(l => l.id)
+        : await resolveSelectedIds();
+      if (ids.length === 0) { toast("No leads to push."); setPushing(false); return; }
       const camp = campaigns.find(c => c.id === pushCampaign);
       const app = SEQUENCER_APPS.find(a => a.id === pushProvider);
-      const res = await fetch(`${apiUrl}/api/lead-lists/${activeId}/push`, {
-        method: "POST", headers: { ...authHeaders, "Content-Type": "application/json" },
-        body: JSON.stringify({ workspaceId, provider: pushProvider, campaignId: pushCampaign, campaignName: camp?.name, ids: [...selected] }),
-      });
-      if (res.ok) {
-        const d = await res.json();
+      // Push in batches of MAX_PUSH (server cap) so a large selection all lands.
+      let pushed = 0, skipped = 0, notConnected = false, failed = false;
+      for (const batch of chunk(ids, 1000)) {
+        const res = await fetch(`${apiUrl}/api/lead-lists/${activeId}/push`, {
+          method: "POST", headers: { ...authHeaders, "Content-Type": "application/json" },
+          body: JSON.stringify({ workspaceId, provider: pushProvider, campaignId: pushCampaign, campaignName: camp?.name, ids: batch }),
+        });
+        if (res.ok) { const d = await res.json(); pushed += d.pushed ?? 0; skipped += d.skipped ?? 0; }
+        else if (res.status === 409) { notConnected = true; break; }
+        else { failed = true; break; }
+      }
+      if (notConnected) {
+        toast(`${app?.label || "That sequencer"} isn't connected — add it in Integrations first.`);
+      } else if (failed && pushed === 0) {
+        toast("Push failed — try again.");
+      } else {
         const missing = app?.kind === "linkedin" ? "no LinkedIn URL" : "no email";
-        toast.success(`Pushed ${d.pushed} to ${app?.label || "campaign"} · ${camp?.name || "campaign"}${d.skipped ? ` · ${d.skipped} skipped (${missing})` : ""}`);
-        setPushOpen(false); setSelected(new Set());
+        toast.success(`Pushed ${pushed} to ${app?.label || "campaign"} · ${camp?.name || "campaign"}${skipped ? ` · ${skipped} skipped (${missing})` : ""}`);
+        setPushOpen(false); clearSelection();
         leadsCache.current.clear();
         await loadLeads(activeId, page, icpFilter, sort);
-      } else if (res.status === 409) {
-        toast(`${app?.label || "That sequencer"} isn't connected — add it in Integrations first.`);
-      } else { toast("Push failed — try again."); }
+      }
     } catch { toast("Push failed — try again."); }
     finally { setPushing(false); }
   }
@@ -484,41 +596,42 @@ export default function Lists() {
     finally { setBusy(false); }
   };
 
-  // Export the whole list to CSV (all pages), then tag every exported lead with
-  // the named channel/tool so the export is tracked like a native push.
+  // Export to CSV — the whole filtered list, or just the ticked rows, depending
+  // on which Export button opened the menu. Then tag every exported lead with the
+  // named channel/tool so the export is tracked like a native push.
   const exportCsvNamed = async () => {
     const channel = csvName.trim();
     if (!activeList || csvBusy || !channel) return;
     setCsvBusy(true);
     try {
-      const all: Lead[] = [];
-      for (let off = 0; ; off += 1000) {
-        const res = await fetch(
-          `${apiUrl}/api/lead-lists/${activeList.id}/leads?workspaceId=${workspaceId}&limit=1000&offset=${off}`,
-          { headers: authHeaders });
-        const batch: Lead[] = (res.ok ? await res.json() : {}).leads ?? [];
-        all.push(...batch);
-        if (batch.length < 1000) break;
-      }
+      const all = await fetchAllMatching();
+      const rows = exportScope === "all" || selectAllMatching
+        ? all
+        : all.filter(l => selected.has(l.id));
+      if (rows.length === 0) { toast("No leads to export."); setCsvBusy(false); return; }
       const keys = [...FIXED_COLS.map(c => c.key), "__domain", ...customCols.map(c => c.key)];
       const labels = [...FIXED_COLS.map(c => c.label), "Domain", ...customCols.map(c => c.label)];
       const esc = (v: string) => `"${String(v ?? "").replace(/"/g, '""')}"`;
       const csv = [[...labels, "Channel"].map(esc).join(","),
-        ...all.map(l => [...keys.map(k => cellValue(l, k)), channel].map(esc).join(","))].join("\n");
+        ...rows.map(l => [...keys.map(k => cellValue(l, k)), channel].map(esc).join(","))].join("\n");
       const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
       const a = document.createElement("a");
       a.href = url;
       a.download = `${activeList.name.replace(/[^a-z0-9]+/gi, "_")}.csv`;
       a.click();
       URL.revokeObjectURL(url);
-      // Tag the exported leads with the channel so the Channel column tracks it.
-      await fetch(`${apiUrl}/api/lead-lists/${activeList.id}/tag-channel`, {
-        method: "POST", headers: jsonHeaders,
-        body: JSON.stringify({ workspaceId, channel }),
-      }).catch(() => {});
+      // Tag only the exported leads with the channel so the Channel column tracks it.
+      const ids = rows.map(l => l.id);
+      for (const batch of chunk(ids, 5000)) {
+        await fetch(`${apiUrl}/api/lead-lists/${activeList.id}/tag-channel`, {
+          method: "POST", headers: jsonHeaders,
+          body: JSON.stringify({ workspaceId, channel, ids: batch }),
+        }).catch(() => {});
+      }
       leadsCache.current.clear();
-      toast.success(`Exported ${all.length} lead${all.length === 1 ? "" : "s"} · tagged channel “${channel}”`);
+      toast.success(`Exported ${rows.length} lead${rows.length === 1 ? "" : "s"} · tagged channel “${channel}”`);
       setCsvOpen(false); setCsvName("");
+      if (exportScope === "selected") clearSelection();
       if (activeId) await loadLeads(activeId, page, icpFilter, sort);
     } catch { toast("Export failed — try again."); }
     finally { setCsvBusy(false); }
@@ -677,6 +790,32 @@ export default function Lists() {
     ...customCols.map(c => ({ value: c.key, label: c.label })),
   ];
 
+  // The Export dropdown — shared by the top-right (whole filtered list) and the
+  // selection-bar (ticked rows) buttons. `exportScope` is set by the opener and
+  // read by the push/CSV modals, so the same menu drives both.
+  const renderExportMenu = () => (
+    <>
+      <div className="fixed inset-0 z-40" onClick={() => setExportOpen(false)} />
+      <div className="absolute right-0 top-10 z-50 w-60 rounded-lg border border-border bg-background shadow-xl py-1.5">
+        <div className="px-3 pt-1 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60">Send to campaign</div>
+        {SEQUENCER_APPS.map(app => (
+          <button key={app.id}
+            onClick={() => { setPushProvider(app.id); setPushOpen(true); setExportOpen(false); }}
+            className="flex items-center gap-2.5 w-full px-3 py-2 text-[13px] text-foreground hover:bg-muted/50 transition-colors">
+            <img src={app.logo} alt="" className="h-4 w-4 object-contain rounded-sm" />
+            <span className="flex-1 text-left">{app.label}</span>
+            <span className="text-[10px] text-muted-foreground/60">{app.kind === "linkedin" ? "LinkedIn" : "Email"}</span>
+          </button>
+        ))}
+        <div className="my-1 border-t border-border/60" />
+        <button onClick={() => { setExportOpen(false); setCsvName(""); setCsvOpen(true); }}
+          className="flex items-center gap-2.5 w-full px-3 py-2 text-[13px] text-foreground hover:bg-muted/50 transition-colors">
+          <FileText className="h-4 w-4 text-muted-foreground" /> Export to CSV
+        </button>
+      </div>
+    </>
+  );
+
   return (
     <div className="h-full flex flex-col bg-background">
       <div className="px-8 pt-7 flex-shrink-0">
@@ -694,36 +833,15 @@ export default function Lists() {
               {activeList && (
                 <div className="relative">
                   <button
-                    onClick={() => setExportOpen(o => !o)}
+                    onClick={() => { const open = exportOpen && exportScope === "all"; setExportScope("all"); setExportOpen(!open); }}
                     disabled={busy}
-                    title="Export this list"
+                    title="Export the whole list (matching your filters)"
                     className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-background border border-border text-foreground/80 text-[13px] font-semibold hover:bg-muted/50 transition-colors disabled:opacity-40"
                   >
                     <Download className="h-3.5 w-3.5" /> Export
                     <ChevronDown className="h-3.5 w-3.5 opacity-60" />
                   </button>
-                  {exportOpen && (
-                    <>
-                      <div className="fixed inset-0 z-40" onClick={() => setExportOpen(false)} />
-                      <div className="absolute right-0 top-10 z-50 w-60 rounded-lg border border-border bg-background shadow-xl py-1.5">
-                        <div className="px-3 pt-1 pb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60">Send to campaign</div>
-                        {SEQUENCER_APPS.map(app => (
-                          <button key={app.id}
-                            onClick={() => { setPushProvider(app.id); setPushOpen(true); setExportOpen(false); }}
-                            className="flex items-center gap-2.5 w-full px-3 py-2 text-[13px] text-foreground hover:bg-muted/50 transition-colors">
-                            <img src={app.logo} alt="" className="h-4 w-4 object-contain rounded-sm" />
-                            <span className="flex-1 text-left">{app.label}</span>
-                            <span className="text-[10px] text-muted-foreground/60">{app.kind === "linkedin" ? "LinkedIn" : "Email"}</span>
-                          </button>
-                        ))}
-                        <div className="my-1 border-t border-border/60" />
-                        <button onClick={() => { setExportOpen(false); setCsvName(""); setCsvOpen(true); }}
-                          className="flex items-center gap-2.5 w-full px-3 py-2 text-[13px] text-foreground hover:bg-muted/50 transition-colors">
-                          <FileText className="h-4 w-4 text-muted-foreground" /> Export to CSV
-                        </button>
-                      </div>
-                    </>
-                  )}
+                  {exportOpen && exportScope === "all" && renderExportMenu()}
                 </div>
               )}
             </>
@@ -888,9 +1006,35 @@ export default function Lists() {
         )}
 
         {/* Selection actions — right-aligned, minimal */}
-        {activeList && selected.size > 0 && (
+        {activeList && (selected.size > 0 || selectAllMatching) && (
           <div className="flex items-center gap-2 mb-3">
-            <span className="text-[12px] text-muted-foreground tabular-nums mr-auto">{selected.size} selected</span>
+            <span className="text-[12px] text-muted-foreground tabular-nums">
+              {selectAllMatching
+                ? matchingTotal != null
+                  ? `All ${matchingTotal.toLocaleString()} matching selected`
+                  : "All matching records selected"
+                : `${selected.size} selected`}
+            </span>
+            {/* Expand the page selection to every record matching the filters */}
+            {!selectAllMatching && allVisibleSelected &&
+              (matchingTotal == null ? leads.length === PAGE_SIZE || page > 0 : matchingTotal > selected.size) && (
+              <button onClick={() => setSelectAllMatching(true)}
+                className="text-[12px] font-medium text-foreground underline underline-offset-2 hover:opacity-80">
+                Select all {matchingTotal != null ? matchingTotal.toLocaleString() : ""} matching
+              </button>
+            )}
+            <div className="mr-auto" />
+            <div className="relative">
+              <button
+                onClick={() => { const open = exportOpen && exportScope === "selected"; setExportScope("selected"); setExportOpen(!open); }}
+                disabled={busy}
+                title="Export the selected leads"
+                className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md text-[12px] font-medium border border-border text-foreground/80 hover:bg-muted/50 transition-colors disabled:opacity-40">
+                <Download className="h-3.5 w-3.5" /> Export
+                <ChevronDown className="h-3 w-3 opacity-60" />
+              </button>
+              {exportOpen && exportScope === "selected" && renderExportMenu()}
+            </div>
             <button onClick={enrichSelected} disabled={busy}
               className="h-7 px-2.5 rounded-md text-[12px] font-medium border border-border text-foreground/80 hover:bg-muted/50 transition-colors disabled:opacity-40">
               {busy ? "Enriching…" : "Enrich"}
@@ -899,7 +1043,7 @@ export default function Lists() {
               className="h-7 px-2.5 rounded-md text-[12px] font-medium border border-red-300 text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40 transition-colors disabled:opacity-40">
               Delete
             </button>
-            <button onClick={() => setSelected(new Set())} className="text-[12px] text-muted-foreground hover:text-foreground">Clear</button>
+            <button onClick={clearSelection} className="text-[12px] text-muted-foreground hover:text-foreground">Clear</button>
           </div>
         )}
       </div>
@@ -977,12 +1121,12 @@ export default function Lists() {
                 ) : (
                   <>
                     {leads.map(l => (
-                      <div key={l.id} className={`group flex border-b border-border/60 transition-colors ${selected.has(l.id) ? "bg-muted/60" : "hover:bg-muted/40"}`}>
-                        <div className={`px-2 py-2.5 flex items-center flex-shrink-0 sticky left-0 z-10 ${selected.has(l.id) ? "bg-muted/60" : "bg-background group-hover:bg-muted/40"}`} style={{ width: SEL_W }}>
+                      <div key={l.id} className={`group flex border-b border-border/60 transition-colors ${isRowSelected(l.id) ? "bg-muted/60" : "hover:bg-muted/40"}`}>
+                        <div className={`px-2 py-2.5 flex items-center flex-shrink-0 sticky left-0 z-10 ${isRowSelected(l.id) ? "bg-muted/60" : "bg-background group-hover:bg-muted/40"}`} style={{ width: SEL_W }}>
                           <input
                             type="checkbox"
                             aria-label="Select lead"
-                            checked={selected.has(l.id)}
+                            checked={isRowSelected(l.id)}
                             onChange={() => toggleOne(l.id)}
                             className="h-3.5 w-3.5 accent-foreground cursor-pointer"
                           />
@@ -991,7 +1135,7 @@ export default function Lists() {
                           const val = cellValue(l, c.key);
                           const isLink = c.key === "linkedin_url" && val;
                           return (
-                          <div key={c.key} className={`px-3 py-2.5 text-[13px] truncate flex-shrink-0 ${i === 0 ? `text-foreground font-medium sticky left-10 z-10 border-r border-border ${selected.has(l.id) ? "bg-muted/60" : "bg-background group-hover:bg-muted/40"}` : "text-muted-foreground"}`} style={{ width: c.w }}>
+                          <div key={c.key} className={`px-3 py-2.5 text-[13px] truncate flex-shrink-0 ${i === 0 ? `text-foreground font-medium sticky left-10 z-10 border-r border-border ${isRowSelected(l.id) ? "bg-muted/60" : "bg-background group-hover:bg-muted/40"}` : "text-muted-foreground"}`} style={{ width: c.w }}>
                             {isLink ? (
                               <a href={val} target="_blank" rel="noopener noreferrer"
                                  onClick={e => e.stopPropagation()}
@@ -1175,7 +1319,7 @@ export default function Lists() {
               <button onClick={() => setCsvOpen(false)} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
             </div>
             <p className="text-[12px] text-muted-foreground mb-3">
-              Name the channel or tool you're sending these leads into. Every exported lead is tagged with it, so you can track where they went — even for tools Nous doesn't integrate with directly.
+              Exporting <span className="font-medium text-foreground">{exportNoun}</span>. Name the channel or tool you're sending them into. Every exported lead is tagged with it, so you can track where they went — even for tools Nous doesn't integrate with directly.
             </p>
             <div className="text-[11px] font-medium text-muted-foreground/70 mb-1.5">Channel name</div>
             <input
@@ -1206,7 +1350,7 @@ export default function Lists() {
               <button onClick={() => setPushOpen(false)} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
             </div>
             <p className="text-[12px] text-muted-foreground mb-3">
-              Push the {selected.size} selected lead{selected.size === 1 ? "" : "s"} into a {pushApp.label} campaign. Leads without {pushApp.kind === "linkedin" ? "a LinkedIn URL" : "an email"} are skipped.
+              Push <span className="font-medium text-foreground">{exportNoun}</span> into a {pushApp.label} campaign. Leads without {pushApp.kind === "linkedin" ? "a LinkedIn URL" : "an email"} are skipped.
             </p>
             <div className="text-[11px] font-medium text-muted-foreground/70 mb-1.5">Platform</div>
             <div className="h-9 rounded-lg border border-border bg-muted/40 px-3 flex items-center justify-between text-[13px] text-foreground mb-3">
@@ -1227,12 +1371,12 @@ export default function Lists() {
             )}
             <div className="flex items-center justify-end gap-2">
               <button onClick={() => setPushOpen(false)} className="text-[13px] text-muted-foreground hover:text-foreground px-3 py-1.5">Cancel</button>
-              <button onClick={pushToCampaign} disabled={pushing || !pushCampaign || selected.size === 0}
+              <button onClick={pushToCampaign} disabled={pushing || !pushCampaign || (exportScope === "selected" && selected.size === 0 && !selectAllMatching)}
                 className="h-9 px-4 rounded-lg bg-foreground text-background text-[13px] font-semibold hover:opacity-90 disabled:opacity-40">
-                {pushing ? "Pushing…" : `Push ${selected.size} lead${selected.size === 1 ? "" : "s"}`}
+                {pushing ? "Pushing…" : exportCount != null ? `Push ${exportCount.toLocaleString()} lead${exportCount === 1 ? "" : "s"}` : "Push matching leads"}
               </button>
             </div>
-            {selected.size === 0 && <p className="text-[11px] text-muted-foreground/70 mt-2">Tip: tick leads in the table first, then export.</p>}
+            {exportScope === "selected" && selected.size === 0 && !selectAllMatching && <p className="text-[11px] text-muted-foreground/70 mt-2">Tip: tick leads in the table first, then export.</p>}
           </div>
         </div>
       )}
