@@ -107,6 +107,9 @@ const App = () => (
               {/* Public — live ops dashboard, no auth */}
               <Route path="/live" element={<Suspense fallback={<PageLoader />}><LivePage /></Suspense>} />
 
+              {/* Preview-only — visual test of the onboarding wizard, no auth/redirect */}
+              <Route path="/onboarding-test" element={<Suspense fallback={<PageLoader />}><OnboardingPage preview /></Suspense>} />
+
               {/* Legal */}
               <Route path="/privacy" element={<Suspense fallback={<PageLoader />}><PrivacyPolicy /></Suspense>} />
               <Route path="/terms" element={<Suspense fallback={<PageLoader />}><TermsOfService /></Suspense>} />

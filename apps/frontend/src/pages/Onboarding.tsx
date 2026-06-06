@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/components/ui/sonner";
@@ -6,12 +6,15 @@ import {
   Briefcase, Check, Code2, Copy, Eye, EyeOff, Key, RefreshCw, ArrowLeft, ArrowRight,
 } from "lucide-react";
 import { PeopleImportPanel } from "@/components/contacts/PeopleImportModal";
+import {
+  connectGmail, connectLinkedIn, hasGmailConnection, hasLinkedInConnection,
+} from "@/lib/connect";
 
-const TOTAL_STEPS = 4;
-// Scope the onboarding state by user id so a stale phase=4 from a previous
-// account doesn't get restored when somebody else signs up in the same browser.
-const STORAGE_KEY_PREFIX = "nous_onboarding_v9_";
-const LEGACY_STORAGE_KEYS = ["nous_onboarding_v7", "nous_onboarding_v8"];
+// Scope the onboarding state by user id so a stale phase from a previous account
+// doesn't get restored when somebody else signs up in the same browser. Bumped
+// to v10 with the new string-keyed phases (Connect Gmail / Connect LinkedIn).
+const STORAGE_KEY_PREFIX = "nous_onboarding_v10_";
+const LEGACY_STORAGE_KEYS = ["nous_onboarding_v7", "nous_onboarding_v8", "nous_onboarding_v9_"];
 const API_URL    = import.meta.env.VITE_API_URL ?? "";
 
 type BusinessType = "service" | "software";
@@ -290,6 +293,120 @@ function StepBusinessType({
   );
 }
 
+// ─── Connect accounts (Gmail + LinkedIn on one slide) ────────────────────────
+function ProviderCard({
+  logo, title, desc, connected, busy, error, onConnect,
+}: {
+  logo: string; title: string; desc: string;
+  connected: boolean; busy: boolean; error: string | null; onConnect: () => void;
+}) {
+  return (
+    <div className="rounded-xl border border-border p-4 flex items-center gap-4">
+      <img src={logo} alt="" className="h-10 w-10 flex-shrink-0 rounded-lg object-contain" />
+      <div className="flex-1 min-w-0 text-left">
+        <p className="text-[14px] font-semibold text-foreground">{title}</p>
+        <p className="text-[12px] text-muted-foreground">{desc}</p>
+        {error && <p className="mt-1 text-[12px] text-red-500">{error}</p>}
+      </div>
+      {connected ? (
+        <span className="flex flex-shrink-0 items-center gap-1.5 text-[13px] font-semibold text-emerald-600 dark:text-emerald-400">
+          <Check className="h-4 w-4" /> Connected
+        </span>
+      ) : (
+        <button onClick={onConnect} disabled={busy} className={BTN_SECONDARY + " flex-shrink-0"}>
+          {busy
+            ? <><RefreshCw className="h-3.5 w-3.5 animate-spin" /> Connecting…</>
+            : "Connect"}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function StepConnectAccounts({
+  workspaceId, token, onContinue, onBack,
+}: {
+  workspaceId: string | undefined; token: string; onContinue: () => void; onBack: () => void;
+}) {
+  const [gmail, setGmail] = useState({ connected: false, busy: false, error: null as string | null });
+  const [linkedin, setLinkedin] = useState({ connected: false, busy: false, error: null as string | null });
+
+  // Re-derive from the API so a mid-onboarding reload reflects reality.
+  useEffect(() => {
+    if (!workspaceId || !token) return;
+    hasGmailConnection({ workspaceId, token }).then(c => setGmail(s => ({ ...s, connected: c }))).catch(() => {});
+    hasLinkedInConnection({ workspaceId, token }).then(c => setLinkedin(s => ({ ...s, connected: c }))).catch(() => {});
+  }, [workspaceId, token]);
+
+  const connectGmailNow = async () => {
+    if (!workspaceId) return;
+    setGmail(s => ({ ...s, busy: true, error: null }));
+    try {
+      await connectGmail({
+        workspaceId, token,
+        onResult: ok => setGmail({ connected: ok, busy: false, error: ok ? null : "Not connected yet — finish the Google window." }),
+      });
+    } catch (e: any) {
+      setGmail({ connected: false, busy: false, error: e.message || "Couldn't start Gmail connection" });
+    }
+  };
+
+  const connectLinkedInNow = async () => {
+    if (!workspaceId) return;
+    setLinkedin(s => ({ ...s, busy: true, error: null }));
+    try {
+      await connectLinkedIn({
+        workspaceId, token,
+        onResult: ok => setLinkedin({ connected: ok, busy: false, error: ok ? null : "Not connected yet — finish the LinkedIn window." }),
+      });
+    } catch (e: any) {
+      setLinkedin({ connected: false, busy: false, error: e.message || "Couldn't start LinkedIn connection" });
+    }
+  };
+
+  const anyConnected = gmail.connected || linkedin.connected;
+
+  return (
+    <div className="space-y-6">
+      <StepTitle
+        title="Connect your accounts"
+        desc="The two sources most of Nous runs on."
+      />
+
+      <div className="space-y-3">
+        <ProviderCard
+          logo="/provider-logos/gmail.svg"
+          title="Gmail"
+          desc="Pre-meeting briefs, follow-ups, reply & meeting detection."
+          connected={gmail.connected} busy={gmail.busy} error={gmail.error}
+          onConnect={connectGmailNow}
+        />
+        <ProviderCard
+          logo="/provider-logos/linkedin.png"
+          title="LinkedIn"
+          desc="Weekly engagers, warm inbound, and profile enrichment."
+          connected={linkedin.connected} busy={linkedin.busy} error={linkedin.error}
+          onConnect={connectLinkedInNow}
+        />
+      </div>
+
+      <p className="text-[12px] text-muted-foreground">
+        You can always connect these later in Integrations.
+      </p>
+
+      <div className="flex items-center justify-between pt-1">
+        <button onClick={onBack} className={BTN_SECONDARY}>
+          <ArrowLeft className="h-3.5 w-3.5" /> Back
+        </button>
+        <button onClick={onContinue} className={BTN_PRIMARY}>
+          {anyConnected ? "Continue" : "Skip for now"}
+          <ArrowRight className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Step 3: Import contacts (real column-mapping importer) ──────────────────
 function StepImport({
   onAdvance, onBack, onSkip, session, workspaceId,
@@ -303,8 +420,8 @@ function StepImport({
   return (
     <div className="space-y-6">
       <StepTitle
-        title="Bring your contacts in"
-        desc="Drop a CSV and map columns to Nous fields, or skip to start with demo data."
+        title="Bring your contacts from your CRM"
+        desc="Export a CSV from HubSpot, Salesforce, Pipedrive or any CRM, then map the columns — or skip to start with demo data."
       />
 
       <div className="rounded-xl border border-border overflow-hidden">
@@ -313,6 +430,7 @@ function StepImport({
           token={session?.access_token ?? ""}
           onDone={onAdvance}
           onClose={onAdvance}
+          skipScan
         />
       </div>
 
@@ -461,14 +579,33 @@ function StepIndicator({ current, total }: { current: number; total: number }) {
 }
 
 // ─── Main ────────────────────────────────────────────────────────────────────
-type Phase = 1 | 2 | 3 | 4 | "finishing";
+type Phase = "welcome" | "connect" | "business" | "import" | "apikey" | "finishing";
 
-export default function Onboarding() {
+export default function Onboarding({ preview = false }: { preview?: boolean }) {
   const navigate = useNavigate();
   const { session, userData, refreshUserData } = useAuth();
 
-  const [phase, setPhase] = useState<Phase>(1);
+  const [phase, setPhase] = useState<Phase>("welcome");
   const [stepLoading, setStepLoading] = useState(false);
+
+  // On self-host, Google OAuth / Unipile are often not configured, so the
+  // connect steps are cloud-only. The step list (and progress count) adapt.
+  const selfHosted = (userData as { self_hosted?: boolean })?.self_hosted === true;
+  const steps = useMemo<Phase[]>(
+    () => selfHosted
+      ? ["welcome", "business", "import", "apikey"]
+      : ["welcome", "connect", "business", "import", "apikey"],
+    [selfHosted],
+  );
+  const TOTAL_STEPS = steps.length;
+  const advanceFrom = (p: Phase) => {
+    const i = steps.indexOf(p);
+    if (i >= 0 && i < steps.length - 1) setPhase(steps[i + 1]);
+  };
+  const backFrom = (p: Phase) => {
+    const i = steps.indexOf(p);
+    if (i > 0) setPhase(steps[i - 1]);
+  };
 
   const [name, setName] = useState("");
   const [companyName, setCompanyName] = useState("");
@@ -491,10 +628,10 @@ export default function Onboarding() {
   const storageKey = userId ? `${STORAGE_KEY_PREFIX}${userId}` : null;
 
   useEffect(() => {
-    if (userData?.onboarding_completed) {
+    if (!preview && userData?.onboarding_completed) {
       navigate("/", { replace: true });
     }
-  }, [userData?.onboarding_completed, navigate]);
+  }, [preview, userData?.onboarding_completed, navigate]);
 
   // Once we know the user, restore (or migrate) their state. Anything stored
   // under a legacy un-scoped key gets wiped so it can't leak to another login.
@@ -505,7 +642,7 @@ export default function Onboarding() {
       const saved = localStorage.getItem(storageKey);
       if (!saved) return;
       const p = JSON.parse(saved);
-      if (p.phase && p.phase !== "finishing") setPhase(p.phase);
+      if (p.phase && p.phase !== "finishing" && steps.includes(p.phase)) setPhase(p.phase);
       if (p.name)            setName(p.name);
       if (p.companyName)     setCompanyName(p.companyName);
       if (p.website)         setWebsite(p.website);
@@ -542,7 +679,7 @@ export default function Onboarding() {
       });
     } catch { /* non-blocking */ }
     setStepLoading(false);
-    setPhase(2);
+    advanceFrom("welcome");
   };
 
   const submitBusinessType = async () => {
@@ -560,7 +697,7 @@ export default function Onboarding() {
       });
     } catch { /* non-blocking */ }
     setStepLoading(false);
-    setPhase(3);
+    advanceFrom("business");
   };
 
   const generateApiKey = async (name: string) => {
@@ -607,9 +744,9 @@ export default function Onboarding() {
     navigate("/install", { replace: true });
   };
 
-  const currentStep = phase === "finishing" ? TOTAL_STEPS : phase;
-  // Step 3 (Import) needs the wider layout; everything else stays compact.
-  const contentMaxWidth = phase === 3 ? 640 : 480;
+  const currentStep = phase === "finishing" ? TOTAL_STEPS : steps.indexOf(phase) + 1;
+  // The Import step needs the wider layout; everything else stays compact.
+  const contentMaxWidth = phase === "import" ? 640 : 480;
 
   return (
     <div
@@ -627,7 +764,7 @@ export default function Onboarding() {
           </div>
         )}
 
-        {phase === 1 && (
+        {phase === "welcome" && (
           <StepWelcome
             name={name} setName={setName}
             companyName={companyName} setCompanyName={setCompanyName}
@@ -636,31 +773,39 @@ export default function Onboarding() {
             onNext={submitStep1} isLoading={stepLoading}
           />
         )}
-        {phase === 2 && (
+        {phase === "connect" && (
+          <StepConnectAccounts
+            workspaceId={userData?.workspace?.id}
+            token={session?.access_token ?? ""}
+            onContinue={() => advanceFrom("connect")}
+            onBack={() => backFrom("connect")}
+          />
+        )}
+        {phase === "business" && (
           <StepBusinessType
             businessType={businessType} setBusinessType={setBusinessType}
             planModel={planModel} setPlanModel={setPlanModel}
             signupStage={signupStage} setSignupStage={setSignupStage}
-            onNext={submitBusinessType} onBack={() => setPhase(1)}
+            onNext={submitBusinessType} onBack={() => backFrom("business")}
             isLoading={stepLoading}
           />
         )}
-        {phase === 3 && (
+        {phase === "import" && (
           <StepImport
             session={session}
             workspaceId={userData?.workspace?.id}
-            onAdvance={() => setPhase(4)}
-            onBack={() => setPhase(2)}
-            onSkip={() => setPhase(4)}
+            onAdvance={() => advanceFrom("import")}
+            onBack={() => backFrom("import")}
+            onSkip={() => advanceFrom("import")}
           />
         )}
-        {phase === 4 && (
+        {phase === "apikey" && (
           <StepCreateKey
             apiKey={apiKey}
             generateKey={generateApiKey}
             generating={generatingKey}
             onFinish={finish}
-            onBack={() => setPhase(3)}
+            onBack={() => backFrom("apikey")}
           />
         )}
         {phase === "finishing" && <FinishingScreen />}

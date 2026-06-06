@@ -83,9 +83,12 @@ interface PeopleImportProps {
   token: string;
   onClose: () => void;
   onDone: () => void;
+  // Onboarding: the history backfill still runs server-side (fire-and-forget),
+  // but we skip the in-app "scanning" UI so the flow stays fast and just advances.
+  skipScan?: boolean;
 }
 
-function useImportState({ workspaceId, token, onClose, onDone }: PeopleImportProps) {
+function useImportState({ workspaceId, token, onClose, onDone, skipScan }: PeopleImportProps) {
   const [step, setStep] = useState<"upload" | "mapping" | "scanning">("upload");
   const [dragOver, setDragOver] = useState(false);
   const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
@@ -164,11 +167,13 @@ function useImportState({ workspaceId, token, onClose, onDone }: PeopleImportPro
       if (!res.ok) throw new Error(data.error || "Import failed");
       setImportResult({ created: data.created || 0, updated: data.updated || 0 });
 
-      if (data.jobId) {
+      if (data.jobId && !skipScan) {
         setEnrichJobId(data.jobId);
         setEnrichProgress(null);
         setStep("scanning");
       } else {
+        // Backfill (data.jobId) still runs on the server; in skipScan mode we just
+        // don't surface its progress — advance immediately.
         toast.success(data.created > 0 ? `${data.created} contacts imported` : `${data.updated} contacts updated`);
         onDone();
       }
