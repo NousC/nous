@@ -109,6 +109,10 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
   const [page, setPage] = useState(0);
   const { widths, startResize } = useColumnWidths("nous.companies.colWidths.v2", CO_COL_DEFAULTS);
   const colW = (c: string) => widths[c] ?? CO_COL_DEFAULTS[c];
+  // Total content width (columns + 28px delete col + px-4 row padding) so the
+  // table scrolls horizontally instead of squeezing columns to a fixed width.
+  const CO_COL_KEYS = ["name","domain","topContacts","industry","location","lastActivity","employees","contacts","stage","icp","health"];
+  const ROW_MIN = CO_COL_KEYS.reduce((s,k)=>s+colW(k),0) + 28 + 32;
 
   const deleteCompany = async (cid: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -184,10 +188,10 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
   // Sortable + resizable header cell. The relative wrapper anchors the drag
   // handle to the cell's right edge; widthKey ties the width to the persisted
   // store (defaults to the sort column name).
-  const SortHdr = ({ col, label, widthKey, className, firstDir="asc" }: { col:string; label:string; widthKey?:string; className?:string; firstDir?:"asc"|"desc" }) => {
+  const SortHdr = ({ col, label, widthKey, className, firstDir="asc", sticky=false }: { col:string; label:string; widthKey?:string; className?:string; firstDir?:"asc"|"desc"; sticky?:boolean }) => {
     const wk = widthKey ?? col;
     return (
-      <div className="relative flex items-center flex-shrink-0 overflow-hidden" style={{width: colW(wk)}}>
+      <div className={`relative flex items-center flex-shrink-0 overflow-hidden ${sticky ? "sticky left-0 z-30 bg-muted/50" : ""}`} style={{width: colW(wk)}}>
         <button onClick={()=>cycleSort(col, firstDir)}
           className={`w-full min-w-0 text-[11px] font-semibold uppercase tracking-wide flex items-center gap-0.5 hover:text-foreground/80 transition-colors ${coSort.col===col?"text-foreground/80":"text-muted-foreground/70"} ${className??""}`}>
           <span className="truncate min-w-0">{label}</span>{coSort.col===col&&<span className="text-[8px] flex-shrink-0">{coSort.dir==="asc"?"▲":"▼"}</span>}
@@ -474,9 +478,10 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
       {/* Table — full-bleed, fills to the right and bottom (left padding kept) */}
       <div className="flex-1 min-h-0 pl-8 flex flex-col">
         <div className="flex-1 min-h-0 border-t border-l border-border overflow-auto">
-          {/* Table header — sticky while scrolling */}
-          <div className="flex items-center px-4 py-2.5 bg-muted/50 border-b border-border sticky top-0 z-10">
-            <SortHdr col="name"         label="Company"  />
+          <div style={{ minWidth: ROW_MIN }}>
+          {/* Table header — sticky top; Company frozen left */}
+          <div className="flex items-center px-4 py-2.5 bg-muted/50 border-b border-border sticky top-0 z-20">
+            <SortHdr col="name"         label="Company" sticky />
             <PlainHdr label="Domain"    widthKey="domain" />
             <PlainHdr label="Top Contacts" widthKey="topContacts" />
             <SortHdr col="industry"     label="Industry" />
@@ -487,9 +492,6 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
             <SortHdr col="stage"        label="Stage"     firstDir="desc" />
             <SortHdr col="icp"          label="ICP"       firstDir="desc" />
             <SortHdr col="dealHealthScore" label="Health" widthKey="health" firstDir="desc" />
-            {/* Elastic spacer — keeps the slack to the RIGHT of every resizable
-                column so each drag handle tracks the cursor (matches People). */}
-            <div className="flex-1 min-w-0" />
             <span className="flex-shrink-0" style={{width:28}} />
           </div>
           {/* Rows */}
@@ -498,7 +500,7 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
             const topContacts = co.contacts.slice(0,3).map(c=>c.name.split(" ")[0]).join(", ");
             return (
             <div key={co.id} className="flex items-center px-4 py-3 border-b border-border/60 last:border-0 hover:bg-muted/50 transition-colors group">
-              <button onClick={() => setDetail(co)} className="flex items-center flex-shrink-0 text-left" style={{width:colW("name")}}>
+              <button onClick={() => setDetail(co)} className="flex items-center flex-shrink-0 text-left sticky left-0 z-10 bg-background group-hover:bg-muted/50" style={{width:colW("name")}}>
                 <span className="text-[13px] font-medium text-foreground truncate">{co.name}</span>
               </button>
               <span className="text-[13px] text-muted-foreground flex-shrink-0 truncate pr-2" style={{width:colW("domain")}}>{co.domain??"—"}</span>
@@ -515,7 +517,6 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
               <span className="text-[13px] flex-shrink-0 tabular-nums" style={{width:colW("health"),color:co.dealHealthScore!=null?healthColor(co.dealHealthScore):""}}>
                 {co.dealHealthScore!=null?`${co.dealHealthScore}`:"—"}
               </span>
-              <div className="flex-1 min-w-0" />
               <button onClick={e=>deleteCompany(co.id,e)}
                 className="opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 flex justify-end text-muted-foreground/50 hover:text-red-500" style={{width:28}}>
                 <Trash2 className="h-3.5 w-3.5"/>
@@ -524,6 +525,7 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
             );
           })}
           {!loading && pageRows.length===0 && <div className="text-[13px] text-muted-foreground/70 text-center py-12">No results</div>}
+          </div>
           </div>
         </div>
 

@@ -17,8 +17,9 @@ const PIPELINE_STAGES = ["identified", "aware", "interested", "evaluating", "cli
 // Persisted per user in localStorage; see useColumnWidths.
 const PEOPLE_COL_DEFAULTS: Record<string, number> = {
   name: 170, company: 115, domain: 100, li: 40, stage: 88,
-  icp: 42, deal: 88, segment: 72, health: 60,
+  icp: 42, deal: 88, segment: 72, health: 60, lastActivity: 120,
 };
+const PEOPLE_COL_KEYS = ["name","company","domain","li","stage","icp","deal","segment","health","lastActivity"];
 
 type DetailTab = "activity" | "emails" | "linkedin" | "slack" | "calls" | "notes" | "company" | "memory";
 
@@ -335,6 +336,9 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
   const [sortDir, setSortDir] = useState<"asc"|"desc">("asc");
   const { widths, startResize } = useColumnWidths("nous.people.colWidths", PEOPLE_COL_DEFAULTS);
   const colW = (c: string) => widths[c] ?? PEOPLE_COL_DEFAULTS[c];
+  // Total content width (all columns + 78px enrich col + px-4 row padding) so the
+  // table scrolls horizontally instead of squeezing columns into a fixed width.
+  const ROW_MIN = PEOPLE_COL_KEYS.reduce((s,k)=>s+colW(k),0) + 78 + 32;
   const [showImport, setShowImport] = useState(false);
   const [enriching, setEnriching] = useState<Set<string>>(new Set());
   const [enriched, setEnriched] = useState<Set<string>>(new Set());
@@ -444,14 +448,17 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
     );
   };
 
-  // Elastic sortable header — the flex-1 "Last Int." column that absorbs the
-  // leftover space, so it carries no resize handle.
+  // Sortable "Last Int." header — a fixed-width, resizable column like the rest
+  // (it used to be flex-1 and absorb all slack, which squeezed other columns).
   const SortBtnFlex = ({ col, label, firstDir = "asc" }: { col:"lastActivity"; label:string; firstDir?:"asc"|"desc" }) => (
-    <button onClick={() => { cycleSort(col, firstDir); setPage(0); }}
-      className="text-[11px] font-semibold uppercase tracking-wide flex items-center gap-0.5 flex-1 min-w-0 group text-left">
-      <span className={sortCol===col ? "text-foreground/80" : "text-muted-foreground/70 group-hover:text-foreground/80 transition-colors"}>{label}</span>
-      {sortCol===col && <span className="text-[10px] text-muted-foreground ml-0.5">{sortDir==="asc"?"↑":"↓"}</span>}
-    </button>
+    <div className="relative flex items-center flex-shrink-0 overflow-hidden" style={{width: colW("lastActivity")}}>
+      <button onClick={() => { cycleSort(col, firstDir); setPage(0); }}
+        className="w-full min-w-0 text-[11px] font-semibold uppercase tracking-wide flex items-center gap-0.5 group text-left">
+        <span className={`truncate min-w-0 ${sortCol===col ? "text-foreground/80" : "text-muted-foreground/70 group-hover:text-foreground/80 transition-colors"}`}>{label}</span>
+        {sortCol===col && <span className="text-[10px] text-muted-foreground ml-0.5 flex-shrink-0">{sortDir==="asc"?"↑":"↓"}</span>}
+      </button>
+      <ColResizer onMouseDown={e=>startResize("lastActivity", e)} />
+    </div>
   );
 
   // Static (non-sortable) but still resizable header cell.
@@ -520,9 +527,13 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
       {/* Table — full-bleed, fills to the right and bottom (left padding kept) */}
       <div className="flex-1 min-h-0 pl-8 flex flex-col">
         <div className="flex-1 min-h-0 border-t border-l border-border overflow-auto">
-          {/* Table header — sticky while scrolling */}
-          <div className="flex items-center px-4 py-2.5 bg-muted/50 border-b border-border sticky top-0 z-10">
-            <PlainHdr label="Name"    widthKey="name" />
+          <div style={{ minWidth: ROW_MIN }}>
+          {/* Table header — sticky top; Name frozen left */}
+          <div className="flex items-center px-4 py-2.5 bg-muted/50 border-b border-border sticky top-0 z-20">
+            <div className="relative flex items-center flex-shrink-0 overflow-hidden sticky left-0 z-30 bg-muted/50" style={{width: colW("name")}}>
+              <span className="w-full min-w-0 truncate text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">Name</span>
+              <ColResizer onMouseDown={e=>startResize("name", e)} />
+            </div>
             <PlainHdr label="Company" widthKey="company" />
             <PlainHdr label="Domain"  widthKey="domain" />
             <PlainHdr label="LI"      widthKey="li" />
@@ -538,7 +549,7 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
           {loading && contacts.length === 0 && <div className="text-[13px] text-muted-foreground/70 text-center py-12">Loading…</div>}
           {pageRows.map(c => (
             <div key={c.id} className="flex items-center px-4 py-3 border-b border-border/60 last:border-0 hover:bg-muted/50 transition-colors group">
-              <button onClick={() => setDetail(c)} className="flex-shrink-0 text-left min-w-0 pr-3" style={{width:colW("name")}}>
+              <button onClick={() => setDetail(c)} className="flex-shrink-0 text-left min-w-0 pr-3 sticky left-0 z-10 bg-background group-hover:bg-muted/50" style={{width:colW("name")}}>
                 <div className="text-[13px] font-medium text-foreground truncate">{c.name}</div>
                 {c.title && <div className="text-[12px] text-muted-foreground/70 truncate">{c.title}</div>}
               </button>
@@ -560,7 +571,7 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
               <button onClick={() => setDetail(c)} className="text-[13px] tabular-nums pr-2 flex-shrink-0 text-left" style={{width:colW("health"),color:c.dealHealthScore!=null?healthColor(c.dealHealthScore):""}}>
                 {c.dealHealthScore!=null ? `${c.dealHealthScore}` : "—"}
               </button>
-              <button onClick={() => setDetail(c)} className="text-[13px] text-muted-foreground flex-1 text-left" style={{minWidth:0}}>{relTime(c.lastActivityAt)}</button>
+              <button onClick={() => setDetail(c)} className="text-[13px] text-muted-foreground flex-shrink-0 truncate pr-2 text-left" style={{width:colW("lastActivity")}}>{relTime(c.lastActivityAt)}</button>
               <div className="flex-shrink-0 flex items-center justify-end gap-2" style={{width:78}}>
                 {enriched.has(c.id) ? (
                   <span className="text-[11px] text-emerald-600">enriched</span>
@@ -580,6 +591,7 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
             </div>
           ))}
           {!loading && sorted.length===0 && <div className="text-[13px] text-muted-foreground/70 text-center py-12">No results</div>}
+          </div>
           </div>
         </div>
 
