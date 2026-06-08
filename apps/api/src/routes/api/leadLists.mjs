@@ -13,6 +13,8 @@ import {
   countLeadsByIcp,
   deleteLeads,
   deleteLeadList,
+  updateLead,
+  assertClaims,
 } from '@nous/core';
 import { hasFeature } from '../../lib/plans.mjs';
 import { requireEnrichmentQuota } from '../../lib/access.mjs';
@@ -212,6 +214,52 @@ leadListsRouter.delete('/:id/leads', async (req, res) => {
     return res.json({ deleted });
   } catch (err) {
     console.error('[DELETE /api/lead-lists/:id/leads]', err);
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
+// PATCH /api/lead-lists/:id/leads/:leadId — inline-edit one field on a lead.
+// Body: { workspaceId?, key, value }. key ∈ name | email | company | linkedin_url
+// | <custom field key>. The lead id IS the entity id; name/company write sticky
+// claims, email/linkedin_url swap the active identifier, custom keys merge fields.
+leadListsRouter.patch('/:id/leads/:leadId', async (req, res) => {
+  try {
+    const supabase = getSupabaseClient();
+    const workspaceId = req.body.workspaceId || req.workspaceId;
+    const { key } = req.body;
+    const leadId = req.params.leadId;
+    const value = typeof req.body.value === 'string' ? req.body.value.trim() : req.body.value;
+    if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
+    if (!key) return res.status(400).json({ error: 'key required' });
+
+    // Confirm the lead is in this workspace + list before mutating its entity.
+    const { data: lead } = await supabase
+      .from('leads').select('id, fields')
+      .eq('workspace_id', workspaceId).eq('lead_list_id', req.params.id).eq('id', leadId).maybeSingle();
+    if (!lead) return res.status(404).json({ error: 'not_found' });
+
+    if (key === 'name') {
+      const [first, ...rest] = String(value || '').split(/\s+/).filter(Boolean);
+      await assertClaims(supabase, workspaceId, leadId, { values: { first_name: first || '', last_name: rest.join(' ') || null } });
+    } else if (key === 'company') {
+      await assertClaims(supabase, workspaceId, leadId, { values: { company: value || null } });
+    } else if (key === 'email' || key === 'linkedin_url') {
+      const norm = key === 'email' ? String(value || '').toLowerCase() : String(value || '');
+      // Retire the current active identifier of this kind, then add the new one.
+      await supabase.from('entity_identifiers').update({ status: 'retired' })
+        .eq('workspace_id', workspaceId).eq('entity_id', leadId).eq('kind', key).eq('status', 'active');
+      if (norm) {
+        await supabase.from('entity_identifiers')
+          .insert({ workspace_id: workspaceId, entity_id: leadId, kind: key, value: norm, status: 'active' })
+          .then(() => {}, () => {});
+      }
+    } else {
+      const fields = { ...(lead.fields || {}), [key]: value };
+      await updateLead(supabase, workspaceId, leadId, { fields });
+    }
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error('[PATCH /api/lead-lists/:id/leads/:leadId]', err);
     return res.status(500).json({ error: 'internal_error' });
   }
 });

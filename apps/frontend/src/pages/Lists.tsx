@@ -181,6 +181,9 @@ export default function Lists() {
   const [newName, setNewName] = useState("");
   const [addingRow, setAddingRow] = useState(false);
   const [draft, setDraft] = useState<Record<string, string>>({});
+  // Inline cell editing — double-click a cell to edit it in place.
+  const [editCell, setEditCell] = useState<{ id: string; key: string } | null>(null);
+  const [editValue, setEditValue] = useState("");
   const [addingCol, setAddingCol] = useState(false);
   const [newColLabel, setNewColLabel] = useState("");
 
@@ -654,7 +657,8 @@ export default function Lists() {
   };
 
   const addRow = async () => {
-    if (!activeId || !draft.email?.trim() || busy) return;
+    // A lead needs at least an email or a LinkedIn URL to be stored.
+    if (!activeId || busy || (!draft.email?.trim() && !draft.linkedin_url?.trim())) return;
     setBusy(true);
     try {
       const fields: Record<string, string> = {};
@@ -681,6 +685,39 @@ export default function Lists() {
       loadLists();
     } catch { /* silent */ }
     finally { setBusy(false); }
+  };
+
+  // ── Inline cell editing — double-click a cell, Enter/blur saves ──────────────
+  // Editable: the fixed name/email/company/linkedin columns + any custom field.
+  // The synthetic columns (domain/channel/email status/added) are read-only.
+  const isEditableCol = (key: string) =>
+    key === "name" || key === "email" || key === "company" || key === "linkedin_url" ||
+    customCols.some(c => c.key === key);
+
+  const startEdit = (lead: Lead, key: string) => {
+    if (!isEditableCol(key)) return;
+    setEditValue(cellValue(lead, key));
+    setEditCell({ id: lead.id, key });
+  };
+
+  const saveEdit = async () => {
+    if (!editCell || !activeId) return;
+    const { id, key } = editCell;
+    const value = editValue;
+    setEditCell(null);
+    // Optimistic — patch the row in place so the change shows instantly.
+    setLeads(prev => prev.map(l => {
+      if (l.id !== id) return l;
+      if (key === "name" || key === "email" || key === "company" || key === "linkedin_url") return { ...l, [key]: value };
+      return { ...l, fields: { ...l.fields, [key]: value } };
+    }));
+    leadsCache.current.clear();
+    try {
+      await fetch(`${apiUrl}/api/lead-lists/${activeId}/leads/${id}`, {
+        method: "PATCH", headers: jsonHeaders,
+        body: JSON.stringify({ workspaceId, key, value }),
+      });
+    } catch { /* keep the optimistic value */ }
   };
 
   // ── Mapped CSV import ────────────────────────────────────────────────────────
@@ -1134,9 +1171,23 @@ export default function Lists() {
                         {allCols.map((c, i) => {
                           const val = cellValue(l, c.key);
                           const isLink = c.key === "linkedin_url" && val;
+                          const editable = isEditableCol(c.key);
+                          const isEditing = editCell?.id === l.id && editCell?.key === c.key;
                           return (
-                          <div key={c.key} className={`px-3 py-2.5 text-[13px] truncate flex-shrink-0 ${i === 0 ? `text-foreground font-medium sticky left-10 z-10 border-r border-border ${isRowSelected(l.id) ? "bg-muted/60" : "bg-background group-hover:bg-muted/40"}` : "text-muted-foreground"}`} style={{ width: c.w }}>
-                            {isLink ? (
+                          <div key={c.key}
+                            onDoubleClick={editable && !isEditing ? () => startEdit(l, c.key) : undefined}
+                            title={editable && !isEditing ? "Double-click to edit" : undefined}
+                            className={`px-3 py-2.5 text-[13px] truncate flex-shrink-0 ${editable ? "cursor-text" : ""} ${i === 0 ? `text-foreground font-medium sticky left-10 z-10 border-r border-border ${isRowSelected(l.id) ? "bg-muted/60" : "bg-background group-hover:bg-muted/40"}` : "text-muted-foreground"}`} style={{ width: c.w }}>
+                            {isEditing ? (
+                              <input
+                                autoFocus
+                                value={editValue}
+                                onChange={e => setEditValue(e.target.value)}
+                                onBlur={saveEdit}
+                                onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); saveEdit(); } if (e.key === "Escape") setEditCell(null); }}
+                                className="w-full h-6 -my-0.5 rounded border border-foreground/30 bg-background px-1 text-[13px] text-foreground outline-none focus:border-foreground/60"
+                              />
+                            ) : isLink ? (
                               <a href={val} target="_blank" rel="noopener noreferrer"
                                  onClick={e => e.stopPropagation()}
                                  className="text-blue-600 dark:text-blue-400 hover:underline">
@@ -1162,20 +1213,20 @@ export default function Lists() {
                         <div className="flex-shrink-0" style={{ width: SEL_W }} />
                         {allCols.map(c => (
                           <div key={c.key} className="px-1.5 py-1.5 flex-shrink-0" style={{ width: c.w }}>
-                            <input
-                              value={draft[c.key] ?? ""}
-                              onChange={e => setDraft(d => ({ ...d, [c.key]: e.target.value }))}
-                              placeholder={FIXED_KEYS.has(c.key) ? c.label : ""}
-                              autoFocus={c.key === "name"}
-                              onKeyDown={e => { if (e.key === "Enter") addRow(); if (e.key === "Escape") { setAddingRow(false); setDraft({}); } }}
-                              className="h-7 w-full rounded border border-border bg-background px-2 text-[13px] outline-none focus:border-muted-foreground"
-                            />
+                            {isEditableCol(c.key) ? (
+                              <input
+                                value={draft[c.key] ?? ""}
+                                onChange={e => setDraft(d => ({ ...d, [c.key]: e.target.value }))}
+                                placeholder={FIXED_KEYS.has(c.key) ? c.label : ""}
+                                autoFocus={c.key === "name"}
+                                onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addRow(); } if (e.key === "Escape") { setAddingRow(false); setDraft({}); } }}
+                                className="h-7 w-full rounded border border-border bg-background px-2 text-[13px] outline-none focus:border-muted-foreground"
+                              />
+                            ) : null}
                           </div>
                         ))}
-                        <div className="px-2 py-1.5 flex items-center gap-1.5 flex-shrink-0" style={{ width: STATUS_W }}>
-                          <button onClick={addRow} disabled={busy || !draft.email?.trim()}
-                            className="h-7 px-2 rounded-md bg-foreground text-background text-[12px] font-semibold hover:opacity-90 transition-opacity disabled:opacity-30">Add</button>
-                          <button onClick={() => { setAddingRow(false); setDraft({}); }}
+                        <div className="px-2 py-1.5 flex items-center justify-end flex-shrink-0" style={{ width: STATUS_W }}>
+                          <button onClick={() => { setAddingRow(false); setDraft({}); }} title="Cancel (Esc)"
                             className="text-muted-foreground hover:text-foreground"><X className="h-3.5 w-3.5" /></button>
                         </div>
                       </div>
