@@ -179,10 +179,13 @@ export default function Lists() {
 
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
-  const [adding, setAdding] = useState(false);
   // Inline cell editing — double-click a cell to edit it in place.
   const [editCell, setEditCell] = useState<{ id: string; key: string } | null>(null);
   const [editValue, setEditValue] = useState("");
+  // New rows are appended optimistically with a temp id; these resolve the real id
+  // once the background create returns, so adding + editing feel instant.
+  const blankSeq = useRef(0);
+  const blankCreates = useRef<Map<string, Promise<string | null>>>(new Map());
   const [addingCol, setAddingCol] = useState(false);
   const [newColLabel, setNewColLabel] = useState("");
 
@@ -655,30 +658,38 @@ export default function Lists() {
     finally { setBusy(false); }
   };
 
-  // Airtable-style "+ add row" — drops a real empty row at the bottom instantly
-  // and puts the cursor in its Name cell. No form, no reload; fill it inline.
-  const addBlankRow = async () => {
-    if (!activeId || adding) return;
-    setAdding(true);
-    try {
-      const res = await fetch(`${apiUrl}/api/lead-lists/${activeId}/leads/blank`, {
-        method: "POST", headers: jsonHeaders, body: JSON.stringify({ workspaceId }),
-      });
-      if (res.ok) {
-        const { id } = await res.json();
-        const blank: Lead = {
-          id, email: null, name: null, company: null, linkedin_url: null,
-          status: "pending", reply_outcome: null, domain: null, email_status: null,
-          last_channel: null, created_at: new Date().toISOString(), fields: {},
-        };
-        setLeads(prev => [...prev, blank]);
-        setLists(prev => prev.map(l => l.id === activeId ? { ...l, lead_count: (l.lead_count ?? 0) + 1 } : l));
-        leadsCache.current.clear();
-        setEditValue("");
-        setEditCell({ id, key: "name" });
-      }
-    } catch { /* silent */ }
-    finally { setAdding(false); }
+  // Airtable-style "+ add row" — drops a blank row at the bottom INSTANTLY (temp
+  // id, optimistic) with the cursor in its Name cell, and creates it server-side
+  // in the background. The real id is swapped in when the create returns.
+  const addBlankRow = () => {
+    if (!activeId) return;
+    const listId = activeId;
+    const tempId = `temp-${blankSeq.current++}`;
+    const blank: Lead = {
+      id: tempId, email: null, name: null, company: null, linkedin_url: null,
+      status: "pending", reply_outcome: null, domain: null, email_status: null,
+      last_channel: null, created_at: new Date().toISOString(), fields: {},
+    };
+    setLeads(prev => [...prev, blank]);
+    setLists(prev => prev.map(l => l.id === listId ? { ...l, lead_count: (l.lead_count ?? 0) + 1 } : l));
+    leadsCache.current.clear();
+    setEditValue("");
+    setEditCell({ id: tempId, key: "name" });
+
+    const p = fetch(`${apiUrl}/api/lead-lists/${listId}/leads/blank`, {
+      method: "POST", headers: jsonHeaders, body: JSON.stringify({ workspaceId }),
+    })
+      .then(r => (r.ok ? r.json() : null))
+      .then((d: { id?: string } | null) => {
+        const realId = d?.id ?? null;
+        if (realId) {
+          setLeads(prev => prev.map(l => (l.id === tempId ? { ...l, id: realId } : l)));
+          setEditCell(ec => (ec && ec.id === tempId ? { ...ec, id: realId } : ec));
+        }
+        return realId;
+      })
+      .catch(() => null);
+    blankCreates.current.set(tempId, p);
   };
 
   // ── Inline cell editing — double-click a cell, Enter/blur saves ──────────────
@@ -696,7 +707,8 @@ export default function Lists() {
 
   const saveEdit = async () => {
     if (!editCell || !activeId) return;
-    const { id, key } = editCell;
+    const { key } = editCell;
+    let id = editCell.id;
     const value = editValue;
     setEditCell(null);
     // Optimistic — patch the row in place so the change shows instantly.
@@ -706,6 +718,12 @@ export default function Lists() {
       return { ...l, fields: { ...l.fields, [key]: value } };
     }));
     leadsCache.current.clear();
+    // A brand-new row may still be creating server-side — wait for its real id.
+    if (id.startsWith("temp-")) {
+      const real = await (blankCreates.current.get(id) ?? Promise.resolve(null));
+      if (!real) return;
+      id = real;
+    }
     try {
       await fetch(`${apiUrl}/api/lead-lists/${activeId}/leads/${id}`, {
         method: "PATCH", headers: jsonHeaders,
@@ -1171,7 +1189,7 @@ export default function Lists() {
                           <div key={c.key}
                             onDoubleClick={editable && !isEditing ? () => startEdit(l, c.key) : undefined}
                             title={editable && !isEditing ? "Double-click to edit" : undefined}
-                            className={`px-3 py-2.5 text-[13px] truncate flex-shrink-0 ${editable ? "cursor-text" : ""} ${isEditing ? "ring-2 ring-inset ring-blue-500/50 bg-background" : ""} ${i === 0 ? `text-foreground font-medium sticky left-10 z-10 border-r border-border ${isRowSelected(l.id) ? "bg-muted/60" : "bg-background group-hover:bg-muted/40"}` : "text-muted-foreground"}`} style={{ width: c.w }}>
+                            className={`px-3 py-2.5 text-[13px] truncate flex-shrink-0 ${editable ? "cursor-text" : ""} ${isEditing ? "ring-1 ring-inset ring-foreground/25 bg-background" : ""} ${i === 0 ? `text-foreground font-medium sticky left-10 z-10 border-r border-border ${isRowSelected(l.id) ? "bg-muted/60" : "bg-background group-hover:bg-muted/40"}` : "text-muted-foreground"}`} style={{ width: c.w }}>
                             {isEditing ? (
                               <input
                                 autoFocus
@@ -1203,8 +1221,8 @@ export default function Lists() {
 
                     {/* Add row — instantly drops a blank row, cursor in its Name cell */}
                     {(
-                      <button onClick={addBlankRow} disabled={adding}
-                        className="sticky left-0 flex items-center gap-1.5 px-3 py-2.5 text-[13px] text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors disabled:opacity-50">
+                      <button onClick={addBlankRow}
+                        className="sticky left-0 flex items-center gap-1.5 px-3 py-2.5 text-[13px] text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors">
                         <Plus className="h-3.5 w-3.5" /> Add lead
                       </button>
                     )}
