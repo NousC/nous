@@ -105,20 +105,16 @@ export default function AdminSupportDashboard() {
 
   const loadUsers = async () => {
     if (!session?.access_token) {
-      console.log('[AdminUsers] No session token, skipping load');
       return;
     }
 
     setLoading(true);
     try {
-      console.log('[AdminUsers] Fetching users...');
       const response = await fetch('/api/admin/users', {
         headers: {
           'Authorization': `Bearer ${session.access_token}`,
         },
       });
-
-      console.log('[AdminUsers] Response status:', response.status);
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -127,7 +123,6 @@ export default function AdminSupportDashboard() {
       }
 
       const data = await response.json();
-      console.log('[AdminUsers] Loaded users:', data?.length);
       setUsers(data || []);
     } catch (error) {
       console.error('[AdminUsers] Failed to load users:', error);

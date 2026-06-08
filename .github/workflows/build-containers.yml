@@ -17,13 +17,13 @@ jobs:
         include:
           - name: api
             dockerfile: apps/api/Dockerfile
-            image: ghcr.io/opennous/nous
+            image: ghcr.io/nousc/nous
           - name: worker
             dockerfile: apps/worker/Dockerfile
-            image: ghcr.io/opennous/nous-worker
+            image: ghcr.io/nousc/nous-worker
           - name: frontend
             dockerfile: apps/frontend/Dockerfile
-            image: ghcr.io/opennous/nous-frontend
+            image: ghcr.io/nousc/nous-frontend
 
     steps:
       - uses: actions/checkout@v4

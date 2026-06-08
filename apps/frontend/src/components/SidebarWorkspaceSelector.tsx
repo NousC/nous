@@ -163,16 +163,12 @@ export function SidebarWorkspaceSelector({ collapsed = false }: SidebarWorkspace
 
   const switchWorkspace = async (workspaceId: string) => {
     if (currentWorkspace?.id === workspaceId) {
-      console.log('[WORKSPACE_SWITCH] Already on this workspace:', workspaceId);
       return;
     }
 
     if (loading) {
-      console.log('[WORKSPACE_SWITCH] Already switching, ignoring click');
       return;
     }
-
-    console.log('[WORKSPACE_SWITCH] Switching from', currentWorkspace?.id, 'to', workspaceId);
 
     try {
       setLoading(true);
@@ -188,8 +184,6 @@ export function SidebarWorkspaceSelector({ collapsed = false }: SidebarWorkspace
       });
 
       if (response.ok) {
-        console.log('[WORKSPACE_SWITCH] Switch successful, refreshing data');
-
         const selectedWorkspace = workspaces.find(w => w.id === workspaceId);
 
         await refreshUserData();
@@ -203,8 +197,6 @@ export function SidebarWorkspaceSelector({ collapsed = false }: SidebarWorkspace
           title: 'Workspace switched',
           description: `Switched to ${selectedWorkspace?.name || 'workspace'}`,
         });
-
-        console.log('[WORKSPACE_SWITCH] Switch complete');
       } else {
         const errorData = await response.json().catch(() => ({}));
         console.error('[WORKSPACE_SWITCH] Error:', response.status, errorData);
@@ -373,7 +365,6 @@ export function SidebarWorkspaceSelector({ collapsed = false }: SidebarWorkspace
       setDeleting(true);
       const apiUrl = import.meta.env.VITE_API_URL ?? '';
       const url = `${apiUrl}/api/workspaces/${workspaceToDelete}`;
-      console.log('[DELETE_WORKSPACE] Deleting workspace:', url, workspaceToDelete);
 
       const response = await fetch(url, {
         method: 'DELETE',
@@ -382,8 +373,6 @@ export function SidebarWorkspaceSelector({ collapsed = false }: SidebarWorkspace
           'Content-Type': 'application/json',
         },
       });
-
-      console.log('[DELETE_WORKSPACE] Response status:', response.status, response.statusText);
 
       if (response.ok) {
         const data = await response.json();

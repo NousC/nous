@@ -110,7 +110,7 @@ export default function TermsOfService() {
             <div style={{ fontFamily: "Inter, sans-serif", fontSize: "14px", color: t.muted, lineHeight: 1.9 }}>
               <p><span style={{ color: t.text, fontFamily: "JetBrains Mono, monospace" }}>Nous</span> — Bennet Glinder</p>
               <p>Dietrich-Schäfer-Straße 20, 28211 Bremen, Germany</p>
-              <p>Email: <a href="mailto:bennetglinder@gmail.com" style={S.link(t)}>bennetglinder@gmail.com</a></p>
+              <p>Email: <a href="mailto:bennet@opennous.cloud" style={S.link(t)}>bennet@opennous.cloud</a></p>
               <p>Web: <a href="https://opennous.cloud" style={S.link(t)}>opennous.cloud</a></p>
             </div>
           </Section>

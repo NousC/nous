@@ -5,8 +5,8 @@ import {
 } from '../src/utils/identityMatch.mjs';
 
 test('domainRoot extracts the second-level label', () => {
-  assert.equal(domainRoot('enginy.ai'), 'enginy');
-  assert.equal(domainRoot('www.Enginy.AI'), 'enginy');
+  assert.equal(domainRoot('northwind.io'), 'northwind');
+  assert.equal(domainRoot('www.Northwind.IO'), 'northwind');
   assert.equal(domainRoot('mail.acme.co.uk'), 'acme');
   assert.equal(domainRoot('acme.com'), 'acme');
   assert.equal(domainRoot(''), null);
@@ -14,29 +14,29 @@ test('domainRoot extracts the second-level label', () => {
 });
 
 test('emailDomain pulls the lowercased domain', () => {
-  assert.equal(emailDomain('Sebastian.Boeck@Enginy.AI'), 'enginy.ai');
+  assert.equal(emailDomain('Jordan.Reed@Northwind.IO'), 'northwind.io');
   assert.equal(emailDomain('no-at-sign'), null);
 });
 
 test('normalizeCompanyToken collapses to a comparable token', () => {
-  assert.equal(normalizeCompanyToken('ENGINY'), 'enginy');
-  assert.equal(normalizeCompanyToken('Black Forest Labs 🌲'), 'blackforest');
+  assert.equal(normalizeCompanyToken('NORTHWIND'), 'northwind');
+  assert.equal(normalizeCompanyToken('Globex Future Labs 🌐'), 'globexfuture');
   assert.equal(normalizeCompanyToken('Acme, Inc.'), 'acme');
   assert.equal(normalizeCompanyToken('Foo Technologies'), 'foo');
 });
 
-test('Boeck case: name + enginy.ai corroborates against company ENGINY', () => {
-  const boeck = { domain: null, company: 'ENGINY', emailDomains: ['outlook.com'] };
-  assert.equal(corroboratesIdentity(boeck, 'enginy.ai'), true);
+test('same-name, matching company-domain corroborates against company NORTHWIND', () => {
+  const a = { domain: null, company: 'NORTHWIND', emailDomains: ['outlook.com'] };
+  assert.equal(corroboratesIdentity(a, 'northwind.io'), true);
 });
 
-test('Schröder case: enginy.ai does NOT corroborate against Black Forest Labs', () => {
-  const schroeder = { domain: null, company: 'Black Forest Labs 🌲', emailDomains: [] };
-  assert.equal(corroboratesIdentity(schroeder, 'enginy.ai'), false);
+test('different company: northwind.io does NOT corroborate against Globex Future Labs', () => {
+  const b = { domain: null, company: 'Globex Future Labs 🌐', emailDomains: [] };
+  assert.equal(corroboratesIdentity(b, 'northwind.io'), false);
 });
 
 test('free/personal email domains never corroborate', () => {
-  const c = { domain: 'enginy.ai', company: 'ENGINY', emailDomains: ['enginy.ai'] };
+  const c = { domain: 'northwind.io', company: 'NORTHWIND', emailDomains: ['northwind.io'] };
   for (const d of ['gmail.com', 'outlook.com', 'hotmail.com', 'icloud.com', 'gmx.de']) {
     assert.equal(corroboratesIdentity(c, d), false, `${d} should not corroborate`);
   }
@@ -57,10 +57,10 @@ test('another known email at the same domain corroborates', () => {
 test('short company tokens do not over-match via prefix', () => {
   // company "Co" → token "" after suffix strip → no corroboration on a random domain
   const c = { domain: null, company: 'Co', emailDomains: [] };
-  assert.equal(corroboratesIdentity(c, 'enginy.ai'), false);
+  assert.equal(corroboratesIdentity(c, 'northwind.io'), false);
 });
 
 test('missing incoming domain is safe', () => {
-  assert.equal(corroboratesIdentity({ company: 'ENGINY' }, null), false);
-  assert.equal(corroboratesIdentity({ company: 'ENGINY' }, ''), false);
+  assert.equal(corroboratesIdentity({ company: 'NORTHWIND' }, null), false);
+  assert.equal(corroboratesIdentity({ company: 'NORTHWIND' }, ''), false);
 });

@@ -1126,8 +1126,7 @@ function TeamSection({
     try {
       const apiUrl = import.meta.env.VITE_API_URL ?? "";
       const url = `${apiUrl}/api/teams/${teamId}/members/${memberUserId}`;
-      console.log("Removing team member:", { url, teamId, memberUserId });
-      
+
       const response = await fetch(url, {
         method: "DELETE",
         headers: {
@@ -2027,7 +2026,6 @@ function CompanySettingsSection() {
     }
     setSaving(true);
     try {
-      console.log('[SAVE] Saving company settings...', { workspaceId, apiUrl });
       const errors: string[] = [];
 
       // Save brand theme
@@ -2049,7 +2047,6 @@ function CompanySettingsSection() {
           },
         }),
       });
-      console.log('[SAVE] Brand theme response:', brandRes.status);
       if (!brandRes.ok) {
         const err = await brandRes.json().catch(() => ({}));
         console.error('[SAVE] Brand theme error:', err);
@@ -2070,7 +2067,6 @@ function CompanySettingsSection() {
           },
         }),
       });
-      console.log('[SAVE] Target audience response:', audienceRes.status);
       if (!audienceRes.ok) {
         const err = await audienceRes.json().catch(() => ({}));
         console.error('[SAVE] Target audience error:', err);
@@ -2086,7 +2082,6 @@ function CompanySettingsSection() {
         },
         body: JSON.stringify({ design_style: designStyle, industry: industry, default_language: defaultLanguage }),
       });
-      console.log('[SAVE] Settings response:', designRes.status);
       if (!designRes.ok) {
         const err = await designRes.json().catch(() => ({}));
         console.error('[SAVE] Settings error:', err);
@@ -2102,7 +2097,6 @@ function CompanySettingsSection() {
         },
         body: JSON.stringify({ notification_settings: notificationSettings }),
       });
-      console.log('[SAVE] Notifications response:', notifRes.status);
       if (!notifRes.ok) {
         const err = await notifRes.json().catch(() => ({}));
         console.error('[SAVE] Notifications error:', err);
@@ -3194,19 +3188,6 @@ function ReportTemplatesSection() {
       });
       if (response.ok) {
         const data = await response.json();
-        console.log('[REPORT_TEMPLATES] Fetched inspirations:', data.inspirations);
-        // Count by page_type for debugging
-        const allItems = [
-          ...(data.inspirations?.photographic || []),
-          ...(data.inspirations?.visual || []),
-          ...(data.inspirations?.conceptual || []),
-          ...(data.inspirations?.textural || []),
-          ...(data.inspirations?.uncategorized || []),
-        ];
-        const coverCount = allItems.filter((i: any) => i.page_type === 'cover').length;
-        const innerCount = allItems.filter((i: any) => i.page_type === 'inner').length;
-        console.log('[REPORT_TEMPLATES] Cover inspirations:', coverCount, 'Inner inspirations:', innerCount);
-        console.log('[REPORT_TEMPLATES] Sample item:', allItems[0]);
         setInspirations(data.inspirations || {});
       } else {
         console.error('[REPORT_TEMPLATES] Failed to fetch inspirations:', response.status);
@@ -5277,26 +5258,17 @@ function IntegrationsSection({ session }: { session: any }) {
   };
 
   const handleOAuthConnect = async () => {
-    console.log('[OAuth] handleOAuthConnect called');
-    console.log('[OAuth] selectedProvider:', selectedProvider?.name);
-    console.log('[OAuth] workspaceId:', workspaceId);
-    console.log('[OAuth] session:', !!session?.access_token);
-    console.log('[OAuth] connectionName:', connectionName);
-
     if (!selectedProvider || !workspaceId || !session?.access_token) {
-      console.log('[OAuth] Missing required data');
       toast.error("Please log in to connect your account");
       return;
     }
 
     if (!connectionName.trim()) {
-      console.log('[OAuth] Connection name is empty');
       toast.error("Connection name is required");
       return;
     }
 
     setOauthLoading(true);
-    console.log('[OAuth] Starting OAuth flow...');
     try {
       // Determine OAuth endpoint based on provider
       let oauthEndpoint: string;
@@ -5326,30 +5298,22 @@ function IntegrationsSection({ session }: { session: any }) {
         successMessage = `${selectedProvider.display_name} connected successfully!`;
       }
 
-      console.log('[OAuth] Fetching:', oauthEndpoint);
       const response = await fetch(oauthEndpoint, {
         method: "GET",
         headers: { Authorization: `Bearer ${session.access_token}` },
       });
 
-      console.log('[OAuth] Response status:', response.status);
-
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        console.log('[OAuth] Error response:', errorData);
         throw new Error(errorData.message || "Failed to initiate OAuth");
       }
 
       const data = await response.json();
-      console.log('[OAuth] Response data:', data);
       const authUrl = data.authUrl || data.authorization_url;
 
       if (!authUrl) {
-        console.log('[OAuth] No authUrl in response');
         throw new Error("No authorization URL returned");
       }
-
-      console.log('[OAuth] Opening popup with URL:', authUrl);
 
       // Open OAuth popup
       const width = 600;
@@ -6548,14 +6512,14 @@ function BookCallSection() {
       {/* Quick Contact Options */}
       <div className="grid grid-cols-2 gap-4">
         <Card className="border border-border/60 p-4 hover:border-border hover:shadow-sm transition-all cursor-pointer"
-              onClick={() => window.open("mailto:bennetglinder@gmail.com", "_blank")}>
+              onClick={() => window.open("mailto:bennet@opennous.cloud", "_blank")}>
           <div className="flex items-center gap-3">
             <div className="h-10 w-10 rounded-lg bg-blue-50 flex items-center justify-center">
               <MessageSquare className="h-5 w-5 text-blue-600" />
             </div>
             <div>
               <h4 className="text-sm font-medium">Email Us</h4>
-              <p className="text-xs text-muted-foreground">bennetglinder@gmail.com</p>
+              <p className="text-xs text-muted-foreground">bennet@opennous.cloud</p>
             </div>
           </div>
         </Card>

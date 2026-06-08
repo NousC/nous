@@ -2,6 +2,12 @@
   "name": "@opennous/mcp",
   "version": "0.16.0",
   "description": "Nous MCP Server — Customer graph for GTM agents.",
+  "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NousC/nous.git",
+    "directory": "apps/mcp"
+  },
   "type": "module",
   "bin": {
     "nous-mcp": "src/index.js"

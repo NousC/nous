@@ -169,13 +169,11 @@ export function ConnectedDataConfigModal({
 
         case "notion":
           // Load Notion databases
-          console.log('[ConnectedDataConfig] Loading Notion databases for connection:', selectedConnection);
           const notionDbRes = await fetch(`${apiUrl}/api/workflow-providers/notion/databases?connection_id=${selectedConnection}`, {
             headers: { Authorization: `Bearer ${session.access_token}` }
           });
           if (notionDbRes.ok) {
             const notionDbData = await notionDbRes.json();
-            console.log('[ConnectedDataConfig] Notion databases loaded:', notionDbData.databases?.length || 0);
             setNotionDatabases(notionDbData.databases || []);
           } else {
             console.error('[ConnectedDataConfig] Failed to load Notion databases:', notionDbRes.status);
@@ -185,13 +183,11 @@ export function ConnectedDataConfigModal({
 
         case "google_analytics":
           // Load Google Analytics properties
-          console.log('[ConnectedDataConfig] Loading GA properties for connection:', selectedConnection);
           const gaRes = await fetch(`${apiUrl}/api/workflow-providers/google-analytics/properties?connection_id=${selectedConnection}`, {
             headers: { Authorization: `Bearer ${session.access_token}` }
           });
           if (gaRes.ok) {
             const gaData = await gaRes.json();
-            console.log('[ConnectedDataConfig] GA properties loaded:', gaData.properties?.length || 0);
             setGaProperties(gaData.properties || []);
           } else {
             console.error('[ConnectedDataConfig] Failed to load GA properties:', gaRes.status);
@@ -265,7 +261,6 @@ export function ConnectedDataConfigModal({
       });
       if (res.ok) {
         const data = await res.json();
-        console.log('[ClickUp] Loaded all lists:', data.lists);
         setLists(data.lists || []);
       }
     } catch (error) {
@@ -283,13 +278,11 @@ export function ConnectedDataConfigModal({
 
     try {
       const apiUrl = import.meta.env.VITE_API_URL ?? "";
-      console.log('[ClickUp] Loading custom fields for list:', listId, 'connection:', selectedConnection);
       const res = await fetch(`${apiUrl}/api/workflow-providers/clickup/fields?connection_id=${selectedConnection}&list_id=${listId}`, {
         headers: { Authorization: `Bearer ${session.access_token}` }
       });
       if (res.ok) {
         const data = await res.json();
-        console.log('[ClickUp] Loaded fields:', data.fields);
         setCustomFields(data.fields || []);
       } else {
         const errorText = await res.text();

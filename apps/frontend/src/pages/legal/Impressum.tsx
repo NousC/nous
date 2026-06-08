@@ -33,7 +33,7 @@ export default function Impressum() {
             <div style={{ fontFamily: "Inter, sans-serif", fontSize: "14px", color: t.muted, lineHeight: 1.9 }}>
               <p><span style={{ color: t.text, fontFamily: "JetBrains Mono, monospace" }}>Nous</span> — Bennet Glinder</p>
               <p>Dietrich-Schäfer-Straße 20, 28211 Bremen, Germany</p>
-              <p style={{ marginTop: "8px" }}>Email: <a href="mailto:bennetglinder@gmail.com" style={S.link(t)}>bennetglinder@gmail.com</a></p>
+              <p style={{ marginTop: "8px" }}>Email: <a href="mailto:bennet@opennous.cloud" style={S.link(t)}>bennet@opennous.cloud</a></p>
               <p>Phone: +1 518 250 8377</p>
               <p>Web: <a href="https://opennous.cloud" style={S.link(t)}>opennous.cloud</a></p>
             </div>

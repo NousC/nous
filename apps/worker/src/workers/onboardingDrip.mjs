@@ -24,14 +24,16 @@ import crypto from 'node:crypto';
 import { getSupabaseClient, sendEmail } from '@nous/core';
 import { DRIP } from './dripTemplates.mjs';
 
-// First-year offer economics — MUST match the live Stripe coupon
-// `pro_first_year_999` ($1,989 off the $2,988/yr Pro annual price → $999).
+// First-year offer shown in the drip. This worker is cloud-only (it no-ops
+// unless NOUS_DOGFOOD_WORKSPACE_ID is set), and every value is operator-driven
+// via env, so no coupon id or pricing is baked into the open-source tree. The
+// coupon id MUST match a real coupon in your Stripe account.
 const OFFER = {
-  couponId: process.env.STRIPE_PRO_ANNUAL_COUPON_ID || 'pro_first_year_999',
-  discountLabel: '67%',
-  firstYearPrice: '$999',
-  basePrice: '$2,988',
-  expiryDays: 3,
+  couponId: process.env.STRIPE_PRO_ANNUAL_COUPON_ID || '',
+  discountLabel: process.env.DRIP_OFFER_DISCOUNT_LABEL || '',
+  firstYearPrice: process.env.DRIP_OFFER_FIRST_YEAR_PRICE || '',
+  basePrice: process.env.DRIP_OFFER_BASE_PRICE || '',
+  expiryDays: Number(process.env.DRIP_OFFER_EXPIRY_DAYS) || 3,
 };
 
 const WINDOW_DAYS = 21;      // only consider recent signups; older ones are past the sequence

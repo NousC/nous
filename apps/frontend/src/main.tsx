@@ -21,10 +21,8 @@ initPostHog();
 
 // Render the app with error boundary
 try {
-  console.log("Initializing React app...");
   const root = createRoot(rootElement);
   root.render(<App />);
-  console.log("React app rendered successfully");
 } catch (error) {
   console.error("Failed to render React app:", error);
   rootElement.innerHTML = `

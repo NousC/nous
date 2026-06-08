@@ -84,6 +84,10 @@ export default function Settings() {
 
   const [tab, setTab] = useState<SettingsTab>("profile");
 
+  // Cloud-only UI (e.g. the founder support card). Same signal the rest of the
+  // app uses to tell Nous Cloud apart from a self-hosted instance.
+  const isCloud = !!import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY;
+
   // Profile
   const [name, setName] = useState(userData?.user?.name ?? "");
   const [nameSaving, setNameSaving] = useState(false);
@@ -593,7 +597,9 @@ export default function Settings() {
                 </div>
               </div>
 
-              {/* RIGHT — Founder card (pushed far right, calm color, real brand icons in black) */}
+              {/* RIGHT — Founder card. Cloud only: self-hosters shouldn't render the
+                  founder's personal phone / Cal / email as their support contact. */}
+              {isCloud && (
               <div className="w-full lg:w-[460px] lg:ml-auto lg:flex-shrink-0">
                 <div className="rounded-3xl p-7 bg-gray-50 dark:bg-white/[0.04] border border-gray-100 dark:border-white/10">
                   <div className="flex items-start gap-5 mb-5">
@@ -601,13 +607,11 @@ export default function Settings() {
                       <img src="/founder.jpg" alt="Bennet Glinder" className="h-full w-full object-cover" />
                     </div>
                     <div className="pt-1 min-w-0">
-                      {/* TODO: founder name */}
                       <div className="text-[18px] font-semibold text-foreground leading-tight">Bennet Glinder</div>
                       <div className="text-[12px] text-muted-foreground mt-0.5">Founder, Nous</div>
                     </div>
                   </div>
                   <p className="text-[13px] text-foreground/85 leading-relaxed mb-6">
-                    {/* TODO: bio */}
                     Reach me wherever feels right for you. Always up for a chat about GTM,
                     AGI, or whatever's on your mind.
                   </p>
@@ -638,6 +642,7 @@ export default function Settings() {
                   </div>
                 </div>
               </div>
+              )}
             </div>
 
             {/* BOTTOM — Friends, with overlapping logo-wall preview */}

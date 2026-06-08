@@ -142,7 +142,7 @@ export default function PrivacyPolicy() {
                 <li key={bold} style={S.li(t)}>— <span style={{ color: t.text, fontWeight: 500 }}>{bold}</span> — {rest}</li>
               ))}
             </ul>
-            <p style={S.body(t)}>To exercise these rights, contact us at <a href="mailto:bennetglinder@gmail.com" style={S.link(t)}>bennetglinder@gmail.com</a>.</p>
+            <p style={S.body(t)}>To exercise these rights, contact us at <a href="mailto:bennet@opennous.cloud" style={S.link(t)}>bennet@opennous.cloud</a>.</p>
           </Section>
 
           <Section t={t} title="10. Children's Privacy">
@@ -159,7 +159,7 @@ export default function PrivacyPolicy() {
             <div style={{ fontFamily: "Inter, sans-serif", fontSize: "14px", color: t.muted, lineHeight: 1.9 }}>
               <p><span style={{ color: t.text, fontFamily: "JetBrains Mono, monospace" }}>Nous</span> — Bennet Glinder</p>
               <p>Dietrich-Schäfer-Straße 20, 28211 Bremen, Germany</p>
-              <p>Email: <a href="mailto:bennetglinder@gmail.com" style={S.link(t)}>bennetglinder@gmail.com</a></p>
+              <p>Email: <a href="mailto:bennet@opennous.cloud" style={S.link(t)}>bennet@opennous.cloud</a></p>
               <p>Web: <a href="https://opennous.cloud" style={S.link(t)}>opennous.cloud</a></p>
             </div>
           </Section>

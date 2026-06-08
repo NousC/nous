@@ -59,8 +59,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        console.log('[AUTH] Session:', currentSession ? 'authenticated' : 'none');
-
         setSession(currentSession);
         setUser(currentSession?.user ?? null);
         setLoading(false);
@@ -92,8 +90,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
       if (!isMounted) return;
 
-      console.log('[AUTH] State change:', event);
-
       // Update state
       setSession(newSession);
       setUser(newSession?.user ?? null);
@@ -118,14 +114,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const fetchUserData = async (accessToken: string, force: boolean = false): Promise<boolean> => {
     // Prevent concurrent fetches with the same token (race condition fix for production)
     if (fetchingUserDataRef.current && lastFetchedTokenRef.current === accessToken && !force) {
-      console.log('[AUTH] Skipping duplicate fetchUserData call');
       return false;
     }
 
     // Prevent fetching with the same token twice (SIGNED_IN + INITIAL_SESSION events)
     // Skip this check if force=true (for workspace switching)
     if (!force && lastFetchedTokenRef.current === accessToken && userData) {
-      console.log('[AUTH] Already fetched data for this token, skipping');
       return !!onboardingCompleted;
     }
 
@@ -166,13 +160,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const cached = localStorage.getItem('selectedWorkspaceId');
           if (!cached || cached !== data.workspace.id) {
             localStorage.setItem('selectedWorkspaceId', data.workspace.id);
-            console.log('[AUTH] Auto-selected workspace:', data.workspace.id);
           }
         }
 
         setUserData(data);
         const isCompleted = !!data.onboarding_completed;
-        console.log('[AUTH] Fetched user data, onboarding_completed:', isCompleted);
         setOnboardingCompleted(isCompleted);
         return isCompleted;
       } else if (response.status === 401) {
@@ -216,7 +208,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Expose refresh function for components to call after onboarding or workspace switching
   const refreshUserData = async () => {
     if (session?.access_token) {
-      console.log('[AUTH] Forcing refresh of user data');
       await fetchUserData(session.access_token, true); // Force refresh
     }
   };

@@ -31,7 +31,9 @@ export default defineConfig(({ mode }) => {
           if (gaId) {
             return html.replace(/G-XXXXXXXXXX/g, gaId);
           }
-          return html.replace(/<!-- Google tag \(gtag\.js\) -->[\s\S]*?<\/script>\s*/g, '');
+          // No GA id configured (e.g. self-host): strip the whole gtag block
+          // (loader script + inline config) so nothing phones home.
+          return html.replace(/<!-- Google tag \(gtag\.js\)[\s\S]*?<\/script>\s*<script>[\s\S]*?<\/script>\s*/g, '');
         },
       },
     ],

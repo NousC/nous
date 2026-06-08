@@ -15,12 +15,7 @@ export function AdminRoute({ children }: AdminRouteProps) {
   const isAdmin = userData?.user?.is_admin === true;
 
   useEffect(() => {
-    console.log('[AdminRoute] Loading:', loading);
-    console.log('[AdminRoute] UserData:', userData);
-    console.log('[AdminRoute] IsAdmin:', isAdmin);
-    
     if (!loading && !isAdmin) {
-      console.log('[AdminRoute] User is not admin, redirecting...');
       navigate("/");
     }
   }, [loading, isAdmin, navigate, userData]);

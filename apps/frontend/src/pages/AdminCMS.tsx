@@ -111,18 +111,6 @@ export default function AdminCMS() {
   const [itemToDelete, setItemToDelete] = useState<any>(null);
   const [deleting, setDeleting] = useState(false);
 
-  // Debug: Log when component mounts
-  useEffect(() => {
-    console.log('[AdminCMS] Component mounted');
-    console.log('[AdminCMS] Session:', session ? 'exists' : 'missing');
-    console.log('[AdminCMS] Loading:', loading);
-    console.log('[AdminCMS] API URL:', import.meta.env.VITE_API_URL ?? "");
-    console.log('[AdminCMS] Collection Type:', collectionType);
-    console.log('[AdminCMS] Articles:', articles.length);
-    console.log('[AdminCMS] Tutorials:', tutorials.length);
-    console.log('[AdminCMS] Use Cases:', useCases.length);
-  }, [session, loading, collectionType, articles.length, tutorials.length, useCases.length]);
-  
   const [formData, setFormData] = useState({
     // Blog fields
     title: "",

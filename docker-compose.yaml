@@ -10,8 +10,6 @@ services:
       - ./nous.env
     environment:
       NODE_ENV: production
-    depends_on:
-      - redis
 
   # ── Hosted MCP server (Streamable HTTP, multi-tenant) ─────────────────────────
   # Lets cloud clients that cannot run a local process (n8n cloud, etc.) connect
@@ -45,7 +43,6 @@ services:
       NODE_ENV: production
     depends_on:
       - api
-      - redis
 
   # ── Frontend (nginx: static SPA) ─────────────────────────────────────────────
   frontend:
@@ -66,13 +63,6 @@ services:
     restart: unless-stopped
     depends_on:
       - api
-
-  # ── Redis ────────────────────────────────────────────────────────────────────
-  redis:
-    image: redis:7-alpine
-    restart: unless-stopped
-    volumes:
-      - redis_data:/data
 
   # ── Caddy (SSL + subdomain routing) ──────────────────────────────────────────
   # Remove this service if you handle SSL/routing externally (Cloudflare Tunnel, etc.)
@@ -97,6 +87,5 @@ services:
       - mcp
 
 volumes:
-  redis_data:
   caddy_data:
   caddy_config:

@@ -2,11 +2,11 @@
 // can be unit-tested in isolation. Used by resolveContact's "known contact is
 // booking/replying from a new email" step.
 //
-// The hard lesson behind this module: matching on NAME ALONE is unsafe. Two real
-// people can share a name (e.g. "Sebastian Boeck" at Enginy vs "Sebastian
-// Schröder" at Black Forest Labs). So a name match must be backed by a second
-// signal before we attach a new email to an existing contact. That second signal
-// is domain/company corroboration, implemented here.
+// The hard lesson behind this module: matching on NAME ALONE is unsafe. Two
+// different people can share a name (e.g. a "Jordan Reed" at Northwind vs a
+// "Jordan Reed" at Globex). So a name match must be backed by a second signal
+// before we attach a new email to an existing contact. That second signal is
+// domain/company corroboration, implemented here.
 
 // Free / consumer mailbox providers — a match on one of these domains tells us
 // nothing about which company a person belongs to, so it can never corroborate.
@@ -17,7 +17,7 @@ export const FREE_EMAIL_DOMAINS = new Set([
   'gmx.de', 'gmx.net', 'web.de', 'mail.com', 'zoho.com', 'pm.me', 'fastmail.com',
 ]);
 
-/** Second-level label of a domain. 'enginy.ai' → 'enginy'; 'mail.acme.co.uk' → 'acme'. */
+/** Second-level label of a domain. 'northwind.io' → 'northwind'; 'mail.acme.co.uk' → 'acme'. */
 export function domainRoot(domain) {
   if (!domain || typeof domain !== 'string') return null;
   const parts = domain.toLowerCase().trim().replace(/^www\./, '').split('.').filter(Boolean);
@@ -29,7 +29,7 @@ export function domainRoot(domain) {
   return second;
 }
 
-/** Domain portion of an email, lowercased. 'A@Enginy.AI' → 'enginy.ai'. */
+/** Domain portion of an email, lowercased. 'A@Northwind.IO' → 'northwind.io'. */
 export function emailDomain(email) {
   if (!email || typeof email !== 'string') return null;
   const at = email.lastIndexOf('@');
@@ -38,7 +38,7 @@ export function emailDomain(email) {
 }
 
 /** Collapse a company name to a comparable token: lowercased, alnum-only, common
- *  legal/industry suffixes stripped. "Black Forest Labs 🌲" → "blackforest". */
+ *  legal/industry suffixes stripped. "Globex Future Labs 🌐" → "globexfuture". */
 export function normalizeCompanyToken(name) {
   if (!name || typeof name !== 'string') return null;
   let s = name.toLowerCase().replace(/[^a-z0-9]+/g, '');
@@ -52,7 +52,7 @@ export function normalizeCompanyToken(name) {
  * Returns true only when there's a real company signal — never on name alone.
  *
  * @param {{domain?:string|null, company?:string|null, emailDomains?:string[]}} candidate
- * @param {string|null} incomingDomain  domain of the new email (e.g. 'enginy.ai')
+ * @param {string|null} incomingDomain  domain of the new email (e.g. 'northwind.io')
  */
 export function corroboratesIdentity(candidate, incomingDomain) {
   if (!incomingDomain || FREE_EMAIL_DOMAINS.has(incomingDomain)) return false;
@@ -62,7 +62,7 @@ export function corroboratesIdentity(candidate, incomingDomain) {
   // (a) the contact's stored company domain matches
   if (candidate.domain && domainRoot(candidate.domain) === root) return true;
 
-  // (b) the contact's company NAME maps to the same root (ENGINY ↔ enginy.ai)
+  // (b) the contact's company NAME maps to the same root (NORTHWIND ↔ northwind.io)
   const compTok = normalizeCompanyToken(candidate.company);
   if (compTok) {
     if (compTok === root) return true;
