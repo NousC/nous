@@ -218,6 +218,32 @@ leadListsRouter.delete('/:id/leads', async (req, res) => {
   }
 });
 
+// POST /api/lead-lists/:id/leads/blank — append an empty row to the list (an
+// entity with no identifiers, added to the list collection). Returns { id } so
+// the UI can drop the row in instantly and let the user fill it inline. This is
+// the Airtable-style "+ add row" — no email/linkedin required up front.
+leadListsRouter.post('/:id/leads/blank', async (req, res) => {
+  try {
+    const supabase = getSupabaseClient();
+    const workspaceId = req.body.workspaceId || req.workspaceId;
+    if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
+    const lead_list = await getLeadList(supabase, workspaceId, req.params.id);
+    if (!lead_list) return res.status(404).json({ error: 'not_found' });
+
+    const { data: ent, error } = await supabase
+      .from('entities').insert({ workspace_id: workspaceId, type: 'person', status: 'active' })
+      .select('id').single();
+    if (error || !ent) throw error || new Error('entity insert failed');
+    await supabase.from('collection_entities')
+      .insert({ collection_id: req.params.id, entity_id: ent.id })
+      .then(() => {}, () => {});
+    return res.status(201).json({ id: ent.id });
+  } catch (err) {
+    console.error('[POST /api/lead-lists/:id/leads/blank]', err);
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
 // PATCH /api/lead-lists/:id/leads/:leadId — inline-edit one field on a lead.
 // Body: { workspaceId?, key, value }. key ∈ name | email | company | linkedin_url
 // | <custom field key>. The lead id IS the entity id; name/company write sticky

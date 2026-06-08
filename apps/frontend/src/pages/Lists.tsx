@@ -179,8 +179,7 @@ export default function Lists() {
 
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
-  const [addingRow, setAddingRow] = useState(false);
-  const [draft, setDraft] = useState<Record<string, string>>({});
+  const [adding, setAdding] = useState(false);
   // Inline cell editing — double-click a cell to edit it in place.
   const [editCell, setEditCell] = useState<{ id: string; key: string } | null>(null);
   const [editValue, setEditValue] = useState("");
@@ -656,35 +655,30 @@ export default function Lists() {
     finally { setBusy(false); }
   };
 
-  const addRow = async () => {
-    // A lead needs at least an email or a LinkedIn URL to be stored.
-    if (!activeId || busy || (!draft.email?.trim() && !draft.linkedin_url?.trim())) return;
-    setBusy(true);
+  // Airtable-style "+ add row" — drops a real empty row at the bottom instantly
+  // and puts the cursor in its Name cell. No form, no reload; fill it inline.
+  const addBlankRow = async () => {
+    if (!activeId || adding) return;
+    setAdding(true);
     try {
-      const fields: Record<string, string> = {};
-      for (const c of customCols) {
-        const v = draft[c.key]?.trim();
-        if (v) fields[c.key] = v;
-      }
-      await fetch(`${apiUrl}/api/lead-lists/${activeId}/leads`, {
-        method: "POST", headers: jsonHeaders,
-        body: JSON.stringify({
-          workspaceId,
-          leads: [{
-            email: draft.email.trim(),
-            name: draft.name?.trim() || null,
-            company: draft.company?.trim() || null,
-            linkedin_url: draft.linkedin_url?.trim() || null,
-            fields,
-          }],
-        }),
+      const res = await fetch(`${apiUrl}/api/lead-lists/${activeId}/leads/blank`, {
+        method: "POST", headers: jsonHeaders, body: JSON.stringify({ workspaceId }),
       });
-      setDraft({}); setAddingRow(false);
-      leadsCache.current.clear();
-      loadLeads(activeId, page, icpFilter, sort);
-      loadLists();
+      if (res.ok) {
+        const { id } = await res.json();
+        const blank: Lead = {
+          id, email: null, name: null, company: null, linkedin_url: null,
+          status: "pending", reply_outcome: null, domain: null, email_status: null,
+          last_channel: null, created_at: new Date().toISOString(), fields: {},
+        };
+        setLeads(prev => [...prev, blank]);
+        setLists(prev => prev.map(l => l.id === activeId ? { ...l, lead_count: (l.lead_count ?? 0) + 1 } : l));
+        leadsCache.current.clear();
+        setEditValue("");
+        setEditCell({ id, key: "name" });
+      }
     } catch { /* silent */ }
-    finally { setBusy(false); }
+    finally { setAdding(false); }
   };
 
   // ── Inline cell editing — double-click a cell, Enter/blur saves ──────────────
@@ -890,7 +884,7 @@ export default function Lists() {
           {lists.map(l => (
             <button
               key={l.id}
-              onClick={() => { setActiveId(l.id); resetImport(); setAddingRow(false); }}
+              onClick={() => { setActiveId(l.id); resetImport(); setEditCell(null); }}
               onContextMenu={e => { e.preventDefault(); requestDeleteList(l); }}
               title={l.source === "linkedin_engagement" ? "Managed automatically — fills from your LinkedIn post engagers" : "Right-click to delete this list"}
               className={`flex items-center gap-1.5 px-3 py-1.5 text-[13px] rounded-t-lg border border-b-0 whitespace-nowrap transition-colors ${
@@ -1177,7 +1171,7 @@ export default function Lists() {
                           <div key={c.key}
                             onDoubleClick={editable && !isEditing ? () => startEdit(l, c.key) : undefined}
                             title={editable && !isEditing ? "Double-click to edit" : undefined}
-                            className={`px-3 py-2.5 text-[13px] truncate flex-shrink-0 ${editable ? "cursor-text" : ""} ${i === 0 ? `text-foreground font-medium sticky left-10 z-10 border-r border-border ${isRowSelected(l.id) ? "bg-muted/60" : "bg-background group-hover:bg-muted/40"}` : "text-muted-foreground"}`} style={{ width: c.w }}>
+                            className={`px-3 py-2.5 text-[13px] truncate flex-shrink-0 ${editable ? "cursor-text" : ""} ${isEditing ? "ring-2 ring-inset ring-blue-500/50 bg-background" : ""} ${i === 0 ? `text-foreground font-medium sticky left-10 z-10 border-r border-border ${isRowSelected(l.id) ? "bg-muted/60" : "bg-background group-hover:bg-muted/40"}` : "text-muted-foreground"}`} style={{ width: c.w }}>
                             {isEditing ? (
                               <input
                                 autoFocus
@@ -1185,7 +1179,7 @@ export default function Lists() {
                                 onChange={e => setEditValue(e.target.value)}
                                 onBlur={saveEdit}
                                 onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); saveEdit(); } if (e.key === "Escape") setEditCell(null); }}
-                                className="w-full h-6 -my-0.5 rounded border border-foreground/30 bg-background px-1 text-[13px] text-foreground outline-none focus:border-foreground/60"
+                                className="w-full bg-transparent p-0 text-[13px] text-foreground outline-none border-0"
                               />
                             ) : isLink ? (
                               <a href={val} target="_blank" rel="noopener noreferrer"
@@ -1207,32 +1201,10 @@ export default function Lists() {
                       </div>
                     ))}
 
-                    {/* Add row */}
-                    {addingRow ? (
-                      <div className="flex border-b border-border/60 bg-muted/40 items-center">
-                        <div className="flex-shrink-0" style={{ width: SEL_W }} />
-                        {allCols.map(c => (
-                          <div key={c.key} className="px-1.5 py-1.5 flex-shrink-0" style={{ width: c.w }}>
-                            {isEditableCol(c.key) ? (
-                              <input
-                                value={draft[c.key] ?? ""}
-                                onChange={e => setDraft(d => ({ ...d, [c.key]: e.target.value }))}
-                                placeholder={FIXED_KEYS.has(c.key) ? c.label : ""}
-                                autoFocus={c.key === "name"}
-                                onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addRow(); } if (e.key === "Escape") { setAddingRow(false); setDraft({}); } }}
-                                className="h-7 w-full rounded border border-border bg-background px-2 text-[13px] outline-none focus:border-muted-foreground"
-                              />
-                            ) : null}
-                          </div>
-                        ))}
-                        <div className="px-2 py-1.5 flex items-center justify-end flex-shrink-0" style={{ width: STATUS_W }}>
-                          <button onClick={() => { setAddingRow(false); setDraft({}); }} title="Cancel (Esc)"
-                            className="text-muted-foreground hover:text-foreground"><X className="h-3.5 w-3.5" /></button>
-                        </div>
-                      </div>
-                    ) : (
-                      <button onClick={() => setAddingRow(true)}
-                        className="flex items-center gap-1.5 px-3 py-2.5 text-[13px] text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors">
+                    {/* Add row — instantly drops a blank row, cursor in its Name cell */}
+                    {(
+                      <button onClick={addBlankRow} disabled={adding}
+                        className="sticky left-0 flex items-center gap-1.5 px-3 py-2.5 text-[13px] text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors disabled:opacity-50">
                         <Plus className="h-3.5 w-3.5" /> Add lead
                       </button>
                     )}
