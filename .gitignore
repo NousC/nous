@@ -36,3 +36,6 @@ apps/frontend/dist/
 # Python build artifacts
 *.egg-info/
 __pycache__/
+
+# Private founder/strategy docs — never publish
+internal/
