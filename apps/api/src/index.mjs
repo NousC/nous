@@ -32,6 +32,7 @@ import { leadsV2Router } from './routes/v2/leads.mjs';
 
 // /api — Frontend API (Supabase JWT auth)
 import { apiKeysRouter } from './routes/api/apiKeys.mjs';
+import { cliAuthRouter } from './routes/api/cliAuth.mjs';
 import { webhooksRouter } from './routes/api/webhooks.mjs';
 import { meRouter } from './routes/api/me.mjs';
 import { workspacesRouter } from './routes/api/workspaces.mjs';
@@ -165,6 +166,9 @@ app.use('/api/feedback',              feedbackRouter);
 app.use('/api/public/live',           publicLiveRouter);
 app.use('/api/workspace/system-log',  systemLogRouter);
 app.use('/api/workspace/api-keys',    verifySupabaseAuth, apiKeysRouter);
+// CLI/plugin browser-login (device-auth). start + poll are public; the router's
+// approve + request routes apply verifySupabaseAuth themselves.
+app.use('/api/cli/auth',              cliAuthRouter);
 app.use('/api/workspace/memories',    verifySupabaseAuth, workspaceMemoriesRouter);
 app.use('/api/playground',            playgroundRouter);
 app.use('/api/mind',                  verifySupabaseAuth, mindRouter);

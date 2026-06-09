@@ -129,7 +129,7 @@ function FootNote({ children }: { children: React.ReactNode }) {
 function ApiKeyHint() {
   return (
     <p className="text-[12px] text-muted-foreground/70">
-      Need an API key?{" "}
+      Prefer to paste a key instead of /nous-login?{" "}
       <Link to="/settings" className="text-foreground/80 underline underline-offset-2 hover:text-foreground">
         Create one here →
       </Link>
@@ -141,6 +141,7 @@ function ApiKeyHint() {
 
 const CLAUDE_CODE_MARKETPLACE = `/plugin marketplace add NousC/nous`;
 const CLAUDE_CODE_INSTALL = `/plugin install nous@nous-plugins`;
+const CLAUDE_CODE_LOGIN = `/nous-login`;
 
 // Raw CLI alternative to the plugin — adds the stdio server directly.
 // Add -s user to make it available in every project.
@@ -334,7 +335,8 @@ function ClaudeInstall() {
         <div className="space-y-3">
           <CodeSnippet caption="1. In Claude Code, add the Nous plugin marketplace" code={CLAUDE_CODE_MARKETPLACE} />
           <CodeSnippet caption="2. Install the Nous plugin" code={CLAUDE_CODE_INSTALL} />
-          <FootNote>Prompts for your API key and stores it in your OS keychain. Restart Claude Code once.</FootNote>
+          <CodeSnippet caption="3. Sign in with your browser — no key to paste" code={CLAUDE_CODE_LOGIN} />
+          <FootNote>/nous-login opens your browser, you approve, and your key is saved automatically. Nothing else to configure.</FootNote>
         </div>
       )}
 

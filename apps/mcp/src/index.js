@@ -17,7 +17,15 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { validateConfig } from "./client.js";
 import { createServer } from "./server.js";
 
-validateConfig();
+// Advisory only — don't hard-exit if there's no key yet. The user may install
+// the plugin and then run /nous-login; the server must already be running so the
+// key (resolved per-call from env or ~/.nous/config.json) is picked up without a
+// restart.
+try {
+  validateConfig();
+} catch (err) {
+  console.error(`[nous] ${err.message}`);
+}
 
 const server = createServer();
 const transport = new StdioServerTransport();

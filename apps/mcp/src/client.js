@@ -9,6 +9,9 @@
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 // Resolve an env var defensively — Claude Code plugins use ${user_config.X}
 // substitution; when an optional userConfig field is left blank, the literal
@@ -32,15 +35,33 @@ export function runWithApiKey(apiKey, fn) {
   return apiKeyStore.run({ apiKey }, fn);
 }
 
-function currentApiKey() {
-  return apiKeyStore.getStore()?.apiKey ?? resolvedEnv("NOUS_API_KEY");
+// Credential written by `nous login` (the browser device-auth flow). The CLI and
+// the MCP server share ~/.nous/config.json, so a user who runs the login command
+// gets a key the MCP picks up on the next call — no paste, no env var.
+function fileApiKey() {
+  try {
+    const dir = resolvedEnv("NOUS_CONFIG_DIR") || path.join(os.homedir(), ".nous");
+    const cfg = JSON.parse(fs.readFileSync(path.join(dir, "config.json"), "utf8"));
+    const k = cfg?.apiKey;
+    return k && !String(k).includes("${") ? k : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
-// stdio-only preflight: the env key must be present at startup.
+function currentApiKey() {
+  return apiKeyStore.getStore()?.apiKey ?? resolvedEnv("NOUS_API_KEY") ?? fileApiKey();
+}
+
+// stdio-only preflight. A key may come from the env OR from `nous login`'s
+// credential file. This is advisory — the server still starts without one so
+// the user can run the login command after installing the plugin, and the key
+// is resolved per-call.
 export function validateConfig() {
-  if (!resolvedEnv("NOUS_API_KEY")) {
+  if (!resolvedEnv("NOUS_API_KEY") && !fileApiKey()) {
     throw new Error(
-      "NOUS_API_KEY is required. Get yours at opennous.cloud → Settings → API Keys"
+      "No Nous API key found. Run the /nous-login command (or `npx @opennous/cli login`) to sign in, " +
+      "or set NOUS_API_KEY."
     );
   }
 }

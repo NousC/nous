@@ -10,6 +10,17 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, appendFileSync } fr
 import { homedir } from "os";
 import { join, resolve } from "path";
 import { createInterface } from "readline";
+import { spawn } from "child_process";
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Best-effort open the user's browser; if it fails they have the printed URL.
+function openBrowser(url) {
+  const cmd = process.platform === "darwin" ? "open"
+            : process.platform === "win32" ? "start"
+            : "xdg-open";
+  try { spawn(cmd, [url], { stdio: "ignore", detached: true }).unref(); } catch { /* printed URL is the fallback */ }
+}
 
 const CONFIG_PATH = join(homedir(), ".nous", "config.json");
 
@@ -648,4 +659,63 @@ program
   });
 
 // ---------------------------------------------------------------------------
-program.name("nous").version("0.3.0").parse();
+// nous login — browser sign-in (device authorization). Opens the browser, you
+// approve, and a freshly minted API key is saved to ~/.nous/config.json. No
+// copy-paste. This is what the plugin's /nous-login command runs.
+// ---------------------------------------------------------------------------
+program
+  .command("login")
+  .description("Sign in with your browser and save an API key (no copy-paste)")
+  .option("--url <url>", "API base URL (default: https://api.opennous.cloud)")
+  .action(async ({ url }) => {
+    const apiUrl = url || process.env.NOUS_API_URL || readConfig().apiUrl || "https://api.opennous.cloud";
+
+    let start;
+    try {
+      const r = await fetch(`${apiUrl}/api/cli/auth/start`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+      });
+      if (!r.ok) throw new Error(`server returned ${r.status}`);
+      start = await r.json();
+    } catch (e) {
+      console.error(`Couldn't start sign-in: ${e.message}`);
+      process.exit(1);
+    }
+
+    console.log(`\nOpening your browser to authorize. If it doesn't open, visit:\n  ${start.verification_uri_complete}\n`);
+    openBrowser(start.verification_uri_complete);
+
+    const interval = (start.interval || 4) * 1000;
+    const deadline = Date.now() + (start.expires_in || 600) * 1000;
+    process.stdout.write("Waiting for you to approve in the browser");
+
+    while (Date.now() < deadline) {
+      await sleep(interval);
+      process.stdout.write(".");
+      let j = {};
+      try {
+        const r = await fetch(`${apiUrl}/api/cli/auth/poll`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ device_code: start.device_code }),
+        });
+        j = await r.json().catch(() => ({}));
+      } catch { continue; }
+
+      if (j.status === "approved" && j.api_key) {
+        const cfg = readConfig();
+        cfg.apiKey = j.api_key;
+        cfg.apiUrl = apiUrl;
+        writeConfig(cfg);
+        console.log(`\n\n✓ Signed in. Key saved to ~/.nous/config.json`);
+        console.log("Your Nous tools are ready — try `get_workspace_status` in your agent.");
+        return;
+      }
+      if (j.status === "denied")  { console.log("\nAuthorization was denied."); process.exit(1); }
+      if (j.status === "expired") { console.log("\nThis sign-in expired. Run `nous login` again."); process.exit(1); }
+    }
+    console.log("\nTimed out waiting for approval. Run `nous login` again.");
+    process.exit(1);
+  });
+
+// ---------------------------------------------------------------------------
+program.name("nous").version("0.4.0").parse();

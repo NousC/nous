@@ -14,10 +14,10 @@
   "userConfig": {
     "api_key": {
       "type": "string",
-      "title": "Nous API key",
-      "description": "Create one at https://opennous.cloud → Settings → API Keys. The key is workspace-scoped — no separate workspace ID required.",
+      "title": "Nous API key (optional)",
+      "description": "Leave blank and run /nous-login to sign in with your browser — no copy-paste. Or paste a key from https://opennous.cloud → Settings → API Keys. The key is workspace-scoped.",
       "sensitive": true,
-      "required": true
+      "required": false
     }
   },
   "mcpServers": {

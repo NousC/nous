@@ -34,7 +34,9 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
   // Onboarding moved to the agent (you set up Nous by talking to Claude, not a
   // web wizard). New users land on Install, which runs the first-run activation.
   // Send anyone not yet activated there so they connect their agent first.
-  if (!onboardingCompleted && location.pathname !== '/install') {
+  // /cli-login is exempt — a brand-new user must be able to approve their first
+  // key there before anything else is set up.
+  if (!onboardingCompleted && location.pathname !== '/install' && location.pathname !== '/cli-login') {
     return <Navigate to="/install" replace />;
   }
 

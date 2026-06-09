@@ -35,6 +35,7 @@ const lazyPage = (importFn: () => Promise<any>) =>
 const Login           = lazyPage(() => import("./pages/Login"));
 const Signup          = lazyPage(() => import("./pages/Signup"));
 const AcceptInvitation = lazyPage(() => import("./pages/AcceptInvitation"));
+const CliLogin        = lazyPage(() => import("./pages/CliLogin"));
 const NotFound        = lazyPage(() => import("./pages/NotFound"));
 const LivePage        = lazyPage(() => import("./pages/Live"));
 // Legal pages
@@ -95,6 +96,17 @@ const App = () => (
 
               {/* Onboarding moved to the agent — /onboarding now redirects to Install. */}
               <Route path="/onboarding" element={<Navigate to="/install" replace />} />
+
+              {/* CLI / plugin browser-login approval. Authed, but reachable before
+                  onboarding so a brand-new user can approve their first key. */}
+              <Route
+                path="/cli-login"
+                element={
+                  <ProtectedRoute requireOnboarding={false}>
+                    <Suspense fallback={<PageLoader />}><CliLogin /></Suspense>
+                  </ProtectedRoute>
+                }
+              />
 
               {/* Public — live ops dashboard, no auth */}
               <Route path="/live" element={<Suspense fallback={<PageLoader />}><LivePage /></Suspense>} />

@@ -1,6 +1,6 @@
 {
   "name": "@opennous/cli",
-  "version": "0.2.0",
+  "version": "0.4.0",
   "description": "Nous CLI — install Nous event tracking into your app, plus terminal access to the Context API",
   "type": "module",
   "bin": {
