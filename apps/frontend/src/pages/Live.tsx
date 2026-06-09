@@ -89,19 +89,15 @@ const COUNTRY_CENTROIDS: Record<string, { lat: number; lng: number }> = {
 function groupOf(eventType: string): string {
   const prefix = eventType.split(/[._]/)[0];
   switch (prefix) {
-    case "memory":     return "text-teal-600";
-    case "agent":      return "text-emerald-600";
-    case "identity":   return "text-sky-600";
-    case "crm":        return "text-amber-600";
+    case "agent":      return "text-[#e8915b]"; // agent traffic — hot orange
+    case "v2":         return "text-[#e8915b]";
+    case "memory":
+    case "identity":   return "text-[#d97757]";
+    case "crm":
     case "linkedin":
     case "gmail":
-    case "ingest":     return "text-orange-600";
-    case "activity":   return "text-pink-600";
-    case "enrichment": return "text-cyan-600";
-    case "webhook":    return "text-violet-600";
-    case "sync":       return "text-lime-600";
-    case "scan":       return "text-emerald-600";
-    default:           return "text-slate-700";
+    case "ingest":     return "text-[#c98a6a]";
+    default:           return "text-[#8a8178]";
   }
 }
 
@@ -109,7 +105,7 @@ function groupOf(eventType: string): string {
 const dottedMap = new DottedMap({ height: 56, grid: "vertical" });
 const WORLD_DOT_SVG = dottedMap.getSVG({
   radius: 0.32,
-  color: "#cbd5e1",         // slate-300
+  color: "#3d362c",         // warm dim — dots on the dark map
   shape: "circle",
   backgroundColor: "transparent",
 });
@@ -217,11 +213,11 @@ const fmtDate = (ts: number) => {
 function StatRow({ icon: Icon, label, value }: { icon: any; label: string; value: string }) {
   return (
     <div className="flex items-center justify-between py-2 px-4">
-      <div className="flex items-center gap-2.5 text-zinc-500 text-[11.5px]">
+      <div className="flex items-center gap-2.5 text-[#8a8178] text-[11.5px]">
         <Icon className="h-3.5 w-3.5" />
         <span>{label}</span>
       </div>
-      <span className="text-zinc-900 text-[12.5px] font-mono tabular-nums">{value}</span>
+      <span className="text-[#e8e3dc] text-[12.5px] font-mono tabular-nums">{value}</span>
     </div>
   );
 }
@@ -264,7 +260,7 @@ function WorldMap({
   const maxWeight = Math.max(1, ...dots.map((d) => d.weight));
 
   return (
-    <div className="relative w-full h-full rounded-lg overflow-hidden bg-white">
+    <div className="relative w-full h-full rounded-lg overflow-hidden bg-[#0e0c0b]">
       <div
         className="absolute inset-0 w-full h-full flex items-center justify-center"
         // eslint-disable-next-line react/no-danger
@@ -281,24 +277,24 @@ function WorldMap({
             style={{ left: `${d.x}%`, top: `${d.y}%`, transform: "translate(-50%, -50%)" }}
           >
             <span
-              className="block rounded-full bg-emerald-500 shadow-[0_0_6px_2px_rgba(16,185,129,0.6)]"
+              className="block rounded-full bg-[#e8915b] shadow-[0_0_8px_2px_rgba(217,119,87,0.65)]"
               style={{ height: `${6 * scale}px`, width: `${6 * scale}px` }}
             />
             <span
               key={pulseKey}
-              className="absolute inset-0 block rounded-full bg-emerald-500/40 animate-[live-ping_2.4s_ease-out_forwards]"
+              className="absolute inset-0 block rounded-full bg-[#d97757]/40 animate-[live-ping_2.4s_ease-out_forwards]"
               style={{ height: `${6 * scale}px`, width: `${6 * scale}px` }}
             />
           </div>
         );
       })}
       {dots.length === 0 && (
-        <div className="absolute bottom-2 right-2 text-[10px] uppercase tracking-[0.15em] text-zinc-400">
+        <div className="absolute bottom-2 right-2 text-[10px] uppercase tracking-[0.15em] text-[#6f665c]">
           locating…
         </div>
       )}
       {regions.length === 0 && viewerLoc?.city && (
-        <div className="absolute bottom-2 right-2 text-[10px] uppercase tracking-[0.15em] text-zinc-400">
+        <div className="absolute bottom-2 right-2 text-[10px] uppercase tracking-[0.15em] text-[#6f665c]">
           you · {viewerLoc.city}
           {viewerLoc.country ? `, ${viewerLoc.country}` : ""}
         </div>
@@ -310,13 +306,13 @@ function WorldMap({
 function FeedRow({ event }: { event: RecentEvent }) {
   // v2.* events come from the Context API surface (MCP, SDK, agent, raw HTTP).
   // Prefix them with `agent.` at display time so they read as agent traffic
-  // — and so groupOf() picks them up as emerald instead of falling to slate.
+  // — and so groupOf() picks them up as orange instead of falling to dim.
   const displayType = event.type.startsWith("v2.") ? `agent.${event.type}` : event.type;
   return (
-    <div className="grid grid-cols-[130px_1fr_42px] gap-3 px-4 py-1 text-[12px] hover:bg-zinc-50 transition-colors">
-      <span className="text-zinc-400 tabular-nums">{fmtDate(event.ts)}</span>
+    <div className="grid grid-cols-[130px_1fr_42px] gap-3 px-4 py-1 text-[12px] hover:bg-[#0e0c0b] transition-colors">
+      <span className="text-[#6f665c] tabular-nums">{fmtDate(event.ts)}</span>
       <span className={groupOf(displayType)}>{displayType}</span>
-      <span className="text-zinc-700 text-right tabular-nums">+{event.inc}</span>
+      <span className="text-[#bdb5aa] text-right tabular-nums">+{event.inc}</span>
     </div>
   );
 }
@@ -334,7 +330,14 @@ export default function Live() {
   }, [snap?.opsPerSec]);
 
   return (
-    <div className="h-screen flex flex-col bg-white text-zinc-900 font-mono overflow-hidden">
+    <div
+      className="h-screen flex flex-col bg-[#0e0c0b] text-[#e8e3dc] font-mono overflow-hidden"
+      style={{
+        backgroundImage:
+          "radial-gradient(rgba(200,190,178,0.05) 1px, transparent 1px)",
+        backgroundSize: "20px 20px",
+      }}
+    >
       <style>{`
         @keyframes live-ping {
           0%   { transform: scale(0.6); opacity: 0.9; }
@@ -343,27 +346,27 @@ export default function Live() {
       `}</style>
 
       {/* ─── Top bar ─────────────────────────────────────── */}
-      <header className="shrink-0 border-b border-zinc-200 bg-white">
+      <header className="shrink-0 border-b border-[#322c25] bg-[#16120f]">
         <div className="max-w-[1400px] mx-auto px-6 h-12 flex items-center justify-between gap-4">
           <a href="/" className="flex items-center gap-2" aria-label="Nous">
             <img src="/nous-logo.svg" alt="" className="h-5 w-5" />
-            <span className="text-[12.5px] font-sans font-semibold tracking-tight text-zinc-900">Nous</span>
+            <span className="text-[12.5px] font-semibold tracking-tight text-[#e8e3dc]">nous</span>
           </a>
-          <div className="text-[10.5px] uppercase tracking-[0.22em] text-zinc-500 hidden sm:block">
+          <div className="text-[10.5px] uppercase tracking-[0.22em] text-[#8a8178] hidden sm:block">
             Global Operations
           </div>
           <div className="flex items-center gap-2 text-[12px] tabular-nums">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-zinc-900 font-semibold">
+            <span className="h-1.5 w-1.5 rounded-full bg-[#d97757] animate-pulse" />
+            <span className="text-[#e8e3dc] font-semibold">
               {(snap?.opsLast60Min ?? 0).toLocaleString()}
             </span>
-            <span className="text-zinc-400">/ 60 min</span>
+            <span className="text-[#6f665c]">/ 60 min</span>
           </div>
         </div>
       </header>
 
       {error && !snap && (
-        <div className="shrink-0 mx-6 mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800 font-sans">
+        <div className="shrink-0 mx-6 mt-3 rounded-md border border-[#322c25] bg-[#16120f] px-3 py-2 text-[11px] text-[#c76b4a]">
           Couldn't reach the live ops endpoint ({error}).
         </div>
       )}
@@ -371,32 +374,35 @@ export default function Live() {
       {/* ─── Counter (compact, top-of-page) ─────────────── */}
       <section className="shrink-0 max-w-[1400px] mx-auto w-full px-6 pt-6 pb-4">
         <div
-          className="text-emerald-600 leading-none tabular-nums tracking-tight text-center break-all"
+          className="text-[#e8915b] leading-none tabular-nums tracking-tight text-center break-all"
           style={{
             fontSize: "clamp(2rem, 6.5vw, 4.5rem)",
-            textShadow: "0 0 18px rgba(16,185,129,0.14)",
+            textShadow: "0 0 22px rgba(217,119,87,0.22)",
           }}
         >
           {formatCounter(counter)}
+        </div>
+        <div className="mt-2 text-center text-[10.5px] uppercase tracking-[0.22em] text-[#8a8178]">
+          operations served · all time
         </div>
       </section>
 
       {/* ─── Main grid: feed (left) · stats + map (right) ── */}
       <main className="flex-1 min-h-0 max-w-[1400px] mx-auto w-full px-6 pb-6 grid lg:grid-cols-[1.5fr_1fr] gap-4">
         {/* LEFT — Live feed (only scrollable region on page) */}
-        <div className="rounded-xl border border-zinc-200 bg-white flex flex-col min-h-0 overflow-hidden">
-          <div className="shrink-0 flex items-center justify-between px-4 py-2.5 border-b border-zinc-200">
-            <div className="flex items-center gap-2 text-[10.5px] uppercase tracking-[0.18em] text-zinc-500">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+        <div className="rounded-xl border border-[#322c25] bg-[#16120f] flex flex-col min-h-0 overflow-hidden">
+          <div className="shrink-0 flex items-center justify-between px-4 py-2.5 border-b border-[#322c25]">
+            <div className="flex items-center gap-2 text-[10.5px] uppercase tracking-[0.18em] text-[#8a8178]">
+              <span className="h-1.5 w-1.5 rounded-full bg-[#d97757] animate-pulse" />
               <span>Live operations</span>
             </div>
-            <span className="text-[10px] uppercase tracking-[0.18em] text-zinc-400 tabular-nums">
+            <span className="text-[10px] uppercase tracking-[0.18em] text-[#6f665c] tabular-nums">
               {feed.length}
             </span>
           </div>
           <div className="flex-1 overflow-y-auto">
             {feed.length === 0 ? (
-              <div className="px-4 py-6 text-[12px] text-zinc-400">
+              <div className="px-4 py-6 text-[12px] text-[#6f665c]">
                 {snap ? "No ops logged yet." : "Connecting…"}
               </div>
             ) : (
@@ -407,11 +413,11 @@ export default function Live() {
 
         {/* RIGHT — Stats + Map */}
         <div className="flex flex-col gap-4 min-h-0">
-          <div className="shrink-0 rounded-xl border border-zinc-200 bg-white overflow-hidden">
-            <div className="px-4 py-2.5 border-b border-zinc-200 text-[10.5px] uppercase tracking-[0.18em] text-zinc-500">
+          <div className="shrink-0 rounded-xl border border-[#322c25] bg-[#16120f] overflow-hidden">
+            <div className="px-4 py-2.5 border-b border-[#322c25] text-[10.5px] uppercase tracking-[0.18em] text-[#8a8178]">
               Global stats
             </div>
-            <div className="divide-y divide-zinc-100">
+            <div className="divide-y divide-[#322c25]/60">
               <StatRow icon={Globe2}   label="Instances online"  value={(snap?.instancesOnline ?? 0).toLocaleString()} />
               <StatRow icon={Zap}      label="Operations / sec"  value={opsPerSecLabel} />
               <StatRow icon={Activity} label="Ops · last 60 min"  value={(snap?.opsLast60Min ?? 0).toLocaleString()} />
@@ -419,8 +425,8 @@ export default function Live() {
             </div>
           </div>
 
-          <div className="flex-1 min-h-0 rounded-xl border border-zinc-200 bg-white overflow-hidden flex flex-col">
-            <div className="shrink-0 px-4 py-2.5 border-b border-zinc-200 text-[10.5px] uppercase tracking-[0.18em] text-zinc-500">
+          <div className="flex-1 min-h-0 rounded-xl border border-[#322c25] bg-[#16120f] overflow-hidden flex flex-col">
+            <div className="shrink-0 px-4 py-2.5 border-b border-[#322c25] text-[10.5px] uppercase tracking-[0.18em] text-[#8a8178]">
               Activity by region
             </div>
             <div className="flex-1 min-h-0 p-3">
