@@ -31,9 +31,11 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
     return <Navigate to="/login" replace />;
   }
 
-  // Redirect to onboarding if not yet completed (catches Google OAuth users)
-  if (!onboardingCompleted && location.pathname !== '/onboarding') {
-    return <Navigate to="/onboarding" replace />;
+  // Onboarding moved to the agent (you set up Nous by talking to Claude, not a
+  // web wizard). New users land on Install, which runs the first-run activation.
+  // Send anyone not yet activated there so they connect their agent first.
+  if (!onboardingCompleted && location.pathname !== '/install') {
+    return <Navigate to="/install" replace />;
   }
 
   return <>{children}</>;

@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { AppRoutes } from "@/components/AppRoutes";
@@ -36,7 +36,6 @@ const Login           = lazyPage(() => import("./pages/Login"));
 const Signup          = lazyPage(() => import("./pages/Signup"));
 const AcceptInvitation = lazyPage(() => import("./pages/AcceptInvitation"));
 const NotFound        = lazyPage(() => import("./pages/NotFound"));
-const OnboardingPage  = lazyPage(() => import("./pages/Onboarding"));
 const LivePage        = lazyPage(() => import("./pages/Live"));
 // Legal pages
 const PrivacyPolicy   = lazyPage(() => import("./pages/legal/PrivacyPolicy"));
@@ -94,15 +93,8 @@ const App = () => (
               <Route path="/signup" element={<Suspense fallback={<PageLoader />}><Signup /></Suspense>} />
               <Route path="/accept-invitation" element={<Suspense fallback={<PageLoader />}><AcceptInvitation /></Suspense>} />
 
-              {/* Onboarding */}
-              <Route
-                path="/onboarding"
-                element={
-                  <ProtectedRoute requireOnboarding={false}>
-                    <Suspense fallback={<PageLoader />}><OnboardingPage /></Suspense>
-                  </ProtectedRoute>
-                }
-              />
+              {/* Onboarding moved to the agent — /onboarding now redirects to Install. */}
+              <Route path="/onboarding" element={<Navigate to="/install" replace />} />
 
               {/* Public — live ops dashboard, no auth */}
               <Route path="/live" element={<Suspense fallback={<PageLoader />}><LivePage /></Suspense>} />

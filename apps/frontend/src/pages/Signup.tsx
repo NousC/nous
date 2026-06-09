@@ -56,7 +56,7 @@ const SignupContent = () => {
       setLoading(false);
     } else {
       if (data?.session) {
-        navigate("/onboarding", { replace: true });
+        navigate("/install", { replace: true });
         return;
       }
       setStep("verify");
@@ -76,8 +76,8 @@ const SignupContent = () => {
       setOtpCode("");
       setLoading(false);
     } else {
-      toast.success("Email verified! Let's set up your workspace.");
-      navigate("/onboarding", { replace: true });
+      toast.success("Email verified! Let's get you connected.");
+      navigate("/install", { replace: true });
     }
   };
 

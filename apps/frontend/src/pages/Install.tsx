@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { Copy, CheckCircle2, Plug, ArrowUpRight, Terminal, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -681,8 +681,23 @@ function SdkFooter() {
 export default function Install() {
   const [client, setClient] = useState<Client>("claude");
   const isClaudeClient = CLAUDE_CLIENTS.includes(client);
-  const { userData } = useAuth();
+  const { userData, session, onboardingCompleted, refreshUserData } = useAuth();
   const selfHosted = (userData as { self_hosted?: boolean })?.self_hosted === true;
+
+  // Onboarding moved to the agent, so the old wizard's final step no longer
+  // runs. Landing here once fires the same first-run activation it did (welcome
+  // email, free-plan backstop, dogfood signup). The endpoint is idempotent —
+  // it only does work on the first completion — so this safely fires once.
+  useEffect(() => {
+    if (onboardingCompleted || !session?.access_token) return;
+    fetch(`${SELF_HOST_API_URL}/api/onboarding/complete`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
+      body: "{}",
+    })
+      .then(() => refreshUserData())
+      .catch(() => {});
+  }, [onboardingCompleted, session?.access_token, refreshUserData]);
 
   return (
     <div className="h-full overflow-y-auto bg-muted/30">
