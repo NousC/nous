@@ -1,11 +1,9 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
-import { RefreshCw, Download, Plus, Activity, Upload, UserPlus, Sparkles, Info, ChevronDown, Check, X } from "lucide-react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { RefreshCw, Activity, Sparkles, Check, X } from "lucide-react";
 import { format, isToday, isYesterday, startOfDay } from "date-fns";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/components/ui/sonner";
-import { IntegrationConn, IntegrationLogo } from "@/components/mind/entities";
+import { IntegrationConn } from "@/components/mind/entities";
 import { AgentSetupHint } from "@/components/AgentSetupHint";
 import { PageHeader } from "@/components/ui/page-header";
 
@@ -18,17 +16,6 @@ const CRM_PROVIDER_META: Record<string, { label: string; logo: string; color: st
   attio:     { label: "Attio",     logo: "/provider-logos/attio.svg",     color: "#5852eb" },
 };
 const CRM_NAMES = Object.keys(CRM_PROVIDER_META);
-
-type CrmConfig = {
-  auto_sync: boolean; push_activities: boolean; last_synced_at: string | null; contacts_synced: number;
-  create_in_crm: boolean; create_trigger: string; create_require_icp_fit: boolean; create_icp_threshold: number;
-  hygiene_enabled: boolean; hygiene_cadence: string;
-};
-const DEFAULT_CFG: CrmConfig = {
-  auto_sync: false, push_activities: true, last_synced_at: null, contacts_synced: 0,
-  create_in_crm: true, create_trigger: "positive_reply_or_meeting", create_require_icp_fit: true, create_icp_threshold: 70,
-  hygiene_enabled: true, hygiene_cadence: "weekly",
-};
 
 type HygieneProposal = {
   id: string; provider: string; kind: string; field: string | null;
@@ -95,15 +82,9 @@ export default function CrmSync() {
   const { session, userData } = useAuth();
   const token = session?.access_token ?? "";
   const workspaceId = userData?.workspace?.id ?? "";
-  const navigate = useNavigate();
-
-  // CRM sync is a Scale feature — the API returns 402 feature_not_in_plan for
-  // lower plans. Turn that into an upgrade toast.
-  const crmGate = () => toast.info("CRM sync is a Scale feature — upgrade on the Usage & Billing page.");
 
   const [integrations, setIntegrations] = useState<IntegrationConn[]>([]);
   const [loadingConns, setLoadingConns] = useState(true);
-  const [showHelp, setShowHelp] = useState(false);
 
   useEffect(() => {
     if (!token || !workspaceId) return;
@@ -116,12 +97,6 @@ export default function CrmSync() {
   }, [token, workspaceId]);
 
   const crmConns = integrations.filter(i => CRM_NAMES.includes(i.provider?.name ?? ""));
-  const connectedProviders = new Set(crmConns.map(c => c.provider?.name).filter(Boolean) as string[]);
-
-  const [configs, setConfigs] = useState<Record<string, CrmConfig>>({});
-  const [syncing, setSyncing] = useState<string | null>(null);
-  const [togglingAuto, setTogglingAuto] = useState<string | null>(null);
-  const [togglingPush, setTogglingPush] = useState<string | null>(null);
 
   // Unified sync log across all CRMs (last 30d, capped at 200 per provider).
   const [events, setEvents] = useState<SyncEvent[]>([]);
@@ -153,129 +128,8 @@ export default function CrmSync() {
 
   useEffect(() => { loadEvents(); const iv = setInterval(loadEvents, 15_000); return () => clearInterval(iv); }, [loadEvents]);
 
-  // Load existing sync configs for every connected CRM
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const entries: [string, CrmConfig][] = [];
-      for (const c of crmConns) {
-        const prov = c.provider?.name; if (!prov) continue;
-        try {
-          const r = await fetch(`${apiUrl}/api/crm/sync-config?workspaceId=${workspaceId}&provider=${prov}`, { headers: { Authorization: `Bearer ${token}` } });
-          if (!r.ok) continue;
-          const d = await r.json();
-          if (d.config) entries.push([prov, {
-            auto_sync:       !!d.config.auto_sync,
-            push_activities: d.config.push_activities !== false,  // default true if unset
-            last_synced_at:  d.config.last_synced_at ?? null,
-            contacts_synced: d.config.contacts_synced ?? 0,
-            create_in_crm:          d.config.create_in_crm !== false,
-            create_trigger:         d.config.create_trigger || "positive_reply_or_meeting",
-            create_require_icp_fit: d.config.create_require_icp_fit !== false,
-            create_icp_threshold:   typeof d.config.create_icp_threshold === "number" ? d.config.create_icp_threshold : 70,
-            hygiene_enabled: d.config.hygiene_enabled !== false,
-            hygiene_cadence: d.config.hygiene_cadence || "weekly",
-          }]);
-        } catch {}
-      }
-      if (!cancelled) setConfigs(Object.fromEntries(entries));
-    })();
-    return () => { cancelled = true; };
-  }, [token, workspaceId, crmConns.length]);
-
-  const saveConfig = async (provider: string, connectionId: string, patch: {
-    autoSync?: boolean; pushActivities?: boolean;
-    createInCrm?: boolean; createTrigger?: string; createRequireIcpFit?: boolean; createIcpThreshold?: number;
-    hygieneEnabled?: boolean; hygieneCadence?: string;
-  }) => {
-    const r = await fetch(`${apiUrl}/api/crm/sync-config`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ workspaceId, connectionId, provider, ...patch }),
-    });
-    if (r.status === 402) {
-      const e = await r.json().catch(() => ({}));
-      if (e.error === "feature_not_in_plan") crmGate();
-    }
-    return r.ok;
-  };
-
-  const handleSync = async (conn: IntegrationConn) => {
-    const provider = conn.provider?.name; if (!provider) return;
-    setSyncing(provider);
-    try {
-      // Ensure config exists before sync-now (server requires a row)
-      if (!configs[provider]) await saveConfig(provider, conn.id, { autoSync: false, pushActivities: true });
-      const r = await fetch(`${apiUrl}/api/crm/sync-now`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ workspaceId, provider }),
-      });
-      const d = await r.json();
-      if (r.status === 402 && d.error === "feature_not_in_plan") { crmGate(); return; }
-      if (!r.ok) throw new Error(d.message || d.error || "Sync failed");
-      toast.success(`Synced ${d.total ?? 0} records — ${d.imported ?? 0} new${d.skipped ? `, ${d.skipped} skipped` : ""}`);
-      setConfigs(prev => ({
-        ...prev,
-        [provider]: {
-          ...DEFAULT_CFG,
-          ...prev[provider],
-          last_synced_at:  new Date().toISOString(),
-          contacts_synced: (prev[provider]?.contacts_synced ?? 0) + (d.imported ?? 0),
-        },
-      }));
-      // Surface the sync_complete event right away
-      loadEvents();
-    } catch (e: any) {
-      toast.error(e.message || "Sync failed");
-    } finally { setSyncing(null); }
-  };
-
-  const handleToggleAuto = async (conn: IntegrationConn, val: boolean) => {
-    const provider = conn.provider?.name; if (!provider) return;
-    setTogglingAuto(provider);
-    const ok = await saveConfig(provider, conn.id, { autoSync: val });
-    if (ok) setConfigs(prev => ({ ...prev, [provider]: { ...DEFAULT_CFG, ...prev[provider], auto_sync: val } }));
-    setTogglingAuto(null);
-  };
-
-  const handleTogglePush = async (conn: IntegrationConn, val: boolean) => {
-    const provider = conn.provider?.name; if (!provider) return;
-    setTogglingPush(provider);
-    const ok = await saveConfig(provider, conn.id, { pushActivities: val });
-    if (ok) setConfigs(prev => ({ ...prev, [provider]: { ...DEFAULT_CFG, ...prev[provider], push_activities: val } }));
-    setTogglingPush(null);
-  };
-
-  // Persist a create-policy change and optimistically reflect it in local state.
-  const handleSavePolicy = async (conn: IntegrationConn, patch: {
-    createInCrm?: boolean; createTrigger?: string; createRequireIcpFit?: boolean; createIcpThreshold?: number;
-  }) => {
-    const provider = conn.provider?.name; if (!provider) return;
-    const ok = await saveConfig(provider, conn.id, patch);
-    if (ok) setConfigs(prev => ({ ...prev, [provider]: {
-      ...DEFAULT_CFG, ...prev[provider],
-      ...(patch.createInCrm         !== undefined ? { create_in_crm:          patch.createInCrm } : {}),
-      ...(patch.createTrigger       !== undefined ? { create_trigger:         patch.createTrigger } : {}),
-      ...(patch.createRequireIcpFit !== undefined ? { create_require_icp_fit: patch.createRequireIcpFit } : {}),
-      ...(patch.createIcpThreshold  !== undefined ? { create_icp_threshold:   patch.createIcpThreshold } : {}),
-    }}));
-  };
-
-  const handleSaveHygiene = async (conn: IntegrationConn, patch: { hygieneEnabled?: boolean; hygieneCadence?: string }) => {
-    const provider = conn.provider?.name; if (!provider) return;
-    const ok = await saveConfig(provider, conn.id, patch);
-    if (ok) setConfigs(prev => ({ ...prev, [provider]: {
-      ...DEFAULT_CFG, ...prev[provider],
-      ...(patch.hygieneEnabled !== undefined ? { hygiene_enabled: patch.hygieneEnabled } : {}),
-      ...(patch.hygieneCadence !== undefined ? { hygiene_cadence: patch.hygieneCadence } : {}),
-    }}));
-  };
-
   // ── Hygiene report ──
   const [proposals, setProposals] = useState<HygieneProposal[]>([]);
-  const [runningHygiene, setRunningHygiene] = useState<string | null>(null);
-  const [expandedCfg, setExpandedCfg] = useState<string | null>(null);
 
   const loadProposals = useCallback(async () => {
     if (!token || !workspaceId) return;
@@ -289,28 +143,6 @@ export default function CrmSync() {
   }, [token, workspaceId]);
 
   useEffect(() => { loadProposals(); }, [loadProposals]);
-
-  const handleRunHygiene = async (conn: IntegrationConn) => {
-    const provider = conn.provider?.name; if (!provider) return;
-    setRunningHygiene(provider);
-    try {
-      // Ensure a config row exists first (server needs one to attach to).
-      if (!configs[provider]) await saveConfig(provider, conn.id, { autoSync: false, pushActivities: true });
-      const r = await fetch(`${apiUrl}/api/crm/hygiene/run`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ workspaceId, provider }),
-      });
-      const d = await r.json();
-      if (r.status === 402 && d.error === "feature_not_in_plan") { crmGate(); return; }
-      if (!r.ok) throw new Error(d.error || "Hygiene run failed");
-      toast.success(`Hygiene run — ${d.net_new ?? 0} net-new enriched, ${d.icp_rescore ?? 0} ICP write-backs proposed`);
-      loadProposals();
-      loadEvents();
-    } catch (e: any) {
-      toast.error(e.message || "Hygiene run failed");
-    } finally { setRunningHygiene(null); }
-  };
 
   const decideProposal = async (id: string, status: "approved" | "dismissed") => {
     const target = proposals.find(p => p.id === id);
