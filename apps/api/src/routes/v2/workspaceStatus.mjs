@@ -6,6 +6,7 @@ import {
   listTriggers,
   countHygieneProposals,
 } from '@nous/core';
+import { seedScorecardFromMemory } from '../../lib/scorecardSeed.mjs';
 
 // ── Workspace status + onboarding — the agent's setup surface ──────────────────
 //
@@ -271,6 +272,41 @@ workspaceStatusV2Router.post('/onboarding', async (req, res) => {
     return res.json({ ok: true, workspace: workspace || { id: workspaceId } });
   } catch (err) {
     console.error('[POST /v2/workspace/onboarding]', err);
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
+// ── POST /v2/workspace/scoring-model ─────────────────────────────────────────
+// Agent-callable: build (or rebuild) the ICP scoring model from the GTM context
+// the workspace has recorded. This is the second half of building the GTM
+// playbook — the agent records the context with update_gtm_profile, then calls
+// this to turn it into a weighted scoring model. Pass force:true to rebuild over
+// an existing model. Shares its implementation with the human web route.
+workspaceStatusV2Router.post('/scoring-model', async (req, res) => {
+  try {
+    const supabase = getSupabaseClient();
+    const force = req.body?.force === true;
+    const r = await seedScorecardFromMemory(supabase, req.workspaceId, { force });
+
+    if (r.status === 'exists') {
+      return res.status(409).json({
+        error: 'model_exists',
+        message: 'A scoring model already exists. Pass force:true to rebuild it.',
+        signals: r.signals,
+      });
+    }
+    if (r.status === 'no_icp_memory') {
+      return res.status(400).json({
+        error: 'no_gtm_context',
+        message: 'No GTM context recorded yet. Record the ICP and how they sell with update_gtm_profile, then build the model.',
+      });
+    }
+    if (r.status === 'translation_failed') {
+      return res.status(502).json({ error: 'translation_failed', message: 'Could not build a model from the current context.' });
+    }
+    return res.status(201).json({ ok: true, signals: r.signals });
+  } catch (err) {
+    console.error('[POST /v2/workspace/scoring-model]', err);
     return res.status(500).json({ error: 'internal_error' });
   }
 });

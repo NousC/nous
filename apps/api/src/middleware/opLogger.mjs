@@ -34,6 +34,7 @@ const PATH_LABELS = {
   'GET /v2/workspace/facts':  'v2.workspace.facts',
   'GET /v2/workspace/status': 'v2.workspace.status',
   'POST /v2/workspace/onboarding': 'v2.workspace.onboarding',
+  'POST /v2/workspace/scoring-model': 'v2.workspace.scoring_model',
 };
 
 function labelFor(req) {
@@ -122,6 +123,9 @@ function describeCall(req) {
       if (body.business_type) bits.push(body.business_type);
       if (body.icp)           bits.push('icp');
       return `set_workspace_profile${bits.length ? ` · ${bits.join(' · ')}` : ''}`;
+    }
+    case 'POST /v2/workspace/scoring-model': {
+      return `build_scoring_model${body.force ? ' · rebuild' : ''}`;
     }
     default:
       return `${req.method} ${req.originalUrl.split('?')[0]}`;

@@ -12,8 +12,9 @@
 
 import { Router } from 'express';
 import Anthropic from 'useleak';
-import { getSupabaseClient, listSignals, seedSignals, listNotes, scoreLead, getAttention, saveNote, deleteNote, supersedeNote, getWorkspaceEntityId, getOrCreateEntity, logActivity, discoverSignals, upsertSignal, pipelineFeatures, scoreAndStake, resolveEntityPredictions, rescoreOpenPredictions, isNonFeatureProp } from '@nous/core';
+import { getSupabaseClient, listSignals, listNotes, scoreLead, getAttention, saveNote, deleteNote, supersedeNote, getWorkspaceEntityId, getOrCreateEntity, logActivity, discoverSignals, upsertSignal, pipelineFeatures, scoreAndStake, resolveEntityPredictions, rescoreOpenPredictions, isNonFeatureProp } from '@nous/core';
 import { extractAndRecordWebsiteSignals } from '../../services/websiteSignals.mjs';
+import { seedScorecardFromMemory } from '../../lib/scorecardSeed.mjs';
 
 export const mindRouter = Router();
 
@@ -21,25 +22,8 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 // Features a seed signal's rule may reference. The lead feature snapshot is
 // populated by enrichment; until then rules are valid but inert.
-const FEATURE_VOCAB =
-  'job_title (string), seniority (one of: c_suite, vp, director, manager, ic), ' +
-  'department (string), industry (string), employee_count (number), ' +
-  'company_type (one of: software, agency, services, marketplace, ecommerce, media, hardware), ' +
-  'size_band (one of: 1-10, 11-50, 51-200, 201-1000, 1000+), ' +
-  'funding_stage (one of: bootstrapped, seed, series_a, series_b, series_c_plus, public), ' +
-  'country (string), company (string). ' +
-  // Website-derived signals (from the signal extractor) — niche, differentiated:
-  'signal.target_market (b2b|b2c|b2b2c|developer|enterprise|smb), ' +
-  'signal.pricing_model (usage_based|seat_based|flat|freemium|enterprise_contact), ' +
-  'signal.has_api / signal.has_sandbox / signal.self_serve_signup / signal.free_trial / signal.recently_funded (boolean), ' +
-  'signal.tech.<tool> (boolean, e.g. signal.tech.stripe), ' +
-  'signal.hiring.<role> (boolean, e.g. signal.hiring.revops), ' +
-  'signal.compliance.<term> (boolean, e.g. signal.compliance.soc2). ' +
-  // Pipeline-engagement (how the deal went), bucketed from the activity log:
-  'pipe.lead_source (e.g. inbound_website, outbound_email, inbound_linkedin), ' +
-  'pipe.channel (email|linkedin|meeting|website|slack|other), ' +
-  'pipe.inbound (boolean), pipe.replied (boolean), ' +
-  'pipe.meetings_band (0|1|2|3+), pipe.touches_band (1-2|3-5|6-10|10+)';
+// FEATURE_VOCAB + the scorecard-seed routine now live in lib/scorecardSeed.mjs,
+// shared with the agent route POST /v2/workspace/scoring-model.
 
 // Monday-of-week key (UTC) — buckets episodes for the weekly trend.
 function weekKey(iso) {
@@ -704,69 +688,11 @@ mindRouter.post('/scorecard/seed', async (req, res) => {
     if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
     const supabase = getSupabaseClient();
 
-    const existing = await listSignals(supabase, workspaceId);
-    if (existing.length > 0 && !force) {
-      return res.status(409).json({ error: 'scorecard_exists', signals: existing });
-    }
-
-    // The ICP lives in Memory — the ICP / Market / Product / Pricing /
-    // Competitors / Positioning notes the user has added. Translate them into
-    // the Scorecard.
-    const mems = await listNotes(supabase, workspaceId, {
-      categories: ['ICP', 'Market', 'Product', 'Pricing', 'Competitors', 'Positioning'],
-      limit: 80,
-    });
-    const icpText = mems.map(m => `[${m.category}] ${m.content}`).join('\n').trim();
-    if (!icpText) return res.status(400).json({ error: 'no_icp_memory' });
-
-    const prompt =
-      `Translate this Ideal Customer Profile into a Scorecard — a list of ` +
-      `weighted signals that score how well a lead fits.\n\n` +
-      `ICP: """${icpText}"""\n\n` +
-      `Produce 4 to 8 signals. Each is an inclusion criterion, so every weight ` +
-      `is positive — the system learns negative signals later from real replies.\n\n` +
-      `CRITICAL — stay faithful to the ICP. A signal must be exactly as narrow as ` +
-      `what the ICP states, never broader:\n` +
-      `- Preserve stated numbers exactly. "1-20 employees" becomes employee_count ` +
-      `<= 20 (or a 1-20 range), NOT employee_count < 50. Never loosen a threshold.\n` +
-      `- Map qualitative descriptors to the tightest faithful rule. "AI service ` +
-      `businesses and agencies" becomes industry in the specific terms given, NOT ` +
-      `a vague "operates in the AI space".\n` +
-      `- Do not invent criteria the ICP never mentions, and do not generalize a ` +
-      `narrow, niche ICP into a broad one. If the ICP is narrow, the signals are narrow.\n\n` +
-      `Each signal has:\n` +
-      `- key: short snake_case id\n- label: one plain sentence that restates the ` +
-      `ICP's own specifics (e.g. "1-20 employees", not "small company")\n` +
-      `- weight: integer 1-10, higher = more predictive of fit\n` +
-      `- rule: how it fires on a lead's features — ` +
-      `{ "feature": <name>, "op": <operator>, "value": <value> }\n\n` +
-      `Available features: ${FEATURE_VOCAB}\n` +
-      `Operators: ==, !=, >=, <=, >, <, in, exists. For "in", value is an array.\n\n` +
-      `Respond with ONLY a JSON array, no prose.`;
-
-    const msg = await anthropic.messages.create({
-      feature: 'scorecard-seed-translate',
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 900,
-      messages: [{ role: 'user', content: prompt }],
-    });
-    const raw = msg.content[0].text.trim();
-    const parsed = JSON.parse(raw.match(/\[[\s\S]*\]/)?.[0] || raw);
-
-    const signals = (Array.isArray(parsed) ? parsed : [])
-      .slice(0, 12)
-      .map(s => ({
-        key: String(s.key || '').trim().slice(0, 60),
-        label: String(s.label || '').trim().slice(0, 200),
-        weight: Math.max(1, Math.min(10, Math.round(Number(s.weight) || 3))),
-        rule: s.rule && typeof s.rule === 'object' ? s.rule : {},
-      }))
-      .filter(s => s.key && s.label);
-
-    if (signals.length === 0) return res.status(502).json({ error: 'translation_failed' });
-
-    const created = await seedSignals(supabase, workspaceId, signals);
-    return res.status(201).json({ signals: created });
+    const r = await seedScorecardFromMemory(supabase, workspaceId, { force });
+    if (r.status === 'exists')             return res.status(409).json({ error: 'scorecard_exists', signals: r.signals });
+    if (r.status === 'no_icp_memory')      return res.status(400).json({ error: 'no_icp_memory' });
+    if (r.status === 'translation_failed') return res.status(502).json({ error: 'translation_failed' });
+    return res.status(201).json({ signals: r.signals });
   } catch (err) {
     console.error('[POST /api/mind/scorecard/seed]', err);
     return res.status(500).json({ error: 'internal_error' });

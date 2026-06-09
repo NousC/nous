@@ -23,13 +23,14 @@
  *   search_notes         — semantic search over saved notes & documents
  *   get_workspace_status — what's set up in this workspace + a ranked next_steps list (call first)
  *   set_workspace_profile— agent-driven onboarding: set the workspace's name, site, type, ICP
+ *   build_scoring_model  — build/rebuild the ICP scoring model from the recorded GTM context
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { get, post } from "./client.js";
 
-export const SERVER_VERSION = "0.17.0";
+export const SERVER_VERSION = "0.18.0";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -582,6 +583,50 @@ export function createServer() {
       return { content: [{ type: "text", text:
         `Workspace profile saved.${set.length ? ` ${set.join(" · ")}.` : ""}\n` +
         `Next: call get_workspace_status to see what to set up next (usually the GTM playbook).` }] };
+    }
+  );
+
+  // ===========================================================================
+  // TOOL: build_scoring_model  —  POST /v2/workspace/scoring-model
+  // The second half of building the GTM playbook. The agent records the GTM
+  // context with update_gtm_profile, then calls this to turn it into a weighted
+  // ICP scoring model. After this, accounts get scored for fit and
+  // get_workspace_status shows the playbook as done.
+  // ===========================================================================
+  server.tool(
+    "build_scoring_model",
+    "Build (or rebuild) the user's ICP scoring model from the GTM context they've recorded. This is " +
+    "the second half of setting up the GTM playbook: first record the ICP and how they sell with " +
+    "update_gtm_profile, then call this to translate that context into a weighted set of scoring " +
+    "signals so accounts get scored for fit. If a model already exists it is left alone unless you " +
+    "pass force:true (use that when the GTM context has changed and the model should be rebuilt). If " +
+    "it reports no GTM context yet, record some with update_gtm_profile first, then call this again.",
+    {
+      force: z.boolean().optional()
+        .describe("Rebuild the model even if one already exists — use when the GTM context has changed."),
+    },
+    async ({ force }) => {
+      try {
+        const r = await post("/v2/workspace/scoring-model", { force: force === true });
+        const signals = r.signals ?? [];
+        const lines = [`Built the ICP scoring model — ${signals.length} signal${signals.length === 1 ? "" : "s"}:`];
+        for (const s of signals) lines.push(`  • ${s.label ?? s.key} (weight ${s.weight})`);
+        lines.push("", "Accounts will now be scored for fit. Check it on the GTM Context page.");
+        return { content: [{ type: "text", text: lines.join("\n").trim() }] };
+      } catch (e) {
+        // Surface the actionable cases (no context yet / model already exists) as
+        // guidance rather than a raw error, so the agent knows what to do next.
+        const msg = String(e?.message ?? e);
+        if (msg.includes("no_gtm_context")) {
+          return { content: [{ type: "text", text:
+            "No GTM context recorded yet. Record the ICP and how they sell with update_gtm_profile first, then build the model." }] };
+        }
+        if (msg.includes("model_exists")) {
+          return { content: [{ type: "text", text:
+            "A scoring model already exists. Call build_scoring_model again with force:true to rebuild it from the current GTM context." }] };
+        }
+        throw e;
+      }
     }
   );
 
