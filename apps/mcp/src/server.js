@@ -24,13 +24,17 @@
  *   get_workspace_status — what's set up in this workspace + a ranked next_steps list (call first)
  *   set_workspace_profile— agent-driven onboarding: set the workspace's name, site, type, ICP
  *   build_scoring_model  — build/rebuild the ICP scoring model from the recorded GTM context
+ *   connect_integration  — connect a key-based integration (Apollo, Prospeo, HubSpot, …)
+ *   configure_crm_sync   — set CRM sync rules (auto-sync, create policy, hygiene cadence)
+ *   set_trigger          — create an outbound event trigger (webhook); list_triggers reads them
+ *   list_triggers        — list the workspace's event triggers + available events
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { get, post } from "./client.js";
 
-export const SERVER_VERSION = "0.18.0";
+export const SERVER_VERSION = "0.19.0";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -627,6 +631,132 @@ export function createServer() {
         }
         throw e;
       }
+    }
+  );
+
+  // ===========================================================================
+  // TOOL: connect_integration  —  POST /v2/workspace/integrations
+  // The agent connects a KEY-BASED integration for the user (no clicking through
+  // the Integrations page). OAuth providers still need a browser, so this is
+  // limited to providers that authenticate with an API key/token.
+  // ===========================================================================
+  server.tool(
+    "connect_integration",
+    "Connect a key-based integration for the user — an enrichment, CRM, or sequencer provider that " +
+    "authenticates with an API key or token (e.g. Apollo, Prospeo, Instantly, HubSpot private-app " +
+    "token, Pipedrive, Attio, Smartlead, HeyReach). Ask the user for the provider's API key, then " +
+    "call this; it verifies the credentials before saving. Providers that use a browser sign-in " +
+    "(OAuth, e.g. Gmail) can't be connected this way — for those, point the user to the Integrations " +
+    "page. After connecting an enrichment provider, the account record starts filling in.",
+    {
+      provider: z.string().describe("Provider name, lowercase — e.g. 'apollo', 'prospeo', 'instantly', 'hubspot', 'pipedrive', 'attio'."),
+      credentials: z.record(z.string()).describe("The provider's credentials as key/value, e.g. { api_key: '...' } or { access_token: '...' }."),
+      name: z.string().optional().describe("Optional label for the connection."),
+    },
+    async ({ provider, credentials, name }) => {
+      try {
+        const r = await post("/v2/workspace/integrations", { provider, credentials, name });
+        return { content: [{ type: "text", text: `Connected ${r.connection?.provider ?? provider}.${r.message ? ` ${r.message}` : ""}` }] };
+      } catch (e) {
+        const msg = String(e?.message ?? e);
+        if (msg.includes("oauth_provider")) {
+          return { content: [{ type: "text", text: `${provider} uses a browser sign-in, so it can't be connected with a key. Tell the user to connect it on the Integrations page.` }] };
+        }
+        if (msg.includes("invalid_credentials")) {
+          return { content: [{ type: "text", text: `Those credentials didn't verify for ${provider}. Ask the user to double-check the key and try again.` }] };
+        }
+        if (msg.includes("unknown_provider")) {
+          return { content: [{ type: "text", text: `No provider named "${provider}". Ask the user which tool they mean.` }] };
+        }
+        throw e;
+      }
+    }
+  );
+
+  // ===========================================================================
+  // TOOL: configure_crm_sync  —  POST /v2/workspace/crm-sync
+  // The agent sets the CRM sync rules — the same options as the CRM Sync page.
+  // The CRM must already be connected (OAuth connect stays a human step).
+  // ===========================================================================
+  server.tool(
+    "configure_crm_sync",
+    "Configure how Nous keeps a connected CRM in sync — the same settings as the CRM Sync page. The " +
+    "CRM must already be connected (HubSpot/Pipedrive/Attio). Set any of: auto-sync (daily pull), " +
+    "push of touchpoints, the create policy (when a new record is auto-created and the ICP-fit " +
+    "threshold), and the hygiene cadence. Only send the fields you want to change. If it reports the " +
+    "CRM isn't connected, tell the user to connect it on the Integrations page first.",
+    {
+      provider: z.enum(["hubspot", "pipedrive", "attio"]).describe("Which connected CRM to configure."),
+      autoSync: z.boolean().optional().describe("Pull contacts/companies/deals daily."),
+      pushActivities: z.boolean().optional().describe("Push touchpoints (meetings, replies, proposals) back to the CRM."),
+      createInCrm: z.boolean().optional().describe("Auto-create new records in the CRM when they earn it."),
+      createTrigger: z.enum(["any_reply_or_meeting", "positive_reply_or_meeting", "meeting_only", "interested_stage"]).optional()
+        .describe("What earns a new record."),
+      createRequireIcpFit: z.boolean().optional().describe("Require an ICP-fit score before creating a record."),
+      createIcpThreshold: z.number().optional().describe("Minimum ICP-fit score to create (0-100)."),
+      hygieneEnabled: z.boolean().optional().describe("Run scheduled hygiene reconciliation."),
+      hygieneCadence: z.enum(["weekly", "monthly"]).optional().describe("How often hygiene runs."),
+    },
+    async (args) => {
+      try {
+        const r = await post("/v2/workspace/crm-sync", args);
+        const c = r.config ?? {};
+        return { content: [{ type: "text", text:
+          `CRM sync configured for ${args.provider}. auto-sync ${c.auto_sync ? "on" : "off"}, ` +
+          `create ${c.create_in_crm ? `on (${c.create_trigger}${c.create_require_icp_fit ? `, ICP ≥ ${c.create_icp_threshold}` : ""})` : "off"}, ` +
+          `hygiene ${c.hygiene_enabled ? c.hygiene_cadence : "off"}.` }] };
+      } catch (e) {
+        const msg = String(e?.message ?? e);
+        if (msg.includes("crm_not_connected")) {
+          return { content: [{ type: "text", text: `${args.provider} isn't connected yet. Tell the user to connect it on the Integrations page, then configure sync.` }] };
+        }
+        throw e;
+      }
+    }
+  );
+
+  // ===========================================================================
+  // TOOL: set_trigger / list_triggers  —  /v2/workspace/triggers
+  // Outbound event triggers (webhooks) — wire the user's stack to fire when the
+  // record changes.
+  // ===========================================================================
+  server.tool(
+    "set_trigger",
+    "Create an outbound event trigger (a webhook) so an external tool is notified when something " +
+    "happens in the workspace — e.g. a new contact, a reply, a meeting booked. Pass the destination " +
+    "URL and which events to fire on. Call list_triggers first to see the available event names.",
+    {
+      url: z.string().describe("The destination URL the event is POSTed to."),
+      events: z.array(z.string()).describe("Event names to fire on (see list_triggers for the catalog)."),
+      name: z.string().optional().describe("Optional label for the trigger."),
+    },
+    async ({ url, events, name }) => {
+      try {
+        const r = await post("/v2/workspace/triggers", { url, events, name });
+        return { content: [{ type: "text", text: `Trigger created for ${events.join(", ")} → ${url}.` }] };
+      } catch (e) {
+        const msg = String(e?.message ?? e);
+        return { content: [{ type: "text", text: `Couldn't create the trigger: ${msg}. Call list_triggers to see valid event names.` }] };
+      }
+    }
+  );
+  server.tool(
+    "list_triggers",
+    "List the workspace's outbound event triggers (webhooks) and the catalog of available event names.",
+    {},
+    async () => {
+      const r = await get("/v2/workspace/triggers");
+      const lines = [];
+      if (r.triggers?.length) {
+        lines.push(`TRIGGERS (${r.triggers.length}):`);
+        for (const t of r.triggers) lines.push(`  ${t.name || "(unnamed)"} → ${t.url}  [${(t.events || []).join(", ")}]`);
+      } else {
+        lines.push("No triggers set up yet.");
+      }
+      if (r.available_events?.length) {
+        lines.push("", `AVAILABLE EVENTS: ${r.available_events.join(", ")}`);
+      }
+      return { content: [{ type: "text", text: lines.join("\n").trim() }] };
     }
   );
 

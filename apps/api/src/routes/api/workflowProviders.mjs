@@ -31,6 +31,21 @@ function decrypt(encryptedValue) {
   } catch { return encryptedValue; }
 }
 
+// Encrypt a credentials object the same way the connect route does (aes-256-cbc,
+// iv:data per field). Exported so the agent route (POST /v2/workspace/integrations)
+// stores credentials identically to the web route.
+export function encryptCredentials(credentials) {
+  const out = {};
+  if (credentials && ENCRYPTION_KEY) {
+    for (const [key, val] of Object.entries(credentials)) {
+      const iv = crypto.randomBytes(16);
+      const cipher = crypto.createCipheriv('aes-256-cbc', ENCRYPTION_KEY, iv);
+      out[key] = iv.toString('hex') + ':' + cipher.update(String(val), 'utf8', 'hex') + cipher.final('hex');
+    }
+  }
+  return out;
+}
+
 // GET /api/workflow-providers
 workflowProvidersRouter.get('/', verifySupabaseAuth, async (req, res) => {
   try {
@@ -135,7 +150,7 @@ workflowProvidersRouter.post('/connections', verifySupabaseAuth, async (req, res
 });
 
 // Shared: test raw credentials against a provider
-async function testProviderCredentials(provider, credentials) {
+export async function testProviderCredentials(provider, credentials) {
   const token = credentials.access_token || credentials.api_key || credentials.api_token || Object.values(credentials).find(Boolean);
 
   try {

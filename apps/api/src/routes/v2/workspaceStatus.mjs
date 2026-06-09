@@ -4,9 +4,13 @@ import {
   listNotes,
   saveNote,
   listTriggers,
+  createTrigger,
+  TRIGGER_EVENTS,
   countHygieneProposals,
 } from '@nous/core';
 import { seedScorecardFromMemory } from '../../lib/scorecardSeed.mjs';
+import { requireFeature } from '../../lib/access.mjs';
+import { testProviderCredentials, encryptCredentials } from '../api/workflowProviders.mjs';
 
 // ── Workspace status + onboarding — the agent's setup surface ──────────────────
 //
@@ -307,6 +311,149 @@ workspaceStatusV2Router.post('/scoring-model', async (req, res) => {
     return res.status(201).json({ ok: true, signals: r.signals });
   } catch (err) {
     console.error('[POST /v2/workspace/scoring-model]', err);
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
+// ── POST /v2/workspace/integrations ──────────────────────────────────────────
+// Agent-callable: connect a KEY-BASED integration (Apollo, Prospeo, Instantly,
+// HubSpot, …) by supplying credentials. OAuth providers can't be done this way
+// (they need a browser) — the agent is told to send the user to Integrations.
+// Mirrors the web connect route: tests the credentials, then stores them
+// encrypted exactly the same way.
+workspaceStatusV2Router.post('/integrations', async (req, res) => {
+  try {
+    const supabase = getSupabaseClient();
+    const { provider, credentials, name } = req.body || {};
+    if (!provider || !credentials || typeof credentials !== 'object') {
+      return res.status(400).json({ error: 'provider_and_credentials_required' });
+    }
+
+    const { data: prov } = await supabase
+      .from('workflow_providers')
+      .select('id, name, display_name, auth_type, category')
+      .eq('name', String(provider).toLowerCase())
+      .eq('is_active', true)
+      .maybeSingle();
+    if (!prov) return res.status(404).json({ error: 'unknown_provider', message: `No provider named "${provider}".` });
+
+    if ((prov.auth_type || '').toLowerCase() === 'oauth') {
+      return res.status(400).json({
+        error: 'oauth_provider',
+        message: `${prov.display_name} uses a browser sign-in. Send the user to the Integrations page to connect it — key-based connect isn't possible here.`,
+      });
+    }
+
+    const test = await testProviderCredentials(prov.name, credentials);
+    if (!test.verified) {
+      return res.status(400).json({ error: 'invalid_credentials', message: test.message || 'Credentials did not verify.' });
+    }
+
+    // created_by is NOT NULL. API-key auth has no user, so attribute the
+    // connection to a workspace member (prefer the owner).
+    const { data: members } = await supabase
+      .from('workspace_members').select('user_id, role').eq('workspace_id', req.workspaceId);
+    const createdBy = (members || []).find(m => m.role === 'owner')?.user_id || members?.[0]?.user_id;
+    if (!createdBy) return res.status(400).json({ error: 'no_workspace_member' });
+
+    const { data: conn, error } = await supabase
+      .from('workflow_provider_connections')
+      .upsert({
+        workspace_id: req.workspaceId,
+        provider_id: prov.id,
+        name: name || prov.display_name || 'Connection',
+        encrypted_credentials: encryptCredentials(credentials),
+        created_by: createdBy,
+        is_verified: true,
+        last_test_at: new Date().toISOString(),
+      }, { onConflict: 'workspace_id,provider_id,name' })
+      .select('id, provider_id, name, is_verified')
+      .single();
+    if (error) throw error;
+
+    return res.status(201).json({ ok: true, connection: { ...conn, provider: prov.name }, message: test.message });
+  } catch (err) {
+    console.error('[POST /v2/workspace/integrations]', err);
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
+// ── POST /v2/workspace/crm-sync ──────────────────────────────────────────────
+// Agent-callable: configure CRM sync rules — the same options as the CRM Sync
+// setup form. The CRM must already be connected (OAuth connect stays a human
+// step). Cloud-only Pro+ feature, gated like the web route.
+const CREATE_TRIGGERS = ['any_reply_or_meeting', 'positive_reply_or_meeting', 'meeting_only', 'interested_stage'];
+const HYGIENE_CADENCES = ['weekly', 'monthly'];
+workspaceStatusV2Router.post('/crm-sync', requireFeature('crmSync'), async (req, res) => {
+  try {
+    const supabase = getSupabaseClient();
+    const workspaceId = req.workspaceId;
+    const { provider, autoSync, pushActivities, createInCrm, createTrigger: createTrig,
+            createRequireIcpFit, createIcpThreshold, hygieneEnabled, hygieneCadence } = req.body || {};
+    if (!provider) return res.status(400).json({ error: 'provider_required' });
+
+    // Resolve the connected CRM for this provider.
+    const { data: conns } = await supabase
+      .from('workflow_provider_connections')
+      .select('id, provider:workflow_providers(name)')
+      .eq('workspace_id', workspaceId);
+    const match = (conns || []).find(c => c.provider?.name === String(provider).toLowerCase());
+    if (!match) {
+      return res.status(400).json({ error: 'crm_not_connected', message: `${provider} isn't connected. Connect it on the Integrations page first.` });
+    }
+
+    const { data: existing } = await supabase.from('crm_sync_configs')
+      .select('auto_sync, push_activities, create_in_crm, create_trigger, create_require_icp_fit, create_icp_threshold, hygiene_enabled, hygiene_cadence')
+      .eq('workspace_id', workspaceId).eq('provider', String(provider).toLowerCase()).maybeSingle();
+
+    const payload = {
+      workspace_id: workspaceId,
+      connection_id: match.id,
+      provider: String(provider).toLowerCase(),
+      auto_sync:       typeof autoSync       === 'boolean' ? autoSync       : (existing?.auto_sync       ?? false),
+      push_activities: typeof pushActivities === 'boolean' ? pushActivities : (existing?.push_activities ?? true),
+      create_in_crm:          typeof createInCrm         === 'boolean' ? createInCrm         : (existing?.create_in_crm          ?? true),
+      create_trigger:         CREATE_TRIGGERS.includes(createTrig)     ? createTrig         : (existing?.create_trigger          ?? 'positive_reply_or_meeting'),
+      create_require_icp_fit: typeof createRequireIcpFit === 'boolean' ? createRequireIcpFit : (existing?.create_require_icp_fit ?? true),
+      create_icp_threshold:   Number.isFinite(createIcpThreshold)      ? Math.max(0, Math.min(100, Math.round(createIcpThreshold))) : (existing?.create_icp_threshold ?? 70),
+      hygiene_enabled: typeof hygieneEnabled === 'boolean' ? hygieneEnabled : (existing?.hygiene_enabled ?? true),
+      hygiene_cadence: HYGIENE_CADENCES.includes(hygieneCadence)       ? hygieneCadence     : (existing?.hygiene_cadence ?? 'weekly'),
+      updated_at: new Date().toISOString(),
+    };
+
+    const { data, error } = await supabase.from('crm_sync_configs')
+      .upsert(payload, { onConflict: 'workspace_id,provider' }).select().single();
+    if (error) throw error;
+    return res.json({ ok: true, config: data });
+  } catch (err) {
+    console.error('[POST /v2/workspace/crm-sync]', err);
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
+// ── GET/POST /v2/workspace/triggers ──────────────────────────────────────────
+// Agent-callable: list or create outbound event triggers (webhooks). The agent
+// wires the user's stack to fire on record changes.
+workspaceStatusV2Router.get('/triggers', async (req, res) => {
+  try {
+    const triggers = await listTriggers(getSupabaseClient(), req.workspaceId);
+    return res.json({ triggers, available_events: TRIGGER_EVENTS });
+  } catch (err) {
+    console.error('[GET /v2/workspace/triggers]', err);
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+workspaceStatusV2Router.post('/triggers', async (req, res) => {
+  try {
+    const { name, url, events } = req.body || {};
+    if (!url || !Array.isArray(events) || events.length === 0) {
+      return res.status(400).json({ error: 'url_and_events_required', available_events: TRIGGER_EVENTS });
+    }
+    const trigger = await createTrigger(getSupabaseClient(), req.workspaceId, { name, url, events });
+    return res.status(201).json({ ok: true, trigger });
+  } catch (err) {
+    if (err?.message) return res.status(400).json({ error: err.message, available_events: TRIGGER_EVENTS });
+    console.error('[POST /v2/workspace/triggers]', err);
     return res.status(500).json({ error: 'internal_error' });
   }
 });

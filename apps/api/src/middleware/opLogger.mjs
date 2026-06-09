@@ -35,6 +35,10 @@ const PATH_LABELS = {
   'GET /v2/workspace/status': 'v2.workspace.status',
   'POST /v2/workspace/onboarding': 'v2.workspace.onboarding',
   'POST /v2/workspace/scoring-model': 'v2.workspace.scoring_model',
+  'POST /v2/workspace/integrations': 'v2.workspace.integration',
+  'POST /v2/workspace/crm-sync': 'v2.workspace.crm_sync',
+  'GET /v2/workspace/triggers': 'v2.workspace.triggers',
+  'POST /v2/workspace/triggers': 'v2.workspace.trigger',
 };
 
 function labelFor(req) {
@@ -126,6 +130,19 @@ function describeCall(req) {
     }
     case 'POST /v2/workspace/scoring-model': {
       return `build_scoring_model${body.force ? ' · rebuild' : ''}`;
+    }
+    case 'POST /v2/workspace/integrations': {
+      return `connect_integration · ${trunc(body.provider, 24)}`;
+    }
+    case 'POST /v2/workspace/crm-sync': {
+      return `configure_crm_sync · ${trunc(body.provider, 24)}`;
+    }
+    case 'POST /v2/workspace/triggers': {
+      const n = Array.isArray(body.events) ? body.events.length : 0;
+      return `set_trigger · ${n} event${n === 1 ? '' : 's'}`;
+    }
+    case 'GET /v2/workspace/triggers': {
+      return 'list_triggers';
     }
     default:
       return `${req.method} ${req.originalUrl.split('?')[0]}`;
