@@ -3,6 +3,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { RefreshCw, ChevronRight, Trash2, History, Info, Plus, ArrowLeft } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { PageHeader } from "@/components/ui/page-header";
+import { AgentSetupHint } from "@/components/AgentSetupHint";
 
 // Intelligence — your living ICP.
 //
@@ -958,19 +959,22 @@ export default function Intelligence() {
                 <div className="px-6 py-10 flex flex-col items-center text-center">
                   <h3 className="text-[17px] font-semibold text-foreground">Set up your GTM Playbook</h3>
                   <p className="text-[13px] text-muted-foreground mt-2 max-w-[460px] leading-relaxed">
-                    We'll read your website, draft what you sell and who you sell to, then
-                    walk you through your segments, buyers, and use cases — answers already
-                    filled in. Confirm them and we build your scoring model.
+                    Your agent builds this with you in Claude. It reads your site, drafts what
+                    you sell and who you sell to, and writes your scoring model. This page is
+                    where you watch it take shape.
                   </p>
+                  <div className="mt-5 w-full max-w-[460px]">
+                    <AgentSetupHint prompt="Set up my GTM playbook" />
+                  </div>
                   <button
                     onClick={openPlaybook}
-                    className="mt-5 inline-flex items-center gap-1.5 h-10 px-5 rounded-lg bg-primary text-primary-foreground text-[14px] font-semibold hover:bg-primary/90 transition-colors"
+                    className="mt-4 text-[12px] font-semibold text-foreground/70 hover:text-foreground transition-colors"
                   >
-                    Set up your GTM Playbook
+                    or set it up here
                   </button>
                   <button
                     onClick={() => setCdOpen(true)}
-                    className="mt-3 text-[12px] font-semibold text-foreground/70 hover:text-foreground transition-colors"
+                    className="mt-1.5 text-[12px] text-muted-foreground/70 hover:text-foreground transition-colors"
                   >
                     or build from my closed deals →
                   </button>

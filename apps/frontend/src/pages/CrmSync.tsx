@@ -6,6 +6,7 @@ import { format, isToday, isYesterday, startOfDay } from "date-fns";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "@/components/ui/sonner";
 import { IntegrationConn, IntegrationLogo } from "@/components/mind/entities";
+import { AgentSetupHint } from "@/components/AgentSetupHint";
 import { PageHeader } from "@/components/ui/page-header";
 
 const apiUrl = import.meta.env.VITE_API_URL ?? "";
@@ -388,12 +389,15 @@ export default function CrmSync() {
         {loadingConns ? (
           <div className="text-[13px] text-muted-foreground/70 text-center py-12">Loading…</div>
         ) : crmConns.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-border py-12 text-center">
+          <div className="rounded-xl border border-dashed border-border py-10 px-6 text-center">
             <p className="text-[13px] font-medium text-foreground/80 mb-1">No CRM connected yet</p>
-            <p className="text-[12px] text-muted-foreground/70 mb-4">Connect HubSpot, Pipedrive, or Attio to start syncing contacts.</p>
+            <p className="text-[12px] text-muted-foreground/70 mb-4">Your agent connects HubSpot, Pipedrive, or Attio and sets your sync rules. This page is where you watch it run.</p>
+            <div className="mx-auto max-w-[420px]">
+              <AgentSetupHint prompt="Set up my CRM sync" />
+            </div>
             <button onClick={() => navigate("/integrations")}
-              className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-primary text-primary-foreground text-[13px] font-semibold hover:bg-primary/90 transition-colors">
-              <Plus className="h-3.5 w-3.5" /> Connect a CRM
+              className="mt-3 text-[12px] font-semibold text-foreground/70 hover:text-foreground transition-colors">
+              or connect a CRM here
             </button>
           </div>
         ) : (

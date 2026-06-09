@@ -11,7 +11,6 @@ import { toast } from "@/components/ui/sonner";
 import { Switch } from "@/components/ui/switch";
 import { generateCodename, type SettingsTab } from "@/components/mind/shared";
 import { PageHeader } from "@/components/ui/page-header";
-import { ChecklistCard } from "@/components/OnboardingChecklist";
 
 const apiUrl = import.meta.env.VITE_API_URL ?? "";
 
@@ -373,7 +372,6 @@ export default function Settings() {
                   {workspaceId ? generateCodename(workspaceId) : "—"}
                 </div>
               </div>
-              <ChecklistCard />
             </div>
           </div>
         )}
