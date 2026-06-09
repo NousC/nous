@@ -367,7 +367,7 @@ export default function CrmSync() {
             </p>
             <div className="grid gap-3 sm:grid-cols-2">
               {[
-                { icon: Download, title: "Pull — read from the CRM", body: "Once a day (when Auto-sync is on) Nous reads contacts, companies, and deals updated since the last run, so it knows what your CRM holds. Run it anytime with Sync now." },
+                { icon: Download, title: "Pull — read from the CRM", body: "Once a day (when Auto-sync is on) Nous reads contacts, companies, and deals updated since the last run, so it knows what your CRM holds." },
                 { icon: Upload, title: "Push — log touchpoints back", body: "When a real milestone happens in your outbound — a positive reply, a booked meeting, a signed proposal — Nous logs it onto the matching CRM record. Low-signal noise stays in the graph and never clutters the CRM." },
                 { icon: UserPlus, title: "Create — only earned records", body: "A prospect who isn't in the CRM yet is created automatically once they meet your trigger (by default: a positive reply or a booked meeting) and clear your ICP-fit threshold — so every record is an earned, on-target hand-raise." },
                 { icon: Sparkles, title: "Hygiene — keep attributes reconciled", body: "On a weekly or monthly schedule, Nous reconciles a slice of contact and account fields against what it knows, and proposes every change with its evidence for your approval — never overwriting a value your team entered without proof." },
@@ -395,143 +395,12 @@ export default function CrmSync() {
             <div className="mx-auto max-w-[420px]">
               <AgentSetupHint prompt="Set up my CRM sync" />
             </div>
-            <button onClick={() => navigate("/integrations")}
-              className="mt-3 text-[12px] font-semibold text-foreground/70 hover:text-foreground transition-colors">
-              or connect a CRM here
-            </button>
           </div>
         ) : (
           <>
-            {/* ── Config (left) + hygiene report (right) ── */}
-            <div className="mb-6 grid grid-cols-1 lg:grid-cols-[1.5fr_1fr] gap-6 items-start">
-            <div className="rounded-xl border border-border bg-background overflow-hidden">
-              <div className="border-b border-border/60 px-4 py-3">
-                <h3 className="text-[13px] font-semibold text-foreground">CRM configuration</h3>
-                <p className="mt-0.5 text-[11.5px] text-muted-foreground/70">Connections, sync rules, and per-CRM hygiene.</p>
-              </div>
-              <div>
-                {crmConns.map((conn, i) => {
-                  const provider = conn.provider?.name as string;
-                  const meta = CRM_PROVIDER_META[provider];
-                  const cfg = configs[provider];
-                  const last = cfg?.last_synced_at ? format(new Date(cfg.last_synced_at), "MMM d, HH:mm") : "never";
-                  const isSyncing = syncing === provider;
-                  return (
-                    <div key={conn.id} className={i < crmConns.length - 1 ? "border-b border-border/60" : ""}>
-                    {/* Summary row — clean by default */}
-                    <div className="flex items-center gap-3 px-3 py-2.5">
-                      <IntegrationLogo url={meta.logo} name={meta.label} size={22} />
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-[12.5px] font-medium text-foreground">{meta.label}</div>
-                        <div className="truncate text-[11px] text-muted-foreground/70">{conn.is_verified ? `Last sync ${last}` : "Needs auth"}</div>
-                      </div>
-                      <button onClick={() => handleSync(conn)} disabled={isSyncing || !conn.is_verified} title="Sync now"
-                        className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-muted/50 disabled:opacity-40">
-                        {isSyncing ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-                      </button>
-                      <button onClick={() => setExpandedCfg(expandedCfg === provider ? null : provider)} disabled={!conn.is_verified} title="Settings"
-                        className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/50 disabled:opacity-30">
-                        <ChevronDown className={`h-4 w-4 transition-transform ${expandedCfg === provider ? "rotate-180" : ""}`} />
-                      </button>
-                    </div>
-
-                    {/* Settings — tucked behind the expander */}
-                    {conn.is_verified && expandedCfg === provider && (
-                      <div className="space-y-3 border-t border-border/60 bg-muted/20 px-4 py-3 text-[12px]">
-                        {/* Sync */}
-                        <div className="space-y-1.5">
-                          <div className="text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground/60">Sync</div>
-                          <label className="flex items-center gap-1.5 text-foreground/80 cursor-pointer">
-                            <input type="checkbox" checked={!!cfg?.auto_sync} disabled={togglingAuto === provider}
-                              onChange={e => handleToggleAuto(conn, e.target.checked)} className="h-3.5 w-3.5 accent-primary" />
-                            Auto-sync daily (pull contacts, companies, deals)
-                          </label>
-                          <label className="flex items-center gap-1.5 text-foreground/80 cursor-pointer">
-                            <input type="checkbox" checked={cfg?.push_activities !== false} disabled={togglingPush === provider}
-                              onChange={e => handleTogglePush(conn, e.target.checked)} className="h-3.5 w-3.5 accent-primary" />
-                            Push touchpoints (meetings, replies, proposals)
-                          </label>
-                        </div>
-
-                        {/* Create policy */}
-                        <div className="space-y-1.5">
-                          <div className="text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground/60">Create records</div>
-                          <label className="flex items-center gap-1.5 text-foreground/80 cursor-pointer">
-                            <input type="checkbox" checked={cfg?.create_in_crm !== false}
-                              onChange={e => handleSavePolicy(conn, { createInCrm: e.target.checked })} className="h-3.5 w-3.5 accent-primary" />
-                            Auto-create new records
-                          </label>
-                          {cfg?.create_in_crm !== false && (
-                            <div className="flex flex-wrap items-center gap-2 pl-5 text-[11.5px] text-muted-foreground">
-                              when
-                              <select value={cfg?.create_trigger || "positive_reply_or_meeting"}
-                                onChange={e => handleSavePolicy(conn, { createTrigger: e.target.value })}
-                                className="h-7 rounded-md border border-border bg-background px-2 text-[11.5px] text-foreground/90">
-                                <option value="positive_reply_or_meeting">a reply is positive, or a meeting is booked</option>
-                                <option value="any_reply_or_meeting">any reply, or a meeting is booked</option>
-                                <option value="meeting_only">a meeting is booked</option>
-                                <option value="interested_stage">the contact reaches “interested”</option>
-                              </select>
-                              <label className="flex items-center gap-1.5 cursor-pointer">
-                                <input type="checkbox" checked={cfg?.create_require_icp_fit !== false}
-                                  onChange={e => handleSavePolicy(conn, { createRequireIcpFit: e.target.checked })} className="h-3.5 w-3.5 accent-primary" />
-                                and ICP fit ≥
-                              </label>
-                              <input type="number" min={0} max={100} key={cfg?.create_icp_threshold ?? 70}
-                                defaultValue={cfg?.create_icp_threshold ?? 70} disabled={cfg?.create_require_icp_fit === false}
-                                onBlur={e => handleSavePolicy(conn, { createIcpThreshold: Number(e.target.value) })}
-                                className="h-7 w-14 rounded-md border border-border bg-background px-2 text-[11.5px] tabular-nums disabled:opacity-40" />
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Hygiene */}
-                        <div className="space-y-1.5">
-                          <div className="text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground/60">Hygiene</div>
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <label className="flex items-center gap-1.5 text-foreground/80 cursor-pointer">
-                              <input type="checkbox" checked={cfg?.hygiene_enabled !== false}
-                                onChange={e => handleSaveHygiene(conn, { hygieneEnabled: e.target.checked })} className="h-3.5 w-3.5 accent-primary" />
-                              Scheduled cleanup
-                              {cfg?.hygiene_enabled !== false && (
-                                <select value={cfg?.hygiene_cadence || "weekly"} onClick={e => e.preventDefault()}
-                                  onChange={e => handleSaveHygiene(conn, { hygieneCadence: e.target.value })}
-                                  className="ml-1 h-6 rounded-md border border-border bg-background px-1.5 text-[11.5px] text-foreground/90">
-                                  <option value="weekly">weekly</option>
-                                  <option value="monthly">monthly</option>
-                                </select>
-                              )}
-                            </label>
-                            <button onClick={() => handleRunHygiene(conn)} disabled={runningHygiene === provider}
-                              className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border border-border text-[11.5px] font-medium text-foreground/80 hover:bg-muted/50 disabled:opacity-40">
-                              {runningHygiene === provider
-                                ? <><RefreshCw className="h-3 w-3 animate-spin" /> Running…</>
-                                : <><Sparkles className="h-3 w-3" /> Run now</>}
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                    </div>
-                  );
-                })}
-
-                {/* If some CRMs are connected but not all, give a path to add more */}
-                {connectedProviders.size < CRM_NAMES.length && (
-                  <div className="flex items-center justify-between px-4 py-3 bg-muted/30 border-t border-border/60">
-                    <span className="text-[12px] text-muted-foreground/70">
-                      {CRM_NAMES.length - connectedProviders.size} more {CRM_NAMES.length - connectedProviders.size === 1 ? "CRM" : "CRMs"} available — {CRM_NAMES.filter(n => !connectedProviders.has(n)).map(n => CRM_PROVIDER_META[n].label).join(", ")}
-                    </span>
-                    <button onClick={() => navigate("/integrations")}
-                      className="inline-flex items-center gap-1.5 text-[12px] font-medium text-muted-foreground hover:text-foreground transition-colors rounded-md border border-border px-2.5 py-1 hover:bg-muted/50">
-                      <Plus className="h-3.5 w-3.5" /> Add CRM
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* ── Hygiene report (right card) ── */}
+            {/* ── Hygiene report (full width) — proposed changes awaiting your approval.
+                 Setup/config moved to the agent; this page is a watch surface. ── */}
+            <div className="mb-6">
             <div className="rounded-xl border border-border bg-background overflow-hidden">
               <div className="flex items-center justify-between gap-2 border-b border-border/60 px-4 py-3">
                 <div>
@@ -546,7 +415,7 @@ export default function CrmSync() {
                 <div className="py-12 text-center">
                   <Sparkles className="mx-auto mb-2 h-6 w-6 text-muted-foreground/40" strokeWidth={1.5} />
                   <p className="mb-0.5 text-[12.5px] font-medium text-foreground/80">No proposed changes</p>
-                  <p className="text-[11.5px] text-muted-foreground/70">Run hygiene on a CRM to generate proposals.</p>
+                  <p className="text-[11.5px] text-muted-foreground/70">Hygiene runs on a schedule and proposes changes here for your approval.</p>
                 </div>
               ) : (
                 <div className="max-h-[420px] divide-y divide-border/60 overflow-y-auto">
@@ -572,7 +441,7 @@ export default function CrmSync() {
                 </div>
               )}
             </div>
-            </div>{/* end config + report grid */}
+            </div>{/* end hygiene report */}
 
             {/* ── Date-range toggle + live header ── */}
             <div className="mb-4 flex items-center justify-between gap-3">
@@ -601,7 +470,7 @@ export default function CrmSync() {
               <div className="rounded-xl border border-dashed border-border py-12 text-center">
                 <Activity className="h-7 w-7 text-muted-foreground/50 mx-auto mb-3" strokeWidth={1.5} />
                 <p className="text-[13px] font-medium text-foreground/80 mb-1">No sync activity in this range</p>
-                <p className="text-[12px] text-muted-foreground/70">Trigger Sync now above or widen the date range to see runs and pushes.</p>
+                <p className="text-[12px] text-muted-foreground/70">Widen the date range to see earlier runs and pushes.</p>
               </div>
             ) : (
               <div className="rounded-xl border border-border overflow-hidden">

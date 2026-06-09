@@ -954,119 +954,18 @@ export default function Intelligence() {
             {(needsSetup || contextOpen) && (
             <>
             {needsSetup ? (
-              /* Cold start — the guided Playbook (or closed-deals / manual). */
-              !pbManual ? (
-                <div className="px-6 py-10 flex flex-col items-center text-center">
-                  <h3 className="text-[17px] font-semibold text-foreground">Set up your GTM Playbook</h3>
-                  <p className="text-[13px] text-muted-foreground mt-2 max-w-[460px] leading-relaxed">
-                    Your agent builds this with you in Claude. It reads your site, drafts what
-                    you sell and who you sell to, and writes your scoring model. This page is
-                    where you watch it take shape.
-                  </p>
-                  <div className="mt-5 w-full max-w-[460px]">
-                    <AgentSetupHint prompt="Set up my GTM playbook" />
-                  </div>
-                  <button
-                    onClick={openPlaybook}
-                    className="mt-4 text-[12px] font-semibold text-foreground/70 hover:text-foreground transition-colors"
-                  >
-                    or set it up here
-                  </button>
-                  <button
-                    onClick={() => setCdOpen(true)}
-                    className="mt-1.5 text-[12px] text-muted-foreground/70 hover:text-foreground transition-colors"
-                  >
-                    or build from my closed deals →
-                  </button>
-                  <button
-                    onClick={() => setPbManual(true)}
-                    className="mt-1.5 text-[12px] text-muted-foreground/70 hover:text-foreground transition-colors"
-                  >
-                    or enter it manually
-                  </button>
-                </div>
-              ) : (
-              <div className="px-4 py-4 space-y-4">
-                <div className="flex items-center justify-between">
-                  <p className="text-[13px] text-muted-foreground">
-                    Describe your ideal customer and we'll translate it into a weighted signal list.
-                  </p>
-                  <button
-                    onClick={() => setPbManual(false)}
-                    className="text-[12px] text-muted-foreground/70 hover:text-foreground transition-colors whitespace-nowrap ml-3"
-                  >
-                    ← back to guided setup
-                  </button>
-                </div>
-
-                {icpFacts.length > 0 && (
-                  <div className="divide-y divide-border/60 rounded-lg border border-border/60">
-                    {icpFacts.map(f => (
-                      <div key={f.id} className="flex items-start gap-3 px-3 py-2">
-                        <span
-                          className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70 mt-0.5"
-                          style={{ width: 80 }}
-                        >
-                          {f.category}
-                        </span>
-                        <span className="text-[13px] text-foreground/80 leading-snug flex-1">{f.content}</span>
-                        <button
-                          onClick={() => removeIcpFact(f.id)}
-                          className="text-[11px] text-muted-foreground/60 hover:text-foreground transition-colors"
-                          aria-label="Remove"
-                        >
-                          ×
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                <div className="flex gap-2 items-stretch">
-                  <select
-                    value={newCategory}
-                    onChange={e => setNewCategory(e.target.value)}
-                    className="rounded-md border border-border bg-background text-[13px] text-foreground px-2 py-1.5 outline-none focus:border-foreground/40"
-                  >
-                    {ICP_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                  </select>
-                  <input
-                    type="text"
-                    value={newContent}
-                    onChange={e => setNewContent(e.target.value)}
-                    onKeyDown={e => { if (e.key === "Enter") addIcpFact(); }}
-                    placeholder="e.g. B2B SaaS, 50–200 employees, RevOps and Sales Ops leaders, US."
-                    className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-[13px] text-foreground placeholder:text-muted-foreground/70 outline-none focus:border-foreground/40"
-                  />
-                  <button
-                    onClick={addIcpFact}
-                    disabled={savingFact || !newContent.trim()}
-                    className="h-9 px-3.5 rounded-md bg-background border border-border text-foreground/80 text-[13px] font-semibold hover:bg-muted/50 transition-colors disabled:opacity-30"
-                  >
-                    Add
-                  </button>
-                </div>
-
-                <div className="flex items-center gap-3 pt-2 border-t border-border/60">
-                  <button
-                    onClick={buildScorecard}
-                    disabled={seeding || icpFacts.length === 0}
-                    className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-primary text-primary-foreground text-[13px] font-semibold hover:bg-primary/90 transition-colors disabled:opacity-30"
-                  >
-                    {seeding
-                      ? "Building…"
-                      : icpFacts.length === 0
-                        ? "Add at least one line first"
-                        : `Build the model from ${icpFacts.length} line${icpFacts.length === 1 ? "" : "s"}`}
-                  </button>
-                  {icpFacts.length > 0 && (
-                    <span className="text-[12px] text-muted-foreground/70">
-                      Claude turns these into 4–8 weighted signals.
-                    </span>
-                  )}
+              /* Cold start — setup is done by the agent, not here. Point them to it. */
+              <div className="px-6 py-10 flex flex-col items-center text-center">
+                <h3 className="text-[17px] font-semibold text-foreground">Set up your GTM Playbook</h3>
+                <p className="text-[13px] text-muted-foreground mt-2 max-w-[460px] leading-relaxed">
+                  Your agent builds this with you in Claude. It reads your site, drafts what
+                  you sell and who you sell to, and writes your scoring model. This page is
+                  where you watch it take shape.
+                </p>
+                <div className="mt-5 w-full max-w-[460px]">
+                  <AgentSetupHint prompt="Set up my GTM playbook" />
                 </div>
               </div>
-              )
             ) : (
               /* Saved context — the source of truth, grouped + editable. */
               <div className="px-4 py-4 space-y-4">
