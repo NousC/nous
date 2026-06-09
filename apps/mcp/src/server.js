@@ -21,13 +21,15 @@
  *   update_gtm_profile   — write back a change to a GTM context section (evolve, keep history)
  *   save_note            — attach a note/document (meeting brief, transcript, prep) to a contact
  *   search_notes         — semantic search over saved notes & documents
+ *   get_workspace_status — what's set up in this workspace + a ranked next_steps list (call first)
+ *   set_workspace_profile— agent-driven onboarding: set the workspace's name, site, type, ICP
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { get, post } from "./client.js";
 
-export const SERVER_VERSION = "0.16.0";
+export const SERVER_VERSION = "0.17.0";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -53,8 +55,10 @@ export function createServer() {
     name: "nous",
     version: SERVER_VERSION,
     description:
-      "Nous — the context layer for GTM agents. Call get_context before drafting outreach or " +
-      "preparing for a meeting. Call record after every interaction, or whenever you learn something.",
+      "Nous — the context layer for GTM agents. Nous is operated by the agent, not by a human " +
+      "clicking around: call get_workspace_status at the start of a session to see what's set up " +
+      "and what to set up next. Call get_context before drafting outreach or preparing for a " +
+      "meeting. Call record after every interaction, or whenever you learn something.",
     icons: [
       { src: "https://opennous.cloud/newlogoP.png", mimeType: "image/png", sizes: ["64x64"] },
     ],
@@ -483,6 +487,102 @@ export function createServer() {
       }
       return { content: [{ type: "text", text: lines.join("\n").trim() }] };
     },
+  );
+
+  // ===========================================================================
+  // TOOL: get_workspace_status  —  GET /v2/workspace/status
+  // The "one main call." Nous is operated by the agent, so the agent needs to
+  // know the state of the workspace: is it onboarded, is the GTM playbook built,
+  // which integrations are connected, is CRM sync configured, are events live —
+  // and what to set up next. Call this at the start of a session.
+  // ===========================================================================
+  server.tool(
+    "get_workspace_status",
+    "See the whole setup state of this workspace in one call — and what to set up next. Nous is " +
+    "operated by you, the agent, not by a human clicking through the app: call this at the start of " +
+    "a session to learn whether the workspace is onboarded, whether the GTM playbook (ICP model) is " +
+    "built, which integrations are connected, whether CRM sync is configured, and whether webhooks/" +
+    "triggers are live. Returns a ranked NEXT STEPS list — walk the user through whatever is missing " +
+    "(onboard them with set_workspace_profile, build the playbook with update_gtm_profile, connect " +
+    "their tools). Use this before offering to set anything up.",
+    {},
+    async () => {
+      const s = await get("/v2/workspace/status");
+      const setup = s.setup ?? {};
+      const lines = [];
+
+      const ws = s.workspace ?? {};
+      lines.push(`WORKSPACE: ${ws.name || "(unnamed)"}${ws.website ? ` · ${ws.website}` : ""}${ws.business_type ? ` · ${ws.business_type}` : ""}`);
+      lines.push("");
+
+      const mark = (b) => (b ? "✓" : "✗");
+      lines.push("SETUP:");
+      lines.push(`  ${mark(setup.onboarding?.done)} Onboarding${setup.onboarding?.done ? "" : ` — missing ${(setup.onboarding?.missing ?? []).join(", ") || "details"}`}`);
+      lines.push(`  ${mark(setup.gtm_playbook?.done)} GTM playbook${setup.gtm_playbook?.model ? " (scoring model live)" : ""}${setup.gtm_playbook?.stale_facts ? ` · ${setup.gtm_playbook.stale_facts} stale fact(s)` : ""}`);
+      const ints = setup.integrations?.connected ?? [];
+      lines.push(`  ${mark((setup.integrations?.count ?? 0) > 0)} Integrations (${setup.integrations?.count ?? 0})${ints.length ? `: ${ints.map((i) => i.name).join(", ")}` : ""}`);
+      const crm = setup.crm_sync ?? {};
+      lines.push(`  ${mark(crm.configured)} CRM sync${crm.configured ? `: ${(crm.providers ?? []).map((p) => p.provider).join(", ")}` : ""}${crm.pending_hygiene_proposals ? ` · ${crm.pending_hygiene_proposals} hygiene proposal(s) to review` : ""}`);
+      lines.push(`  ${mark(setup.enrichment?.connected)} Enrichment${setup.enrichment?.provider ? `: ${setup.enrichment.provider}` : ""}`);
+      lines.push(`  ${mark((setup.webhooks?.count ?? 0) > 0 || (setup.triggers?.count ?? 0) > 0)} Events — ${setup.webhooks?.count ?? 0} webhook(s), ${setup.triggers?.count ?? 0} trigger(s)`);
+
+      if (s.next_steps?.length) {
+        lines.push("");
+        lines.push("NEXT STEPS:");
+        for (const step of s.next_steps) {
+          lines.push(`  • ${step.title}`);
+          if (step.why) lines.push(`      why: ${step.why}`);
+          if (step.how) lines.push(`      how: ${step.how}`);
+        }
+      } else {
+        lines.push("");
+        lines.push("Everything's set up. Nothing pending.");
+      }
+
+      return { content: [{ type: "text", text: lines.join("\n").trim() }] };
+    }
+  );
+
+  // ===========================================================================
+  // TOOL: set_workspace_profile  —  POST /v2/workspace/onboarding
+  // Agent-driven onboarding. Instead of a human clicking through a wizard in the
+  // app, you collect the basics from the user in conversation and write them
+  // here. This is the first thing get_workspace_status asks for when a workspace
+  // is new.
+  // ===========================================================================
+  server.tool(
+    "set_workspace_profile",
+    "Onboard the workspace, or update its basic profile. Nous is set up by you, the agent, in " +
+    "conversation — not by the user clicking through a wizard. Ask the user for their company name, " +
+    "their website, whether they sell a SERVICE or SOFTWARE, and a sentence describing their ideal " +
+    "customer, then write them here. This seeds the GTM context and the ICP scoring model. Call " +
+    "get_workspace_status first to see what's already set; send only the fields you're setting or " +
+    "changing. After this, the next step is usually the GTM playbook (update_gtm_profile).",
+    {
+      name: z.string().optional().describe("The user's company / workspace name."),
+      website: z.string().optional().describe("The company website (used to seed the GTM context)."),
+      business_type: z.enum(["service", "software"]).optional()
+        .describe("Whether they sell a service or software — sets the CRM's buyer terminology and default signup stage."),
+      plan_model: z.enum(["free_plan", "free_trial", "both", "paid_only"]).optional()
+        .describe("For software only: how they package (free plan, free trial, both, or paid only)."),
+      default_signup_stage: z.string().optional()
+        .describe("The pipeline stage a brand-new signup lands in (e.g. 'Lead', 'Free User'). Defaults sensibly from business_type."),
+      icp: z.string().optional()
+        .describe("A sentence or two describing their ideal customer — seeds the ICP scoring model."),
+    },
+    async ({ name, website, business_type, plan_model, default_signup_stage, icp }) => {
+      const r = await post("/v2/workspace/onboarding", { name, website, business_type, plan_model, default_signup_stage, icp });
+      const w = r.workspace ?? {};
+      const set = [
+        w.name && `name=${w.name}`,
+        w.website && `site=${w.website}`,
+        w.business_type && `type=${w.business_type}`,
+        icp && "ICP recorded",
+      ].filter(Boolean);
+      return { content: [{ type: "text", text:
+        `Workspace profile saved.${set.length ? ` ${set.join(" · ")}.` : ""}\n` +
+        `Next: call get_workspace_status to see what to set up next (usually the GTM playbook).` }] };
+    }
   );
 
   return server;

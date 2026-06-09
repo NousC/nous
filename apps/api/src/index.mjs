@@ -24,6 +24,7 @@ import { attentionV2Router } from './routes/v2/attention.mjs';
 import { verifyV2Router } from './routes/v2/verify.mjs';
 import { dedupV2Router } from './routes/v2/dedup.mjs';
 import { workspaceFactsV2Router } from './routes/v2/workspaceFacts.mjs';
+import { workspaceStatusV2Router } from './routes/v2/workspaceStatus.mjs';
 import { notesV2Router } from './routes/v2/notes.mjs';
 import { signalsV2Router } from './routes/v2/signals.mjs';
 import { peopleV2Router } from './routes/v2/people.mjs';
@@ -132,6 +133,9 @@ app.use('/v2/attention',       verifyApiKey,     logV2Op, attentionV2Router);
 app.use('/v2/verify',          verifyApiKey,     logV2Op, verifyV2Router);
 app.use('/v2/dedup',           verifyAuthEither, logV2Op, dedupV2Router);
 app.use('/v2/workspace/facts', verifyApiKey,     logV2Op, workspaceFactsV2Router);
+// Mounted AFTER /v2/workspace/facts so the more specific facts route wins; this
+// handles /v2/workspace/status (GET) and /v2/workspace/onboarding (POST).
+app.use('/v2/workspace',       verifyApiKey,     logV2Op, workspaceStatusV2Router);
 app.use('/v2/notes',           verifyApiKey,     logV2Op, notesV2Router);
 app.use('/v2/signals',         verifyApiKey,     logV2Op, signalsV2Router);
 app.use('/v2/people',          verifyApiKey,     logV2Op, peopleV2Router);

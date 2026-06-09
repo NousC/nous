@@ -32,6 +32,8 @@ const PATH_LABELS = {
   'POST /v2/verify':          'v2.verify',
   'POST /v2/dedup':           'v2.dedup',
   'GET /v2/workspace/facts':  'v2.workspace.facts',
+  'GET /v2/workspace/status': 'v2.workspace.status',
+  'POST /v2/workspace/onboarding': 'v2.workspace.onboarding',
 };
 
 function labelFor(req) {
@@ -109,6 +111,17 @@ function describeCall(req) {
     }
     case 'GET /v2/workspace/facts': {
       return `workspace_facts${q.categories ? ` · ${q.categories}` : ''}`;
+    }
+    case 'GET /v2/workspace/status': {
+      return 'get_workspace_status';
+    }
+    case 'POST /v2/workspace/onboarding': {
+      const bits = [];
+      if (body.name)          bits.push(`name=${trunc(body.name, 24)}`);
+      if (body.website)       bits.push(`site=${trunc(body.website, 24)}`);
+      if (body.business_type) bits.push(body.business_type);
+      if (body.icp)           bits.push('icp');
+      return `set_workspace_profile${bits.length ? ` · ${bits.join(' · ')}` : ''}`;
     }
     default:
       return `${req.method} ${req.originalUrl.split('?')[0]}`;
