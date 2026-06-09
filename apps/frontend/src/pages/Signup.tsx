@@ -114,31 +114,31 @@ const SignupContent = () => {
   // ─── OTP Verification Screen ───
   if (step === "verify") {
     return (
-      <div className="min-h-screen font-inter flex bg-[#FAF9F7]">
+      <div className="min-h-screen font-mono flex bg-[#0e0c0b]">
         <div
           className="flex-1 flex items-center justify-center p-8 lg:p-16 relative"
           style={{
             backgroundImage:
-              "radial-gradient(circle, rgba(120, 90, 70, 0.12) 1px, transparent 1.4px)",
+              "radial-gradient(circle, rgba(200, 190, 178, 0.05) 1px, transparent 1.4px)",
             backgroundSize: "18px 18px",
           }}
         >
           <div className="w-full max-w-[380px] text-center relative">
             <div className="mb-8">
-              <h1 className="text-[28px] font-bold tracking-[-0.03em] leading-[1.1] text-[#1f1410] mb-3">
+              <h1 className="text-[28px] font-bold tracking-[-0.03em] leading-[1.1] text-[#e8e3dc] mb-3">
                 Check your email
               </h1>
-              <p className="text-[14px] text-[#6b5a50]">
+              <p className="text-[14px] text-[#8a8178]">
                 We sent a verification code to
               </p>
               <div className="flex items-center justify-center gap-1.5 mt-1.5">
-                <span className="text-[14px] text-[#1f1410] font-mono">{email}</span>
+                <span className="text-[14px] text-[#e8e3dc] font-mono">{email}</span>
                 <button
                   onClick={() => {
                     setStep("signup");
                     setOtpCode("");
                   }}
-                  className="text-[#a08c7e] hover:text-[#3d2517]"
+                  className="text-[#8a8178] hover:text-[#d97757]"
                 >
                   <Pencil className="w-3.5 h-3.5" />
                 </button>
@@ -157,21 +157,21 @@ const SignupContent = () => {
                     <InputOTPSlot
                       key={i}
                       index={i}
-                      className="w-10 h-12 text-base border-[#e6dccf] bg-white rounded-lg first:rounded-l-lg last:rounded-r-lg"
+                      className="w-10 h-12 text-base border-[#322c25] bg-[#16120f] text-[#e8e3dc] rounded-lg first:rounded-l-lg last:rounded-r-lg"
                     />
                   ))}
                 </InputOTPGroup>
               </InputOTP>
             </div>
 
-            <p className="text-sm text-[#6b5a50] mb-6">
+            <p className="text-sm text-[#8a8178] mb-6">
               Didn&apos;t receive a code?{" "}
               {resendCountdown > 0 ? (
-                <span className="text-[#a08c7e]">Resend ({resendCountdown})</span>
+                <span className="text-[#8a8178]">Resend ({resendCountdown})</span>
               ) : (
                 <button
                   onClick={handleResendCode}
-                  className="font-medium text-[#3d2517] hover:text-[#c97e5c]"
+                  className="font-medium text-[#e8e3dc] hover:text-[#d97757]"
                 >
                   Resend
                 </button>
@@ -180,12 +180,12 @@ const SignupContent = () => {
 
             <Button
               onClick={handleVerifyOtp}
-              className="w-full h-12 rounded-lg pl-5 pr-1.5 flex items-center justify-between gap-2 font-medium text-sm bg-[#f1e2d4] hover:bg-[#e8d4c0] text-[#3d2517] transition-transform hover:scale-[1.005] disabled:opacity-60 disabled:hover:scale-100"
+              className="w-full h-12 rounded-lg pl-5 pr-1.5 flex items-center justify-between gap-2 font-medium text-sm bg-[#e8915b] hover:brightness-110 text-[#16120f] transition-transform hover:scale-[1.005] disabled:opacity-60 disabled:hover:scale-100"
               disabled={loading || otpCode.length !== 8}
             >
               <span>{loading ? "Verifying..." : "Continue"}</span>
               <span
-                className="inline-flex items-center justify-center w-8 h-8 rounded-md bg-[#1f1410] text-[#FAF9F7]"
+                className="inline-flex items-center justify-center w-8 h-8 rounded-md bg-[#0e0c0b] text-[#e8915b]"
                 aria-hidden="true"
               >
                 →
@@ -201,22 +201,22 @@ const SignupContent = () => {
 
   // ─── Signup Form Screen ───
   return (
-    <div className="min-h-screen font-inter flex bg-[#FAF9F7]">
+    <div className="min-h-screen font-mono flex bg-[#0e0c0b]">
       <div
         className="flex-1 flex items-center justify-center p-8 lg:p-16 relative"
         style={{
           backgroundImage:
-            "radial-gradient(circle, rgba(120, 90, 70, 0.12) 1px, transparent 1.4px)",
+            "radial-gradient(circle, rgba(200, 190, 178, 0.05) 1px, transparent 1.4px)",
           backgroundSize: "18px 18px",
         }}
       >
         <div className="w-full max-w-[380px] relative">
           <div className="flex items-center gap-2 mb-10 lg:hidden">
             <img src="/nous-logo.svg" alt="" className="w-7 h-7 object-contain" />
-            <span className="font-bold text-[18px] tracking-[-0.02em] text-[#1f1410]">nous</span>
+            <span className="font-bold text-[18px] tracking-[-0.02em] text-[#e8e3dc]">nous</span>
           </div>
 
-          <h1 className="text-[28px] font-bold tracking-[-0.03em] leading-[1.1] text-[#1f1410] mb-8">
+          <h1 className="text-[28px] font-bold tracking-[-0.03em] leading-[1.1] text-[#e8e3dc] mb-8">
             Create account
           </h1>
 
@@ -227,7 +227,7 @@ const SignupContent = () => {
                   type="button"
                   onClick={handleGoogleSignIn}
                   variant="outline"
-                  className="w-full h-11 rounded-lg flex items-center justify-center gap-2.5 font-medium text-sm border-[#e6dccf] bg-white hover:bg-[#f5ede5] text-[#3d2517]"
+                  className="w-full h-11 rounded-lg flex items-center justify-center gap-2.5 font-medium text-sm border-[#322c25] bg-[#16120f] hover:bg-[#0e0c0b] text-[#e8e3dc]"
                   disabled={loading}
                 >
                   <svg className="w-[18px] h-[18px]" viewBox="0 0 24 24">
@@ -241,10 +241,10 @@ const SignupContent = () => {
 
                 <div className="relative py-1">
                   <div className="absolute inset-0 flex items-center">
-                    <div className="w-full border-t border-[#e6dccf]" />
+                    <div className="w-full border-t border-[#322c25]" />
                   </div>
                   <div className="relative flex justify-center">
-                    <span className="px-3 text-[10px] uppercase tracking-[0.12em] text-[#a08c7e] bg-[#FAF9F7] font-mono">
+                    <span className="px-3 text-[10px] uppercase tracking-[0.12em] text-[#8a8178] bg-[#0e0c0b] font-mono">
                       or
                     </span>
                   </div>
@@ -259,7 +259,7 @@ const SignupContent = () => {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-                className="h-11 rounded-lg text-sm border-[#e6dccf] bg-white text-[#1f1410] placeholder:text-[#a08c7e] focus-visible:ring-[#c97e5c] focus-visible:border-[#c97e5c]"
+                className="h-11 rounded-lg text-sm border-[#322c25] bg-[#16120f] text-[#e8e3dc] placeholder:text-[#8a8178]/70 focus-visible:ring-[#d97757] focus-visible:border-[#d97757]"
                 disabled={loading}
                 autoFocus
               />
@@ -272,13 +272,13 @@ const SignupContent = () => {
                   onChange={(e) => setPassword(e.target.value)}
                   required
                   minLength={6}
-                  className="h-11 rounded-lg text-sm border-[#e6dccf] bg-white text-[#1f1410] placeholder:text-[#a08c7e] pr-10 focus-visible:ring-[#c97e5c] focus-visible:border-[#c97e5c]"
+                  className="h-11 rounded-lg text-sm border-[#322c25] bg-[#16120f] text-[#e8e3dc] placeholder:text-[#8a8178]/70 pr-10 focus-visible:ring-[#d97757] focus-visible:border-[#d97757]"
                   disabled={loading}
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#a08c7e] hover:text-[#3d2517]"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8a8178] hover:text-[#d97757]"
                   tabIndex={-1}
                 >
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -287,12 +287,12 @@ const SignupContent = () => {
 
               <Button
                 type="submit"
-                className="w-full h-12 rounded-lg pl-5 pr-1.5 flex items-center justify-between gap-2 font-medium text-sm bg-[#f1e2d4] hover:bg-[#e8d4c0] text-[#3d2517] transition-transform hover:scale-[1.005] disabled:opacity-60 disabled:hover:scale-100"
+                className="w-full h-12 rounded-lg pl-5 pr-1.5 flex items-center justify-between gap-2 font-medium text-sm bg-[#e8915b] hover:brightness-110 text-[#16120f] transition-transform hover:scale-[1.005] disabled:opacity-60 disabled:hover:scale-100"
                 disabled={loading}
               >
                 <span>{loading ? "Creating account..." : "Continue"}</span>
                 <span
-                  className="inline-flex items-center justify-center w-8 h-8 rounded-md bg-[#1f1410] text-[#FAF9F7]"
+                  className="inline-flex items-center justify-center w-8 h-8 rounded-md bg-[#0e0c0b] text-[#e8915b]"
                   aria-hidden="true"
                 >
                   →
@@ -301,20 +301,20 @@ const SignupContent = () => {
             </form>
           </div>
 
-          <p className="text-[11px] text-center mt-5 text-[#a08c7e] leading-relaxed">
+          <p className="text-[11px] text-center mt-5 text-[#8a8178] leading-relaxed">
             By continuing, you agree to our{" "}
-            <Link to="/terms" className="text-[#6b5a50] hover:text-[#3d2517]">
+            <Link to="/terms" className="text-[#8a8178] hover:text-[#d97757]">
               Terms
             </Link>{" "}
             and{" "}
-            <Link to="/privacy" className="text-[#6b5a50] hover:text-[#3d2517]">
+            <Link to="/privacy" className="text-[#8a8178] hover:text-[#d97757]">
               Privacy Policy
             </Link>
           </p>
 
           <div className="text-center text-sm mt-6">
-            <span className="text-[#6b5a50]">Already have an account? </span>
-            <Link to="/login" className="font-semibold text-[#1f1410] hover:text-[#c97e5c] transition-colors">
+            <span className="text-[#8a8178]">Already have an account? </span>
+            <Link to="/login" className="font-semibold text-[#e8e3dc] hover:text-[#d97757] transition-colors">
               Sign in →
             </Link>
           </div>

@@ -48,22 +48,22 @@ const Login = () => {
   };
 
   return (
-    <div className="min-h-screen font-inter flex bg-[#FAF9F7]">
+    <div className="min-h-screen font-mono flex bg-[#0e0c0b]">
       <div
         className="flex-1 flex items-center justify-center p-8 lg:p-16 relative"
         style={{
           backgroundImage:
-            "radial-gradient(circle, rgba(120, 90, 70, 0.12) 1px, transparent 1.4px)",
+            "radial-gradient(circle, rgba(200, 190, 178, 0.05) 1px, transparent 1.4px)",
           backgroundSize: "18px 18px",
         }}
       >
         <div className="w-full max-w-[380px] relative">
           <div className="flex items-center gap-2 mb-10 lg:hidden">
             <img src="/nous-logo.svg" alt="" className="w-7 h-7 object-contain" />
-            <span className="font-bold text-[18px] tracking-[-0.02em] text-[#1f1410]">nous</span>
+            <span className="font-bold text-[18px] tracking-[-0.02em] text-[#e8e3dc]">nous</span>
           </div>
 
-          <h1 className="text-[28px] font-bold tracking-[-0.03em] leading-[1.1] text-[#1f1410] mb-8">
+          <h1 className="text-[28px] font-bold tracking-[-0.03em] leading-[1.1] text-[#e8e3dc] mb-8">
             Sign in
           </h1>
 
@@ -74,7 +74,7 @@ const Login = () => {
                   type="button"
                   onClick={handleGoogleSignIn}
                   variant="outline"
-                  className="w-full h-11 rounded-lg flex items-center justify-center gap-2.5 font-medium text-sm border-[#e6dccf] bg-white hover:bg-[#f5ede5] text-[#3d2517]"
+                  className="w-full h-11 rounded-lg flex items-center justify-center gap-2.5 font-medium text-sm border-[#322c25] bg-[#16120f] hover:bg-[#0e0c0b] text-[#e8e3dc]"
                   disabled={loading}
                 >
                   <svg className="w-[18px] h-[18px]" viewBox="0 0 24 24">
@@ -88,10 +88,10 @@ const Login = () => {
 
                 <div className="relative py-1">
                   <div className="absolute inset-0 flex items-center">
-                    <div className="w-full border-t border-[#e6dccf]" />
+                    <div className="w-full border-t border-[#322c25]" />
                   </div>
                   <div className="relative flex justify-center">
-                    <span className="px-3 text-[10px] uppercase tracking-[0.12em] text-[#a08c7e] bg-[#FAF9F7] font-mono">or</span>
+                    <span className="px-3 text-[10px] uppercase tracking-[0.12em] text-[#8a8178] bg-[#0e0c0b] font-mono">or</span>
                   </div>
                 </div>
               </>
@@ -104,7 +104,7 @@ const Login = () => {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-                className="h-11 rounded-lg text-sm border-[#e6dccf] bg-white text-[#1f1410] placeholder:text-[#a08c7e] focus-visible:ring-[#c97e5c] focus-visible:border-[#c97e5c]"
+                className="h-11 rounded-lg text-sm border-[#322c25] bg-[#16120f] text-[#e8e3dc] placeholder:text-[#8a8178]/70 focus-visible:ring-[#d97757] focus-visible:border-[#d97757]"
                 disabled={loading}
                 autoFocus
               />
@@ -116,13 +116,13 @@ const Login = () => {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
-                  className="h-11 rounded-lg text-sm border-[#e6dccf] bg-white text-[#1f1410] placeholder:text-[#a08c7e] pr-10 focus-visible:ring-[#c97e5c] focus-visible:border-[#c97e5c]"
+                  className="h-11 rounded-lg text-sm border-[#322c25] bg-[#16120f] text-[#e8e3dc] placeholder:text-[#8a8178]/70 pr-10 focus-visible:ring-[#d97757] focus-visible:border-[#d97757]"
                   disabled={loading}
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#a08c7e] hover:text-[#3d2517]"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8a8178] hover:text-[#d97757]"
                   tabIndex={-1}
                 >
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -132,7 +132,7 @@ const Login = () => {
               <div className="flex justify-end pt-0.5">
                 <Link
                   to="/forgot-password"
-                  className="text-[12px] text-[#6b5a50] hover:text-[#3d2517]"
+                  className="text-[12px] text-[#8a8178] hover:text-[#d97757]"
                 >
                   Forgot password?
                 </Link>
@@ -140,12 +140,12 @@ const Login = () => {
 
               <Button
                 type="submit"
-                className="w-full h-12 rounded-lg pl-5 pr-1.5 flex items-center justify-between gap-2 font-medium text-sm bg-[#f1e2d4] hover:bg-[#e8d4c0] text-[#3d2517] transition-transform hover:scale-[1.005] disabled:opacity-60 disabled:hover:scale-100"
+                className="w-full h-12 rounded-lg pl-5 pr-1.5 flex items-center justify-between gap-2 font-medium text-sm bg-[#e8915b] hover:brightness-110 text-[#16120f] transition-transform hover:scale-[1.005] disabled:opacity-60 disabled:hover:scale-100"
                 disabled={loading}
               >
                 <span>{loading ? "Signing in..." : "Continue"}</span>
                 <span
-                  className="inline-flex items-center justify-center w-8 h-8 rounded-md bg-[#1f1410] text-[#FAF9F7]"
+                  className="inline-flex items-center justify-center w-8 h-8 rounded-md bg-[#0e0c0b] text-[#e8915b]"
                   aria-hidden="true"
                 >
                   →
@@ -156,8 +156,8 @@ const Login = () => {
 
           {!signupsDisabled && (
             <div className="text-center text-sm mt-8">
-              <span className="text-[#6b5a50]">New here? </span>
-              <Link to="/signup" className="font-semibold text-[#1f1410] hover:text-[#c97e5c] transition-colors">
+              <span className="text-[#8a8178]">New here? </span>
+              <Link to="/signup" className="font-semibold text-[#e8e3dc] hover:text-[#d97757] transition-colors">
                 Create account →
               </Link>
             </div>
