@@ -364,30 +364,9 @@ export default function Intelligence() {
   // ICP facts — workspace-level notes (asserted claims). Loaded only when the
   // Scorecard is empty so the user has an inline path to bootstrap one.
   const [icpFacts, setIcpFacts] = useState<IcpFact[]>([]);
-  const [newCategory, setNewCategory] = useState("ICP");
-  const [newContent, setNewContent] = useState("");
   const [savingFact, setSavingFact] = useState(false);
   const [addSection, setAddSection] = useState<string | null>(null);
   const [sectionDraft, setSectionDraft] = useState("");
-
-  // ── The GTM Playbook wizard (Phase B) — guided ICP setup, read from the site.
-  const [pbOpen, setPbOpen] = useState(false);
-  const [pbLoading, setPbLoading] = useState(false);
-  const [pbBuilding, setPbBuilding] = useState(false);
-  const [pbStep, setPbStep] = useState(0);
-  const [pbReadSite, setPbReadSite] = useState(true);
-  const [pbStrategy, setPbStrategy] = useState({ sell: "", audience: "", problems: "", pricing: "", positioning: "" });
-  const [pbSegments, setPbSegments] = useState<string[]>([]);
-  const [pbBuyers, setPbBuyers] = useState<string[]>([]);
-  const [pbUseCases, setPbUseCases] = useState<string[]>([]);
-  const [pbCompetitors, setPbCompetitors] = useState<string[]>([]);
-  const [pbSel, setPbSel] = useState<{ segments: string[]; buyers: string[]; use_cases: string[]; competitors: string[] }>(
-    { segments: [], buyers: [], use_cases: [], competitors: [] });
-  const [pbManual, setPbManual] = useState(false);
-  const [pbInput, setPbInput] = useState("");
-  // Lifetime cap on "Rebuild from your site" — each rebuild runs an AI draft, so
-  // it's capped server-side at 3 per workspace. null until the server tells us.
-  const [pbRebuilds, setPbRebuilds] = useState<{ used: number; limit: number } | null>(null);
 
   // Collapsed by default — the page leads with the "getting smarter" story;
   // the full profile is one click away.
@@ -471,20 +450,6 @@ export default function Intelligence() {
   }, [workspaceId, token]);
 
   useEffect(() => { load(); }, [load]);
-
-  const addIcpFact = async () => {
-    if (!newContent.trim() || savingFact) return;
-    setSavingFact(true);
-    try {
-      await fetch(`${apiUrl}/api/workspace/memories`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ workspaceId, category: newCategory, content: newContent.trim() }),
-      });
-      setNewContent("");
-      load();
-    } finally { setSavingFact(false); }
-  };
 
   const submitSection = async (cat: string) => {
     if (!sectionDraft.trim() || savingFact) return;
@@ -574,91 +539,6 @@ export default function Intelligence() {
       else window.alert(d.detail || d.error || "Couldn't process the deals.");
     } catch { window.alert("Request failed."); }
     finally { setCdRunning(false); }
-  };
-
-  // ── Playbook wizard handlers ────────────────────────────────────────────────
-  const openPlaybook = async () => {
-    setPbOpen(true);
-    setPbStep(0);
-    setPbLoading(true);
-    try {
-      const r = await fetch(`${apiUrl}/api/mind/playbook/research`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ workspaceId }),
-      });
-      // 429 = the lifetime rebuild cap is hit. Record it so the button disables.
-      if (r.status === 429) {
-        const e = await r.json().catch(() => ({}));
-        setPbRebuilds({ used: e.used ?? 3, limit: e.limit ?? 3 });
-        setPbOpen(false);
-        return;
-      }
-      const d = await r.json();
-      if (d.rebuilds_limit != null) setPbRebuilds({ used: d.rebuilds_used ?? 0, limit: d.rebuilds_limit });
-      setPbReadSite(Boolean(d.read_site));
-      setPbStrategy({
-        sell: d.strategy?.sell ?? "", audience: d.strategy?.audience ?? "", problems: d.strategy?.problems ?? "",
-        pricing: d.strategy?.pricing ?? "", positioning: d.strategy?.positioning ?? "",
-      });
-      setPbSegments(d.segments ?? []);
-      setPbBuyers(d.buyers ?? []);
-      setPbUseCases(d.use_cases ?? []);
-      setPbCompetitors(d.competitors ?? []);
-      // Suggestions start UNSELECTED — the user taps the ones that fit, and any
-      // option they add themselves is auto-selected by addOption.
-      setPbSel({ segments: [], buyers: [], use_cases: [], competitors: [] });
-    } catch { /* user can still type */ }
-    finally { setPbLoading(false); }
-  };
-
-  const pbOptions: Record<string, [string[], React.Dispatch<React.SetStateAction<string[]>>]> = {
-    segments: [pbSegments, setPbSegments],
-    buyers: [pbBuyers, setPbBuyers],
-    use_cases: [pbUseCases, setPbUseCases],
-    competitors: [pbCompetitors, setPbCompetitors],
-  };
-  const toggleSel = (group: "segments" | "buyers" | "use_cases" | "competitors", v: string) =>
-    setPbSel(s => ({ ...s, [group]: s[group].includes(v) ? s[group].filter(x => x !== v) : [...s[group], v] }));
-  const addOption = (group: "segments" | "buyers" | "use_cases" | "competitors", raw: string) => {
-    const v = raw.trim();
-    if (!v) return;
-    const [, setter] = pbOptions[group];
-    setter(prev => prev.includes(v) ? prev : [...prev, v]);
-    setPbSel(s => ({ ...s, [group]: s[group].includes(v) ? s[group] : [...s[group], v] }));
-  };
-
-  const confirmPlaybook = async () => {
-    if (pbBuilding) return;
-    setPbBuilding(true);
-    try {
-      const h = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
-      // Server-side: clears stale ICP facts + writes the confirmed Playbook
-      // (use-cases included) as a clean slate. No client-side delete loop.
-      await fetch(`${apiUrl}/api/mind/playbook/confirm`, {
-        method: "POST",
-        headers: h,
-        body: JSON.stringify({
-          workspaceId,
-          strategy: pbStrategy,
-          segments: pbSel.segments,
-          buyers: pbSel.buyers,
-          use_cases: pbSel.use_cases,
-          competitors: pbSel.competitors,
-        }),
-      });
-      // Rebuild the Scorecard from the fresh facts.
-      await fetch(`${apiUrl}/api/mind/scorecard/seed`, {
-        method: "POST",
-        headers: h,
-        body: JSON.stringify({ workspaceId, force: true }),
-      });
-      setPbOpen(false);
-      load();
-      // One onboarding flow: after the site-read playbook builds the model,
-      // continue into closed-deals discovery to seed it from real outcomes too.
-      setCdOpen(true);
-    } finally { setPbBuilding(false); }
   };
 
   const patchSignal = async (id: string, body: { label?: string; weight?: number; active?: boolean }) => {
@@ -1369,143 +1249,6 @@ export default function Intelligence() {
         </div>
       )}
 
-      {/* ─── GTM Playbook wizard — guided ICP setup, read from your site ─── */}
-      {pbOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-          onClick={() => !pbBuilding && setPbOpen(false)}
-        >
-          <div
-            className="bg-background border border-border rounded-2xl shadow-xl w-full max-w-[620px] max-h-[88vh] flex flex-col overflow-hidden"
-            onClick={e => e.stopPropagation()}
-          >
-            <div className="px-6 py-4 border-b border-border flex items-center justify-between">
-              <div>
-                <div className="text-[15px] font-semibold text-foreground">Set up your GTM Playbook</div>
-                {!pbLoading && <div className="text-[12px] text-muted-foreground/70 mt-0.5">Step {pbStep + 1} of 5</div>}
-              </div>
-              <button
-                onClick={() => !pbBuilding && setPbOpen(false)}
-                className="text-muted-foreground/60 hover:text-foreground text-[20px] leading-none"
-                aria-label="Close"
-              >
-                ×
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto px-6 py-5">
-              {pbLoading ? (
-                <div className="py-16 flex flex-col items-center text-center">
-                  <RefreshCw className="h-5 w-5 animate-spin text-muted-foreground/60" />
-                  <p className="text-[13px] text-muted-foreground mt-3">Reading your site and drafting your playbook…</p>
-                </div>
-              ) : pbStep === 0 ? (
-                <div className="space-y-4">
-                  <p className="text-[13px] text-muted-foreground">
-                    {pbReadSite
-                      ? "Here's what we found about you. Edit anything that's off."
-                      : "We couldn't read your site, so here's our best guess — edit freely."}
-                  </p>
-                  {([["sell", "What you sell"], ["audience", "Who you sell to"], ["problems", "Problems you solve"], ["pricing", "How you price"], ["positioning", "How you position"]] as const).map(([k, label]) => (
-                    <div key={k}>
-                      <label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">{label}</label>
-                      <textarea
-                        value={pbStrategy[k]}
-                        onChange={e => setPbStrategy(s => ({ ...s, [k]: e.target.value }))}
-                        rows={2}
-                        className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-[13px] text-foreground outline-none focus:border-foreground/40 resize-y min-h-[3rem]"
-                      />
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                (() => {
-                  const group = (pbStep === 1 ? "segments" : pbStep === 2 ? "buyers" : pbStep === 3 ? "use_cases" : "competitors") as "segments" | "buyers" | "use_cases" | "competitors";
-                  const meta = {
-                    segments: { q: "Which market segments do you target?", sub: "Tap the ones that fit to add them, or add your own." },
-                    buyers: { q: "Who are the primary buyers?", sub: "The roles you sell to." },
-                    use_cases: { q: "What are the primary use cases?", sub: "The jobs they hire you for." },
-                    competitors: { q: "Who do you compete with?", sub: "Named rivals or the alternatives you displace." },
-                  }[group];
-                  const [opts] = pbOptions[group];
-                  const sel = pbSel[group];
-                  return (
-                    <div className="space-y-4">
-                      <div>
-                        <h3 className="text-[15px] font-semibold text-foreground">{meta.q}</h3>
-                        <p className="text-[12px] text-muted-foreground/70 mt-0.5">{meta.sub}</p>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        {opts.map(o => {
-                          const on = sel.includes(o);
-                          return (
-                            <button
-                              key={o}
-                              onClick={() => toggleSel(group, o)}
-                              className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-[13px] border transition-colors ${on
-                                ? "bg-primary text-primary-foreground border-primary"
-                                : "bg-background text-foreground/80 border-border hover:border-foreground/40"}`}
-                            >
-                              <span className="text-[11px] leading-none opacity-80">{on ? "✓" : "+"}</span>
-                              {o}
-                            </button>
-                          );
-                        })}
-                        {opts.length === 0 && (
-                          <span className="text-[13px] text-muted-foreground/60">No suggestions — add your own below.</span>
-                        )}
-                      </div>
-                      <div className="flex gap-2 pt-1">
-                        <input
-                          value={pbInput}
-                          onChange={e => setPbInput(e.target.value)}
-                          onKeyDown={e => { if (e.key === "Enter") { addOption(group, pbInput); setPbInput(""); } }}
-                          placeholder="Add your own…"
-                          className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-[13px] outline-none focus:border-foreground/40"
-                        />
-                        <button
-                          onClick={() => { addOption(group, pbInput); setPbInput(""); }}
-                          className="h-9 px-3.5 rounded-md border border-border text-[13px] font-semibold hover:bg-muted/50 transition-colors"
-                        >
-                          Add
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })()
-              )}
-            </div>
-
-            {!pbLoading && (
-              <div className="px-6 py-4 border-t border-border flex items-center justify-between">
-                <button
-                  onClick={() => { setPbStep(s => Math.max(0, s - 1)); setPbInput(""); }}
-                  disabled={pbStep === 0 || pbBuilding}
-                  className="text-[13px] font-semibold text-foreground/70 hover:text-foreground disabled:opacity-30 transition-colors"
-                >
-                  Back
-                </button>
-                {pbStep < 4 ? (
-                  <button
-                    onClick={() => { setPbStep(s => s + 1); setPbInput(""); }}
-                    className="h-9 px-5 rounded-lg bg-primary text-primary-foreground text-[13px] font-semibold hover:bg-primary/90 transition-colors"
-                  >
-                    Next
-                  </button>
-                ) : (
-                  <button
-                    onClick={confirmPlaybook}
-                    disabled={pbBuilding}
-                    className="h-9 px-5 rounded-lg bg-primary text-primary-foreground text-[13px] font-semibold hover:bg-primary/90 disabled:opacity-50 transition-colors"
-                  >
-                    {pbBuilding ? "Building your model…" : "Build my model"}
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
