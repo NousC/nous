@@ -344,47 +344,7 @@ export default function CrmSync() {
   return (
     <div className="h-full overflow-y-auto bg-background">
       <div className="px-8 py-7">
-        <div className="flex items-start justify-between gap-4">
-          <PageHeader
-            title="CRM Sync"
-          />
-          <button onClick={() => setShowHelp(true)} title="How CRM sync works"
-            className="mt-1 inline-flex h-8 items-center gap-1.5 flex-shrink-0 rounded-lg border border-border px-2.5 text-[12px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors">
-            <Info className="h-3.5 w-3.5" /> How it works
-          </button>
-        </div>
-
-        {/* ── How CRM sync works — info popup ── */}
-        <Dialog open={showHelp} onOpenChange={setShowHelp}>
-          <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2 text-[15px]">
-                <Activity className="h-4 w-4 text-primary" /> How CRM sync works
-              </DialogTitle>
-            </DialogHeader>
-            <p className="text-[12.5px] leading-relaxed text-muted-foreground">
-              Nous treats your customer graph as the source of truth and keeps the CRM reconciled with it. Data moves in four ways:
-            </p>
-            <div className="grid gap-3 sm:grid-cols-2">
-              {[
-                { icon: Download, title: "Pull — read from the CRM", body: "Once a day (when Auto-sync is on) Nous reads contacts, companies, and deals updated since the last run, so it knows what your CRM holds." },
-                { icon: Upload, title: "Push — log touchpoints back", body: "When a real milestone happens in your outbound — a positive reply, a booked meeting, a signed proposal — Nous logs it onto the matching CRM record. Low-signal noise stays in the graph and never clutters the CRM." },
-                { icon: UserPlus, title: "Create — only earned records", body: "A prospect who isn't in the CRM yet is created automatically once they meet your trigger (by default: a positive reply or a booked meeting) and clear your ICP-fit threshold — so every record is an earned, on-target hand-raise." },
-                { icon: Sparkles, title: "Hygiene — keep attributes reconciled", body: "On a weekly or monthly schedule, Nous reconciles a slice of contact and account fields against what it knows, and proposes every change with its evidence for your approval — never overwriting a value your team entered without proof." },
-              ].map(({ icon: Icon, title, body }) => (
-                <div key={title} className="rounded-lg border border-border/60 bg-muted/20 p-3">
-                  <div className="mb-1 flex items-center gap-1.5 text-[12.5px] font-semibold text-foreground/90">
-                    <Icon className="h-3.5 w-3.5 text-primary" /> {title}
-                  </div>
-                  <p className="text-[12px] leading-relaxed text-muted-foreground">{body}</p>
-                </div>
-              ))}
-            </div>
-            <p className="text-[11.5px] leading-relaxed text-muted-foreground/70">
-              Every pull, push, create, and hygiene change lands in the live log — so you can always see exactly what Nous did and why.
-            </p>
-          </DialogContent>
-        </Dialog>
+        <PageHeader title="CRM Sync" />
 
         {loadingConns ? (
           <div className="text-[13px] text-muted-foreground/70 text-center py-12">Loading…</div>
