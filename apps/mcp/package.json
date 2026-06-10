@@ -1,6 +1,6 @@
 {
   "name": "@opennous/mcp",
-  "version": "0.21.0",
+  "version": "0.22.0",
   "description": "Nous MCP Server — Customer graph for GTM agents.",
   "license": "AGPL-3.0-only",
   "repository": {

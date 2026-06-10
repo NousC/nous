@@ -30,13 +30,14 @@
  *   list_triggers        — list the workspace's event triggers + available events
  *   lead_list_operations — the operations trail of a lead list (imports/enrich/push/replies), filterable
  *   check_leads          — pre-spend coverage check: which candidates you already own / should re-enrich
+ *   lead_coverage        — attribute coverage estimate ("how many agency founders do we have, by freshness")
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { get, post } from "./client.js";
 
-export const SERVER_VERSION = "0.21.0";
+export const SERVER_VERSION = "0.22.0";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -861,6 +862,47 @@ export function createServer() {
         lines.push("", "RE-ENRICH (sample):");
         for (const x of stale) {
           lines.push(`  ${x.value}  [${x.enriched_at ? `last enriched ${relAge(x.enriched_at)}` : "never enriched"}]  ${x.entity_id}`);
+        }
+      }
+      return { content: [{ type: "text", text: lines.join("\n") }] };
+    }
+  );
+
+  // ===========================================================================
+  // TOOL: lead_coverage  —  GET /v2/people/coverage
+  // The attribute-based planning check: "how many <agency founders> do we already
+  // have, and how fresh?" — answered WITHOUT pasting identifiers. Use it before
+  // building a list elsewhere to see how much you already cover.
+  // ===========================================================================
+  server.tool(
+    "lead_coverage",
+    "Estimate how many people you ALREADY have matching a role/keyword, bucketed by enrichment " +
+    "freshness — the planning question before building a list (no identifiers to paste). E.g. " +
+    "title='founder', keyword='agency' → how many agency founders are already in your workspace, " +
+    "how many were never enriched or are stale (>90d, so re-enrich), and how many have a fresh " +
+    "verified email. Rough by design (title is precise; keyword matches title/company/department). " +
+    "For an exact net-new check against specific candidates, use check_leads with their identifiers.",
+    {
+      title: z.string().optional().describe("Role match, e.g. 'founder', 'VP Sales' (matches job_title)."),
+      keyword: z.string().optional().describe("Extra match across title/company/department, e.g. 'agency'."),
+      stale_days: z.number().optional().describe("Days after which enrichment counts as stale (default 90)."),
+    },
+    async ({ title, keyword, stale_days }) => {
+      if (!title && !keyword) {
+        return { content: [{ type: "text", text: "Pass a title and/or keyword, e.g. title='founder', keyword='agency'." }] };
+      }
+      const r = await get("/v2/people/coverage", { title, keyword, stale_days });
+      const lines = [
+        `COVERAGE — ${[title && `title~"${title}"`, keyword && `keyword~"${keyword}"`].filter(Boolean).join(" + ")}`,
+        `  ${r.total ?? 0} already in your workspace`,
+        `    ${r.needs_enrichment ?? 0} need (re-)enrichment  (${r.never_enriched ?? 0} never enriched · ${r.stale ?? 0} stale >90d)`,
+        `    ${r.fresh_verified ?? 0} have a fresh verified email`,
+      ];
+      const sample = r.sample || [];
+      if (sample.length) {
+        lines.push("", "SAMPLE (oldest first):");
+        for (const s of sample.slice(0, 12)) {
+          lines.push(`  ${[s.job_title, s.company].filter(Boolean).join(" @ ") || s.entity_id}  [${s.enriched_at ? `enriched ${relAge(s.enriched_at)}` : "never enriched"}]`);
         }
       }
       return { content: [{ type: "text", text: lines.join("\n") }] };

@@ -83,6 +83,33 @@ async function projectPerson(supabase, entityId) {
   return { entity_id: entityId, ...row };
 }
 
+// ─── GET /v2/people/coverage — attribute coverage estimate ──────────────────
+// "How many <agency founders> do we already have, and how fresh?" — the planning
+// question you ask BEFORE building a list elsewhere, without pasting identifiers.
+// Buckets matching people by enrichment freshness so you know how much is already
+// covered vs needs (re-)enrichment vs needs acquiring.
+//   ?title=founder  ?keyword=agency  ?stale_days=90  ?limit=25
+peopleV2Router.get('/coverage', async (req, res) => {
+  try {
+    const supabase = getSupabaseClient();
+    const workspaceId = req.workspaceId;
+    if (!workspaceId) return res.status(400).json({ error: 'workspace_required' });
+    const { title, keyword, stale_days, limit } = req.query;
+    const { data, error } = await supabase.rpc('people_coverage', {
+      p_workspace: workspaceId,
+      p_title: (typeof title === 'string' && title.trim()) || null,
+      p_keyword: (typeof keyword === 'string' && keyword.trim()) || null,
+      p_stale_days: stale_days ? Math.max(1, parseInt(stale_days, 10) || 90) : 90,
+      p_limit: limit ? Math.min(100, Math.max(1, parseInt(limit, 10) || 25)) : 25,
+    });
+    if (error) throw error;
+    return res.json(data || { total: 0, never_enriched: 0, stale: 0, fresh_verified: 0, needs_enrichment: 0, sample: [] });
+  } catch (err) {
+    console.error('[GET /v2/people/coverage]', err);
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
 // ─── GET /v2/people — filtered list ─────────────────────────────────────────
 // Reads the `contacts` view (v2-substrate-backed) for stability. Filters map
 // directly to columns the view exposes; n8n discovers them via the docs.
