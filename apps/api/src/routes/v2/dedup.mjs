@@ -23,9 +23,11 @@ export const dedupV2Router = Router();
 // Response:
 //   {
 //     results: [
-//       { kind: 'email'|'linkedin_url'|'domain', value, status, entity_id?, reason? }
+//       { kind, value, status, entity_id?, reason?,
+//         email_status?, enriched_at?, stale? }   // coverage — present when we already have them
 //     ],
-//     summary: { net_new, engaged, recent, bounced, unsubscribed, suppressed, known, total }
+//     summary: { net_new, engaged, recent, bounced, unsubscribed, suppressed, known,
+//                needs_enrichment, reusable, total }
 //   }
 //
 // Status semantics:
@@ -36,6 +38,16 @@ export const dedupV2Router = Router();
 //   unsubscribed  — opted out or do-not-contact. Skip.
 //   suppressed    — workspace-level suppression policy. Skip.
 //   known         — (domain) a company already in the workspace. Skip.
+//
+// Coverage (the freshness layer — answers "re-buy vs re-enrich vs reuse"):
+//   stale=true        — we own this identity but it wasn't enriched in the last
+//                       90 days (or never). RE-ENRICH it (cheap, often free for an
+//                       email you already verified) rather than re-buying it.
+//   stale=false +
+//   email_status set  — we have a fresh, verified email. REUSE it; don't spend.
+//   enriched_at       — when we last enriched them (null = never).
+//   needs_enrichment  — summary count of entities you already have that are stale.
+//   reusable          — summary count with a fresh verified email (pure savings).
 
 // The core helper chunks every IN query internally, so this ceiling reflects
 // reasonable per-request work, not a URL-length constraint.
@@ -72,9 +84,16 @@ dedupV2Router.post('/', async (req, res) => {
     const summary = {
       net_new: 0, engaged: 0, recent: 0,
       bounced: 0, unsubscribed: 0, suppressed: 0, known: 0,
+      // Coverage roll-ups: who you already have but should re-enrich (stale), and
+      // who you have with a fresh verified email (reuse — pure savings).
+      needs_enrichment: 0, reusable: 0,
       total: results.length,
     };
-    for (const r of results) summary[r.status] = (summary[r.status] || 0) + 1;
+    for (const r of results) {
+      summary[r.status] = (summary[r.status] || 0) + 1;
+      if (r.entity_id && r.stale) summary.needs_enrichment++;
+      else if (r.entity_id && r.email_status) summary.reusable++;
+    }
 
     return res.json({ results, summary });
   } catch (err) {

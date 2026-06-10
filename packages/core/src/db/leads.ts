@@ -480,6 +480,12 @@ export interface EmailClassification {
   status: EmailClassificationStatus;
   entity_id?: string;
   reason?: string | null;
+  // Enrichment coverage — present only when we already have this entity. Lets a
+  // pre-spend caller decide buy (net_new) vs reuse (we have a fresh verified
+  // email) vs re-enrich (we own the identity but it's stale / has no email).
+  email_status?: string | null;   // reachability_status: DELIVERABLE / RISKY / … (null = never verified)
+  enriched_at?: string | null;    // last enrichment date (null = never enriched)
+  stale?: boolean;                // we have them, but not enriched within the freshness window
 }
 
 export interface ClassifyInput {
@@ -503,6 +509,9 @@ function normalizeDomain(d: string | null | undefined): string | null {
 
 const STAGE_ENGAGED = new Set(['aware', 'interested', 'evaluating', 'client']);
 const RECENT_WINDOW_DAYS = 30;
+// Matches the enrich endpoint's reuse-gate: enrichment older than this is stale
+// (an email may have changed) and worth re-verifying rather than trusting.
+const ENRICH_STALE_DAYS = 90;
 
 // PostgREST sends `.in()` filters in the URL. URLs are bounded (~64KB on most
 // proxies), so a single `.in('value', 10_000_items)` blows past it. We chunk
@@ -629,6 +638,7 @@ export async function classifyIdentifiers(
   ])];
   const claimsByEntity = new Map<string, Record<string, unknown>>();
   const recentByEntity = new Set<string>();
+  const enrichedByEntity = new Map<string, string>();   // entity_id → last enrichment date
 
   if (entityIds.length > 0) {
     const claimRows = await chunkedIn<{ entity_id: string; property: string; value: unknown }>(
@@ -658,6 +668,22 @@ export async function classifyIdentifiers(
       entityIds,
     );
     for (const r of recentRows) recentByEntity.add(r.entity_id);
+
+    // Last enrichment per entity (method='enrichment', newest first) — drives the
+    // stale check. Each entity sits in exactly one chunk; the chunk query is
+    // ordered newest-first, so the first row seen for an entity is its latest.
+    const enrichRows = await chunkedIn<{ entity_id: string; observed_at: string }>(
+      chunk => supabase
+        .from('observations')
+        .select('entity_id, observed_at')
+        .in('entity_id', chunk)
+        .eq('method', 'enrichment')
+        .order('observed_at', { ascending: false }),
+      entityIds,
+    );
+    for (const r of enrichRows) {
+      if (!enrichedByEntity.has(r.entity_id)) enrichedByEntity.set(r.entity_id, r.observed_at);
+    }
   }
 
   // 4. Classify (suppression > bounced > unsubscribed > engaged > recent > net_new).
@@ -670,27 +696,34 @@ export async function classifyIdentifiers(
 
     const claims = claimsByEntity.get(entityId) ?? {};
     const reach = claims.reachability_status as string | undefined;
-    if (reach === 'bounced')      return { email: value, kind, value, status: 'bounced', entity_id: entityId };
-    if (reach === 'unsubscribed') return { email: value, kind, value, status: 'unsubscribed', entity_id: entityId };
+    // Enrichment coverage, attached to every entity-backed result so a pre-spend
+    // caller can split "have them, fresh" from "have them, stale → re-enrich".
+    const enrichedAt = enrichedByEntity.get(entityId) ?? null;
+    const stale = !enrichedAt
+      || (Date.now() - new Date(enrichedAt).getTime()) > ENRICH_STALE_DAYS * 86_400_000;
+    const cov = { entity_id: entityId, email_status: reach ?? null, enriched_at: enrichedAt, stale };
+
+    if (reach === 'bounced')      return { email: value, kind, value, status: 'bounced', ...cov };
+    if (reach === 'unsubscribed') return { email: value, kind, value, status: 'unsubscribed', ...cov };
 
     const sentiment = claims.sentiment as string | undefined;
     if (sentiment === 'do_not_contact') {
-      return { email: value, kind, value, status: 'unsubscribed', entity_id: entityId, reason: 'do_not_contact' };
+      return { email: value, kind, value, status: 'unsubscribed', ...cov, reason: 'do_not_contact' };
     }
 
     const stage = claims.pipeline_stage as string | undefined;
     if (stage && STAGE_ENGAGED.has(stage)) {
-      return { email: value, kind, value, status: 'engaged', entity_id: entityId, reason: stage };
+      return { email: value, kind, value, status: 'engaged', ...cov, reason: stage };
     }
     if (recentByEntity.has(entityId)) {
-      return { email: value, kind, value, status: 'recent', entity_id: entityId };
+      return { email: value, kind, value, status: 'recent', ...cov };
     }
     // Present but cold. For a domain that still means "a company you already
     // have" — mark it `known` so the skill skips it before paying to enrich.
     if (kind === 'domain') {
-      return { email: value, kind, value, status: 'known', entity_id: entityId, reason: 'company in workspace' };
+      return { email: value, kind, value, status: 'known', ...cov, reason: 'company in workspace' };
     }
-    return { email: value, kind, value, status: 'net_new', entity_id: entityId, reason: 'cold' };
+    return { email: value, kind, value, status: 'net_new', ...cov, reason: 'cold' };
   };
 
   return [

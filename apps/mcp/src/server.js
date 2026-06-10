@@ -29,13 +29,14 @@
  *   set_trigger          — create an outbound event trigger (webhook); list_triggers reads them
  *   list_triggers        — list the workspace's event triggers + available events
  *   lead_list_operations — the operations trail of a lead list (imports/enrich/push/replies), filterable
+ *   check_leads          — pre-spend coverage check: which candidates you already own / should re-enrich
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { get, post } from "./client.js";
 
-export const SERVER_VERSION = "0.20.0";
+export const SERVER_VERSION = "0.21.0";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -809,6 +810,60 @@ export function createServer() {
         }
       }
       return { content: [{ type: "text", text: lines.join("\n").trim() }] };
+    }
+  );
+
+  // ===========================================================================
+  // TOOL: check_leads  —  POST /v2/dedup
+  // The pre-spend coverage check. Run this BEFORE building/buying a lead list in
+  // Apollo, Sales Navigator, DeepSearch, Clay, etc. Paste the candidate emails /
+  // LinkedIn URLs / company domains (all visible for free in the tool's preview)
+  // and find out what you already own — so you never re-buy a record you have,
+  // and you re-enrich stale ones instead of paying to acquire them again.
+  // ===========================================================================
+  server.tool(
+    "check_leads",
+    "Pre-spend coverage check — call this BEFORE building or buying a lead list elsewhere (Apollo, " +
+    "Sales Navigator, DeepSearch, Clay). Paste the candidate emails, LinkedIn URLs, or company " +
+    "domains (free in any tool's preview) and learn what you already have, so you don't pay twice. " +
+    "Returns counts: net_new (acquire + enrich these), needs_enrichment (you already OWN these but " +
+    "they're stale / not enriched in 90 days — re-enrich instead of re-buying), reusable (you have a " +
+    "fresh verified email — reuse, spend nothing), plus engaged/recent/bounced/unsubscribed/known to " +
+    "skip. Each result carries entity_id, email_status, enriched_at, and stale so you can act per-lead.",
+    {
+      emails: z.array(z.string()).optional().describe("Candidate email addresses (up to 50,000)."),
+      linkedin_urls: z.array(z.string()).optional().describe("Candidate LinkedIn profile URLs (up to 50,000)."),
+      domains: z.array(z.string()).optional().describe("Company domains — 'do I already have anyone here?' (up to 50,000)."),
+    },
+    async ({ emails, linkedin_urls, domains }) => {
+      const body = {};
+      if (emails?.length) body.emails = emails;
+      if (linkedin_urls?.length) body.linkedin_urls = linkedin_urls;
+      if (domains?.length) body.domains = domains;
+      if (!Object.keys(body).length) {
+        return { content: [{ type: "text", text: "Pass at least one of: emails, linkedin_urls, domains." }] };
+      }
+      const r = await post("/v2/dedup", body);
+      const s = r.summary || {};
+      const lines = [
+        `COVERAGE (${s.total ?? 0} checked)`,
+        `  net_new          ${s.net_new ?? 0}   → acquire + enrich`,
+        `  needs_enrichment ${s.needs_enrichment ?? 0}   → you OWN these but stale (>90d) → re-enrich, don't re-buy`,
+        `  reusable         ${s.reusable ?? 0}   → fresh verified email on file → reuse, spend nothing`,
+        `  engaged          ${s.engaged ?? 0}   → in an active conversation, don't cold-send`,
+        `  recent           ${s.recent ?? 0}   → contacted <30d, defer`,
+        `  known            ${s.known ?? 0}   → company already in the workspace`,
+        `  bounced/unsub    ${(s.bounced ?? 0) + (s.unsubscribed ?? 0) + (s.suppressed ?? 0)}   → skip`,
+      ];
+      // Surface a few stale entities the caller should re-enrich (with their last date).
+      const stale = (r.results || []).filter(x => x.entity_id && x.stale).slice(0, 15);
+      if (stale.length) {
+        lines.push("", "RE-ENRICH (sample):");
+        for (const x of stale) {
+          lines.push(`  ${x.value}  [${x.enriched_at ? `last enriched ${relAge(x.enriched_at)}` : "never enriched"}]  ${x.entity_id}`);
+        }
+      }
+      return { content: [{ type: "text", text: lines.join("\n") }] };
     }
   );
 
