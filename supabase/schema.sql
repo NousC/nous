@@ -966,6 +966,17 @@ CREATE TABLE team_ops_grace (
 );
 ALTER TABLE team_ops_grace ENABLE ROW LEVEL SECURITY;
 
+-- Ops-limit warning emails: one row per team+kind+billing-period (so each of
+-- warn80 / over_limit / grace_expiring sends at most once per period). Backend-only.
+CREATE TABLE team_ops_email_log (
+  team_id      UUID NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+  kind         TEXT NOT NULL,
+  period_start TIMESTAMPTZ NOT NULL,
+  sent_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (team_id, kind, period_start)
+);
+ALTER TABLE team_ops_email_log ENABLE ROW LEVEL SECURITY;
+
 
 -- ============================================================
 -- 14. WORKSPACE GRAPH  — lightweight extracted relationship edges

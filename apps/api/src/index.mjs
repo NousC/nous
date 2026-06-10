@@ -42,6 +42,7 @@ import { invitationsRouter } from './routes/api/invitations.mjs';
 import { onboardingRouter } from './routes/api/onboarding.mjs';
 import { usageRouter } from './routes/api/usage.mjs';
 import { billingRouter } from './routes/api/billing.mjs';
+import { opsEmailsRouter } from './routes/opsEmails.mjs';
 import { integrationsRouter } from './routes/api/integrations.mjs';
 import { crmRouter } from './routes/api/crm.mjs';
 import { contactsApiRouter } from './routes/api/contacts.mjs';
@@ -157,6 +158,8 @@ app.use('/api/invitations',           invitationsRouter);
 app.use('/api/onboarding',            onboardingRouter);
 app.use('/api/usage',                 usageRouter);
 app.use('/api/billing',               billingRouter);
+// Internal worker→api endpoint (secret-guarded, dormant unless WORKER_INTERNAL_SECRET set).
+app.use('/internal/ops-emails',       opsEmailsRouter);
 app.use('/api/integrations',          integrationsRouter);
 app.use('/api/crm',                   crmRouter);
 app.use('/api/contacts',              contactsApiRouter);

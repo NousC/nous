@@ -25,6 +25,7 @@ import { runCrmAutoSync } from './workers/crmSync.mjs';
 import { runCrmHygieneSweep } from './workers/crmHygiene.mjs';
 import { runStageDerivation } from './workers/stageDerivation.mjs';
 import { runOnboardingDrip } from './workers/onboardingDrip.mjs';
+import { runOpsLimitEmails } from './workers/opsLimitEmails.mjs';
 import { runLinkedInEngagement } from './workers/linkedinEngagement.mjs';
 
 // Wire webhook-driven activity logging → CRM push at module load.
@@ -267,5 +268,16 @@ async function runOnboardingDripSafe() {
 }
 cron.schedule('45 * * * *', runOnboardingDripSafe);
 console.log('[WORKER] Onboarding drip — hourly at :45');
+
+// ── Ops-limit warning emails — hourly at :50 ─────────────────────────────────
+// Asks the api which teams are due an ops email (80% / over-limit / grace-
+// expiring) and sends them. Dormant unless WORKER_INTERNAL_SECRET is set. See
+// workers/opsLimitEmails.mjs.
+async function runOpsLimitEmailsSafe() {
+  try { await runOpsLimitEmails(); }
+  catch (err) { console.error('[WORKER] ops-limit emails error:', err.message); }
+}
+cron.schedule('50 * * * *', runOpsLimitEmailsSafe);
+console.log('[WORKER] Ops-limit emails — hourly at :50');
 
 console.log('[WORKER] Started');
