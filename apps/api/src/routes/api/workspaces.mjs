@@ -40,7 +40,8 @@ workspacesRouter.post('/', verifySupabaseAuth, async (req, res) => {
         return res.status(403).json({ error: 'self_hosted_workspace_limit', message: 'Self-hosted installations support one workspace.' });
       }
     } else {
-      // Cloud: enforce the plan's workspace limit (Free 1 / Pro 3 / Scale ∞).
+      // Cloud: enforce the plan's workspace limit (Free/Start/Pro 1, Growth 3,
+      // Partner 5 base). Limit is read live from the plan, so it tracks the ladder.
       const { data: subscription } = await supabase
         .from('subscriptions')
         .select('plan_id, status')
@@ -53,11 +54,17 @@ workspacesRouter.post('/', verifySupabaseAuth, async (req, res) => {
           .select('id', { count: 'exact', head: true })
           .eq('team_id', team.id);
         if ((count || 0) >= plan.workspaceLimit) {
+          // Partner is per-client: at the limit you ADD a client (+$ per month),
+          // you don't "upgrade a tier". Everyone else upgrades.
+          const partner = !!plan.perWorkspaceUsd;
           return res.status(402).json({
-            error: 'workspace_limit_reached',
+            error: partner ? 'add_client_required' : 'workspace_limit_reached',
             current_plan: plan.id,
             limit: plan.workspaceLimit,
-            message: `Your ${plan.name} plan includes ${plan.workspaceLimit} workspace${plan.workspaceLimit === 1 ? '' : 's'}. Upgrade for more.`,
+            per_workspace_usd: plan.perWorkspaceUsd ?? null,
+            message: partner
+              ? `You're using all ${plan.workspaceLimit} client workspaces on Partner. Each additional client is $${plan.perWorkspaceUsd}/mo — add one from billing.`
+              : `Your ${plan.name} plan includes ${plan.workspaceLimit} workspace${plan.workspaceLimit === 1 ? '' : 's'}. Upgrade for more.`,
             upgrade_url: '/settings?section=billing',
           });
         }
