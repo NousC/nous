@@ -141,6 +141,14 @@ workspaceStatusV2Router.get('/status', async (req, res) => {
     const recordCount = typeof contactCount === 'number' ? contactCount : 0;
     const hasWebhooks = webhookCount > 0 || (Array.isArray(triggers) ? triggers.length : 0) > 0;
 
+    // Self-host: some channels are configured at the INSTANCE level (env vars +
+    // restart), not per-workspace in the app — and the agent CANNOT set env vars.
+    // Surface what's wired so the agent tells the operator which to set.
+    const selfHosted     = isSelfHosted();
+    const unipileEnv     = !!(process.env.UNIPILE_API_KEY && process.env.UNIPILE_DSN);
+    const resendEnv      = !!process.env.RESEND_API_KEY;
+    const googleOauthEnv = !!process.env.GOOGLE_CLIENT_ID;
+
     // ── CRM sync ──
     const crmSyncConfigured = (crmConfigs || []).length > 0;
     const crmProviders = (crmConfigs || []).map((c) => ({
@@ -174,7 +182,9 @@ workspaceStatusV2Router.get('/status', async (req, res) => {
         id: 'connect_email',
         title: 'Connect email (Gmail, recommended)',
         why: 'Email is the main channel of record. Without it the account timeline stays empty.',
-        how: 'Gmail uses Google OAuth, so the user connects it on the Integrations page (you cannot do OAuth). If they are not on Google, they can add custom SMTP/IMAP there. Point them to it.',
+        how: selfHosted
+          ? `Self-hosted: Gmail OAuth needs GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET in nous.env${googleOauthEnv ? ' (set ✓ — the user connects on the Integrations page)' : ' (NOT set — the operator adds them + restarts first)'}. Custom SMTP/IMAP works with no env. You cannot set env vars — tell the operator.`
+          : 'Gmail uses Google OAuth, so the user connects it on the Integrations page (you cannot do OAuth). If they are not on Google, they can add custom SMTP/IMAP there. Point them to it.',
       });
     }
     if (onboardingDone && !linkedinConnected) {
@@ -182,7 +192,9 @@ workspaceStatusV2Router.get('/status', async (req, res) => {
         id: 'connect_linkedin',
         title: 'Connect LinkedIn (recommended)',
         why: 'LinkedIn is a core GTM channel. Nous has a native LinkedIn integration.',
-        how: 'There is NO public LinkedIn API — Nous connects it natively (via Unipile) and the user configures it on the Integrations page in the app. Tell them to set it up there; you cannot connect it programmatically. (Apify / HeyReach etc. are not needed — the native one covers it.)',
+        how: selfHosted
+          ? `Self-hosted: LinkedIn runs on Unipile at the INSTANCE level — UNIPILE_API_KEY + UNIPILE_DSN in nous.env${unipileEnv ? ' (set ✓ — the user connects their account on the Integrations page)' : ' (NOT set — the operator must add these first; Unipile is a paid third-party account, then restart)'}. There is no public LinkedIn API; you cannot set env vars — tell the operator.`
+          : 'There is NO public LinkedIn API — Nous connects it natively (via Unipile) and the user configures it on the Integrations page in the app. Tell them to set it up there; you cannot connect it programmatically. (Apify / HeyReach etc. are not needed — the native one covers it.)',
       });
     }
     if (onboardingDone && !meetingConnected) {
@@ -283,6 +295,13 @@ workspaceStatusV2Router.get('/status', async (req, res) => {
         crm_sync: crmSyncAvailable,
         lead_lists: leadListsAvailable,
       },
+      self_hosted: selfHosted,
+      // On self-host, these channels are wired via nous.env (instance-level), not
+      // per-workspace. true = the env vars are set; the agent guides the operator
+      // to set the missing ones + restart (it cannot set env itself).
+      env_integrations: selfHosted
+        ? { linkedin_unipile: unipileEnv, email_resend: resendEnv, gmail_oauth: googleOauthEnv }
+        : null,
       setup: {
         onboarding: { done: onboardingDone, missing: profileMissing },
         gtm_playbook: {

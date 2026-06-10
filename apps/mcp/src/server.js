@@ -39,7 +39,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { get, post } from "./client.js";
 
-export const SERVER_VERSION = "0.27.0";
+export const SERVER_VERSION = "0.28.0";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -571,6 +571,12 @@ export function createServer() {
       lines.push(`WORKSPACE: ${ws.name || "(unnamed)"}${ws.website ? ` · ${ws.website}` : ""}${ws.business_type ? ` · ${ws.business_type}` : ""}`);
       const pl = s.plan ?? {};
       lines.push(`PLAN: ${pl.name || pl.id || "free"}${pl.crm_sync === false ? "  (CRM sync not included — do not offer it)" : ""}`);
+      if (s.self_hosted) {
+        const e = s.env_integrations ?? {};
+        const mk = (b) => (b ? "✓ set" : "✗ NOT set");
+        lines.push("SELF-HOSTED — these channels are wired via nous.env (you can't set env vars; tell the operator to set + restart):");
+        lines.push(`  LinkedIn/Unipile: ${mk(e.linkedin_unipile)}   Email/Resend: ${mk(e.email_resend)}   Gmail OAuth: ${mk(e.gmail_oauth)}`);
+      }
       lines.push("");
 
       const mark = (b) => (b ? "✓" : "✗");
