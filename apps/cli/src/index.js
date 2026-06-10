@@ -383,8 +383,19 @@ program
         if (key) {
           console.log(`Logged in\nAPI URL: ${url}\nKey: ${key.slice(0, 8)}...`);
         } else {
-          console.log("Not logged in. Run: nous auth login --key <your-key>");
+          console.log("Not logged in. Run: npx @opennous/cli login");
         }
+      })
+  )
+  .addCommand(
+    new Command("logout")
+      .description("Sign out — remove the saved API key")
+      .action(() => {
+        const cfg = readConfig();
+        if (!cfg.apiKey) { console.log("Not signed in."); return; }
+        delete cfg.apiKey;
+        writeConfig(cfg);
+        console.log("✓ Signed out — removed the saved API key from ~/.nous/config.json");
       })
   );
 
@@ -736,5 +747,17 @@ program
     console.log("\nDocs: https://docs.opennous.cloud/mcp/introduction");
   });
 
+// nous logout — top-level alias of `auth logout`. Removes the saved API key.
+program
+  .command("logout")
+  .description("Sign out — remove the saved API key")
+  .action(() => {
+    const cfg = readConfig();
+    if (!cfg.apiKey) { console.log("Not signed in."); return; }
+    delete cfg.apiKey;
+    writeConfig(cfg);
+    console.log("✓ Signed out — removed the saved API key from ~/.nous/config.json");
+  });
+
 // ---------------------------------------------------------------------------
-program.name("nous").version("0.5.0").parse();
+program.name("nous").version("0.6.0").parse();
