@@ -55,6 +55,7 @@ const Intelligence    = lazyWithErrorBoundary(() => import("@/pages/Intelligence
 const Lists           = lazyWithErrorBoundary(() => import("@/pages/Lists"));
 const CleanList       = lazyWithErrorBoundary(() => import("@/pages/CleanList"));
 const NotFound        = lazyWithErrorBoundary(() => import("@/pages/NotFound"));
+const ConnectGate     = lazyWithErrorBoundary(() => import("@/pages/ConnectGate"));
 
 const AdminCMS              = lazyWithErrorBoundary(() => import("@/pages/AdminCMS"));
 const AdminResources        = lazyWithErrorBoundary(() => import("@/pages/AdminResources"));
@@ -111,6 +112,15 @@ function StandardLayout({ children }: { children: React.ReactNode }) {
 }
 
 export function AppRoutes() {
+  // First-run gate: until the agent has onboarded the workspace (business_type
+  // set by set_workspace_profile), the whole app — sidebar and all — is replaced
+  // by the full-screen Connect screen. No access to anything until setup is done.
+  const { isAuthenticated, userData } = useAuth();
+  const onboarded = !!(userData as { workspace?: { business_type?: string } })?.workspace?.business_type;
+  if (isAuthenticated && !onboarded) {
+    return <Suspense fallback={<MinimalLoader />}><ConnectGate /></Suspense>;
+  }
+
   return (
     <Routes>
       {/* Full-screen admin pages — no sidebar/header */}

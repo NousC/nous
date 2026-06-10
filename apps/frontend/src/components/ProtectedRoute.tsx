@@ -1,4 +1,4 @@
-import { Navigate, useLocation } from 'react-router-dom';
+import { Navigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 
 interface ProtectedRouteProps {
@@ -8,7 +8,6 @@ interface ProtectedRouteProps {
 
 export function ProtectedRoute({ children }: ProtectedRouteProps) {
   const { isAuthenticated, loading, userDataLoading, userData } = useAuth();
-  const location = useLocation();
 
   // Only block the UI on the initial auth check, OR while we're fetching
   // userData for the first time. Once we have userData, background
@@ -31,16 +30,8 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
     return <Navigate to="/login" replace />;
   }
 
-  // Onboarding moved to the agent: you set up Nous by talking to Claude, not a
-  // web wizard. The app stays LOCKED to the Install ("Connect your agent")
-  // screen until the agent has onboarded the workspace — signalled by the
-  // workspace having a business_type, which set_workspace_profile sets (and the
-  // old wizard set too, so existing onboarded workspaces are never locked).
-  // /cli-login is exempt so a brand-new user can approve their first key.
-  const onboarded = !!(userData as { workspace?: { business_type?: string } })?.workspace?.business_type;
-  if (!onboarded && location.pathname !== '/install' && location.pathname !== '/cli-login') {
-    return <Navigate to="/install" replace />;
-  }
-
+  // The agent-onboarding gate lives in AppRoutes: until the workspace is
+  // onboarded, the whole app shell is replaced by the full-screen Connect
+  // screen (no sidebar). ProtectedRoute only guards authentication.
   return <>{children}</>;
 }
