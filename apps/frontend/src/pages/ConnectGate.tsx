@@ -6,44 +6,48 @@ import { useAuth } from "@/contexts/AuthContext";
 const API_URL = import.meta.env.VITE_API_URL ?? "";
 
 const ONBOARD_PROMPT = "Set me up — onboard my workspace and build my playbook.";
-const LOGIN = "npx @opennous/cli login";
 const LOGO_CLAUDE = "/provider-logos/claude.svg";
 const LOGO_CODEX = "/provider-logos/codex.png";
 
 type Step = { caption: string; code: string };
-const TABS: { id: string; label: string; icon: ReactNode; steps: Step[] }[] = [
-  {
-    id: "claude",
-    label: "Claude Code",
-    icon: <img src={LOGO_CLAUDE} alt="" className="w-3.5 h-3.5 object-contain" />,
-    steps: [
-      { caption: "1. Add the Nous plugin marketplace", code: "/plugin marketplace add NousC/nous" },
-      { caption: "2. Install the Nous plugin", code: "/plugin install nous@nous-plugins" },
-      { caption: "3. Sign in — opens your browser, saves your key", code: LOGIN },
-      { caption: "4. Onboard — paste this to your agent", code: ONBOARD_PROMPT },
-    ],
-  },
-  {
-    id: "codex",
-    label: "Codex",
-    icon: <img src={LOGO_CODEX} alt="" className="w-3.5 h-3.5 object-contain" />,
-    steps: [
-      { caption: "1. Add Nous to ~/.codex/config.toml", code: `[mcp_servers.nous]\ncommand = "npx"\nargs = ["-y", "@opennous/mcp"]` },
-      { caption: "2. Sign in — opens your browser, saves your key", code: LOGIN },
-      { caption: "3. Onboard — paste this to your agent", code: ONBOARD_PROMPT },
-    ],
-  },
-  {
-    id: "other",
-    label: "Other MCP",
-    icon: <Plug className="w-3.5 h-3.5 text-muted-foreground" strokeWidth={1.75} />,
-    steps: [
-      { caption: "1. Add the Nous MCP server to your client config", code: `{\n  "mcpServers": {\n    "nous": {\n      "command": "npx",\n      "args": ["-y", "@opennous/mcp"]\n    }\n  }\n}` },
-      { caption: "2. Sign in — opens your browser, saves your key", code: LOGIN },
-      { caption: "3. Onboard — paste this to your agent", code: ONBOARD_PROMPT },
-    ],
-  },
-];
+// Tabs are built per-render so self-hosters get their own API URL baked into the
+// login command (otherwise `nous login` would target Nous Cloud, the wrong
+// server). The MCP reads the saved apiUrl from ~/.nous/config.json afterwards.
+function makeTabs(login: string): { id: string; label: string; icon: ReactNode; steps: Step[] }[] {
+  return [
+    {
+      id: "claude",
+      label: "Claude Code",
+      icon: <img src={LOGO_CLAUDE} alt="" className="w-3.5 h-3.5 object-contain" />,
+      steps: [
+        { caption: "1. Add the Nous plugin marketplace", code: "/plugin marketplace add NousC/nous" },
+        { caption: "2. Install the Nous plugin", code: "/plugin install nous@nous-plugins" },
+        { caption: "3. Sign in — opens your browser, saves your key", code: login },
+        { caption: "4. Onboard — paste this to your agent", code: ONBOARD_PROMPT },
+      ],
+    },
+    {
+      id: "codex",
+      label: "Codex",
+      icon: <img src={LOGO_CODEX} alt="" className="w-3.5 h-3.5 object-contain" />,
+      steps: [
+        { caption: "1. Add Nous to ~/.codex/config.toml", code: `[mcp_servers.nous]\ncommand = "npx"\nargs = ["-y", "@opennous/mcp"]` },
+        { caption: "2. Sign in — opens your browser, saves your key", code: login },
+        { caption: "3. Onboard — paste this to your agent", code: ONBOARD_PROMPT },
+      ],
+    },
+    {
+      id: "other",
+      label: "Other MCP",
+      icon: <Plug className="w-3.5 h-3.5 text-muted-foreground" strokeWidth={1.75} />,
+      steps: [
+        { caption: "1. Add the Nous MCP server to your client config", code: `{\n  "mcpServers": {\n    "nous": {\n      "command": "npx",\n      "args": ["-y", "@opennous/mcp"]\n    }\n  }\n}` },
+        { caption: "2. Sign in — opens your browser, saves your key", code: login },
+        { caption: "3. Onboard — paste this to your agent", code: ONBOARD_PROMPT },
+      ],
+    },
+  ];
+}
 
 function Cmd({ caption, code }: Step) {
   const [copied, setCopied] = useState(false);
@@ -80,9 +84,15 @@ export default function ConnectGate() {
   const token = session?.access_token;
   const workspaceId = (userData as { workspace?: { id?: string } })?.workspace?.id;
   const email = (userData as { user?: { email?: string } })?.user?.email;
+  const selfHosted = (userData as { self_hosted?: boolean })?.self_hosted === true;
   const [tab, setTab] = useState("claude");
   const [celebrating, setCelebrating] = useState(false);
 
+  // Self-host: point the login (and therefore the MCP) at THIS instance, not cloud.
+  const login = selfHosted && API_URL
+    ? `npx @opennous/cli login --url ${API_URL}`
+    : "npx @opennous/cli login";
+  const TABS = makeTabs(login);
   const active = TABS.find(t => t.id === tab) ?? TABS[0];
 
   // First-run activation: welcome email, free-plan backstop, dogfood. Idempotent.
