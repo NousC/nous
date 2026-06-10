@@ -45,7 +45,7 @@ workspaceStatusV2Router.get('/status', async (req, res) => {
     const supabase = getSupabaseClient();
     const workspaceId = req.workspaceId;
 
-    const [workspace, notes, signalCount, connections, crmConfigs, hygieneOpen, webhookCount, triggers] =
+    const [workspace, notes, signalCount, connections, crmConfigs, hygieneOpen, webhookCount, triggers, linkedinRows, contactCount] =
       await Promise.all([
         safe(async () => {
           const { data } = await supabase
@@ -66,7 +66,7 @@ workspaceStatusV2Router.get('/status', async (req, res) => {
         safe(async () => {
           const { data } = await supabase
             .from('workflow_provider_connections')
-            .select('id, name, is_verified, last_used_at, provider:workflow_providers(display_name, category)')
+            .select('id, name, is_verified, last_used_at, provider:workflow_providers(name, display_name, category)')
             .eq('workspace_id', workspaceId);
           return data ?? [];
         }, []),
@@ -86,6 +86,19 @@ workspaceStatusV2Router.get('/status', async (req, res) => {
           return count ?? 0;
         }, 0),
         safe(() => listTriggers(supabase, workspaceId), []),
+        safe(async () => {
+          const { data } = await supabase
+            .from('workspace_linkedin_connections')
+            .select('id').eq('workspace_id', workspaceId).limit(1);
+          return data ?? [];
+        }, []),
+        safe(async () => {
+          const { count } = await supabase
+            .from('contacts')
+            .select('id', { count: 'exact', head: true })
+            .eq('workspace_id', workspaceId);
+          return count ?? 0;
+        }, 0),
       ]);
 
     // ── Plan + feature availability (so the agent doesn't push paid features) ──
@@ -119,6 +132,14 @@ workspaceStatusV2Router.get('/status', async (req, res) => {
     }));
     const enrichment = verified.find((c) => c.provider?.category === 'enrichment') || null;
 
+    // ── Recommended onboarding integrations (the order the agent should guide) ──
+    const provName = (c) => (c.provider?.name || c.name || '').toLowerCase();
+    const gmailConnected   = verified.some((c) => /gmail|google|smtp|imap/.test(provName(c)) || c.provider?.category === 'email');
+    const meetingConnected = verified.some((c) => c.provider?.category === 'meetings');
+    const linkedinConnected = (linkedinRows || []).length > 0;
+    const recordCount = typeof contactCount === 'number' ? contactCount : 0;
+    const hasWebhooks = webhookCount > 0 || (Array.isArray(triggers) ? triggers.length : 0) > 0;
+
     // ── CRM sync ──
     const crmSyncConfigured = (crmConfigs || []).length > 0;
     const crmProviders = (crmConfigs || []).map((c) => ({
@@ -130,47 +151,99 @@ workspaceStatusV2Router.get('/status', async (req, res) => {
 
     const triggerCount = Array.isArray(triggers) ? triggers.length : 0;
 
-    // ── Ranked next steps — what the agent should set up next ──
+    // ── Ranked next steps — the onboarding sequence, in order. Guide the user
+    // through these top-down; later steps build on earlier ones. ──
     const next_steps = [];
+
+    // 1. Profile.
     if (!onboardingDone) {
       next_steps.push({
         id: 'onboarding',
-        title: 'Finish onboarding',
-        why: `Missing: ${profileMissing.join(', ')}. The whole context layer is built on the workspace knowing who you are and who you sell to.`,
-        how: 'Ask the user for their company name, website, whether they sell a service or software, and a sentence on their ideal customer — then call set_workspace_profile.',
+        title: 'Finish onboarding the workspace',
+        why: `Missing: ${profileMissing.join(', ')}. Everything else builds on the workspace knowing who you are and who you sell to.`,
+        how: 'Ask for company name, website, service-or-software, and a sentence on the ideal customer, then call set_workspace_profile.',
       });
-    } else if (!playbookDone) {
+    }
+
+    // 2. Core channels — Gmail/email, LinkedIn, a meeting note-taker. These are
+    // the first sources of truth. Connected in the APP (OAuth / native), not by
+    // the agent.
+    if (onboardingDone && !gmailConnected) {
+      next_steps.push({
+        id: 'connect_email',
+        title: 'Connect email (Gmail, recommended)',
+        why: 'Email is the main channel of record. Without it the account timeline stays empty.',
+        how: 'Gmail uses Google OAuth, so the user connects it on the Integrations page (you cannot do OAuth). If they are not on Google, they can add custom SMTP/IMAP there. Point them to it.',
+      });
+    }
+    if (onboardingDone && !linkedinConnected) {
+      next_steps.push({
+        id: 'connect_linkedin',
+        title: 'Connect LinkedIn (recommended)',
+        why: 'LinkedIn is a core GTM channel. Nous has a native LinkedIn integration.',
+        how: 'There is NO public LinkedIn API — Nous connects it natively (via Unipile) and the user configures it on the Integrations page in the app. Tell them to set it up there; you cannot connect it programmatically. (Apify / HeyReach etc. are not needed — the native one covers it.)',
+      });
+    }
+    if (onboardingDone && !meetingConnected) {
+      next_steps.push({
+        id: 'connect_meetings',
+        title: 'Connect a meeting note-taker (recommended)',
+        why: 'Calls become part of the record — what was discussed, objections, next steps.',
+        how: 'Fireflies, Fathom, Calendly, or Cal.com. These connect in the app on the Integrations page (or via webhook). Recommend one.',
+      });
+    }
+
+    // 3. Enrichment / outbound — agent CAN connect key-based ones directly.
+    if (onboardingDone && !enrichment) {
+      next_steps.push({
+        id: 'connect_enrichment',
+        title: 'Connect enrichment (Prospeo or Apollo)',
+        why: 'Enrichment fills job title, seniority, company size — the signals the ICP model scores on.',
+        how: 'These are key-based — ask the user for the API key and call connect_integration. Outbound senders (Instantly etc.) are key-based too.',
+      });
+    }
+
+    // 4. Webhooks — so the tools just connected actually push data in.
+    if (onboardingDone && verified.length > 0 && !hasWebhooks) {
+      next_steps.push({
+        id: 'webhooks',
+        title: 'Set up webhooks for the tools you connected',
+        why: 'Several tools (Instantly, Fireflies, Calendly, …) only deliver events via webhook, so without one their data never reaches Nous.',
+        how: 'For each connected tool that pushes events, set up its webhook (set_trigger for outbound, or point the tool at the Nous inbound webhook on the Webhooks page). Especially the sequencer + note-taker.',
+      });
+    }
+
+    // 5. First records — CSV into Accounts, then backfill enrichment.
+    if (onboardingDone && recordCount === 0) {
+      next_steps.push({
+        id: 'import_records',
+        title: 'Add the first records (CSV, ideally from the CRM)',
+        why: 'An empty workspace has nothing to score or act on. Importing the CRM contacts seeds the account record.',
+        how: 'Tell the user to upload a CSV on the Accounts page (export from their CRM). After import, they can run backfill enrichment so the new records get scored. You cannot upload the file — guide them to it.',
+      });
+    }
+
+    // 6. GTM playbook — once the workspace has its setup + first records, build
+    // the scoring model.
+    if (onboardingDone && !playbookDone) {
       next_steps.push({
         id: 'gtm_playbook',
         title: 'Build the GTM playbook',
-        why: 'No ICP scoring model exists yet, so accounts cannot be scored for fit. This is what makes Nous score and prioritise.',
-        how: 'Work through the GTM context with the user (what they sell, who, the problems, pricing, competitors) and record it with update_gtm_profile.',
+        why: 'No ICP scoring model yet, so accounts are not scored for fit. This is what makes Nous prioritise.',
+        how: 'Work through the GTM context (what they sell, who, problems, pricing, competitors) + ASK for closed-won and closed-lost domains, record with update_gtm_profile, then build_scoring_model.',
       });
     }
-    if (verified.length === 0) {
-      next_steps.push({
-        id: 'integrations',
-        title: 'Connect a data source',
-        why: 'No integrations are connected, so no activity is flowing in. The account record stays empty without a source (Gmail, a CRM, an enrichment provider).',
-        how: 'Tell the user which sources you can connect; key-based ones you can set up directly, OAuth ones need one authorize click from them.',
-      });
-    }
+
+    // 7. CRM sync — only if the plan includes it.
     if (onboardingDone && crmSyncAvailable && !crmSyncConfigured) {
       next_steps.push({
         id: 'crm_sync',
         title: 'Set up CRM sync',
-        why: 'No CRM sync is configured, so the account record is not kept in step with the system of record.',
-        how: 'Confirm which CRM and the create/hygiene policy with the user, then configure it.',
+        why: 'Keeps the account record in step with the system of record.',
+        how: 'Confirm which CRM (must be connected) and the create/hygiene policy, then configure_crm_sync.',
       });
     }
-    if (webhookCount === 0 && triggerCount === 0) {
-      next_steps.push({
-        id: 'events',
-        title: 'Set up event triggers',
-        why: 'No webhooks or triggers are live, so downstream tools are not notified when the record changes.',
-        how: 'Set up the triggers the user needs for their stack.',
-      });
-    }
+
     if (hygieneOpen > 0) {
       next_steps.push({
         id: 'hygiene_review',
@@ -207,6 +280,14 @@ workspaceStatusV2Router.get('/status', async (req, res) => {
           stale_facts: staleFacts,
         },
         integrations: { count: verified.length, connected: connectedList },
+        // The recommended onboarding integrations, in priority order.
+        recommended: {
+          email: gmailConnected,
+          linkedin: linkedinConnected,
+          meeting_notetaker: meetingConnected,
+          enrichment: !!enrichment,
+        },
+        records: { count: recordCount },
         crm_sync: {
           available: crmSyncAvailable,
           configured: crmSyncConfigured,

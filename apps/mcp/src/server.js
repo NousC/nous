@@ -37,7 +37,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { get, post } from "./client.js";
 
-export const SERVER_VERSION = "0.23.0";
+export const SERVER_VERSION = "0.24.0";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -506,13 +506,21 @@ export function createServer() {
   // ===========================================================================
   server.tool(
     "get_workspace_status",
-    "See the whole setup state of this workspace in one call — and what to set up next. Nous is " +
-    "operated by you, the agent, not by a human clicking through the app: call this at the start of " +
-    "a session to learn whether the workspace is onboarded, whether the GTM playbook (ICP model) is " +
-    "built, which integrations are connected, whether CRM sync is configured, and whether webhooks/" +
-    "triggers are live. Returns a ranked NEXT STEPS list — walk the user through whatever is missing " +
-    "(onboard them with set_workspace_profile, build the playbook with update_gtm_profile, connect " +
-    "their tools). Use this before offering to set anything up.",
+    "See the whole setup state of this workspace in one call, and what to do next. Nous is operated " +
+    "by you, the agent: call this at the start of a session. It returns a ranked NEXT STEPS list — " +
+    "walk the user through it top-down. The onboarding sequence, in order: " +
+    "(1) profile (set_workspace_profile); " +
+    "(2) connect core channels — Gmail/email, LinkedIn, and a meeting note-taker (Fireflies/Fathom/" +
+    "Calendly); (3) connect enrichment/outbound (Prospeo/Apollo/Instantly); (4) set up webhooks for " +
+    "the connected tools so their events flow in; (5) import first records (CSV from the CRM) on the " +
+    "Accounts page, then backfill enrichment; (6) build the GTM playbook (update_gtm_profile + " +
+    "build_scoring_model, asking for closed-won/lost domains). " +
+    "KNOW THE CONSTRAINTS: Gmail uses Google OAuth and LinkedIn has NO public API (Nous connects it " +
+    "natively via Unipile) — you CANNOT connect those yourself; tell the user to set them up on the " +
+    "Integrations page. Key-based tools (Prospeo, Apollo, Instantly, HubSpot token) you CAN connect " +
+    "with connect_integration. CSV import and CRM-page actions are done by the user in the app — guide " +
+    "them. Respect PLAN: never push a feature the plan doesn't include (e.g. CRM sync on free). " +
+    "Recommend, don't dump — surface the next 1-2 steps, not all of them at once.",
     {},
     async () => {
       const s = await get("/v2/workspace/status");
@@ -539,6 +547,11 @@ export function createServer() {
       }
       lines.push(`  ${mark(setup.enrichment?.connected)} Enrichment${setup.enrichment?.provider ? `: ${setup.enrichment.provider}` : ""}`);
       lines.push(`  ${mark((setup.webhooks?.count ?? 0) > 0 || (setup.triggers?.count ?? 0) > 0)} Events — ${setup.webhooks?.count ?? 0} webhook(s), ${setup.triggers?.count ?? 0} trigger(s)`);
+      const rec = setup.recommended ?? {};
+      lines.push("");
+      lines.push("RECOMMENDED CHANNELS (connect these first):");
+      lines.push(`  ${mark(rec.email)} Email / Gmail   ${mark(rec.linkedin)} LinkedIn   ${mark(rec.meeting_notetaker)} Meeting note-taker`);
+      lines.push(`  Records imported: ${setup.records?.count ?? 0}`);
 
       if (s.next_steps?.length) {
         lines.push("");
