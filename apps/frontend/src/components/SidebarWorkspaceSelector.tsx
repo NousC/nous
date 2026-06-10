@@ -727,11 +727,6 @@ export function SidebarWorkspaceSelector({ collapsed = false }: SidebarWorkspace
             <AlertDialogTitle>Delete Workspace</AlertDialogTitle>
             <AlertDialogDescription>
               Are you sure you want to delete "{deleteWorkspaceData?.name}"? This action cannot be undone and will delete all associated data.
-              {deleteWorkspaceData?.stripe_subscription_item_id && (
-                <span className="block mt-2 text-sm">
-                  Your subscription will be adjusted immediately. You'll receive credit for the unused time.
-                </span>
-              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

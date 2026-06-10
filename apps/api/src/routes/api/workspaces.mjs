@@ -3,6 +3,7 @@ import { getSupabaseClient } from '@nous/core';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
 import { ensureUserAndTeam } from '../../lib/auth.mjs';
 import { getPlanFromSubscription, effectiveWorkspaceLimit, isSelfHosted } from '../../lib/plans.mjs';
+import { billingEnabled, setSubscriptionQuantity } from '../../lib/stripe.mjs';
 import { getCountryFromRequest } from '../../lib/geo.mjs';
 
 export const workspacesRouter = Router();
@@ -137,7 +138,7 @@ workspacesRouter.delete('/:workspaceId', verifySupabaseAuth, async (req, res) =>
   try {
     const supabase = getSupabaseClient();
     const { workspaceId } = req.params;
-    const { user } = await ensureUserAndTeam(req.user);
+    const { user, team } = await ensureUserAndTeam(req.user);
 
     const { data: membership } = await supabase
       .from('workspace_members').select('role').eq('workspace_id', workspaceId).eq('user_id', user.id).single();
@@ -147,6 +148,30 @@ workspacesRouter.delete('/:workspaceId', verifySupabaseAuth, async (req, res) =>
     // Delete workspace (cascade handles most data)
     const { error } = await supabase.from('workspaces').delete().eq('id', workspaceId);
     if (error) throw error;
+
+    // Keep Partner billing in sync: the quantity tracks the client-workspace count,
+    // so removing a client should drop the bill (floored at the base). Best-effort —
+    // the workspace is already gone, so a Stripe hiccup just logs (never errors the
+    // delete). Stripe knows nothing about workspaces, so this coupling is on us.
+    if (billingEnabled() && !isSelfHosted()) {
+      try {
+        const { data: subscription } = await supabase
+          .from('subscriptions').select('*').eq('team_id', team.id).maybeSingle();
+        const plan = getPlanFromSubscription(subscription);
+        if (plan.perWorkspaceUsd && subscription?.status === 'active' && subscription.stripe_subscription_id) {
+          const { count } = await supabase
+            .from('workspaces').select('id', { count: 'exact', head: true }).eq('team_id', team.id);
+          const base = plan.baseWorkspaces ?? plan.workspaceLimit;
+          const desiredQty = Math.max(base, count || 0);
+          if (desiredQty < (Number(subscription.quantity) || base)) {
+            await setSubscriptionQuantity(supabase, subscription, desiredQty);
+          }
+        }
+      } catch (e) {
+        console.error('[workspace delete] Partner quantity sync failed (workspace deleted, billing unchanged):', e?.message);
+      }
+    }
+
     return res.json({ success: true });
   } catch (err) {
     return res.status(500).json({ error: 'internal_error', ...(process.env.NODE_ENV !== 'production' && { detail: String(err.message) }) });

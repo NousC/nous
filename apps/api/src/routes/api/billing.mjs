@@ -12,6 +12,7 @@ import Stripe from 'stripe';
 import { getSupabaseClient } from '@nous/core';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
 import { ensureUserAndTeam } from '../../lib/auth.mjs';
+import { setSubscriptionQuantity } from '../../lib/stripe.mjs';
 import {
   PLANS,
   getPlanFromSubscription,
@@ -230,17 +231,9 @@ billingRouter.post('/add-clients', verifySupabaseAuth, async (req, res) => {
       return res.status(400).json({ error: 'no_active_subscription' });
     }
 
-    const stripe = getStripe();
-    const sub = await stripe.subscriptions.retrieve(subscription.stripe_subscription_id);
-    const item = sub.items?.data?.[0];
-    if (!item) return res.status(400).json({ error: 'no_subscription_item' });
-
-    const newQty = (item.quantity ?? 1) + addN;
-    await stripe.subscriptions.update(sub.id, {
-      items: [{ id: item.id, quantity: newQty }],
-      proration_behavior: 'create_prorations',
-    });
-    await supabase.from('subscriptions').update({ quantity: newQty }).eq('team_id', team.id);
+    const currentQty = Number(subscription.quantity) || (plan.baseWorkspaces ?? 1);
+    const newQty = currentQty + addN;
+    await setSubscriptionQuantity(supabase, subscription, newQty);
 
     return res.json({ ok: true, quantity: newQty, added: addN, monthly_add_usd: addN * plan.perWorkspaceUsd });
   } catch (err) {
