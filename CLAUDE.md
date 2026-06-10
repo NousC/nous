@@ -102,6 +102,22 @@ Workspace setup/operate routes (back the operate + status tools): `GET /v2/works
 
 Cloud-only routes also mounted under `/v2` include `/v2/people`, `/v2/leads`, `/v2/signals`, and `/v2/dedup` (the last backs `check_leads` / `lead_coverage`). The browser app's own routes live under `/api/*` and are session-authed, not part of the agent-facing surface.
 
+## Plans & feature gating
+
+**Not every feature is available on every plan — gate before you ship.** A new cloud feature is never just "build the route." It must be added to the plan feature map AND wrapped in a gate, or it leaks to plans that didn't pay for it.
+
+- **Plans** (`apps/api/src/lib/plans.mjs` is the server source of truth; `apps/frontend/src/config/plans.ts` mirrors it for display — keep them in sync). Internal ids `free | starter | pro | growth | scale`; customer-facing names **Free / Start / Pro / Growth / Partner**. Each plan has a `features` map and an `includedOpsPerMonth`.
+- **Feature ladder** (current): `contextualization` — all plans. `leadLists`, `linkedinEngagement`, `publicSignalExtraction` — **Pro and up**. `crmSync` — **Growth and up**. Booleans live in each plan's `features` object.
+- **Enforce it** via `apps/api/src/lib/access.mjs`:
+  - `requireFeature('crmSync')` — Express middleware; returns **402 `feature_not_in_plan`** if the team's plan lacks it. Use on every plan-gated route.
+  - `assertFeature(planId, feature)` — the same check inside a handler that already resolved the team (throws).
+  - `requireOpsBalance` — **402 `ops_exhausted`** when the month's included ops are used up. Ops = webhooks + MCP/SDK/API calls + scans (the live op log).
+  - `requireEnrichmentQuota` — enrichment is **bring-your-own-keys and unmetered** today (`enrichmentsPerMonth: 0` → passes through); the gate exists for when a managed allowance returns.
+- **Self-host** (`SELF_HOSTED=true`): all gating + metering is **bypassed** — operators get everything, unmetered — **except** `CLOUD_ONLY_FEATURES` (`crmSync`, `leadLists`), which return **403 `cloud_only_feature`**. Adding a cloud-only feature means adding it to that set in `access.mjs`.
+- **Plan resolution**: from the team's `subscriptions` row via `getPlanFromSubscription` — `canceled`/`past_due`/`incomplete_expired` fall back to Free. Plan id comes from checkout metadata (`plan_id`), not the Stripe Price, so legacy subscribers are grandfathered on old prices.
+
+When you add a feature: pick its lowest plan, set the boolean across that plan and every higher one in `plans.mjs` + `plans.ts`, gate the route with `requireFeature`, and if it should be cloud-only add it to `CLOUD_ONLY_FEATURES`.
+
 ## Code conventions
 
 - ESM throughout (`"type": "module"` in all package.json files)
