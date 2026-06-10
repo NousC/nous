@@ -7,7 +7,6 @@ import { toast } from "@/components/ui/sonner";
 import { Eye, EyeOff } from "lucide-react";
 import { setRememberMe } from "@/lib/supabase";
 import { useAuthConfig } from "@/lib/authConfig";
-import { NousBrandingPanel } from "./auth-shared/NousBrandingPanel";
 
 const Login = () => {
   const [email, setEmail] = useState("");
@@ -48,33 +47,48 @@ const Login = () => {
   };
 
   return (
-    <div className="min-h-screen font-mono flex bg-[#0e0c0b]">
+    <div
+      className="min-h-screen flex items-center justify-center px-4 font-mono text-[#e8e3dc]"
+      style={{
+        backgroundColor: "#0e0c0b",
+        backgroundImage:
+          "radial-gradient(circle, rgba(200, 190, 178, 0.05) 1px, transparent 1.4px)",
+        backgroundSize: "18px 18px",
+      }}
+    >
       <div
-        className="flex-1 flex items-center justify-center p-8 lg:p-16 relative"
-        style={{
-          backgroundImage:
-            "radial-gradient(circle, rgba(200, 190, 178, 0.05) 1px, transparent 1.4px)",
-          backgroundSize: "18px 18px",
-        }}
+        className="w-full max-w-[360px] overflow-hidden rounded-lg border border-[#d97757]/60 bg-[#16120f]"
+        style={{ boxShadow: "0 0 70px rgba(217,119,87,0.12)" }}
       >
-        <div className="w-full max-w-[380px] relative">
-          <div className="flex items-center gap-2 mb-10 lg:hidden">
-            <img src="/nous-logo.svg" alt="" className="w-7 h-7 object-contain" />
-            <span className="font-bold text-[18px] tracking-[-0.02em] text-[#e8e3dc]">nous</span>
+        {/* title bar */}
+        <div className="flex items-center gap-2 border-b border-[#322c25] px-4 py-2 text-xs text-[#8a8178]">
+          <span className="text-[#c76b4a]/80">●</span>
+          <span className="text-[#e8915b]/70">●</span>
+          <span className="text-[#d97757]/70">●</span>
+          <span className="ml-1">nous — sign in</span>
+        </div>
+
+        <div className="p-6">
+          <div className="flex items-center gap-2">
+            <img src="/nous-logo.svg" alt="" className="w-5 h-5 object-contain" />
+            <span className="font-bold text-[14px] tracking-[-0.02em] text-[#e8e3dc]">nous</span>
           </div>
 
-          <h1 className="text-[28px] font-bold tracking-[-0.03em] leading-[1.1] text-[#e8e3dc] mb-8">
+          <h1 className="mt-4 text-[20px] font-bold tracking-[-0.02em] text-[#e8e3dc]">
             Sign in
           </h1>
+          <p className="mt-1 text-xs text-[#8a8178]">
+            Welcome back. Open your workspace.
+          </p>
 
-          <div className="space-y-4">
+          <div className="mt-5 space-y-3">
             {googleEnabled && (
               <>
                 <Button
                   type="button"
                   onClick={handleGoogleSignIn}
                   variant="outline"
-                  className="w-full h-11 rounded-lg flex items-center justify-center gap-2.5 font-medium text-sm border-[#322c25] bg-[#16120f] hover:bg-[#0e0c0b] text-[#e8e3dc]"
+                  className="w-full h-11 rounded-lg flex items-center justify-center gap-2.5 font-medium text-sm border-[#322c25] bg-[#0e0c0b] hover:bg-[#0e0c0b]/60 text-[#e8e3dc]"
                   disabled={loading}
                 >
                   <svg className="w-[18px] h-[18px]" viewBox="0 0 24 24">
@@ -91,7 +105,7 @@ const Login = () => {
                     <div className="w-full border-t border-[#322c25]" />
                   </div>
                   <div className="relative flex justify-center">
-                    <span className="px-3 text-[10px] uppercase tracking-[0.12em] text-[#8a8178] bg-[#0e0c0b] font-mono">or</span>
+                    <span className="px-3 text-[10px] uppercase tracking-[0.12em] text-[#8a8178] bg-[#16120f]">or</span>
                   </div>
                 </div>
               </>
@@ -104,7 +118,7 @@ const Login = () => {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-                className="h-11 rounded-lg text-sm border-[#322c25] bg-[#16120f] text-[#e8e3dc] placeholder:text-[#8a8178]/70 focus-visible:ring-[#d97757] focus-visible:border-[#d97757]"
+                className="h-11 rounded-lg text-sm border-[#322c25] bg-[#0e0c0b] text-[#e8e3dc] placeholder:text-[#8a8178]/70 focus-visible:ring-[#d97757] focus-visible:border-[#d97757]"
                 disabled={loading}
                 autoFocus
               />
@@ -116,7 +130,7 @@ const Login = () => {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
-                  className="h-11 rounded-lg text-sm border-[#322c25] bg-[#16120f] text-[#e8e3dc] placeholder:text-[#8a8178]/70 pr-10 focus-visible:ring-[#d97757] focus-visible:border-[#d97757]"
+                  className="h-11 rounded-lg text-sm border-[#322c25] bg-[#0e0c0b] text-[#e8e3dc] placeholder:text-[#8a8178]/70 pr-10 focus-visible:ring-[#d97757] focus-visible:border-[#d97757]"
                   disabled={loading}
                 />
                 <button
@@ -155,7 +169,7 @@ const Login = () => {
           </div>
 
           {!signupsDisabled && (
-            <div className="text-center text-sm mt-8">
+            <div className="text-center text-xs mt-6">
               <span className="text-[#8a8178]">New here? </span>
               <Link to="/signup" className="font-semibold text-[#e8e3dc] hover:text-[#d97757] transition-colors">
                 Create account →
@@ -164,8 +178,6 @@ const Login = () => {
           )}
         </div>
       </div>
-
-      <NousBrandingPanel />
     </div>
   );
 };

@@ -8,7 +8,15 @@ import { Eye, EyeOff, Pencil } from "lucide-react";
 import { setRememberMe } from "@/lib/supabase";
 import { useAuthConfig } from "@/lib/authConfig";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
-import { NousBrandingPanel } from "./auth-shared/NousBrandingPanel";
+
+const PAGE_STYLE = {
+  backgroundColor: "#0e0c0b",
+  backgroundImage:
+    "radial-gradient(circle, rgba(200, 190, 178, 0.05) 1px, transparent 1.4px)",
+  backgroundSize: "18px 18px",
+} as const;
+
+const BOX_GLOW = { boxShadow: "0 0 70px rgba(217,119,87,0.12)" } as const;
 
 const SignupContent = () => {
   const [email, setEmail] = useState("");
@@ -114,38 +122,43 @@ const SignupContent = () => {
   // ─── OTP Verification Screen ───
   if (step === "verify") {
     return (
-      <div className="min-h-screen font-mono flex bg-[#0e0c0b]">
+      <div
+        className="min-h-screen flex items-center justify-center px-4 font-mono text-[#e8e3dc]"
+        style={PAGE_STYLE}
+      >
         <div
-          className="flex-1 flex items-center justify-center p-8 lg:p-16 relative"
-          style={{
-            backgroundImage:
-              "radial-gradient(circle, rgba(200, 190, 178, 0.05) 1px, transparent 1.4px)",
-            backgroundSize: "18px 18px",
-          }}
+          className="w-full max-w-[360px] overflow-hidden rounded-lg border border-[#d97757]/60 bg-[#16120f]"
+          style={BOX_GLOW}
         >
-          <div className="w-full max-w-[380px] text-center relative">
-            <div className="mb-8">
-              <h1 className="text-[28px] font-bold tracking-[-0.03em] leading-[1.1] text-[#e8e3dc] mb-3">
-                Check your email
-              </h1>
-              <p className="text-[14px] text-[#8a8178]">
-                We sent a verification code to
-              </p>
-              <div className="flex items-center justify-center gap-1.5 mt-1.5">
-                <span className="text-[14px] text-[#e8e3dc] font-mono">{email}</span>
-                <button
-                  onClick={() => {
-                    setStep("signup");
-                    setOtpCode("");
-                  }}
-                  className="text-[#8a8178] hover:text-[#d97757]"
-                >
-                  <Pencil className="w-3.5 h-3.5" />
-                </button>
-              </div>
+          {/* title bar */}
+          <div className="flex items-center gap-2 border-b border-[#322c25] px-4 py-2 text-xs text-[#8a8178]">
+            <span className="text-[#c76b4a]/80">●</span>
+            <span className="text-[#e8915b]/70">●</span>
+            <span className="text-[#d97757]/70">●</span>
+            <span className="ml-1">nous — verify</span>
+          </div>
+
+          <div className="p-6 text-center">
+            <h1 className="text-[20px] font-bold tracking-[-0.02em] text-[#e8e3dc]">
+              Check your email
+            </h1>
+            <p className="mt-1 text-xs text-[#8a8178]">
+              We sent a verification code to
+            </p>
+            <div className="flex items-center justify-center gap-1.5 mt-1.5">
+              <span className="text-[13px] text-[#e8e3dc]">{email}</span>
+              <button
+                onClick={() => {
+                  setStep("signup");
+                  setOtpCode("");
+                }}
+                className="text-[#8a8178] hover:text-[#d97757]"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+              </button>
             </div>
 
-            <div className="flex justify-center mb-6">
+            <div className="flex justify-center mt-6 mb-5">
               <InputOTP
                 maxLength={8}
                 value={otpCode}
@@ -157,14 +170,14 @@ const SignupContent = () => {
                     <InputOTPSlot
                       key={i}
                       index={i}
-                      className="w-10 h-12 text-base border-[#322c25] bg-[#16120f] text-[#e8e3dc] rounded-lg first:rounded-l-lg last:rounded-r-lg"
+                      className="w-9 h-11 text-base border-[#322c25] bg-[#0e0c0b] text-[#e8e3dc] rounded-md first:rounded-l-md last:rounded-r-md"
                     />
                   ))}
                 </InputOTPGroup>
               </InputOTP>
             </div>
 
-            <p className="text-sm text-[#8a8178] mb-6">
+            <p className="text-xs text-[#8a8178] mb-5">
               Didn&apos;t receive a code?{" "}
               {resendCountdown > 0 ? (
                 <span className="text-[#8a8178]">Resend ({resendCountdown})</span>
@@ -193,41 +206,49 @@ const SignupContent = () => {
             </Button>
           </div>
         </div>
-
-        <NousBrandingPanel />
       </div>
     );
   }
 
   // ─── Signup Form Screen ───
   return (
-    <div className="min-h-screen font-mono flex bg-[#0e0c0b]">
+    <div
+      className="min-h-screen flex items-center justify-center px-4 font-mono text-[#e8e3dc]"
+      style={PAGE_STYLE}
+    >
       <div
-        className="flex-1 flex items-center justify-center p-8 lg:p-16 relative"
-        style={{
-          backgroundImage:
-            "radial-gradient(circle, rgba(200, 190, 178, 0.05) 1px, transparent 1.4px)",
-          backgroundSize: "18px 18px",
-        }}
+        className="w-full max-w-[360px] overflow-hidden rounded-lg border border-[#d97757]/60 bg-[#16120f]"
+        style={BOX_GLOW}
       >
-        <div className="w-full max-w-[380px] relative">
-          <div className="flex items-center gap-2 mb-10 lg:hidden">
-            <img src="/nous-logo.svg" alt="" className="w-7 h-7 object-contain" />
-            <span className="font-bold text-[18px] tracking-[-0.02em] text-[#e8e3dc]">nous</span>
+        {/* title bar */}
+        <div className="flex items-center gap-2 border-b border-[#322c25] px-4 py-2 text-xs text-[#8a8178]">
+          <span className="text-[#c76b4a]/80">●</span>
+          <span className="text-[#e8915b]/70">●</span>
+          <span className="text-[#d97757]/70">●</span>
+          <span className="ml-1">nous — create account</span>
+        </div>
+
+        <div className="p-6">
+          <div className="flex items-center gap-2">
+            <img src="/nous-logo.svg" alt="" className="w-5 h-5 object-contain" />
+            <span className="font-bold text-[14px] tracking-[-0.02em] text-[#e8e3dc]">nous</span>
           </div>
 
-          <h1 className="text-[28px] font-bold tracking-[-0.03em] leading-[1.1] text-[#e8e3dc] mb-8">
+          <h1 className="mt-4 text-[20px] font-bold tracking-[-0.02em] text-[#e8e3dc]">
             Create account
           </h1>
+          <p className="mt-1 text-xs text-[#8a8178]">
+            Run GTM inside your terminal.
+          </p>
 
-          <div className="space-y-4">
+          <div className="mt-5 space-y-3">
             {googleEnabled && (
               <>
                 <Button
                   type="button"
                   onClick={handleGoogleSignIn}
                   variant="outline"
-                  className="w-full h-11 rounded-lg flex items-center justify-center gap-2.5 font-medium text-sm border-[#322c25] bg-[#16120f] hover:bg-[#0e0c0b] text-[#e8e3dc]"
+                  className="w-full h-11 rounded-lg flex items-center justify-center gap-2.5 font-medium text-sm border-[#322c25] bg-[#0e0c0b] hover:bg-[#0e0c0b]/60 text-[#e8e3dc]"
                   disabled={loading}
                 >
                   <svg className="w-[18px] h-[18px]" viewBox="0 0 24 24">
@@ -244,7 +265,7 @@ const SignupContent = () => {
                     <div className="w-full border-t border-[#322c25]" />
                   </div>
                   <div className="relative flex justify-center">
-                    <span className="px-3 text-[10px] uppercase tracking-[0.12em] text-[#8a8178] bg-[#0e0c0b] font-mono">
+                    <span className="px-3 text-[10px] uppercase tracking-[0.12em] text-[#8a8178] bg-[#16120f]">
                       or
                     </span>
                   </div>
@@ -259,7 +280,7 @@ const SignupContent = () => {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-                className="h-11 rounded-lg text-sm border-[#322c25] bg-[#16120f] text-[#e8e3dc] placeholder:text-[#8a8178]/70 focus-visible:ring-[#d97757] focus-visible:border-[#d97757]"
+                className="h-11 rounded-lg text-sm border-[#322c25] bg-[#0e0c0b] text-[#e8e3dc] placeholder:text-[#8a8178]/70 focus-visible:ring-[#d97757] focus-visible:border-[#d97757]"
                 disabled={loading}
                 autoFocus
               />
@@ -272,7 +293,7 @@ const SignupContent = () => {
                   onChange={(e) => setPassword(e.target.value)}
                   required
                   minLength={6}
-                  className="h-11 rounded-lg text-sm border-[#322c25] bg-[#16120f] text-[#e8e3dc] placeholder:text-[#8a8178]/70 pr-10 focus-visible:ring-[#d97757] focus-visible:border-[#d97757]"
+                  className="h-11 rounded-lg text-sm border-[#322c25] bg-[#0e0c0b] text-[#e8e3dc] placeholder:text-[#8a8178]/70 pr-10 focus-visible:ring-[#d97757] focus-visible:border-[#d97757]"
                   disabled={loading}
                 />
                 <button
@@ -312,7 +333,7 @@ const SignupContent = () => {
             </Link>
           </p>
 
-          <div className="text-center text-sm mt-6">
+          <div className="text-center text-xs mt-5">
             <span className="text-[#8a8178]">Already have an account? </span>
             <Link to="/login" className="font-semibold text-[#e8e3dc] hover:text-[#d97757] transition-colors">
               Sign in →
@@ -320,8 +341,6 @@ const SignupContent = () => {
           </div>
         </div>
       </div>
-
-      <NousBrandingPanel />
     </div>
   );
 };
