@@ -97,7 +97,7 @@ dedupV2Router.post('/', async (req, res) => {
 
     return res.json({ results, summary });
   } catch (err) {
-    console.error('[POST /v2/dedup]', err);
+    console.error('[POST /v2/dedup]', err?.message, '| code:', err?.code, '| details:', err?.details, '| hint:', err?.hint);
     return res.status(500).json({ error: 'internal_error' });
   }
 });

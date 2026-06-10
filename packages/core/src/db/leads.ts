@@ -608,6 +608,7 @@ export async function classifyIdentifiers(
         .from('entity_identifiers')
         .select('value, entity_id')
         .eq('workspace_id', workspaceId).eq('kind', 'linkedin_url').eq('status', 'active')
+        .order('entity_id', { ascending: true })
         .range(from, from + PAGE - 1);
       if (error) throw error;
       if (!data || data.length === 0) break;
