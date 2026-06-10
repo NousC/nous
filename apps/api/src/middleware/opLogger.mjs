@@ -39,6 +39,7 @@ const PATH_LABELS = {
   'POST /v2/workspace/crm-sync': 'v2.workspace.crm_sync',
   'GET /v2/workspace/triggers': 'v2.workspace.triggers',
   'POST /v2/workspace/triggers': 'v2.workspace.trigger',
+  'POST /v2/workspace/closed-deals': 'v2.workspace.closed_deals',
 };
 
 function labelFor(req) {
@@ -143,6 +144,11 @@ function describeCall(req) {
     }
     case 'GET /v2/workspace/triggers': {
       return 'list_triggers';
+    }
+    case 'POST /v2/workspace/closed-deals': {
+      const w = Array.isArray(body.won) ? body.won.length : 0;
+      const l = Array.isArray(body.lost) ? body.lost.length : 0;
+      return `record_closed_deals · ${w} won · ${l} lost`;
     }
     default:
       return `${req.method} ${req.originalUrl.split('?')[0]}`;

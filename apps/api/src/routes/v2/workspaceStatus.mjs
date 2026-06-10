@@ -11,6 +11,7 @@ import {
 import { seedScorecardFromMemory } from '../../lib/scorecardSeed.mjs';
 import { requireFeature, resolveTeamAndPlan, hasFeature, isSelfHosted } from '../../lib/access.mjs';
 import { testProviderCredentials, encryptCredentials } from '../api/workflowProviders.mjs';
+import { runClosedDeals } from '../api/mind.mjs';
 
 // ── Workspace status + onboarding — the agent's setup surface ──────────────────
 //
@@ -230,7 +231,7 @@ workspaceStatusV2Router.get('/status', async (req, res) => {
         id: 'gtm_playbook',
         title: 'Build the GTM playbook',
         why: 'No ICP scoring model yet, so accounts are not scored for fit. This is what makes Nous prioritise.',
-        how: 'Work through the GTM context (what they sell, who, problems, pricing, competitors) + ASK for closed-won and closed-lost domains, record with update_gtm_profile, then build_scoring_model.',
+        how: 'Work through the GTM context (what they sell, who, problems, pricing, competitors) with update_gtm_profile, then build_scoring_model. STRONGER: ask for a few closed-won and closed-lost customer domains and call record_closed_deals — a model trained on real outcomes beats one from a description.',
       });
     }
 
@@ -547,6 +548,25 @@ workspaceStatusV2Router.post('/triggers', async (req, res) => {
   } catch (err) {
     if (err?.message) return res.status(400).json({ error: err.message, available_events: TRIGGER_EVENTS });
     console.error('[POST /v2/workspace/triggers]', err);
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
+// ── POST /v2/workspace/closed-deals ──────────────────────────────────────────
+// Agent-callable: build the ICP scoring model from REAL closed deals. Enriches
+// each domain, links known contacts, and runs contrastive lift (won vs lost) to
+// discover the signals that actually predict revenue, then re-scores open
+// accounts. Shares its implementation with the web "Add deals" flow.
+workspaceStatusV2Router.post('/closed-deals', async (req, res) => {
+  try {
+    const { won = [], lost = [] } = req.body || {};
+    const r = await runClosedDeals(getSupabaseClient(), req.workspaceId, { won, lost });
+    if (r.need_more_deals) {
+      return res.status(400).json({ error: 'need_more_deals', message: 'Give at least one closed-won or closed-lost domain.' });
+    }
+    return res.status(201).json({ ok: true, ...r });
+  } catch (err) {
+    console.error('[POST /v2/workspace/closed-deals]', err);
     return res.status(500).json({ error: 'internal_error' });
   }
 });

@@ -24,6 +24,7 @@
  *   get_workspace_status — what's set up in this workspace + a ranked next_steps list (call first)
  *   set_workspace_profile— agent-driven onboarding: set the workspace's name, site, type, ICP
  *   build_scoring_model  — build/rebuild the ICP scoring model from the recorded GTM context
+ *   record_closed_deals  — build the ICP model from real closed-won/lost deals (contrastive lift)
  *   connect_integration  — connect a key-based integration (Apollo, Prospeo, HubSpot, …)
  *   configure_crm_sync   — set CRM sync rules (auto-sync, create policy, hygiene cadence)
  *   set_trigger          — create an outbound event trigger (webhook); list_triggers reads them
@@ -37,7 +38,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { get, post } from "./client.js";
 
-export const SERVER_VERSION = "0.24.0";
+export const SERVER_VERSION = "0.25.0";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -627,9 +628,9 @@ export function createServer() {
     "signals so accounts get scored for fit. If a model already exists it is left alone unless you " +
     "pass force:true (use that when the GTM context has changed and the model should be rebuilt). If " +
     "it reports no GTM context yet, record some with update_gtm_profile first, then call this again. " +
-    "When building the playbook during onboarding, also ASK the user for a few closed-WON customer " +
-    "domains and closed-LOST domains — real outcomes sharpen the ICP. Record them with update_gtm_profile " +
-    "(e.g. section 'ICP': 'Closed-won: acme.com, globex.com; closed-lost: tinyco.io') so the model reflects who actually buys.",
+    "STRONGER than this tool: if the user can name a few closed-WON and closed-LOST customer domains, " +
+    "call record_closed_deals instead (or as well) — it trains the model on real outcomes via " +
+    "contrastive lift, which beats a model inferred from a description.",
     {
       force: z.boolean().optional()
         .describe("Rebuild the model even if one already exists — use when the GTM context has changed."),
@@ -653,6 +654,47 @@ export function createServer() {
         if (msg.includes("model_exists")) {
           return { content: [{ type: "text", text:
             "A scoring model already exists. Call build_scoring_model again with force:true to rebuild it from the current GTM context." }] };
+        }
+        throw e;
+      }
+    }
+  );
+
+  // ===========================================================================
+  // TOOL: record_closed_deals  —  POST /v2/workspace/closed-deals
+  // Build the ICP model from REAL outcomes via contrastive lift (won vs lost).
+  // ===========================================================================
+  server.tool(
+    "record_closed_deals",
+    "Build (or sharpen) the ICP scoring model from the user's REAL closed deals. Pass closed-WON " +
+    "customer domains and closed-LOST domains; Nous enriches each, links the contacts you already " +
+    "have there, and runs contrastive lift (what's true of winners but not losers) to discover the " +
+    "signals that actually predict revenue — then re-scores open accounts. This is the strongest way " +
+    "to build the playbook: a model trained on who actually bought beats one inferred from a " +
+    "description. Ask the user for a handful of each (even 3-5 won + 3-5 lost helps). Domains only " +
+    "(e.g. 'acme.com'), no scheme.",
+    {
+      won: z.array(z.string()).optional().describe("Closed-won customer domains, e.g. ['acme.com','globex.com']."),
+      lost: z.array(z.string()).optional().describe("Closed-lost domains, e.g. ['tinyco.io']."),
+    },
+    async ({ won, lost }) => {
+      try {
+        const r = await post("/v2/workspace/closed-deals", { won: won ?? [], lost: lost ?? [] });
+        const disc = r.discovered ?? [];
+        const lines = [
+          `Learned from ${r.won ?? 0} won + ${r.lost ?? 0} lost deal${(r.won ?? 0) + (r.lost ?? 0) === 1 ? "" : "s"} ` +
+          `(${r.enriched ?? 0} enriched, ${r.mode === "winners" ? "winner-signal" : "contrastive-lift"} mode).`,
+        ];
+        if (disc.length) {
+          lines.push("", "Signals discovered:");
+          for (const d of disc) lines.push(`  • ${d.label} (weight ${d.weight})${d.note ? ` — ${d.note}` : ""}`);
+        }
+        lines.push("", "The model updated and open accounts were re-scored. See the GTM Context page.");
+        return { content: [{ type: "text", text: lines.join("\n").trim() }] };
+      } catch (e) {
+        const msg = String(e?.message ?? e);
+        if (msg.includes("need_more_deals")) {
+          return { content: [{ type: "text", text: "Give me at least one closed-won or closed-lost domain to learn from." }] };
         }
         throw e;
       }

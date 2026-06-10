@@ -757,12 +757,10 @@ function discoverWinnerSignals(episodes, existing) {
   }));
 }
 
-mindRouter.post('/closed-deals', async (req, res) => {
-  try {
-    const { workspaceId, won = [], lost = [] } = req.body;
-    if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
-    const supabase = getSupabaseClient();
-
+// Build the scoring model from real closed deals (contrastive lift). Returns a
+// result object; shared by the web route and the agent route
+// (POST /v2/workspace/closed-deals). Errors propagate to the caller.
+export async function runClosedDeals(supabase, workspaceId, { won = [], lost = [] } = {}) {
     const clean = (list) => (Array.isArray(list) ? list : [])
       .map(x => (typeof x === 'string' ? x : x?.domain))
       .map(cleanDomain)
@@ -770,7 +768,7 @@ mindRouter.post('/closed-deals', async (req, res) => {
       .slice(0, 40);
     const wonList = clean(won), lostList = clean(lost);
     if (wonList.length + lostList.length < 1) {
-      return res.status(400).json({ error: 'need_more_deals', detail: 'add at least one closed deal (a won or lost domain)' });
+      return { need_more_deals: true };
     }
 
     // Seniority ordering — when a company has several contacts (founder + two
@@ -971,12 +969,21 @@ mindRouter.post('/closed-deals', async (req, res) => {
       } catch { /* best-effort */ }
     }
 
-    return res.status(201).json({
+    return {
       surfaced,
       enriched, won: wonList.length, lost: lostList.length, mode,
       linked: [...new Map(linked.map(l => [l.name, l])).values()],
       discovered: proposals.map(p => ({ label: p.signal.label, weight: p.signal.weight, note: p.note })),
-    });
+    };
+}
+
+mindRouter.post('/closed-deals', async (req, res) => {
+  try {
+    const { workspaceId, won = [], lost = [] } = req.body;
+    if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
+    const r = await runClosedDeals(getSupabaseClient(), workspaceId, { won, lost });
+    if (r.need_more_deals) return res.status(400).json({ error: 'need_more_deals', detail: 'add at least one closed deal (a won or lost domain)' });
+    return res.status(201).json(r);
   } catch (err) {
     console.error('[POST /api/mind/closed-deals]', err);
     return res.status(500).json({ error: 'internal_error' });
