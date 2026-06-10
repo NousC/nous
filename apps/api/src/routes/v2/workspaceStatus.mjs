@@ -235,6 +235,18 @@ workspaceStatusV2Router.get('/status', async (req, res) => {
       });
     }
 
+    // 6b. Routing preferences — Claude Code only, optional finishing touch once
+    // the workspace is set up. (No done-signal exists, so it's surfaced as the
+    // last optional step.)
+    if (onboardingDone && playbookDone) {
+      next_steps.push({
+        id: 'routing_preferences',
+        title: 'Set routing preferences (Claude Code, optional)',
+        why: 'So GTM questions default to Nous even when the user does not say "Nous" — instead of the agent reaching for raw CRM/HubSpot/Salesforce/Gong/Granola.',
+        how: 'ONLY if you are Claude Code: call get_routing_preferences and write the text to the user\'s CLAUDE.md (ask: this project ./CLAUDE.md, or all projects ~/.claude/CLAUDE.md). Not applicable to Codex/other clients — skip it there.',
+      });
+    }
+
     // 7. CRM sync — only if the plan includes it.
     if (onboardingDone && crmSyncAvailable && !crmSyncConfigured) {
       next_steps.push({
