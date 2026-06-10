@@ -30,18 +30,24 @@ export interface LogActivityParams {
   rawData?: Record<string, unknown> | null;
 }
 
-// Activity types that advance pipeline stage
+// Activity types that advance pipeline stage.
+// NOTE: linkedin_message is intentionally NOT an interested-trigger. A message we
+// SENT must not mark a cold prospect "interested" (that would trip the CRM
+// create-gate on outbound). Message-driven staging is owned by the stageDerivation
+// worker, which requires a real two-way conversation (≥3 messages or a reply).
 const CLIENT_TYPES     = new Set(['proposal_signed', 'deal_won', 'payment_received']);
 const EVALUATING_TYPES = new Set(['meeting_held', 'pricing_page_visit', 'proposal_sent', 'proposal_viewed', 'trial_started', 'meeting_scheduled']);
-const INTERESTED_TYPES = new Set(['email_reply', 'email_received', 'linkedin_message', 'linkedin_connected', 'slack_message', 'content_download', 'website_revisit']);
+const INTERESTED_TYPES = new Set(['email_reply', 'email_received', 'slack_message', 'content_download', 'website_revisit']);
+const CONNECTED_TYPES  = new Set(['linkedin_connected']);
 const AWARE_TYPES      = new Set(['website_visit', 'email_opened', 'linkedin_view', 'social_engagement']);
 
-const STAGE_ORDER: Record<string, number> = { identified: 0, aware: 1, interested: 2, evaluating: 3, client: 4 };
+const STAGE_ORDER: Record<string, number> = { identified: 0, aware: 1, connected: 2, interested: 3, evaluating: 4, client: 5 };
 
 function stageForType(type: string): string | null {
   if (CLIENT_TYPES.has(type))     return 'client';
   if (EVALUATING_TYPES.has(type)) return 'evaluating';
   if (INTERESTED_TYPES.has(type)) return 'interested';
+  if (CONNECTED_TYPES.has(type))  return 'connected';
   if (AWARE_TYPES.has(type))      return 'aware';
   return null;
 }
@@ -51,19 +57,36 @@ async function advancePipelineStage(
   workspaceId: string,
   contactId: string,
   type: string,
+  opts: { isOutbound?: boolean } = {},
 ): Promise<void> {
-  const targetStage = stageForType(type);
+  let targetStage = stageForType(type);
+  // A LinkedIn message only advances stage when it's INBOUND — i.e. they replied.
+  // An inbound reply is a real two-way conversation, so it lands on 'interested'
+  // (same as an email reply). Outbound messages never advance: messaging a cold
+  // prospect must not mark them interested or surface them on the People page.
+  if (type === 'linkedin_message') {
+    targetStage = opts.isOutbound === false ? 'interested' : null;
+  }
   if (!targetStage) return;
 
-  const { data: contact } = await supabase
-    .from('contacts')
-    .select('pipeline_stage, stage_locked')
-    .eq('id', contactId)
-    .single();
+  // Read pipeline_stage + stage_locked from the claims substrate directly, NOT the
+  // `contacts` view. The view (a) no longer exposes stage_locked — selecting it
+  // errored and silently aborted every advancement — and (b) filters out
+  // not-yet-graduated entities (e.g. a fresh connection), so reading through it
+  // could never advance the very contacts this is meant to move (e.g. to
+  // 'connected'). Claims exist per-entity regardless of People-page visibility.
+  const { data: stageClaims } = await supabase
+    .from('claims')
+    .select('property, value')
+    .eq('entity_id', contactId)
+    .in('property', ['pipeline_stage', 'stage_locked'])
+    .is('invalid_at', null);
 
-  if (!contact || contact.stage_locked) return;
+  const locked = stageClaims?.find(c => c.property === 'stage_locked')?.value;
+  if (locked === true) return;
 
-  const current = contact.pipeline_stage || 'identified';
+  const rawCurrent = stageClaims?.find(c => c.property === 'pipeline_stage')?.value;
+  const current = typeof rawCurrent === 'string' ? rawCurrent : 'identified';
   if ((STAGE_ORDER[targetStage] ?? 0) <= (STAGE_ORDER[current] ?? 0)) return;
 
   // Update the v1 column (still read by the Contacts UI; Phase 4 retires it)
@@ -131,8 +154,12 @@ export async function logActivity(
   }
 
   // Advance pipeline stage based on signal type (best-effort, contact-only).
+  // Pass message direction so an inbound LinkedIn reply advances but an outbound
+  // one doesn't (rawData.is_outbound is set true on every message WE send).
   if (contactId) {
-    await advancePipelineStage(supabase, workspaceId, contactId, type).catch(() => {});
+    await advancePipelineStage(supabase, workspaceId, contactId, type, {
+      isOutbound: rawData?.is_outbound === true,
+    }).catch(() => {});
   }
 
   // Event-driven outcome resolution: the moment a won/lost activity lands,

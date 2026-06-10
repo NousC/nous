@@ -1229,10 +1229,12 @@ CREATE VIEW contacts AS
            'interaction.subscription_updated', 'interaction.subscription_canceled',
            'interaction.signed_up'
          )
-         -- a LinkedIn message in EITHER direction graduates the person: the moment
-         -- you message someone (or they message you) they're an active account, not
-         -- a cold lead. A bare connection (no message yet) still does NOT qualify.
-         OR o.property = 'interaction.linkedin_message'
+         -- a LinkedIn message graduates the person only when it's INBOUND (one we
+         -- RECEIVED — i.e. they replied). Outbound messages we send do NOT qualify:
+         -- People is the set of people who actually answered, not everyone we
+         -- reached out to. A bare connection (no reply yet) also does NOT qualify.
+         OR (o.property = 'interaction.linkedin_message'
+             AND COALESCE((o.raw ->> 'is_outbound')::boolean, false) = false)
        )
      )
      -- ...or they're in your CRM / a customer

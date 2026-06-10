@@ -17,12 +17,13 @@
 // Rules (highest precedence wins; client never auto-set):
 //   evaluating  ← meeting_held OR proposal_sent in last 60 days
 //   interested  ← ≥3 linkedin_message OR any email_replied in last 30 days
-//   aware       ← linkedin_connected OR website_visit OR any 1-2 messages in last 30 days
+//   connected   ← linkedin_connected (accepted connection, no real conversation yet)
+//   aware       ← website_visit OR any 1-2 messages in last 30 days
 //   (else)      ← no change
 
 import { getSupabaseClient } from '@nous/core';
 
-const STAGE_RANK = { identified: 0, aware: 1, interested: 2, evaluating: 3, client: 4 };
+const STAGE_RANK = { identified: 0, aware: 1, connected: 2, interested: 3, evaluating: 4, client: 5 };
 const ENTITIES_PER_RUN = 2000;  // sanity cap; loop again on next tick if more
 const LOOKBACK_DAYS    = 90;
 
@@ -40,16 +41,26 @@ function deriveStage(observations, currentStage) {
   );
   if (hasMeetingOrProposal) return 'evaluating';
 
-  // interested: real two-way conversation in last 30 days
-  const linkedinMsgs30 = within30.filter(o => o.property === 'interaction.linkedin_message').length;
+  // interested: they actually replied. An INBOUND LinkedIn message or an email
+  // reply in the last 30 days is a real two-way conversation. Outbound messages
+  // (ones WE sent) never count — reaching out to a cold prospect is not interest.
+  const isInbound = o => (o.raw?.is_outbound ?? false) !== true;
+  const inboundLinkedin30 = within30.some(o =>
+    o.property === 'interaction.linkedin_message' && isInbound(o),
+  );
   const emailReplied30 = within30.some(o => o.property === 'interaction.email_replied');
-  if (linkedinMsgs30 >= 3 || emailReplied30) return 'interested';
+  if (inboundLinkedin30 || emailReplied30) return 'interested';
 
-  // aware: low-touch contact in last 30 days
-  const connected30 = within30.some(o => o.property === 'interaction.linkedin_connected');
+  // connected: an accepted LinkedIn connection. A durable relationship state, not a
+  // decaying touch — so look across the whole lookback window, not just 30 days.
+  // Ranks above 'aware' but is still kept out of the People page.
+  const connectedEver = observations.some(o => o.property === 'interaction.linkedin_connected');
+  if (connectedEver) return 'connected';
+
+  // aware: passive low-touch in last 30 days (they engaged with us). An outbound
+  // message we sent does NOT make them aware — only signals from THEIR side do.
   const websiteVisit30 = within30.some(o => o.property === 'interaction.website_visit');
-  const someMessage = linkedinMsgs30 > 0;
-  if (connected30 || websiteVisit30 || someMessage) return 'aware';
+  if (websiteVisit30) return 'aware';
 
   // Nothing fires — leave the current stage alone (decay worker will demote).
   return currentStage;
@@ -83,7 +94,7 @@ export async function runStageDerivation() {
     const [obsRes, claimRes] = await Promise.all([
       supabase
         .from('observations')
-        .select('property, observed_at')
+        .select('property, observed_at, raw')
         .eq('workspace_id', e.workspace_id)
         .eq('entity_id', e.id)
         .gte('observed_at', sinceISO)

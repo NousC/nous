@@ -1,6 +1,9 @@
 // Shared TypeScript types — used by api, mcp, worker, sdk
 
-export type PipelineStage = 'identified' | 'aware' | 'interested' | 'evaluating' | 'client';
+// 'connected' = an accepted LinkedIn connection with no conversation yet. It sits
+// above 'aware' but below 'interested', and is deliberately kept out of the People
+// page (it would flood the list); it stays curable by the agent and via filters.
+export type PipelineStage = 'identified' | 'aware' | 'connected' | 'interested' | 'evaluating' | 'client';
 
 export type MemoryCategory = 'ICP' | 'Product' | 'Pricing' | 'Market' | 'Competitors' | 'Team' | 'Patterns' | 'General';
 

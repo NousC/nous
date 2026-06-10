@@ -133,7 +133,9 @@ const MEETING_INTENT_TYPES = new Set(['meeting_scheduled', 'meeting_held']);
 // you never want to drop a signed proposal because the trigger was "meeting only".
 const STRONG_INTENT_TYPES  = new Set(['proposal_sent', 'proposal_viewed', 'proposal_signed', 'deal_won', 'deal_created', 'trial_started']);
 
-const GATE_STAGE_ORDER: Record<string, number> = { identified: 0, aware: 1, interested: 2, evaluating: 3, client: 4 };
+// 'connected' ranks below 'interested' so a bare LinkedIn connection never trips
+// the interested_stage CRM create-gate (outbound connections aren't CRM-worthy yet).
+const GATE_STAGE_ORDER: Record<string, number> = { identified: 0, aware: 1, connected: 2, interested: 3, evaluating: 4, client: 5 };
 
 function evaluateCreateGate(policy: CreatePolicy, evt: CrmPushEvent, contact: ContactRow): { allow: boolean; reason: string } {
   if (policy.create_in_crm === false) return { allow: false, reason: 'record creation is off for this CRM' };
