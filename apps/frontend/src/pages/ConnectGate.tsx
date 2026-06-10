@@ -1,18 +1,21 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import { Copy, CheckCircle2 } from "lucide-react";
+import { Copy, CheckCircle2, Plug } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "";
 
 const ONBOARD_PROMPT = "Set me up — onboard my workspace and build my playbook.";
 const LOGIN = "npx @opennous/cli login";
+const LOGO_CLAUDE = "/provider-logos/claude.svg";
+const LOGO_CODEX = "/provider-logos/codex.png";
 
 type Step = { caption: string; code: string };
-const TABS: { id: string; label: string; steps: Step[] }[] = [
+const TABS: { id: string; label: string; icon: ReactNode; steps: Step[] }[] = [
   {
     id: "claude",
     label: "Claude Code",
+    icon: <img src={LOGO_CLAUDE} alt="" className="w-3.5 h-3.5 object-contain" />,
     steps: [
       { caption: "1. Add the Nous plugin marketplace", code: "/plugin marketplace add NousC/nous" },
       { caption: "2. Install the Nous plugin", code: "/plugin install nous@nous-plugins" },
@@ -23,6 +26,7 @@ const TABS: { id: string; label: string; steps: Step[] }[] = [
   {
     id: "codex",
     label: "Codex",
+    icon: <img src={LOGO_CODEX} alt="" className="w-3.5 h-3.5 object-contain" />,
     steps: [
       { caption: "1. Add Nous to ~/.codex/config.toml", code: `[mcp_servers.nous]\ncommand = "npx"\nargs = ["-y", "@opennous/mcp"]` },
       { caption: "2. Sign in — opens your browser, saves your key", code: LOGIN },
@@ -32,6 +36,7 @@ const TABS: { id: string; label: string; steps: Step[] }[] = [
   {
     id: "other",
     label: "Other MCP",
+    icon: <Plug className="w-3.5 h-3.5 text-muted-foreground" strokeWidth={1.75} />,
     steps: [
       { caption: "1. Add the Nous MCP server to your client config", code: `{\n  "mcpServers": {\n    "nous": {\n      "command": "npx",\n      "args": ["-y", "@opennous/mcp"]\n    }\n  }\n}` },
       { caption: "2. Sign in — opens your browser, saves your key", code: LOGIN },
@@ -141,10 +146,11 @@ export default function ConnectGate() {
               <button
                 key={t.id}
                 onClick={() => setTab(t.id)}
-                className={`px-3 py-1.5 rounded-md text-[12.5px] font-medium transition-colors ${
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12.5px] font-medium transition-colors ${
                   t.id === tab ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
                 }`}
               >
+                {t.icon}
                 {t.label}
               </button>
             ))}
