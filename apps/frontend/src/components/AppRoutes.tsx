@@ -117,7 +117,10 @@ export function AppRoutes() {
   // by the full-screen Connect screen. No access to anything until setup is done.
   const { isAuthenticated, userData } = useAuth();
   const onboarded = !!(userData as { workspace?: { business_type?: string } })?.workspace?.business_type;
-  if (isAuthenticated && !onboarded) {
+  // "Skip for now" lets a user into the app before onboarding (per-browser).
+  let skipped = false;
+  try { skipped = localStorage.getItem("nous_connect_skipped") === "1"; } catch { /* ignore */ }
+  if (isAuthenticated && !onboarded && !skipped) {
     return <Suspense fallback={<MinimalLoader />}><ConnectGate /></Suspense>;
   }
 
