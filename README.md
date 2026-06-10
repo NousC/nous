@@ -95,7 +95,7 @@ openssl rand -hex 32      # paste the output into ENCRYPTION_KEY=
 docker compose --env-file nous.env up -d --build
 ```
 
-Open `https://app.yourdomain.com` and create the first account — it becomes the **owner**. To close public registration afterward, set `DISABLE_SIGNUPS=true` in `nous.env` (and turn off signups in Supabase → Authentication), then re-run `./update.sh`. Invite teammates from **Settings → Team**.
+Open `https://app.yourdomain.com` and create the first account — it becomes the **owner**. You'll land on the **Connect** screen — from here you point your agent at this instance and let it onboard the workspace (see [Connect your agent](#connect-your-agent--and-let-it-onboard-you) below; on self-host, sign in with `npx @opennous/cli login --url https://api.yourdomain.com`). To close public registration afterward, set `DISABLE_SIGNUPS=true` in `nous.env` (and turn off signups in Supabase → Authentication), then re-run `./update.sh`. Invite teammates from **Settings → Team**.
 
 **Updating**
 
@@ -121,9 +121,38 @@ pnpm dev
 
 ---
 
-## MCP setup (30 seconds)
+## Connect your agent — and let it onboard you
 
-Add to your `mcp.json` (Claude Desktop, Cursor, or any MCP host):
+Nous is operated by your **agent**, not by clicking through the app. When you sign in you land on a **Connect** screen that stays up until your agent has set the workspace up. Three steps:
+
+**1. Add Nous to your agent**
+
+- **Claude Code** — `/plugin marketplace add NousC/nous` then `/plugin install nous@nous-plugins`
+- **Codex** — add to `~/.codex/config.toml`:
+  ```toml
+  [mcp_servers.nous]
+  command = "npx"
+  args = ["-y", "@opennous/mcp"]
+  ```
+- **Cursor / any MCP host** — add to `mcp.json`:
+  ```json
+  { "mcpServers": { "nous": { "command": "npx", "args": ["-y", "@opennous/mcp"] } } }
+  ```
+
+**2. Sign in** — run this once. It opens your browser, mints a workspace key, and saves it (plus your API URL) to `~/.nous/config.json`, which the MCP reads automatically — no key to paste:
+
+```bash
+npx @opennous/cli login --url https://api.yourdomain.com   # self-host: your API domain
+# On Nous Cloud, drop --url (it defaults to https://api.opennous.cloud)
+```
+
+**3. Onboard** — tell your agent:
+
+> Set me up — onboard my workspace and build my playbook.
+
+Your agent reads `get_workspace_status` and walks you through setup **in order**: profile → connect Gmail / LinkedIn / a meeting note-taker → enrichment → webhooks → import your CRM contacts (CSV, on the Accounts page) → build the ICP scoring model from your closed-won/lost deals. The Connect screen unlocks the moment the workspace is onboarded, and drops you on the live Ops log so you can watch what the agent did.
+
+**Prefer to paste a key instead of signing in?** Create one at **Settings → API Keys** and set it directly (the in-app Install page generates this snippet for you):
 
 ```json
 {
@@ -140,7 +169,7 @@ Add to your `mcp.json` (Claude Desktop, Cursor, or any MCP host):
 }
 ```
 
-Set `NOUS_API_URL` to your own API domain when self-hosting, or `https://api.opennous.cloud` on Nous Cloud. Grab your `NOUS_API_KEY` from **Settings → API Keys** (the in-app Install page generates this exact snippet for you).
+`NOUS_API_URL` is your own API domain on self-host, or `https://api.opennous.cloud` on Nous Cloud.
 
 → [Full MCP docs](https://docs.opennous.cloud/mcp/introduction)
 
