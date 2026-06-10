@@ -24,6 +24,8 @@ export interface PlanFeatures {
   crmSync: boolean;
   /** Lead list builder + saved-view exports. */
   leadLists: boolean;
+  /** Weekly LinkedIn engagement worker → native "LinkedIn Engagers" list. */
+  linkedinEngagement: boolean;
   /** Public signal extraction (rb2b-style webhook ingest into the graph). */
   publicSignalExtraction: boolean;
   /** Display-only. Dedicated Slack channel. No backend gate. */
@@ -43,6 +45,11 @@ export interface Plan {
   workspaceLimit: number | null; // null = unlimited
   features: PlanFeatures;
   stripePriceEnv: string | null; // null for free
+  // Per-client pricing (Partner only): $perWorkspaceUsd/mo per client workspace,
+  // baseWorkspaces included in the headline price, opsPerWorkspace added per client.
+  perWorkspaceUsd?: number;
+  baseWorkspaces?: number;
+  opsPerWorkspace?: number;
 }
 
 export const PLANS: Record<PlanId, Plan> = {
@@ -58,6 +65,7 @@ export const PLANS: Record<PlanId, Plan> = {
       contextualization: true,
       crmSync: false,
       leadLists: false,
+      linkedinEngagement: false,
       publicSignalExtraction: false,
       dedicatedSlack: false,
       multiClientDashboard: false,
@@ -76,6 +84,7 @@ export const PLANS: Record<PlanId, Plan> = {
       contextualization: true,
       crmSync: false,
       leadLists: false,
+      linkedinEngagement: false,
       publicSignalExtraction: false,
       dedicatedSlack: false,
       multiClientDashboard: false,
@@ -92,8 +101,10 @@ export const PLANS: Record<PlanId, Plan> = {
     stripePriceEnv: 'STRIPE_PRO_PRICE_ID',
     features: {
       contextualization: true,
-      crmSync: true,
+      // Lead lists + LinkedIn engagement unlock here. CRM sync is Growth+.
+      crmSync: false,
       leadLists: true,
+      linkedinEngagement: true,
       publicSignalExtraction: true,
       dedicatedSlack: true,
       multiClientDashboard: false,
@@ -106,31 +117,38 @@ export const PLANS: Record<PlanId, Plan> = {
     monthlyPriceUsd: 249,
     includedOpsPerMonth: 100_000,
     enrichmentsPerMonth: 0,
-    workspaceLimit: 5,
+    workspaceLimit: 3,
     stripePriceEnv: 'STRIPE_GROWTH_PRICE_ID',
     features: {
       contextualization: true,
+      // CRM synchronization unlocks here, on top of everything in Pro.
       crmSync: true,
       leadLists: true,
+      linkedinEngagement: true,
       publicSignalExtraction: true,
       dedicatedSlack: true,
       multiClientDashboard: false,
       supportTier: 'priority',
     },
   },
-  // Internal id stays 'scale'; displays as "Agency".
+  // Internal id stays 'scale'; displays as "Partner". Per-client pricing:
+  // $100/mo per client workspace, 5 included in the $500 base, +100k ops each.
   scale: {
     id: 'scale',
-    name: 'Agency',
-    monthlyPriceUsd: 499,
-    includedOpsPerMonth: 250_000,
+    name: 'Partner',
+    monthlyPriceUsd: 500,
+    perWorkspaceUsd: 100,
+    baseWorkspaces: 5,
+    opsPerWorkspace: 100_000,
+    includedOpsPerMonth: 500_000,
     enrichmentsPerMonth: 0,
-    workspaceLimit: null,
+    workspaceLimit: 5,
     stripePriceEnv: 'STRIPE_SCALE_PRICE_ID',
     features: {
       contextualization: true,
       crmSync: true,
       leadLists: true,
+      linkedinEngagement: true,
       publicSignalExtraction: true,
       dedicatedSlack: true,
       multiClientDashboard: true,
@@ -167,18 +185,23 @@ export function getPlanById(planId: unknown): Plan {
 }
 
 export function getPlanFeaturesForDisplay(plan: Plan): string[] {
+  const workspaceLine = plan.perWorkspaceUsd
+    ? `${plan.baseWorkspaces} client workspaces included, then $${plan.perWorkspaceUsd}/mo each`
+    : plan.workspaceLimit === null
+      ? 'Unlimited workspaces'
+      : `${plan.workspaceLimit} workspace${plan.workspaceLimit === 1 ? '' : 's'}`;
   const items: string[] = [
     `${plan.includedOpsPerMonth.toLocaleString()} GTM operations / month`,
     plan.enrichmentsPerMonth > 0
       ? `${plan.enrichmentsPerMonth.toLocaleString()} enrichments / month`
       : 'Enrichment: bring your own keys',
-    plan.workspaceLimit === null
-      ? 'Unlimited workspaces'
-      : `${plan.workspaceLimit} workspace${plan.workspaceLimit === 1 ? '' : 's'}`,
+    workspaceLine,
   ];
-  if (plan.features.crmSync) items.push('CRM sync to HubSpot, Salesforce, Pipedrive, Close, Attio');
+  // Order mirrors the marketing site: lead db + LinkedIn at Pro, CRM sync at Growth.
+  if (plan.features.leadLists) items.push('Centralized lead database');
+  if (plan.features.linkedinEngagement) items.push('LinkedIn engagement worker');
+  if (plan.features.crmSync) items.push('CRM synchronization');
   if (plan.features.publicSignalExtraction) items.push('Public signal extraction');
-  if (plan.features.leadLists) items.push('Lead lists');
   if (plan.features.dedicatedSlack) items.push('Dedicated Slack channel');
   if (plan.features.multiClientDashboard) items.push('Multi-client dashboard');
   return items;

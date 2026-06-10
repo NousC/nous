@@ -36,7 +36,7 @@ const ENGAGEMENT_ALLOWLIST = new Set(
     .split(',').map(s => s.trim()).filter(Boolean),
 );
 
-// Growth/Agency plans (linkedinEngagement feature) or explicit allowlist → eligible.
+// Pro/Growth/Partner plans (linkedinEngagement feature) or explicit allowlist → eligible.
 function engagementEligible(req, workspaceId) {
   if (ENGAGEMENT_ALLOWLIST.has(workspaceId)) return true;
   return !!(req.plan && hasFeature(req.plan.id, 'linkedinEngagement'));
@@ -176,7 +176,7 @@ leadListsRouter.get('/:id/leads', async (req, res) => {
 // force-insert; the response always includes a `duplicate_skipped` count.
 leadListsRouter.post('/:id/leads', async (req, res) => {
   try {
-    const { leads, importDuplicates } = req.body;
+    const { leads, importDuplicates, source } = req.body;
     const workspaceId = req.body.workspaceId || req.workspaceId;
     if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
     if (!Array.isArray(leads) || leads.length === 0) {
@@ -189,8 +189,14 @@ leadListsRouter.post('/:id/leads', async (req, res) => {
     // The list must exist in this workspace before we bulk-insert into it.
     const lead_list = await getLeadList(supabase, workspaceId, req.params.id);
     if (!lead_list) return res.status(404).json({ error: 'not_found' });
+    // Lead source — every imported lead gets one so the agent can always read
+    // where it came from. Per-row `source` wins; otherwise the import's `source`,
+    // otherwise the list's own source label.
+    const defaultSource = (typeof source === 'string' && source.trim())
+      || lead_list.source || 'Import';
     const result = await insertLeads(supabase, workspaceId, req.params.id, leads, {
       importDuplicates: Boolean(importDuplicates),
+      defaultSource,
     });
     return res.status(201).json(result);
   } catch (err) {
@@ -235,7 +241,7 @@ leadListsRouter.post('/:id/leads/blank', async (req, res) => {
       .select('id').single();
     if (error || !ent) throw error || new Error('entity insert failed');
     await supabase.from('collection_entities')
-      .insert({ collection_id: req.params.id, entity_id: ent.id })
+      .insert({ collection_id: req.params.id, entity_id: ent.id, source: 'Manual' })
       .then(() => {}, () => {});
     return res.status(201).json({ id: ent.id });
   } catch (err) {
@@ -306,12 +312,39 @@ leadListsRouter.post('/:id/enrich', requireEnrichmentQuota, async (req, res) => 
     const cap = typeof req.enrichRemaining === 'number' ? req.enrichRemaining : Infinity;
     const { data: leads } = await supabase
       .from('leads')
-      .select('id, workspace_id, email, linkedin_url, name, company, domain')
+      .select('id, workspace_id, email, linkedin_url, name, company, domain, email_status')
       .eq('workspace_id', workspaceId).eq('lead_list_id', req.params.id).in('id', ids);
 
-    let enriched = 0, skippedQuota = 0, skippedNoId = 0;
+    // Reuse-gate — never re-pay to verify a lead we already enriched recently.
+    // The entity is workspace-global, so a lead already verified in ANOTHER list
+    // reuses that result here for free. "Recently" = within ENRICH_STALE_DAYS;
+    // older than that an email may have changed (job move, etc.), so we re-verify.
+    // The enrichment date comes straight off the append-only enrichment
+    // observations (method='enrichment') — no extra bookkeeping table needed.
+    const ENRICH_STALE_DAYS = 90;
+    const staleBefore = Date.now() - ENRICH_STALE_DAYS * 86400000;
+    const lastEnriched = new Map();
+    if ((leads || []).length) {
+      const { data: enrichObs } = await supabase
+        .from('observations')
+        .select('entity_id, observed_at')
+        .eq('workspace_id', workspaceId)
+        .eq('method', 'enrichment')
+        .in('entity_id', (leads || []).map(l => l.id))
+        .order('observed_at', { ascending: false });
+      for (const o of enrichObs || []) {
+        if (!lastEnriched.has(o.entity_id)) lastEnriched.set(o.entity_id, o.observed_at);
+      }
+    }
+
+    let enriched = 0, skippedQuota = 0, skippedNoId = 0, skippedVerified = 0;
     for (const l of leads || []) {
       if (!l.email && !l.linkedin_url) { skippedNoId++; continue; }
+      // Already enriched + has a verified email, recently → reuse, don't re-pay.
+      const le = lastEnriched.get(l.id);
+      if (l.email && l.email_status && le && new Date(le).getTime() >= staleBefore) {
+        skippedVerified++; continue;
+      }
       if (enriched >= cap) { skippedQuota++; continue; }
       const [first, ...rest] = (l.name || '').trim().split(' ');
       const contact = {
@@ -331,7 +364,7 @@ leadListsRouter.post('/:id/enrich', requireEnrichmentQuota, async (req, res) => 
         console.warn('[POST /api/lead-lists/:id/enrich] enrich failed', l.id, e.message);
       }
     }
-    return res.json({ enriched, skipped_quota: skippedQuota, skipped_no_identifier: skippedNoId, requested: ids.length });
+    return res.json({ enriched, skipped_quota: skippedQuota, skipped_no_identifier: skippedNoId, skipped_already_verified: skippedVerified, requested: ids.length });
   } catch (err) {
     console.error('[POST /api/lead-lists/:id/enrich]', err);
     return res.status(500).json({ error: 'internal_error' });

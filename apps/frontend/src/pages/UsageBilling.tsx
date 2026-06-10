@@ -12,8 +12,11 @@ type PlanInfo = {
   includedOpsPerMonth: number;
   enrichmentsPerMonth: number;
   workspaceLimit: number | null;
+  perWorkspaceUsd?: number | null;
+  baseWorkspaces?: number | null;
   crmSync?: boolean;
   leadLists?: boolean;
+  linkedinEngagement?: boolean;
   publicSignalExtraction?: boolean;
   supportTier?: string;
 };
@@ -58,7 +61,7 @@ const SUPPORT_LABEL: Record<string, string> = {
 // plan id so we can market a feature before the implementation lands.
 const FRONTEND_ONLY_BULLETS: Record<string, string[]> = {
   pro: ["Dedicated Slack channel"],
-  growth: ["Dedicated Slack channel", "LinkedIn engagement worker"],
+  growth: ["Dedicated Slack channel"],
   scale: ["Dedicated Slack channel", "Multi-client dashboard"],
 };
 
@@ -79,13 +82,17 @@ function planBullets(p: PlanInfo): string[] {
     p.enrichmentsPerMonth > 0
       ? `${num(p.enrichmentsPerMonth)} enrichments / month`
       : "Enrichment: bring your own keys",
-    p.workspaceLimit === null
-      ? "Unlimited workspaces"
-      : `${p.workspaceLimit} workspace${p.workspaceLimit === 1 ? "" : "s"}`,
+    p.perWorkspaceUsd
+      ? `${p.baseWorkspaces} client workspaces included, then $${p.perWorkspaceUsd}/mo each`
+      : p.workspaceLimit === null
+        ? "Unlimited workspaces"
+        : `${p.workspaceLimit} workspace${p.workspaceLimit === 1 ? "" : "s"}`,
   ];
-  if (p.crmSync) b.push("CRM sync to HubSpot, Salesforce, Pipedrive, Close, Attio");
+  // Order mirrors the marketing site: lead db + LinkedIn at Pro, CRM sync at Growth.
+  if (p.leadLists) b.push("Centralized lead database");
+  if (p.linkedinEngagement) b.push("LinkedIn engagement worker");
+  if (p.crmSync) b.push("CRM synchronization");
   if (p.publicSignalExtraction) b.push("Public signal extraction");
-  if (p.leadLists) b.push("Lead lists");
   for (const extra of FRONTEND_ONLY_BULLETS[p.id] ?? []) b.push(extra);
   b.push(SUPPORT_LABEL[p.supportTier ?? "community"] ?? "Community support");
   return b;

@@ -87,6 +87,8 @@ interface Lead {
   domain: string | null;
   email_status: string | null;
   last_channel: string | null;
+  source: string | null;
+  scorecard_score: number | null;
   created_at: string | null;
   fields: Record<string, unknown>;
 }
@@ -131,6 +133,10 @@ function cellValue(lead: Lead, key: string): string {
   if (key === "__domain") return lead.domain ?? (typeof lead.fields?.domain === "string" ? lead.fields.domain : "");
   if (key === "__email_status") return lead.email_status ?? "";
   if (key === "__channel") return channelLabel(lead.last_channel);
+  // ICP score — the lead's fit (0–100), surfaced as a guaranteed column.
+  if (key === "__icp") return lead.scorecard_score == null ? "" : String(lead.scorecard_score);
+  // Lead source — where this lead came from. A system column, always present.
+  if (key === "__source") return lead.source ?? "";
   const v = lead.fields?.[key];
   return v == null ? "" : String(v);
 }
@@ -199,6 +205,10 @@ export default function Lists() {
   const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
   const [csvRows, setCsvRows] = useState<Record<string, string>[]>([]);
   const [mapping, setMapping] = useState<Record<string, string>>({});
+  // Lead source for this import — stamped on every row so the agent can always
+  // read where a lead came from (campaign A vs B reporting). Defaults to the
+  // list's own source; the user can override it per import.
+  const [importSource, setImportSource] = useState("");
   const [result, setResult] = useState<{ inserted: number; skipped: number } | null>(null);
   // ICP segmentation filter — sales-nav-builder tags each lead fields.icp true/false.
   const [icpFilter, setIcpFilter] = useState<"all" | "icp" | "non">("all");
@@ -480,7 +490,9 @@ export default function Lists() {
       });
       if (res.ok) {
         const d = await res.json();
-        toast.success(`Enriched ${d.enriched} of ${d.requested}${d.skipped_quota ? ` · ${d.skipped_quota} skipped (allowance)` : ""}`);
+        const reused = d.skipped_already_verified
+          ? ` · ${d.skipped_already_verified} already verified (no charge)` : "";
+        toast.success(`Enriched ${d.enriched} of ${d.requested}${reused}${d.skipped_quota ? ` · ${d.skipped_quota} skipped (allowance)` : ""}`);
       } else if (res.status === 402) {
         toast("Enrichment allowance exhausted — connect Prospeo/Apollo in Integrations or upgrade.");
       } else {
@@ -544,15 +556,17 @@ export default function Lists() {
   const allCols = [
     ...FIXED_COLS,
     { key: "__domain", label: "Domain", w: 120 },
+    { key: "__icp", label: "ICP", w: 64 },
     ...customCols.map(c => ({ key: c.key, label: c.label, w: CUSTOM_W })),
-    { key: "__channel", label: "Channel", w: 84 },
+    { key: "__source", label: "Source", w: 130 },
     { key: "__email_status", label: "Email status", w: 100 },
+    { key: "__channel", label: "Channel", w: 84 },
     { key: "__added", label: activeList?.source === "linkedin_engagement" ? "Engaged" : "Added", w: 96 },
   ].map(c => ({ ...c, w: Math.max(60, colW[c.key] ?? c.w) }));
 
   const resetImport = () => {
     setImporting(false); setImportStep("upload");
-    setCsvHeaders([]); setCsvRows([]); setMapping({}); setResult(null);
+    setCsvHeaders([]); setCsvRows([]); setMapping({}); setResult(null); setImportSource("");
   };
 
   // Create a list. With { thenImport }, jump straight into the CSV import for the
@@ -614,8 +628,8 @@ export default function Lists() {
         ? all
         : all.filter(l => selected.has(l.id));
       if (rows.length === 0) { toast("No leads to export."); setCsvBusy(false); return; }
-      const keys = [...FIXED_COLS.map(c => c.key), "__domain", ...customCols.map(c => c.key)];
-      const labels = [...FIXED_COLS.map(c => c.label), "Domain", ...customCols.map(c => c.label)];
+      const keys = [...FIXED_COLS.map(c => c.key), "__domain", "__icp", ...customCols.map(c => c.key), "__source", "__email_status", "__channel"];
+      const labels = [...FIXED_COLS.map(c => c.label), "Domain", "ICP", ...customCols.map(c => c.label), "Source", "Email status", "Channel"];
       const esc = (v: string) => `"${String(v ?? "").replace(/"/g, '""')}"`;
       const csv = [[...labels, "Channel"].map(esc).join(","),
         ...rows.map(l => [...keys.map(k => cellValue(l, k)), channel].map(esc).join(","))].join("\n");
@@ -798,7 +812,7 @@ export default function Lists() {
       for (let i = 0; i < rows.length; i += IMPORT_CHUNK) {
         const res = await fetch(`${apiUrl}/api/lead-lists/${activeId}/leads`, {
           method: "POST", headers: jsonHeaders,
-          body: JSON.stringify({ workspaceId, leads: rows.slice(i, i + IMPORT_CHUNK) }),
+          body: JSON.stringify({ workspaceId, leads: rows.slice(i, i + IMPORT_CHUNK), source: importSource.trim() || undefined }),
         });
         if (res.ok) { const d = await res.json(); inserted += d.inserted ?? 0; skipped += d.skipped ?? 0; }
       }
@@ -1315,6 +1329,18 @@ export default function Lists() {
                     </div>
                   ))}
                 </div>
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="text-[13px] text-foreground/80 flex-shrink-0">Lead source</span>
+                  <input
+                    value={importSource}
+                    onChange={e => setImportSource(e.target.value)}
+                    placeholder={activeList?.source || "Where these leads came from"}
+                    className="h-8 flex-1 rounded-md border border-border bg-background text-[13px] text-foreground px-2 outline-none focus:border-muted-foreground"
+                  />
+                </div>
+                <p className="text-[11px] text-muted-foreground/70 -mt-2 mb-3">
+                  Stamped on every imported lead — separate from the outreach Channel. Used for per-source reporting.
+                </p>
                 <div className="flex items-center gap-3">
                   <button onClick={() => { setImportStep("upload"); setCsvHeaders([]); setCsvRows([]); }}
                     className="inline-flex items-center gap-1 text-[12px] text-muted-foreground hover:text-foreground">

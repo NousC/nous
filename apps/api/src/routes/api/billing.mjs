@@ -112,8 +112,11 @@ billingRouter.get('/state', verifySupabaseAuth, async (req, res) => {
         includedOpsPerMonth: p.includedOpsPerMonth,
         enrichmentsPerMonth: p.enrichmentsPerMonth,
         workspaceLimit: p.workspaceLimit,
+        perWorkspaceUsd: p.perWorkspaceUsd ?? null,
+        baseWorkspaces: p.baseWorkspaces ?? null,
         crmSync: p.features.crmSync,
         leadLists: p.features.leadLists,
+        linkedinEngagement: p.features.linkedinEngagement ?? false,
         publicSignalExtraction: p.features.publicSignalExtraction,
         supportTier: p.features.supportTier,
       })),
@@ -136,10 +139,20 @@ billingRouter.post('/subscribe', verifySupabaseAuth, async (req, res) => {
   if (!billingEnabled()) return res.status(403).json({ error: 'billing_disabled' });
   try {
     const stripe = getStripe();
-    const { plan: requestedPlanId, interval: requestedInterval, promotion_code: promoCode } = req.body;
+    const { plan: requestedPlanId, interval: requestedInterval, promotion_code: promoCode, clients: requestedClients } = req.body;
     const plan = PLANS[requestedPlanId];
     if (!plan || plan.id === 'free') {
       return res.status(400).json({ error: 'invalid_plan' });
+    }
+
+    // Partner (id 'scale') is per-client: its Stripe price is per-unit ($100/mo),
+    // so quantity = number of client workspaces, floored at baseWorkspaces (5).
+    // Every other plan is a single flat unit.
+    let quantity = 1;
+    if (plan.perWorkspaceUsd) {
+      const base = plan.baseWorkspaces ?? 1;
+      const wanted = Number.parseInt(requestedClients, 10);
+      quantity = Number.isFinite(wanted) ? Math.max(base, wanted) : base;
     }
 
     const interval = requestedInterval === 'year' ? 'year' : 'month';
@@ -178,9 +191,9 @@ billingRouter.post('/subscribe', verifySupabaseAuth, async (req, res) => {
       customer: stripeCustomerId,
       mode: 'subscription',
       payment_method_types: ['card'],
-      line_items: [{ price: priceId, quantity: 1 }],
-      subscription_data: { metadata: { team_id: team.id, plan_id: plan.id, billing_interval: interval } },
-      metadata: { team_id: team.id, plan_id: plan.id, kind: 'subscription', billing_interval: interval },
+      line_items: [{ price: priceId, quantity }],
+      subscription_data: { metadata: { team_id: team.id, plan_id: plan.id, billing_interval: interval, clients: String(quantity) } },
+      metadata: { team_id: team.id, plan_id: plan.id, kind: 'subscription', billing_interval: interval, clients: String(quantity) },
       success_url: `${appUrl()}/settings?section=billing&success=true&plan=${plan.id}`,
       cancel_url: `${appUrl()}/settings?section=billing&canceled=true`,
       ...(discounts ? { discounts } : { allow_promotion_codes: true }),

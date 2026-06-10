@@ -1,7 +1,7 @@
 // Weekly LinkedIn engagement run — the native, no-button lead source.
 //
 // For each workspace that has connected its own LinkedIn (via Unipile, stored in
-// workspace_linkedin_connections) AND is on the Growth or Agency plan, this scrapes the
+// workspace_linkedin_connections) AND is on the Pro, Growth or Partner plan, this scrapes the
 // engagers off that workspace's OWN recent posts (comments + reactions) and drops
 // them into a native "LinkedIn Engagers" lead list. There is no frontend trigger;
 // it runs on a weekly cron and is visible only in the ops log.
@@ -14,12 +14,12 @@
 //   The moment they actually reply / DM / meet, a real-source interaction lands
 //   and they graduate into People automatically. Comment in, conversation out.
 //
-// Cloud + Growth/Agency plans only. NOT a self-host feature — self-host has no
+// Cloud + Pro/Growth/Partner plans only. NOT a self-host feature — self-host has no
 // plan concept and lead lists are already cloud-only (see access.mjs / the
 // feature split). Gating (any one no-op silences the whole thing — safe by default):
 //   * APIFY_TOKEN unset                   -> feature off everywhere
 //   * workspace has no LinkedIn connected -> skipped
-//   * workspace not on Growth/Agency (and not in LINKEDIN_ENGAGEMENT_WORKSPACES) -> skipped
+//   * workspace not on Pro/Growth/Partner (and not in LINKEDIN_ENGAGEMENT_WORKSPACES) -> skipped
 
 import { getSupabaseClient, insertLeads, createLeadList, listLeadLists, logWorkerRun } from '@nous/core';
 import { runActor, hasApifyToken } from '../utils/apify.mjs';
@@ -73,9 +73,9 @@ function postTs(p, now) {
   return null;
 }
 
-// Is this workspace allowed to run? Cloud, Scale-plan only — this is NOT a
-// self-host feature (self-host has no plans, and lead lists are cloud-only).
-// The allowlist is for cloud dogfood / pilots; everyone else needs active Scale.
+// Is this workspace allowed to run? Cloud, Pro/Growth/Partner only — this is NOT
+// a self-host feature (self-host has no plans, and lead lists are cloud-only).
+// The allowlist is for cloud dogfood / pilots; everyone else needs an active plan.
 async function isEligible(supabase, workspaceId) {
   if (ALLOWLIST.has(workspaceId)) return true;
   const { data: ws } = await supabase.from('workspaces').select('team_id').eq('id', workspaceId).maybeSingle();
@@ -84,9 +84,9 @@ async function isEligible(supabase, workspaceId) {
     .from('subscriptions').select('plan_id, status').eq('team_id', ws.team_id).maybeSingle();
   if (!sub) return false;
   const dead = sub.status === 'canceled' || sub.status === 'incomplete_expired' || sub.status === 'past_due';
-  // linkedinEngagement feature lives on Growth + Agency (internal id 'scale').
+  // linkedinEngagement feature lives on Pro, Growth + Partner (internal id 'scale').
   // Keep in sync with plans.mjs hasFeature(plan, 'linkedinEngagement').
-  return !dead && (sub.plan_id === 'growth' || sub.plan_id === 'scale');
+  return !dead && (sub.plan_id === 'pro' || sub.plan_id === 'growth' || sub.plan_id === 'scale');
 }
 
 // Find the workspace's native engagers list, creating it on first run.

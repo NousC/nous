@@ -16,38 +16,47 @@ test('plans: five tiers with the expected ops + enrichment ladders + prices', as
   assert.equal(PLANS.starter.includedOpsPerMonth, 10_000);
   assert.equal(PLANS.pro.includedOpsPerMonth, 50_000);
   assert.equal(PLANS.growth.includedOpsPerMonth, 100_000);
-  assert.equal(PLANS.scale.includedOpsPerMonth, 250_000);
+  assert.equal(PLANS.scale.includedOpsPerMonth, 500_000);
   // Enrichment is bring-your-own-keys: no plan includes a managed allowance.
   for (const id of ['free', 'starter', 'pro', 'growth', 'scale']) {
     assert.equal(PLANS[id].enrichmentsPerMonth, 0, `${id} should include 0 enrichments (BYOK)`);
   }
-  // Pro is single-workspace like Start; Growth=5, Agency=unlimited.
+  // Pro is single-workspace like Start; Growth=3; Partner base=5 (then per-client).
   assert.equal(PLANS.starter.workspaceLimit, 1);
   assert.equal(PLANS.pro.workspaceLimit, 1);
-  assert.equal(PLANS.growth.workspaceLimit, 5);
-  assert.equal(PLANS.scale.workspaceLimit, null);
-  // Prices: Free $0 / Start $29 / Pro $99 / Growth $249 / Agency $499.
+  assert.equal(PLANS.growth.workspaceLimit, 3);
+  assert.equal(PLANS.scale.workspaceLimit, 5);
+  // Prices: Free $0 / Start $29 / Pro $99 / Growth $249 / Partner $500 base.
   assert.equal(PLANS.free.monthlyPriceUsd, 0);
   assert.equal(PLANS.starter.monthlyPriceUsd, 29);
   assert.equal(PLANS.pro.monthlyPriceUsd, 99);
   assert.equal(PLANS.growth.monthlyPriceUsd, 249);
-  assert.equal(PLANS.scale.monthlyPriceUsd, 499);
-  // Display names: internal ids 'starter'/'scale' show as Start/Agency.
+  assert.equal(PLANS.scale.monthlyPriceUsd, 500);
+  // Partner per-client pricing fields.
+  assert.equal(PLANS.scale.perWorkspaceUsd, 100);
+  assert.equal(PLANS.scale.baseWorkspaces, 5);
+  // Display names: internal ids 'starter'/'scale' show as Start/Partner.
   assert.equal(PLANS.starter.name, 'Start');
-  assert.equal(PLANS.scale.name, 'Agency');
+  assert.equal(PLANS.scale.name, 'Partner');
 });
 
-test('hasFeature: crmSync + leadLists unlock at Pro and up; contextualization is everywhere', async () => {
+test('hasFeature: lead lists + LinkedIn at Pro+, CRM sync at Growth+', async () => {
   const { hasFeature } = await import('../src/lib/plans.mjs');
   for (const p of ['free', 'starter']) {
     assert.equal(hasFeature(p, 'crmSync'), false, `${p} should not have crmSync`);
     assert.equal(hasFeature(p, 'leadLists'), false, `${p} should not have leadLists`);
+    assert.equal(hasFeature(p, 'linkedinEngagement'), false, `${p} should not have linkedinEngagement`);
     assert.equal(hasFeature(p, 'contextualization'), true);
   }
+  // Lead lists + LinkedIn engagement unlock at Pro and stay up the ladder.
   for (const p of ['pro', 'growth', 'scale']) {
-    assert.equal(hasFeature(p, 'crmSync'), true, `${p} should have crmSync`);
     assert.equal(hasFeature(p, 'leadLists'), true, `${p} should have leadLists`);
+    assert.equal(hasFeature(p, 'linkedinEngagement'), true, `${p} should have linkedinEngagement`);
   }
+  // CRM sync is Growth+ only — NOT on Pro.
+  assert.equal(hasFeature('pro', 'crmSync'), false, 'Pro should NOT have crmSync');
+  assert.equal(hasFeature('growth', 'crmSync'), true);
+  assert.equal(hasFeature('scale', 'crmSync'), true);
 });
 
 test('getPlanFromSubscription: missing → free; past_due → free; starter/scale resolve', async () => {

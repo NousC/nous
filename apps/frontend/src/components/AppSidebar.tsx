@@ -48,11 +48,10 @@ const mainNavItems: NavItem[] = [
   { title: "Context",  url: "/intelligence", icon: Brain    },
 ];
 
-// Cloud-only, Pro+ surfaces. Rendered inline under Context (not a separate group).
-const cloudFeatureItems: NavItem[] = [
-  { title: "CRM Sync", url: "/crm-sync", icon: Database },
-  { title: "Lists",    url: "/lists",    icon: List     },
-];
+// Cloud-only surfaces, rendered inline under Context. Different gates:
+// Lists (lead database) is Pro+, CRM Sync is Growth+.
+const crmSyncNavItem: NavItem = { title: "CRM Sync", url: "/crm-sync", icon: Database };
+const listsNavItem: NavItem  = { title: "Lists",    url: "/lists",    icon: List     };
 
 // Bottom navigation — Settings is reached via the profile button below.
 const bottomNavItems: NavItem[] = [
@@ -117,11 +116,15 @@ export function AppSidebar() {
       .then(d => { if (d?.plan) setPlan(String(d.plan).toLowerCase()); })
       .catch(() => {});
   }, [session?.access_token]);
-  // CRM Sync + Lists are cloud-only (never on self-host) and gated to Pro and up,
-  // matching the backend entitlement in plans.mjs (crmSync/leadLists on Pro, Growth, Agency).
+  // Cloud-only (never on self-host). Gates match plans.mjs: lead lists on Pro+,
+  // CRM sync on Growth+. (Internal id 'scale' = the Partner plan.)
   const selfHosted = (userData as { self_hosted?: boolean })?.self_hosted === true;
-  const showCloudFeatures =
+  const showLeadLists =
     !selfHosted && (plan === "pro" || plan === "growth" || plan === "scale" || plan === "enterprise");
+  const showCrmSync =
+    !selfHosted && (plan === "growth" || plan === "scale" || plan === "enterprise");
+  // Lead-related surfaces (Lists, lead/campaign analytics) unlock with lead lists.
+  const showCloudFeatures = showLeadLists;
   // Billing is a cloud-only surface — self-host is unmetered with no subscription,
   // so drop "Usage & Billing" entirely (ops are visible on the Ops page).
   const visibleBottomNavItems = selfHosted
@@ -229,7 +232,8 @@ export function AppSidebar() {
       <nav className="px-2.5 pt-7">
         <ul className="flex flex-col gap-0.5">
           {mainNavItems.map(renderNavItem)}
-          {showCloudFeatures && cloudFeatureItems.map(renderNavItem)}
+          {showCrmSync && renderNavItem(crmSyncNavItem)}
+          {showLeadLists && renderNavItem(listsNavItem)}
         </ul>
       </nav>
 

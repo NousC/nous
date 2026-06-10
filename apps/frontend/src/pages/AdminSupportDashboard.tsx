@@ -800,7 +800,7 @@ export default function AdminSupportDashboard() {
                   <Sparkles className={`h-5 w-5 ${selectedPlan === "pro" ? "text-blue-500" : "text-gray-400"}`} />
                   <div>
                     <p className="font-medium">Pro</p>
-                    <p className="text-xs text-muted-foreground">50,000 ops/mo · 1 workspace · CRM sync · lead lists</p>
+                    <p className="text-xs text-muted-foreground">50,000 ops/mo · 1 workspace · lead database · LinkedIn engagement</p>
                   </div>
                 </button>
                 <button
@@ -814,7 +814,7 @@ export default function AdminSupportDashboard() {
                   <Sparkles className={`h-5 w-5 ${selectedPlan === "growth" ? "text-indigo-500" : "text-gray-400"}`} />
                   <div>
                     <p className="font-medium">Growth</p>
-                    <p className="text-xs text-muted-foreground">100,000 ops/mo · 5 workspaces · LinkedIn engagement</p>
+                    <p className="text-xs text-muted-foreground">100,000 ops/mo · 3 workspaces · CRM synchronization</p>
                   </div>
                 </button>
                 <button
@@ -827,8 +827,8 @@ export default function AdminSupportDashboard() {
                 >
                   <Crown className={`h-5 w-5 ${selectedPlan === "scale" ? "text-purple-500" : "text-gray-400"}`} />
                   <div>
-                    <p className="font-medium">Agency</p>
-                    <p className="text-xs text-muted-foreground">250,000 ops/mo · unlimited workspaces · multi-client dashboard</p>
+                    <p className="font-medium">Partner</p>
+                    <p className="text-xs text-muted-foreground">$100/client · 5 included (500k ops) · multi-client dashboard</p>
                   </div>
                 </button>
               </div>

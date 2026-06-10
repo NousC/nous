@@ -73,9 +73,10 @@ export const PLANS = {
     stripePriceEnv: 'STRIPE_PRO_PRICE_ID',
     features: {
       contextualization: true,
-      // CRM sync + lead lists unlock here, and stay on every tier above.
-      crmSync: true,
+      // Lead lists + LinkedIn engagement unlock here. CRM sync is Growth+.
+      crmSync: false,
       leadLists: true,
+      linkedinEngagement: true,
       publicSignalExtraction: true,
       supportTier: 'priority',
     },
@@ -86,34 +87,39 @@ export const PLANS = {
     monthlyPriceUsd: 249,
     includedOpsPerMonth: 100_000,
     enrichmentsPerMonth: 0,
-    workspaceLimit: 5,
+    workspaceLimit: 3,
     stripePriceEnv: 'STRIPE_GROWTH_PRICE_ID',
     features: {
       contextualization: true,
+      // CRM synchronization unlocks here, on top of everything in Pro.
       crmSync: true,
       leadLists: true,
-      publicSignalExtraction: true,
-      // The weekly background run that scrapes engagers off the workspace's own
-      // LinkedIn posts into the native "LinkedIn Engagers" list. Growth and up.
       linkedinEngagement: true,
+      publicSignalExtraction: true,
       supportTier: 'priority',
     },
   },
-  // Internal id stays 'scale' (existing subscriptions key on it); displays as "Agency".
+  // Internal id stays 'scale' (existing subscriptions key on it); displays as "Partner".
+  // Per-client pricing: $100/mo per client workspace, 5 included in the $500 base,
+  // +100k ops per additional client. Checkout uses a Stripe per-unit price with
+  // quantity = client count (min baseWorkspaces) — see billing.mjs.
   scale: {
     id: 'scale',
-    name: 'Agency',
-    monthlyPriceUsd: 499,
-    includedOpsPerMonth: 250_000,
+    name: 'Partner',
+    monthlyPriceUsd: 500,
+    perWorkspaceUsd: 100,
+    baseWorkspaces: 5,
+    opsPerWorkspace: 100_000,
+    includedOpsPerMonth: 500_000,
     enrichmentsPerMonth: 0,
-    workspaceLimit: null,
+    workspaceLimit: 5,
     stripePriceEnv: 'STRIPE_SCALE_PRICE_ID',
     features: {
       contextualization: true,
       crmSync: true,
       leadLists: true,
-      publicSignalExtraction: true,
       linkedinEngagement: true,
+      publicSignalExtraction: true,
       supportTier: 'priority',
     },
   },
