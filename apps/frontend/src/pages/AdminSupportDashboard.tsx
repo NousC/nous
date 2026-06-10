@@ -800,7 +800,7 @@ export default function AdminSupportDashboard() {
                   <Sparkles className={`h-5 w-5 ${selectedPlan === "pro" ? "text-blue-500" : "text-gray-400"}`} />
                   <div>
                     <p className="font-medium">Pro</p>
-                    <p className="text-xs text-muted-foreground">50,000 ops/mo · 1 workspace · lead database · LinkedIn engagement</p>
+                    <p className="text-xs text-muted-foreground">25,000 ops/mo · 1 workspace · lead database · LinkedIn engagement</p>
                   </div>
                 </button>
                 <button

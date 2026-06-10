@@ -39,7 +39,7 @@ type BillingState = {
   allPlans?: PlanInfo[];
 };
 
-// Order on the page; Enterprise is appended client-side (marketing CTA).
+// Order on the page.
 const PLAN_ORDER = ["free", "starter", "pro", "growth", "scale"];
 
 const PLAN_BLURB: Record<string, string> = {
@@ -48,7 +48,6 @@ const PLAN_BLURB: Record<string, string> = {
   pro: "For internal GTM teams scaling their operations.",
   growth: "For teams running higher volume across more workspaces.",
   scale: "For agencies running multiple clients in parallel.",
-  enterprise: "Embed Nous into your own product or agent stack.",
 };
 
 const SUPPORT_LABEL: Record<string, string> = {
@@ -259,7 +258,7 @@ export default function UsageBilling() {
   const enrich = state.enrichments ?? { used: 0, included: 0, remaining: 0 };
   const apiPlans = state.allPlans ?? [];
 
-  // Ordered plans + a static Enterprise card.
+  // Ordered plans.
   const orderedPlans = PLAN_ORDER
     .map((id) => apiPlans.find((p) => p.id === id))
     .filter(Boolean) as PlanInfo[];
@@ -340,7 +339,7 @@ export default function UsageBilling() {
         </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         {orderedPlans.map((p) => {
           const isCurrent = p.id === planId;
           return (
@@ -393,26 +392,6 @@ export default function UsageBilling() {
             </div>
           );
         })}
-
-        {/* Enterprise — marketing CTA, not a backend tier */}
-        <div className="rounded-2xl border border-border bg-card p-5 flex flex-col">
-          <span className="text-[13px] font-medium text-muted-foreground mb-0.5">Enterprise</span>
-          <div className="text-[24px] font-bold text-foreground leading-tight mb-4">Custom</div>
-          <ul className="space-y-2 mb-5">
-            {["Everything in Agency", "Unlimited GTM operations & enrichments", "SaaS license to embed", "SLA + dedicated support", "Custom contracts"].map((b) => (
-              <li key={b} className="flex items-start gap-2 text-[12.5px] text-muted-foreground">
-                <Check className="h-3.5 w-3.5 text-emerald-500 flex-shrink-0 mt-[2px]" strokeWidth={2.5} />
-                <span>{b}</span>
-              </li>
-            ))}
-          </ul>
-          <a
-            href="mailto:bennet@opennous.cloud?subject=Nous%20Enterprise"
-            className="mt-auto w-full h-9 rounded-lg border border-border text-muted-foreground text-[12.5px] font-medium hover:text-foreground transition-colors flex items-center justify-center"
-          >
-            Talk to us
-          </a>
-        </div>
       </div>
     </Shell>
   );

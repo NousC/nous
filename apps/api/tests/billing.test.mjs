@@ -14,7 +14,7 @@ test('plans: five tiers with the expected ops + enrichment ladders + prices', as
   assert.deepEqual(Object.keys(PLANS).sort(), ['free', 'growth', 'pro', 'scale', 'starter']);
   assert.equal(PLANS.free.includedOpsPerMonth, 1_000);
   assert.equal(PLANS.starter.includedOpsPerMonth, 10_000);
-  assert.equal(PLANS.pro.includedOpsPerMonth, 50_000);
+  assert.equal(PLANS.pro.includedOpsPerMonth, 25_000);
   assert.equal(PLANS.growth.includedOpsPerMonth, 100_000);
   assert.equal(PLANS.scale.includedOpsPerMonth, 500_000);
   // Enrichment is bring-your-own-keys: no plan includes a managed allowance.
@@ -108,7 +108,7 @@ test('getTeamOpsUsage: exhausted plan reports 0 remaining (no top-up)', async ()
   const { getTeamOpsUsage } = await import('../src/lib/plans.mjs');
   const sub = { plan_id: 'pro', status: 'active', current_period_start: '2026-05-01T00:00:00Z' };
   const ops = await getTeamOpsUsage(makeOpsStub(99999), 't1', sub);
-  assert.equal(ops.included, 50000);
+  assert.equal(ops.included, 25000);
   assert.equal(ops.remaining, 0);
   assert.equal(ops.topupBalance, undefined, 'no top-up balance in the pure-tier model');
 });

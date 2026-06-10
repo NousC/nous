@@ -67,7 +67,7 @@ export const PLANS = {
     id: 'pro',
     name: 'Pro',
     monthlyPriceUsd: 99,
-    includedOpsPerMonth: 50_000,
+    includedOpsPerMonth: 25_000,
     enrichmentsPerMonth: 0,
     workspaceLimit: 1,
     stripePriceEnv: 'STRIPE_PRO_PRICE_ID',

@@ -120,9 +120,9 @@ export function AppSidebar() {
   // CRM sync on Growth+. (Internal id 'scale' = the Partner plan.)
   const selfHosted = (userData as { self_hosted?: boolean })?.self_hosted === true;
   const showLeadLists =
-    !selfHosted && (plan === "pro" || plan === "growth" || plan === "scale" || plan === "enterprise");
+    !selfHosted && (plan === "pro" || plan === "growth" || plan === "scale");
   const showCrmSync =
-    !selfHosted && (plan === "growth" || plan === "scale" || plan === "enterprise");
+    !selfHosted && (plan === "growth" || plan === "scale");
   // Lead-related surfaces (Lists, lead/campaign analytics) unlock with lead lists.
   const showCloudFeatures = showLeadLists;
   // Billing is a cloud-only surface — self-host is unmetered with no subscription,
