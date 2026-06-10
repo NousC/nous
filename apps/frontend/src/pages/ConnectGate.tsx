@@ -81,6 +81,7 @@ export default function ConnectGate() {
   const workspaceId = (userData as { workspace?: { id?: string } })?.workspace?.id;
   const email = (userData as { user?: { email?: string } })?.user?.email;
   const [tab, setTab] = useState("claude");
+  const [celebrating, setCelebrating] = useState(false);
 
   const active = TABS.find(t => t.id === tab) ?? TABS[0];
 
@@ -106,18 +107,46 @@ export default function ConnectGate() {
         if (!r.ok) return;
         const d = await r.json();
         if (stopped) return;
-        if (d.onboarded) { await refreshUserData(); navigate("/intelligence", { replace: true }); }
+        if (d.onboarded) setCelebrating(true);
       } catch { /* keep polling */ }
     };
     tick();
     const iv = setInterval(tick, 4000);
     return () => { stopped = true; clearInterval(iv); };
-  }, [token, workspaceId, refreshUserData, navigate]);
+  }, [token, workspaceId]);
+
+  // Onboarded → celebrate briefly, then open the Ops page (the live op log of
+  // what the agent just did).
+  useEffect(() => {
+    if (!celebrating) return;
+    refreshUserData();
+    const t = setTimeout(() => navigate("/ops", { replace: true }), 1900);
+    return () => clearTimeout(t);
+  }, [celebrating, refreshUserData, navigate]);
 
   const skip = () => {
     try { if (workspaceId) localStorage.setItem(`nous_connect_skipped:${workspaceId}`, "1"); } catch { /* ignore */ }
     navigate("/", { replace: true });
   };
+
+  if (celebrating) {
+    return (
+      <div className="min-h-screen w-full flex items-center justify-center bg-background animate-in fade-in duration-300">
+        <div className="flex flex-col items-center text-center">
+          <div className="relative grid h-16 w-16 place-items-center">
+            <span className="absolute h-16 w-16 rounded-full bg-emerald-500/20 animate-ping" />
+            <span className="relative grid h-16 w-16 place-items-center rounded-full bg-emerald-500/10 text-emerald-600 animate-in zoom-in duration-500">
+              <CheckCircle2 className="h-9 w-9" />
+            </span>
+          </div>
+          <div className="mt-5 text-[19px] font-semibold tracking-tight text-foreground animate-in fade-in slide-in-from-bottom-1 duration-500">
+            You're all set
+          </div>
+          <div className="mt-1 text-[13px] text-muted-foreground">Opening your workspace…</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen w-full flex items-center justify-center bg-muted/30 px-4 py-10">

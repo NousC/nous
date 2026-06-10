@@ -19,7 +19,7 @@ import {
   isSelfHosted,
 } from './plans.mjs';
 
-async function resolveTeamAndPlan(req) {
+export async function resolveTeamAndPlan(req) {
   const supabase = getSupabaseClient();
   let team;
   if (req.user) {

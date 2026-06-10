@@ -9,7 +9,7 @@ import {
   countHygieneProposals,
 } from '@nous/core';
 import { seedScorecardFromMemory } from '../../lib/scorecardSeed.mjs';
-import { requireFeature } from '../../lib/access.mjs';
+import { requireFeature, resolveTeamAndPlan, hasFeature, isSelfHosted } from '../../lib/access.mjs';
 import { testProviderCredentials, encryptCredentials } from '../api/workflowProviders.mjs';
 
 // ── Workspace status + onboarding — the agent's setup surface ──────────────────
@@ -88,6 +88,11 @@ workspaceStatusV2Router.get('/status', async (req, res) => {
         safe(() => listTriggers(supabase, workspaceId), []),
       ]);
 
+    // ── Plan + feature availability (so the agent doesn't push paid features) ──
+    const plan = await safe(async () => (await resolveTeamAndPlan(req)).plan, null);
+    const crmSyncAvailable  = !isSelfHosted() && !!plan && hasFeature(plan.id, 'crmSync');
+    const leadListsAvailable = !isSelfHosted() && !!plan && hasFeature(plan.id, 'leadLists');
+
     // ── Onboarding: the workspace's basic identity ──
     const profileMissing = [];
     if (!workspace?.name)          profileMissing.push('name');
@@ -150,7 +155,7 @@ workspaceStatusV2Router.get('/status', async (req, res) => {
         how: 'Tell the user which sources you can connect; key-based ones you can set up directly, OAuth ones need one authorize click from them.',
       });
     }
-    if (onboardingDone && !crmSyncConfigured) {
+    if (onboardingDone && crmSyncAvailable && !crmSyncConfigured) {
       next_steps.push({
         id: 'crm_sync',
         title: 'Set up CRM sync',
@@ -186,6 +191,12 @@ workspaceStatusV2Router.get('/status', async (req, res) => {
             default_signup_stage: workspace.default_signup_stage || null,
           }
         : { id: workspaceId },
+      plan: {
+        id: plan?.id || 'free',
+        name: plan?.name || plan?.id || 'free',
+        crm_sync: crmSyncAvailable,
+        lead_lists: leadListsAvailable,
+      },
       setup: {
         onboarding: { done: onboardingDone, missing: profileMissing },
         gtm_playbook: {
@@ -197,6 +208,7 @@ workspaceStatusV2Router.get('/status', async (req, res) => {
         },
         integrations: { count: verified.length, connected: connectedList },
         crm_sync: {
+          available: crmSyncAvailable,
           configured: crmSyncConfigured,
           providers: crmProviders,
           pending_hygiene_proposals: hygieneOpen,

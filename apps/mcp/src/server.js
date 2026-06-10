@@ -37,7 +37,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { get, post } from "./client.js";
 
-export const SERVER_VERSION = "0.22.0";
+export const SERVER_VERSION = "0.23.0";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -521,6 +521,8 @@ export function createServer() {
 
       const ws = s.workspace ?? {};
       lines.push(`WORKSPACE: ${ws.name || "(unnamed)"}${ws.website ? ` · ${ws.website}` : ""}${ws.business_type ? ` · ${ws.business_type}` : ""}`);
+      const pl = s.plan ?? {};
+      lines.push(`PLAN: ${pl.name || pl.id || "free"}${pl.crm_sync === false ? "  (CRM sync not included — do not offer it)" : ""}`);
       lines.push("");
 
       const mark = (b) => (b ? "✓" : "✗");
@@ -530,7 +532,11 @@ export function createServer() {
       const ints = setup.integrations?.connected ?? [];
       lines.push(`  ${mark((setup.integrations?.count ?? 0) > 0)} Integrations (${setup.integrations?.count ?? 0})${ints.length ? `: ${ints.map((i) => i.name).join(", ")}` : ""}`);
       const crm = setup.crm_sync ?? {};
-      lines.push(`  ${mark(crm.configured)} CRM sync${crm.configured ? `: ${(crm.providers ?? []).map((p) => p.provider).join(", ")}` : ""}${crm.pending_hygiene_proposals ? ` · ${crm.pending_hygiene_proposals} hygiene proposal(s) to review` : ""}`);
+      if (crm.available === false) {
+        lines.push(`  – CRM sync (not on the ${pl.name || pl.id || "current"} plan)`);
+      } else {
+        lines.push(`  ${mark(crm.configured)} CRM sync${crm.configured ? `: ${(crm.providers ?? []).map((p) => p.provider).join(", ")}` : ""}${crm.pending_hygiene_proposals ? ` · ${crm.pending_hygiene_proposals} hygiene proposal(s) to review` : ""}`);
+      }
       lines.push(`  ${mark(setup.enrichment?.connected)} Enrichment${setup.enrichment?.provider ? `: ${setup.enrichment.provider}` : ""}`);
       lines.push(`  ${mark((setup.webhooks?.count ?? 0) > 0 || (setup.triggers?.count ?? 0) > 0)} Events — ${setup.webhooks?.count ?? 0} webhook(s), ${setup.triggers?.count ?? 0} trigger(s)`);
 
@@ -607,7 +613,10 @@ export function createServer() {
     "update_gtm_profile, then call this to translate that context into a weighted set of scoring " +
     "signals so accounts get scored for fit. If a model already exists it is left alone unless you " +
     "pass force:true (use that when the GTM context has changed and the model should be rebuilt). If " +
-    "it reports no GTM context yet, record some with update_gtm_profile first, then call this again.",
+    "it reports no GTM context yet, record some with update_gtm_profile first, then call this again. " +
+    "When building the playbook during onboarding, also ASK the user for a few closed-WON customer " +
+    "domains and closed-LOST domains — real outcomes sharpen the ICP. Record them with update_gtm_profile " +
+    "(e.g. section 'ICP': 'Closed-won: acme.com, globex.com; closed-lost: tinyco.io') so the model reflects who actually buys.",
     {
       force: z.boolean().optional()
         .describe("Rebuild the model even if one already exists — use when the GTM context has changed."),
