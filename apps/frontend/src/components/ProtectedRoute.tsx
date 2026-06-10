@@ -3,7 +3,6 @@ import { useAuth } from '@/contexts/AuthContext';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
-  requireOnboarding?: boolean; // kept for backwards compat, unused
 }
 
 export function ProtectedRoute({ children }: ProtectedRouteProps) {

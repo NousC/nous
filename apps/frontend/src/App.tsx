@@ -102,7 +102,7 @@ const App = () => (
               <Route
                 path="/cli-login"
                 element={
-                  <ProtectedRoute requireOnboarding={false}>
+                  <ProtectedRoute>
                     <Suspense fallback={<PageLoader />}><CliLogin /></Suspense>
                   </ProtectedRoute>
                 }
@@ -121,7 +121,7 @@ const App = () => (
               <Route
                 path="/*"
                 element={
-                  <ProtectedRoute requireOnboarding={false}>
+                  <ProtectedRoute>
                     <AppRoutes />
                     <CommandPalette />
                   </ProtectedRoute>
