@@ -47,7 +47,7 @@ function engagementEligible(req, workspaceId) {
 // ensured to exist so it always shows as a default.
 leadListsRouter.get('/', async (req, res) => {
   try {
-    const { workspaceId } = req.query;
+    const workspaceId = req.query.workspaceId || req.workspaceId;
     if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
     const supabase = getSupabaseClient();
     let lead_lists = await listLeadLists(supabase, workspaceId);
