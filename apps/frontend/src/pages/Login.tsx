@@ -7,6 +7,18 @@ import { toast } from "@/components/ui/sonner";
 import { Eye, EyeOff } from "lucide-react";
 import { setRememberMe } from "@/lib/supabase";
 import { useAuthConfig } from "@/lib/authConfig";
+import GraphField from "@/components/GraphField";
+
+const PAGE_STYLE = {
+  backgroundColor: "#f6f1e9",
+  backgroundImage:
+    "radial-gradient(1100px 700px at 78% -8%, rgba(217,119,87,0.07), transparent 60%), radial-gradient(900px 600px at 12% 108%, rgba(191,86,48,0.05), transparent 60%)",
+} as const;
+
+const BOX_SHADOW = {
+  boxShadow:
+    "0 1px 0 rgba(255,255,255,0.8) inset, 0 18px 50px -22px rgba(42,36,32,0.28), 0 6px 18px -12px rgba(191,86,48,0.16)",
+} as const;
 
 const Login = () => {
   const [email, setEmail] = useState("");
@@ -48,36 +60,32 @@ const Login = () => {
 
   return (
     <div
-      className="min-h-screen flex items-center justify-center px-4 font-mono text-[#e8e3dc]"
-      style={{
-        backgroundColor: "#0e0c0b",
-        backgroundImage:
-          "radial-gradient(circle, rgba(200, 190, 178, 0.05) 1px, transparent 1.4px)",
-        backgroundSize: "18px 18px",
-      }}
+      className="relative overflow-hidden min-h-screen flex items-center justify-center px-4 font-mono text-[#2a2420]"
+      style={PAGE_STYLE}
     >
+      <GraphField />
       <div
-        className="w-full max-w-[360px] overflow-hidden rounded-lg border border-[#d97757]/60 bg-[#16120f]"
-        style={{ boxShadow: "0 0 70px rgba(217,119,87,0.12)" }}
+        className="relative z-10 w-full max-w-[360px] overflow-hidden rounded-lg border border-[#e4d9c8] bg-[#fffdf9]"
+        style={BOX_SHADOW}
       >
         {/* title bar */}
-        <div className="flex items-center gap-2 border-b border-[#322c25] px-4 py-2 text-xs text-[#8a8178]">
-          <span className="text-[#c76b4a]/80">●</span>
-          <span className="text-[#e8915b]/70">●</span>
+        <div className="flex items-center gap-2 border-b border-[#e4d9c8] px-4 py-2 text-xs text-[#8a7e6f]">
+          <span className="text-[#b5532f]/80">●</span>
           <span className="text-[#d97757]/70">●</span>
+          <span className="text-[#bf5630]/70">●</span>
           <span className="ml-1">nous — sign in</span>
         </div>
 
         <div className="p-6">
           <div className="flex items-center gap-2">
             <img src="/nous-logo.svg" alt="" className="w-5 h-5 object-contain" />
-            <span className="font-bold text-[14px] tracking-[-0.02em] text-[#e8e3dc]">nous</span>
+            <span className="font-bold text-[14px] tracking-[-0.02em] text-[#2a2420]">nous</span>
           </div>
 
-          <h1 className="mt-4 text-[20px] font-bold tracking-[-0.02em] text-[#e8e3dc]">
+          <h1 className="mt-4 text-[20px] font-bold tracking-[-0.02em] text-[#2a2420]">
             Sign in
           </h1>
-          <p className="mt-1 text-xs text-[#8a8178]">
+          <p className="mt-1 text-xs text-[#8a7e6f]">
             Welcome back. Open your workspace.
           </p>
 
@@ -88,7 +96,7 @@ const Login = () => {
                   type="button"
                   onClick={handleGoogleSignIn}
                   variant="outline"
-                  className="w-full h-11 rounded-lg flex items-center justify-center gap-2.5 font-medium text-sm border-[#322c25] bg-[#0e0c0b] hover:bg-[#0e0c0b]/60 text-[#e8e3dc]"
+                  className="w-full h-11 rounded-lg flex items-center justify-center gap-2.5 font-medium text-sm border-[#e4d9c8] bg-[#fffdf9] hover:bg-[#f6f1e9] text-[#2a2420]"
                   disabled={loading}
                 >
                   <svg className="w-[18px] h-[18px]" viewBox="0 0 24 24">
@@ -102,10 +110,10 @@ const Login = () => {
 
                 <div className="relative py-1">
                   <div className="absolute inset-0 flex items-center">
-                    <div className="w-full border-t border-[#322c25]" />
+                    <div className="w-full border-t border-[#e4d9c8]" />
                   </div>
                   <div className="relative flex justify-center">
-                    <span className="px-3 text-[10px] uppercase tracking-[0.12em] text-[#8a8178] bg-[#16120f]">or</span>
+                    <span className="px-3 text-[10px] uppercase tracking-[0.12em] text-[#8a7e6f] bg-[#fffdf9]">or</span>
                   </div>
                 </div>
               </>
@@ -118,7 +126,7 @@ const Login = () => {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-                className="h-11 rounded-lg text-sm border-[#322c25] bg-[#0e0c0b] text-[#e8e3dc] placeholder:text-[#8a8178]/70 focus-visible:ring-[#d97757] focus-visible:border-[#d97757]"
+                className="h-11 rounded-lg text-sm border-[#e4d9c8] bg-[#fffdf9] text-[#2a2420] placeholder:text-[#8a7e6f]/70 focus-visible:ring-[#bf5630] focus-visible:border-[#bf5630]"
                 disabled={loading}
                 autoFocus
               />
@@ -130,13 +138,13 @@ const Login = () => {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
-                  className="h-11 rounded-lg text-sm border-[#322c25] bg-[#0e0c0b] text-[#e8e3dc] placeholder:text-[#8a8178]/70 pr-10 focus-visible:ring-[#d97757] focus-visible:border-[#d97757]"
+                  className="h-11 rounded-lg text-sm border-[#e4d9c8] bg-[#fffdf9] text-[#2a2420] placeholder:text-[#8a7e6f]/70 pr-10 focus-visible:ring-[#bf5630] focus-visible:border-[#bf5630]"
                   disabled={loading}
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8a8178] hover:text-[#d97757]"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8a7e6f] hover:text-[#bf5630]"
                   tabIndex={-1}
                 >
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -146,7 +154,7 @@ const Login = () => {
               <div className="flex justify-end pt-0.5">
                 <Link
                   to="/forgot-password"
-                  className="text-[12px] text-[#8a8178] hover:text-[#d97757]"
+                  className="text-[12px] text-[#8a7e6f] hover:text-[#bf5630]"
                 >
                   Forgot password?
                 </Link>
@@ -154,12 +162,12 @@ const Login = () => {
 
               <Button
                 type="submit"
-                className="w-full h-12 rounded-lg pl-5 pr-1.5 flex items-center justify-between gap-2 font-medium text-sm bg-[#e8915b] hover:brightness-110 text-[#16120f] transition-transform hover:scale-[1.005] disabled:opacity-60 disabled:hover:scale-100"
+                className="w-full h-12 rounded-lg pl-5 pr-1.5 flex items-center justify-between gap-2 font-medium text-sm bg-[#d97757] hover:brightness-110 text-[#fffdf9] transition-transform hover:scale-[1.005] disabled:opacity-60 disabled:hover:scale-100"
                 disabled={loading}
               >
                 <span>{loading ? "Signing in..." : "Continue"}</span>
                 <span
-                  className="inline-flex items-center justify-center w-8 h-8 rounded-md bg-[#0e0c0b] text-[#e8915b]"
+                  className="inline-flex items-center justify-center w-8 h-8 rounded-md bg-[#fffdf9] text-[#d97757]"
                   aria-hidden="true"
                 >
                   →
@@ -170,8 +178,8 @@ const Login = () => {
 
           {!signupsDisabled && (
             <div className="text-center text-xs mt-6">
-              <span className="text-[#8a8178]">New here? </span>
-              <Link to="/signup" className="font-semibold text-[#e8e3dc] hover:text-[#d97757] transition-colors">
+              <span className="text-[#8a7e6f]">New here? </span>
+              <Link to="/signup" className="font-semibold text-[#2a2420] hover:text-[#bf5630] transition-colors">
                 Create account →
               </Link>
             </div>
