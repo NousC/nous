@@ -11,7 +11,7 @@ Nous is the customer graph for GTM agents. It resolves every person, conversatio
 ```
 apps/
   api/       — Node.js/Express REST API (the /v2 Context API is the public surface)
-  mcp/       — MCP server (@opennous/mcp, 10 tools — stdio bin + hosted HTTP variant)
+  mcp/       — MCP server (@opennous/mcp, 20 tools — stdio bin + hosted HTTP variant)
   frontend/  — Vite + React + shadcn/ui (People, Companies, GTM Context, Lead Lists pages)
   worker/    — Background workers (CalendarPoller, signal ingestion, webhooks)
 packages/
@@ -50,13 +50,15 @@ Supabase (PostgreSQL). Key tables (the v2 substrate):
 - `claims` — the current derived facts per entity (with confidence + freshness)
 - `predictions` — derived forecasts, including the latest `icp_fit` score per entity
 - `relationships` — entity-to-entity edges (e.g. `works_at`, buying-group ties)
-- `contacts` / `companies` — transitional v1 profile rows still read as an overlay on the v2 substrate
+- `contacts` / `companies` — **views** over the v2 substrate (one flat profile row per entity, assembled from `entity_identifiers` + `claims` + `predictions`), with `INSTEAD OF` triggers so legacy writes still work. They are no longer real tables. Changing a column means editing the view in `supabase/schema.sql` (canonical) plus a dated migration, keeping the column list/order identical so the triggers keep matching.
+
+**People vs leads & the pipeline.** The `contacts` view is also the People page, and it does NOT show every person — only ones you've actually engaged: an inbound reply (received LinkedIn message, email reply/received), a meeting/deal, a CRM record, a manual add, or `pipeline_stage` past the top of funnel. Cold/scraped leads and people you only messaged outbound stay out (they live as leads, queryable by the agent, not on People). Pipeline stages, low→high: `identified → aware → connected → interested → evaluating → client`. `connected` = an accepted LinkedIn connection with no conversation yet — kept OUT of People on purpose. An inbound reply advances to `interested`. Stage logic lives in `packages/core/src/db/activities.ts` (`advancePipelineStage`, real-time, direction-aware) and `apps/worker/src/workers/stageDerivation.mjs` (cron). Read pipeline state from `claims`, never from the `contacts` view (the view filters rows out, so a not-yet-graduated entity simply won't be there).
 
 All DB access goes through `packages/core/src/db/`. Never write raw Supabase queries in app code.
 
 ## MCP tools (apps/mcp)
 
-10 tools — registered in `apps/mcp/src/server.js` (the canonical `createServer()` factory; `index.js` is the stdio bin, `http.js` the hosted variant). The tools are thin clients of the `/v2` Context API. The agent observes; Nous derives — there is no "update" verb.
+20 tools — registered in `apps/mcp/src/server.js` (the canonical `createServer()` factory; `index.js` is the stdio bin, `http.js` the hosted variant). The header comment in `server.js` is the authoritative catalog. The tools are thin clients of the `/v2` Context API. The agent observes; Nous derives — there is no "update" verb on the substrate.
 
 Read:
 - `get_context` — engineered, intent-shaped context for a task (draft_email, follow_up, meeting_prep, …): ranked facts with confidence + freshness, timeline, stakeholders, predictions, and the ICP fit score
@@ -66,11 +68,23 @@ Read:
 - `verify` — re-check a single fact before acting on it
 - `get_gtm_profile` — the user's OWN GTM profile (ICP, market, product, pricing, competitors, positioning). Also registered under the legacy alias `get_workspace_facts`
 - `search_notes` — semantic search over saved notes & documents on contacts
+- `get_workspace_status` — what's set up in this workspace + a ranked `next_steps` list (call first in a session)
+- `list_triggers` — the workspace's event triggers + the catalog of available event names
+- `lead_list_operations` — the operations trail of a lead list (imports / enrich / push / replies), filterable
+- `check_leads` — pre-spend coverage check: which candidate identifiers you already own / should re-enrich
+- `lead_coverage` — attribute coverage estimate ("how many agency founders do we have, by freshness")
 
 Write:
 - `record` — record what happened or what you learned (events and state observations); the single write verb
 - `update_gtm_profile` — evolve a section of the user's own GTM profile (keeps prior versions as history)
 - `save_note` — attach a note/document (meeting brief, transcript, prep) to a contact
+
+Operate (agent-driven setup — the agent runs the workspace, the human watches):
+- `set_workspace_profile` — onboarding: set the workspace's name, site, type, ICP
+- `build_scoring_model` — build/rebuild the ICP scoring model from the recorded GTM context
+- `connect_integration` — connect a key-based integration (Apollo, Prospeo, HubSpot, …)
+- `configure_crm_sync` — set CRM sync rules (auto-sync, create policy, hygiene cadence)
+- `set_trigger` — create an outbound event trigger (webhook); pair with `list_triggers`
 
 ## REST API routes (apps/api)
 
@@ -84,7 +98,9 @@ The public surface is the `/v2` Context API (key-authed via `verifyApiKey`). The
 - `GET  /v2/workspace/facts` / `POST /v2/workspace/facts` — read/evolve the GTM profile (back `get_gtm_profile` / `update_gtm_profile`)
 - `POST /v2/notes` / `POST /v2/notes/search` — save / semantically search notes (back `save_note` / `search_notes`)
 
-Cloud-only routes also mounted under `/v2` include `/v2/people`, `/v2/leads`, `/v2/signals`, and `/v2/dedup`. The browser app's own routes live under `/api/*` and are session-authed, not part of the agent-facing surface.
+Workspace setup/operate routes (back the operate + status tools): `GET /v2/workspace/status`, `POST /v2/workspace/onboarding`, `POST /v2/workspace/scoring-model`, `POST /v2/workspace/integrations`, `POST /v2/workspace/crm-sync`, `GET|POST /v2/workspace/triggers`.
+
+Cloud-only routes also mounted under `/v2` include `/v2/people`, `/v2/leads`, `/v2/signals`, and `/v2/dedup` (the last backs `check_leads` / `lead_coverage`). The browser app's own routes live under `/api/*` and are session-authed, not part of the agent-facing surface.
 
 ## Code conventions
 
