@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import React, { lazy, Suspense } from "react";
 import { AdminRoute } from "@/components/AdminRoute";
 import { AppSidebar } from "@/components/AppSidebar";
+import { OpsLimitBanner } from "@/components/OpsLimitBanner";
 import ComingSoon from "@/pages/ComingSoon";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -103,6 +104,7 @@ function StandardLayout({ children }: { children: React.ReactNode }) {
     <div className="flex h-screen w-full bg-background overflow-hidden">
       <AppSidebar />
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <OpsLimitBanner />
         <div className="flex-1 overflow-auto">
           {children}
         </div>

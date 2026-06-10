@@ -199,6 +199,74 @@ export async function getTeamOpsUsage(supabase, teamId, subscription) {
   };
 }
 
+// ── Ops-limit enforcement (grace model) ─────────────────────────────────────
+// Crossing the monthly ops allowance does NOT hard-block. The team gets a grace
+// window; only after it expires (still over, not upgraded) do ACTIVE ops get
+// restricted. Ingest (webhooks/pollers) is never gated. See access.mjs.
+export const OPS_GRACE_DAYS = 3;
+export const OPS_WARN_PCT = 80; // surface a "you're close" banner from here up.
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Derive a team's ops state and manage its grace clock (the single persisted
+ * bit: `team_ops_grace.grace_started_at`).
+ *
+ * States:
+ *   'ok'          under the warn threshold
+ *   'warn'        >= OPS_WARN_PCT but still under the limit
+ *   'grace'       at/over the limit, within OPS_GRACE_DAYS of first crossing
+ *   'restricted'  at/over the limit and the grace window has expired
+ *
+ * Side effects (idempotent): stamps grace_started_at the moment usage first
+ * crosses; clears it once usage drops back under (e.g. new billing period).
+ */
+export async function getTeamOpsState(supabase, teamId, subscription) {
+  const usage = await getTeamOpsUsage(supabase, teamId, subscription);
+  const { used, included } = usage;
+  const percentUsed = included > 0 ? Math.round((used / included) * 100) : 0;
+  const over = included > 0 && used >= included;
+
+  const { data: graceRow } = await supabase
+    .from('team_ops_grace')
+    .select('grace_started_at')
+    .eq('team_id', teamId)
+    .maybeSingle();
+  let graceStartedAt = graceRow?.grace_started_at ? new Date(graceRow.grace_started_at) : null;
+
+  if (!over) {
+    // Back under (or never over) — clear a stale clock so next crossing restarts it.
+    if (graceStartedAt) {
+      await supabase
+        .from('team_ops_grace')
+        .upsert({ team_id: teamId, grace_started_at: null, updated_at: new Date().toISOString() });
+      graceStartedAt = null;
+    }
+    return {
+      ...usage,
+      percentUsed,
+      state: percentUsed >= OPS_WARN_PCT ? 'warn' : 'ok',
+      graceUntil: null,
+    };
+  }
+
+  // Over the limit — start the clock on first crossing.
+  if (!graceStartedAt) {
+    const now = new Date();
+    await supabase
+      .from('team_ops_grace')
+      .upsert({ team_id: teamId, grace_started_at: now.toISOString(), updated_at: now.toISOString() });
+    graceStartedAt = now;
+  }
+  const graceUntil = new Date(graceStartedAt.getTime() + OPS_GRACE_DAYS * DAY_MS);
+  const restricted = Date.now() >= graceUntil.getTime();
+  return {
+    ...usage,
+    percentUsed,
+    state: restricted ? 'restricted' : 'grace',
+    graceUntil: graceUntil.toISOString(),
+  };
+}
+
 /**
  * Count enrichments a team has run this period. Enrichment is its own metered
  * unit, NOT ops — each enrichment writes an `enrichment_run` row to the live

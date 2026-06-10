@@ -15,7 +15,7 @@ import { ensureUserAndTeam } from '../../lib/auth.mjs';
 import {
   PLANS,
   getPlanFromSubscription,
-  getTeamOpsUsage,
+  getTeamOpsState,
   getTeamEnrichmentUsage,
   isSelfHosted,
 } from '../../lib/plans.mjs';
@@ -76,7 +76,7 @@ billingRouter.get('/state', verifySupabaseAuth, async (req, res) => {
 
     const plan = getPlanFromSubscription(subscription);
     const [ops, enrichments] = await Promise.all([
-      getTeamOpsUsage(supabase, team.id, subscription),
+      getTeamOpsState(supabase, team.id, subscription),
       getTeamEnrichmentUsage(supabase, team.id, subscription),
     ]);
 
@@ -99,6 +99,9 @@ billingRouter.get('/state', verifySupabaseAuth, async (req, res) => {
         included: ops.included,
         remaining: ops.remaining,
         periodStart: ops.periodStart,
+        percentUsed: ops.percentUsed,
+        state: ops.state,        // 'ok' | 'warn' | 'grace' | 'restricted'
+        graceUntil: ops.graceUntil,
       },
       enrichments: {
         used: enrichments.used,

@@ -956,6 +956,16 @@ CREATE POLICY subscriptions_member_read ON subscriptions FOR SELECT USING (
               WHERE wm.user_id = auth.uid())
 );
 
+-- Ops-limit grace clock. One timestamp per team: when usage first crossed the
+-- monthly ops allowance this period (NULL = not over). Derives ok/warn/grace/
+-- restricted in code (plans.mjs getTeamOpsState). Backend-only (service role).
+CREATE TABLE team_ops_grace (
+  team_id          UUID PRIMARY KEY REFERENCES teams(id) ON DELETE CASCADE,
+  grace_started_at TIMESTAMPTZ,
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE team_ops_grace ENABLE ROW LEVEL SECURITY;
+
 
 -- ============================================================
 -- 14. WORKSPACE GRAPH  — lightweight extracted relationship edges

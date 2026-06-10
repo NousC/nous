@@ -13,7 +13,7 @@ import { verifySupabaseAuth } from './middleware/supabaseAuth.mjs';
 import { verifyAuthEither } from './middleware/authEither.mjs';
 import { requireAdmin } from './middleware/requireAdmin.mjs';
 import { logV2Op } from './middleware/opLogger.mjs';
-import { requireFeature } from './lib/access.mjs';
+import { requireFeature, requireOpsBalance } from './lib/access.mjs';
 
 // v2 — Context API (evidence substrate)
 import { accountsV2Router } from './routes/v2/accounts.mjs';
@@ -126,21 +126,26 @@ app.get('/api/auth/config', async (_req, res) => {
 // Order matters: verifyApiKey populates req.workspaceId; logV2Op reads it
 // after the response finishes and writes a row to workspace_system_log so
 // the Ops page Live Op Log surfaces every agent/MCP/SDK call.
-app.use('/v2/accounts',        verifyApiKey,     logV2Op, accountsV2Router);
-app.use('/v2/observations',    verifyApiKey,     logV2Op, observationsV2Router);
-app.use('/v2/context',         verifyApiKey,     logV2Op, contextV2Router);
-app.use('/v2/query',           verifyApiKey,     logV2Op, queryV2Router);
-app.use('/v2/attention',       verifyApiKey,     logV2Op, attentionV2Router);
-app.use('/v2/verify',          verifyApiKey,     logV2Op, verifyV2Router);
-app.use('/v2/dedup',           verifyAuthEither, logV2Op, dedupV2Router);
-app.use('/v2/workspace/facts', verifyApiKey,     logV2Op, workspaceFactsV2Router);
+// requireOpsBalance sits after auth (needs req.workspaceId/req.user) and before
+// logV2Op: when a team is in the RESTRICTED state it 402s here, so a blocked op
+// never reaches the router and never writes an op-log row. 'grace'/'warn'/'ok'
+// all pass through. These are the ACTIVE agent/MCP surfaces; inbound ingest lives
+// in the worker and is never gated, so captured signal is never lost.
+app.use('/v2/accounts',        verifyApiKey,     requireOpsBalance, logV2Op, accountsV2Router);
+app.use('/v2/observations',    verifyApiKey,     requireOpsBalance, logV2Op, observationsV2Router);
+app.use('/v2/context',         verifyApiKey,     requireOpsBalance, logV2Op, contextV2Router);
+app.use('/v2/query',           verifyApiKey,     requireOpsBalance, logV2Op, queryV2Router);
+app.use('/v2/attention',       verifyApiKey,     requireOpsBalance, logV2Op, attentionV2Router);
+app.use('/v2/verify',          verifyApiKey,     requireOpsBalance, logV2Op, verifyV2Router);
+app.use('/v2/dedup',           verifyAuthEither, requireOpsBalance, logV2Op, dedupV2Router);
+app.use('/v2/workspace/facts', verifyApiKey,     requireOpsBalance, logV2Op, workspaceFactsV2Router);
 // Mounted AFTER /v2/workspace/facts so the more specific facts route wins; this
 // handles /v2/workspace/status (GET) and /v2/workspace/onboarding (POST).
-app.use('/v2/workspace',       verifyApiKey,     logV2Op, workspaceStatusV2Router);
-app.use('/v2/notes',           verifyApiKey,     logV2Op, notesV2Router);
-app.use('/v2/signals',         verifyApiKey,     logV2Op, signalsV2Router);
-app.use('/v2/people',          verifyApiKey,     logV2Op, peopleV2Router);
-app.use('/v2/leads',           verifyApiKey,     logV2Op, requireFeature('leadLists'), leadsV2Router);
+app.use('/v2/workspace',       verifyApiKey,     requireOpsBalance, logV2Op, workspaceStatusV2Router);
+app.use('/v2/notes',           verifyApiKey,     requireOpsBalance, logV2Op, notesV2Router);
+app.use('/v2/signals',         verifyApiKey,     requireOpsBalance, logV2Op, signalsV2Router);
+app.use('/v2/people',          verifyApiKey,     requireOpsBalance, logV2Op, peopleV2Router);
+app.use('/v2/leads',           verifyApiKey,     requireOpsBalance, logV2Op, requireFeature('leadLists'), leadsV2Router);
 
 // ── /api — Frontend API ───────────────────────────────────────────────────────
 app.use('/me',                        meRouter); // legacy path used by AuthContext

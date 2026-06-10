@@ -14,6 +14,7 @@ import {
   getPlan,
   getPlanFromSubscription,
   getTeamOpsUsage,
+  getTeamOpsState,
   getTeamEnrichmentUsage,
   hasFeature,
   isSelfHosted,
@@ -100,19 +101,30 @@ export async function requireOpsBalance(req, res, next) {
   if (isSelfHosted()) return next();
   try {
     const { team, subscription, plan, supabase } = await resolveTeamAndPlan(req);
-    const ops = await getTeamOpsUsage(supabase, team.id, subscription);
-    if (ops.remaining <= 0) {
+    const ops = await getTeamOpsState(supabase, team.id, subscription);
+    req.opsState = ops.state; // 'ok' | 'warn' | 'grace' | 'restricted'
+
+    // Only the restricted state blocks. 'grace' still passes — the team has 3 days
+    // over the limit before anything stops. Ingest (worker webhooks/pollers) never
+    // hits this guard, so captured GTM signal is never lost.
+    if (ops.state === 'restricted') {
       return res.status(402).json({
-        error: 'ops_exhausted',
+        error: 'upgrade_required',
+        reason: 'ops_limit_reached',
         current_plan: plan.id,
         included_per_month: ops.included,
+        used: ops.used,
+        grace_expired_at: ops.graceUntil,
         upgrade_url: '/settings?section=billing',
+        message: `You've hit the monthly operations limit on the ${plan.name} plan and the 3-day grace window has ended. Upgrade to resume agent and outbound operations — your data and incoming signal are untouched.`,
       });
     }
     return next();
   } catch (err) {
-    console.error('[requireOpsBalance]', err);
-    return res.status(500).json({ error: 'internal_error' });
+    // Fail OPEN: never block a live agent op because metering hiccuped. A bug
+    // here must not be able to take down customer automation.
+    console.error('[requireOpsBalance] fail-open:', err?.message);
+    return next();
   }
 }
 

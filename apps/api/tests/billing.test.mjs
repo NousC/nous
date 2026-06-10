@@ -95,6 +95,76 @@ function makeOpsStub(opsUsed) {
   };
 }
 
+// Stub for getTeamOpsState: team_ops_used rpc + a team_ops_grace row, recording
+// any upsert writes so we can assert the grace clock is stamped/cleared.
+function makeStateStub(opsUsed, graceStartedAt = null) {
+  const writes = [];
+  return {
+    _writes: writes,
+    rpc: async () => ({ data: opsUsed, error: null }),
+    from: (table) => {
+      assert.equal(table, 'team_ops_grace');
+      return {
+        select: () => ({ eq: () => ({ maybeSingle: async () => ({
+          data: graceStartedAt ? { grace_started_at: graceStartedAt } : null,
+        }) }) }),
+        upsert: async (row) => { writes.push(row); return { data: null, error: null }; },
+      };
+    },
+  };
+}
+const ago = (days) => new Date(Date.now() - days * 86400000).toISOString();
+
+test('getTeamOpsState: under limit → ok, no grace write', async () => {
+  const { getTeamOpsState } = await import('../src/lib/plans.mjs');
+  const stub = makeStateStub(200); // free included 1000 → 20%
+  const s = await getTeamOpsState(stub, 't1', null);
+  assert.equal(s.state, 'ok');
+  assert.equal(s.percentUsed, 20);
+  assert.equal(s.graceUntil, null);
+  assert.equal(stub._writes.length, 0);
+});
+
+test('getTeamOpsState: >=80% under limit → warn', async () => {
+  const { getTeamOpsState } = await import('../src/lib/plans.mjs');
+  const s = await getTeamOpsState(makeStateStub(850), 't1', null);
+  assert.equal(s.state, 'warn');
+  assert.equal(s.percentUsed, 85);
+});
+
+test('getTeamOpsState: just crossed the limit → grace, stamps the clock', async () => {
+  const { getTeamOpsState } = await import('../src/lib/plans.mjs');
+  const stub = makeStateStub(1000); // == included
+  const s = await getTeamOpsState(stub, 't1', null);
+  assert.equal(s.state, 'grace');
+  assert.ok(s.graceUntil, 'graceUntil set');
+  assert.equal(stub._writes.length, 1, 'grace clock stamped on first crossing');
+  assert.ok(stub._writes[0].grace_started_at, 'stamp has a start time');
+});
+
+test('getTeamOpsState: over, grace started 1d ago → grace', async () => {
+  const { getTeamOpsState } = await import('../src/lib/plans.mjs');
+  const stub = makeStateStub(1200, ago(1));
+  const s = await getTeamOpsState(stub, 't1', null);
+  assert.equal(s.state, 'grace');
+  assert.equal(stub._writes.length, 0, 'clock already running, no rewrite');
+});
+
+test('getTeamOpsState: over, grace started 5d ago → restricted', async () => {
+  const { getTeamOpsState } = await import('../src/lib/plans.mjs');
+  const s = await getTeamOpsState(makeStateStub(1200, ago(5)), 't1', null);
+  assert.equal(s.state, 'restricted');
+});
+
+test('getTeamOpsState: back under with a stale clock → ok + clears the clock', async () => {
+  const { getTeamOpsState } = await import('../src/lib/plans.mjs');
+  const stub = makeStateStub(200, ago(10));
+  const s = await getTeamOpsState(stub, 't1', null);
+  assert.equal(s.state, 'ok');
+  assert.equal(stub._writes.length, 1, 'stale clock cleared');
+  assert.equal(stub._writes[0].grace_started_at, null);
+});
+
 test('getTeamOpsUsage: free plan under limit', async () => {
   const { getTeamOpsUsage } = await import('../src/lib/plans.mjs');
   const ops = await getTeamOpsUsage(makeOpsStub(200), 't1', null);
