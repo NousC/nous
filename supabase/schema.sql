@@ -465,6 +465,7 @@ CREATE TABLE collection_entities (
   collection_id UUID NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
   entity_id     UUID NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
   added_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  source        TEXT,   -- lead source: where this lead came from, per-list (Sales Navigator, Apollo, CSV, API, Manual, LinkedIn engagement…)
   PRIMARY KEY (collection_id, entity_id)
 );
 
@@ -1228,10 +1229,10 @@ CREATE VIEW contacts AS
            'interaction.subscription_updated', 'interaction.subscription_canceled',
            'interaction.signed_up'
          )
-         -- a LinkedIn message counts only when it's inbound (one we RECEIVED, not
-         -- an outbound campaign message we sent), so cold outreach doesn't qualify
-         OR (o.property = 'interaction.linkedin_message'
-             AND COALESCE((o.raw ->> 'is_outbound')::boolean, false) = false)
+         -- a LinkedIn message in EITHER direction graduates the person: the moment
+         -- you message someone (or they message you) they're an active account, not
+         -- a cold lead. A bare connection (no message yet) still does NOT qualify.
+         OR o.property = 'interaction.linkedin_message'
        )
      )
      -- ...or they're in your CRM / a customer
@@ -1240,12 +1241,14 @@ CREATE VIEW contacts AS
        WHERE ei.entity_id = e.id AND ei.status = 'active'
          AND ei.kind IN ('hubspot', 'salesforce', 'pipedrive', 'attio', 'crm', 'stripe')
      )
-     -- ...or the pipeline advanced past the top of funnel (interested+)
+     -- ...or the pipeline advanced past the top of funnel (interested+). 'connected'
+     -- is an accepted LinkedIn connection with no conversation yet — kept OUT of
+     -- People (it would flood the list) but still a real, agent-curable stage.
      OR COALESCE(
        (SELECT value #>> '{}'::text[] FROM claims
         WHERE entity_id = e.id AND property = 'pipeline_stage' AND invalid_at IS NULL LIMIT 1),
        'identified'
-     ) NOT IN ('identified', 'aware', 'cold', 'engaged')
+     ) NOT IN ('identified', 'aware', 'cold', 'engaged', 'connected')
      -- ...or you added them yourself
      OR EXISTS (
        SELECT 1 FROM observations o WHERE o.entity_id = e.id AND o.source = 'manual'
@@ -1303,7 +1306,9 @@ CREATE VIEW leads AS
       WHERE entity_id = e.id AND kind = 'event' AND property LIKE 'interaction.%'
         AND property <> 'interaction.enrichment_run'
         AND source NOT IN ('prospeo', 'apollo')
-      ORDER BY observed_at DESC LIMIT 1) AS last_channel
+      ORDER BY observed_at DESC LIMIT 1) AS last_channel,
+   -- Lead source: where this lead came from, per-list (membership-scoped).
+   ce.source AS source
  FROM entities e
    JOIN collection_entities ce ON ce.entity_id = e.id
    JOIN collections c ON c.id = ce.collection_id AND c.kind = 'list'
@@ -1760,9 +1765,10 @@ BEGIN
   END IF;
 
   IF NEW.lead_list_id IS NOT NULL THEN
-    INSERT INTO collection_entities (collection_id, entity_id, added_at)
-    VALUES (NEW.lead_list_id, new_id, COALESCE(NEW.created_at, now()))
-    ON CONFLICT DO NOTHING;
+    INSERT INTO collection_entities (collection_id, entity_id, added_at, source)
+    VALUES (NEW.lead_list_id, new_id, COALESCE(NEW.created_at, now()), NULLIF(trim(NEW.source),''))
+    ON CONFLICT (collection_id, entity_id) DO UPDATE
+      SET source = COALESCE(EXCLUDED.source, collection_entities.source);
   END IF;
 
   NEW.id := new_id;

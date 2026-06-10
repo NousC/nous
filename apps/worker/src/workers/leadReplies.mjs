@@ -132,7 +132,9 @@ export async function processLeadReplies() {
         eventType: 'lead_graduated',
         summary: `Lead reply classified: ${outcome}`,
         contactId: act.contact_id,
-        metadata: { outcome, lead_id: lead.id },
+        // Attribute the reply back to the list it came from, so per-list /
+        // per-campaign reply reporting filters cleanly (category: 'reply').
+        metadata: { outcome, lead_id: lead.id, lead_list_id: lead.lead_list_id || null, category: 'reply' },
       }).catch(() => {});
     } catch (e) {
       console.warn('[LEAD_REPLIES] update failed for lead', lead.id, ':', e.message);

@@ -11,7 +11,7 @@ const LEAD_COLUMNS =
   'id, lead_list_id, workspace_id, email, name, company, linkedin_url, ' +
   'sent_at, send_variant, is_repeat_contact, features, fields, scorecard_score, ' +
   'reply_outcome, replied_at, status, contact_id, created_at, updated_at, ' +
-  'domain, email_status, last_channel';
+  'domain, email_status, last_channel, source';
 
 // Columns a new list starts with, beyond the fixed name / email / company /
 // linkedin / status. Stored on lead_lists.columns; values live in leads.fields.
@@ -150,6 +150,9 @@ export interface LeadInput {
   is_repeat_contact?: boolean;
   features?: Record<string, unknown>;
   fields?: Record<string, unknown>;
+  // Lead source — where this lead came from (Sales Navigator, Apollo, CSV, API,
+  // Manual…). Per-row; falls back to the import's defaultSource when absent.
+  source?: string | null;
 }
 
 // Normalize a LinkedIn URL for cross-list dedup. Same transforms Proply
@@ -183,7 +186,7 @@ export async function insertLeads(
   workspaceId: string,
   leadListId: string,
   rows: LeadInput[],
-  opts: { importDuplicates?: boolean } = {},
+  opts: { importDuplicates?: boolean; defaultSource?: string | null } = {},
 ): Promise<{ inserted: number; skipped: number; duplicate_skipped: number }> {
   if (!isUUID(leadListId) || rows.length === 0) {
     return { inserted: 0, skipped: 0, duplicate_skipped: 0 };
@@ -207,6 +210,7 @@ export async function insertLeads(
     for (const m of mids || []) midToEntity.set(m.value as string, m.entity_id as string);
   }
 
+  const defaultSource = opts.defaultSource?.trim() || null;
   const payload = rows
     .map(r => {
       const mid = r.linkedin_member_id?.trim() || null;
@@ -222,6 +226,7 @@ export async function insertLeads(
         is_repeat_contact: r.is_repeat_contact ?? false,
         features: r.features ?? {},
         fields: r.fields ?? {},
+        source: r.source?.trim() || defaultSource,
       };
     })
     .filter(r => r.email || r.linkedin_url);
@@ -232,9 +237,12 @@ export async function insertLeads(
   let duplicateSkipped = 0;
 
   if (!opts.importDuplicates && payload.length > 0) {
-    // Pull every existing email + linkedin_url in the workspace, paginated,
-    // and filter the incoming payload through them. Workspace-wide so the
-    // same person doesn't end up in two lists as two rows.
+    // Pull every existing email + linkedin_url ALREADY IN THIS LIST, paginated,
+    // and filter the incoming payload through them. Per-list (not workspace-wide):
+    // the same person is allowed to live in more than one list, so list B can
+    // reuse list A's enrichment instead of paying again — the enrich reuse-gate
+    // is the credit guard, not a hard import skip. We only block re-adding the
+    // same person to the SAME list twice.
     const existingEmails = new Set<string>();
     const existingUrls = new Set<string>();
     const PAGE = 1000;
@@ -243,6 +251,7 @@ export async function insertLeads(
         .from('leads')
         .select('email, linkedin_url')
         .eq('workspace_id', workspaceId)
+        .eq('lead_list_id', leadListId)
         .range(from, from + PAGE - 1);
       if (error) throw error;
       if (!data || data.length === 0) break;

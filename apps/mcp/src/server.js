@@ -28,13 +28,14 @@
  *   configure_crm_sync   — set CRM sync rules (auto-sync, create policy, hygiene cadence)
  *   set_trigger          — create an outbound event trigger (webhook); list_triggers reads them
  *   list_triggers        — list the workspace's event triggers + available events
+ *   lead_list_operations — the operations trail of a lead list (imports/enrich/push/replies), filterable
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { get, post } from "./client.js";
 
-export const SERVER_VERSION = "0.19.0";
+export const SERVER_VERSION = "0.20.0";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -755,6 +756,57 @@ export function createServer() {
       }
       if (r.available_events?.length) {
         lines.push("", `AVAILABLE EVENTS: ${r.available_events.join(", ")}`);
+      }
+      return { content: [{ type: "text", text: lines.join("\n").trim() }] };
+    }
+  );
+
+  // ===========================================================================
+  // TOOL: lead_list_operations  —  GET /api/lead-lists[/:id/operations]
+  // The operations trail for a lead list: imports, enrichment runs, pushes to
+  // campaigns, and replies — filterable by category and time window. This is how
+  // you answer "what happened on this list?" and attribute campaign performance
+  // back to where the leads came from (the list's source). Call with no
+  // lead_list_id to discover the lists and their ids first.
+  // ===========================================================================
+  server.tool(
+    "lead_list_operations",
+    "Inspect the operations trail of a lead list — imports, enrichment runs, pushes to campaigns, " +
+    "and classified replies — to report on what happened and attribute outcomes to a list's source. " +
+    "Call with NO lead_list_id to list the workspace's lead lists (id, name, count, source), then " +
+    "call again with an id. Filter with `event` (import | enrich | export | reply) and `days`. " +
+    "Each operation is a run-level summary (one row per import/enrich/push), not per-lead noise.",
+    {
+      lead_list_id: z.string().optional().describe("The lead list's UUID. Omit to list the available lead lists first."),
+      event: z.enum(["import", "enrich", "export", "reply"]).optional().describe("Filter to one category of operation."),
+      days: z.number().optional().describe("Look back this many days (default 30). Pass a large number for all-time."),
+      limit: z.number().optional().describe("Max operations to return (default 100, cap 200)."),
+    },
+    async ({ lead_list_id, event, days, limit }) => {
+      // Discovery mode — no list id yet. Return the lists so the agent can pick.
+      if (!lead_list_id) {
+        const r = await get("/api/lead-lists");
+        const lists = r.lead_lists || [];
+        const lines = lists.length
+          ? [`LEAD LISTS (${lists.length}):`,
+             ...lists.map(l => `  ${l.id}  ${l.name}  · ${l.lead_count ?? 0} leads · source: ${l.source || "—"}`),
+             "", "Call lead_list_operations again with one of these ids (and an optional event filter)."]
+          : ["No lead lists yet."];
+        return { content: [{ type: "text", text: lines.join("\n") }] };
+      }
+
+      const r = await get(`/api/lead-lists/${encodeURIComponent(lead_list_id)}/operations`, { event, days, limit });
+      const ops = r.operations || [];
+      const lines = [];
+      const summary = Object.entries(r.by_category || {}).map(([k, v]) => `${k} ${v}`).join(" · ");
+      lines.push(`OPERATIONS${event ? ` · ${event}` : ""} (${ops.length})${summary ? ` — ${summary}` : ""}`);
+      if (!ops.length) {
+        lines.push("", "No operations in this window.");
+      } else {
+        for (const o of ops) {
+          const cat = o.metadata?.category || o.event_type;
+          lines.push(`  ${relAge(o.occurred_at).padEnd(8)} ${String(cat).padEnd(8)} ${o.summary}`);
+        }
       }
       return { content: [{ type: "text", text: lines.join("\n").trim() }] };
     }

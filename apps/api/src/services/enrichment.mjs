@@ -323,10 +323,22 @@ async function enrichContactViaApollo(supabase, contact, apolloKey) {
       workspaceId: contact.workspace_id, contactId: contact.id,
       companyId: updates.company_id || contact.company_id || null,
       type: 'enrichment_run', source: 'apollo',
-      externalId: `apollo_enrich_${contact.id}`,
+      // Unique per run so the timeline accumulates the full enrichment history.
+      externalId: `apollo_enrich_${contact.id}_${Date.now()}`,
       occurredAt: new Date().toISOString(),
       description: 'Profile enriched via Apollo',
-      summary: [updates.job_title, org.name].filter(Boolean).join(' at ') || null,
+      summary: [
+        person.email || null,
+        [updates.job_title, org.name].filter(Boolean).join(' at ') || null,
+      ].filter(Boolean).join(' · ') || null,
+      rawData: {
+        provider: 'apollo',
+        email: person.email || contact.email || null,
+        email_status: person.email_status || null,
+        job_title: updates.job_title || null,
+        company: org.name || null,
+        domain: org.primary_domain || null,
+      },
     }).catch(() => {});
     logSysEvent(supabase, contact.workspace_id, 'apollo', 'enrichment_run',
       `Enriched: ${[person.name, updates.job_title, org.name].filter(Boolean).join(' · ')}`,
@@ -489,10 +501,24 @@ async function enrichContactViaProspeo(supabase, contact, prospeoKey) {
       workspaceId: contact.workspace_id, contactId: contact.id,
       companyId: updates.company_id || contact.company_id || null,
       type: 'enrichment_run', source: 'prospeo',
-      externalId: `prospeo_enrich_${contact.id}`,
+      // Unique per run (not per contact) so the timeline ACCUMULATES every
+      // enrichment — that append-only trail is the history: email changes,
+      // status changes, company moves, all visible across re-enrichments.
+      externalId: `prospeo_enrich_${contact.id}_${Date.now()}`,
       occurredAt: new Date().toISOString(),
       description: 'Profile enriched via Prospeo',
-      summary: [updates.job_title, updates.company].filter(Boolean).join(' at ') || null,
+      summary: [
+        foundEmail && `${foundEmail}${foundEmailStatus ? ` (${foundEmailStatus})` : ''}`,
+        [updates.job_title, updates.company].filter(Boolean).join(' at ') || null,
+      ].filter(Boolean).join(' · ') || null,
+      rawData: {
+        provider: 'prospeo',
+        email: foundEmail || contact.email || null,
+        email_status: foundEmailStatus || null,
+        job_title: updates.job_title || null,
+        company: updates.company || null,
+        domain: updates.domain || null,
+      },
     }).catch(() => {});
     logSysEvent(supabase, contact.workspace_id, 'prospeo', 'enrichment_run',
       `Enriched: ${[person.full_name || [contact.first_name, contact.last_name].filter(Boolean).join(' '), updates.job_title, updates.company].filter(Boolean).join(' · ')}`,

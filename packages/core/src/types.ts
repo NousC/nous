@@ -156,6 +156,10 @@ export interface Lead {
   contact_id: string | null;
   created_at: string;
   updated_at: string;
+  domain: string | null;
+  email_status: string | null;
+  last_channel: string | null;
+  source: string | null;   // lead source, per-list (where this lead came from)
 }
 
 // ── The Scorecard (Adaptive Lead Scoring) ────────────────────────────────────

@@ -168,6 +168,48 @@ leadListsRouter.get('/:id/leads', async (req, res) => {
   }
 });
 
+// GET /api/lead-lists/:id/operations — the operations trail for ONE list, for
+// the AGENT (the #1 consumer). This is deliberately NOT surfaced as a frontend
+// filter: humans watch the live Ops stream; the agent calls this to answer
+// "what happened on this list?" — imports, enrichment runs, pushes, replies,
+// scoped to the list and filterable by category/date.
+//   ?event=import|enrich|export|reply|score (metadata.category)  ?days=30|all  ?limit=
+leadListsRouter.get('/:id/operations', async (req, res) => {
+  try {
+    const workspaceId = req.query.workspaceId || req.workspaceId;
+    if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
+    const supabase = getSupabaseClient();
+    const days = req.query.days === 'all' ? null : (parseInt(req.query.days, 10) || 30);
+    const since = days ? new Date(Date.now() - days * 86400000).toISOString() : null;
+    const category = typeof req.query.event === 'string' && req.query.event && req.query.event !== 'all'
+      ? req.query.event : null;
+    const limit = Math.min(parseInt(req.query.limit, 10) || 100, 200);
+
+    let q = supabase.from('workspace_system_log')
+      .select('id, source, event_type, summary, metadata, occurred_at')
+      .eq('workspace_id', workspaceId)
+      .eq('metadata->>lead_list_id', req.params.id)
+      .order('occurred_at', { ascending: false })
+      .limit(limit);
+    if (since) q = q.gte('occurred_at', since);
+    if (category) q = q.eq('metadata->>category', category);
+
+    const { data, error } = await q;
+    if (error) throw error;
+
+    // Aggregate counts by category so the agent gets the shape at a glance.
+    const by_category = {};
+    for (const e of data || []) {
+      const c = e.metadata?.category || e.event_type || 'other';
+      by_category[c] = (by_category[c] || 0) + 1;
+    }
+    return res.json({ operations: data || [], by_category });
+  } catch (err) {
+    console.error('[GET /api/lead-lists/:id/operations]', err);
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
 // POST /api/lead-lists/:id/leads — bulk import.
 // Body: { workspaceId?, leads: [...], importDuplicates?: boolean }.
 // `workspaceId` is optional under API-key auth (the key implies the workspace).
@@ -198,6 +240,17 @@ leadListsRouter.post('/:id/leads', async (req, res) => {
       importDuplicates: Boolean(importDuplicates),
       defaultSource,
     });
+    // Tag the import as an operation on this list, with its source — the agent
+    // reads these to attribute campaign performance back to where leads came from.
+    if (result.inserted) {
+      await supabase.from('workspace_system_log').insert({
+        workspace_id: workspaceId, source: 'lead_list', event_type: 'leads_imported',
+        summary: `Imported ${result.inserted} lead${result.inserted === 1 ? '' : 's'}`
+          + (result.skipped ? ` · skipped ${result.skipped}` : '') + ` · source: ${defaultSource}`,
+        metadata: { lead_list_id: req.params.id, category: 'import', source: defaultSource, inserted: result.inserted, skipped: result.skipped },
+        billable_ops: 0, occurred_at: new Date().toISOString(),
+      }).then(() => {}, () => {});
+    }
     return res.status(201).json(result);
   } catch (err) {
     console.error('[POST /api/lead-lists/:id/leads]', err);
@@ -364,6 +417,16 @@ leadListsRouter.post('/:id/enrich', requireEnrichmentQuota, async (req, res) => 
         console.warn('[POST /api/lead-lists/:id/enrich] enrich failed', l.id, e.message);
       }
     }
+    // One batch op tagged to this list (the per-lead logs above stay unscoped,
+    // so the list-scoped operations view shows clean run-level rows, not 1000s).
+    await supabase.from('workspace_system_log').insert({
+      workspace_id: workspaceId, source: 'enrichment', event_type: 'enrichment_run',
+      summary: `Enriched ${enriched} lead${enriched === 1 ? '' : 's'}`
+        + (skippedVerified ? ` · reused ${skippedVerified} already verified (no charge)` : ''),
+      metadata: { lead_list_id: req.params.id, category: 'enrich', enriched, reused: skippedVerified, requested: ids.length },
+      billable_ops: 0, occurred_at: new Date().toISOString(),
+    }).then(() => {}, () => {});
+
     return res.json({ enriched, skipped_quota: skippedQuota, skipped_no_identifier: skippedNoId, skipped_already_verified: skippedVerified, requested: ids.length });
   } catch (err) {
     console.error('[POST /api/lead-lists/:id/enrich]', err);
@@ -464,6 +527,14 @@ leadListsRouter.post('/:id/push', async (req, res) => {
       }));
       await supabase.from('observations').insert(obs).then(() => {}, e => console.warn('[push] tag insert failed', e.message));
     }
+    // Tag the push as an export operation on this list (provider + channel), so
+    // reply outcomes can be attributed back to the campaign this list fed.
+    await supabase.from('workspace_system_log').insert({
+      workspace_id: workspaceId, source: provider, event_type: 'pushed_to_campaign',
+      summary: `Pushed ${result.pushed} lead${result.pushed === 1 ? '' : 's'} → ${campaignName || provider}`,
+      metadata: { lead_list_id: req.params.id, category: 'export', provider, campaign_id: campaignId, campaign_name: campaignName || null, pushed: result.pushed },
+      billable_ops: 0, occurred_at: new Date().toISOString(),
+    }).then(() => {}, () => {});
     return res.json({ ...result, requested: ids.length });
   } catch (err) {
     console.error('[POST /api/lead-lists/:id/push]', err);
