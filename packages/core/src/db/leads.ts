@@ -602,17 +602,30 @@ export async function classifyIdentifiers(
 
   const entityByLinkedIn = new Map<string, string>();
   if (linkedinUrls.length) {
-    // Stored linkedin_urls are raw (scheme/www/case/slash vary), so match on the
-    // normalized form in JS. Simplest possible fetch while we diagnose the gateway.
-    const { data, error } = await supabase
-      .from('entity_identifiers')
-      .select('value, entity_id')
-      .eq('workspace_id', workspaceId).eq('kind', 'linkedin_url').eq('status', 'active');
-    if (error) { console.error('[classifyIdentifiers] linkedin fetch failed:', JSON.stringify(error)); throw error; }
-    for (const r of data || []) {
-      const n = normalizeLinkedInUrl(r.value);
-      if (n && !entityByLinkedIn.has(n)) entityByLinkedIn.set(n, r.entity_id);
+    // Stored linkedin_urls are raw (scheme/www/case/slash vary), so an exact IN
+    // on normalized inputs would miss. Pull the workspace's linkedin identifiers,
+    // normalize them, then resolve ONLY the inputs — NOT the whole set, or
+    // entityIds below would balloon to the entire workspace.
+    const wanted = new Set(linkedinUrls);
+    const byNorm = new Map<string, string>();
+    let after = '';
+    for (;;) {
+      let q = supabase
+        .from('entity_identifiers')
+        .select('id, value, entity_id')
+        .eq('workspace_id', workspaceId).eq('kind', 'linkedin_url').eq('status', 'active')
+        .order('id', { ascending: true }).limit(1000);
+      if (after) q = q.gt('id', after);
+      const { data, error } = await q;
+      if (error) throw error;
+      if (!data || data.length === 0) break;
+      for (const r of data) {
+        const n = normalizeLinkedInUrl(r.value);
+        if (n && wanted.has(n) && !byNorm.has(n)) byNorm.set(n, r.entity_id);
+      }
+      after = data[data.length - 1].id;
     }
+    for (const [n, id] of byNorm) entityByLinkedIn.set(n, id);
   }
 
   // 2b. Company-level resolution by domain — entity_identifiers(kind=domain)
