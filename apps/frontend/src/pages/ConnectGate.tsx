@@ -9,6 +9,7 @@ const STEPS: { caption: string; code: string }[] = [
   { caption: "1. Add the Nous plugin marketplace", code: "/plugin marketplace add NousC/nous" },
   { caption: "2. Install the Nous plugin", code: "/plugin install nous@nous-plugins" },
   { caption: "3. Sign in — opens your browser, saves your key", code: "npx @opennous/cli login" },
+  { caption: "4. Onboard — paste this to your agent", code: "Set me up — onboard my workspace and build my playbook." },
 ];
 
 function Cmd({ caption, code }: { caption: string; code: string }) {
@@ -46,7 +47,6 @@ export default function ConnectGate() {
   const token = session?.access_token;
   const workspaceId = (userData as { workspace?: { id?: string } })?.workspace?.id;
   const email = (userData as { user?: { email?: string } })?.user?.email;
-  const [conn, setConn] = useState<{ connected: boolean; onboarded: boolean }>({ connected: false, onboarded: false });
 
   // First-run activation: welcome email, free-plan backstop, dogfood. Idempotent
   // server-side, so firing once on this screen is safe.
@@ -71,7 +71,6 @@ export default function ConnectGate() {
         if (!r.ok) return;
         const d = await r.json();
         if (stopped) return;
-        setConn(d);
         if (d.onboarded) { await refreshUserData(); navigate("/intelligence", { replace: true }); }
       } catch { /* keep polling */ }
     };
@@ -105,26 +104,7 @@ export default function ConnectGate() {
             {STEPS.map(s => <Cmd key={s.caption} caption={s.caption} code={s.code} />)}
           </div>
 
-          <p className="text-[13px] text-muted-foreground mt-5 leading-relaxed">
-            Then tell your agent <span className="text-foreground font-medium">“set me up”</span>. It asks for your company, website, and what you sell, and builds your playbook.
-          </p>
-
-          <div className="mt-6 space-y-2 rounded-xl border border-border/60 bg-muted/30 px-4 py-3">
-            <div className="flex items-center gap-2 text-[13px]">
-              {conn.connected
-                ? <CheckCircle2 className="h-4 w-4 text-emerald-600 flex-shrink-0" />
-                : <span className="mx-1 h-2 w-2 flex-shrink-0 rounded-full bg-amber-500 animate-pulse" />}
-              <span className={conn.connected ? "text-foreground" : "text-muted-foreground"}>Agent connected</span>
-            </div>
-            <div className="flex items-center gap-2 text-[13px]">
-              {conn.onboarded
-                ? <CheckCircle2 className="h-4 w-4 text-emerald-600 flex-shrink-0" />
-                : <span className="mx-1 h-2 w-2 flex-shrink-0 rounded-full bg-amber-500 animate-pulse" />}
-              <span className={conn.onboarded ? "text-foreground" : "text-muted-foreground"}>Workspace onboarded — unlocks Nous</span>
-            </div>
-          </div>
-
-          <p className="text-[11.5px] text-muted-foreground/60 mt-5">
+          <p className="text-[11.5px] text-muted-foreground/60 mt-6">
             On Cursor, Codex, or n8n? See the <a href="https://docs.opennous.cloud/mcp/introduction" target="_blank" rel="noreferrer" className="underline underline-offset-2 hover:text-foreground">install docs</a>.
           </p>
         </div>
