@@ -115,7 +115,7 @@ export default function ConnectGate() {
   }, [token, workspaceId, refreshUserData, navigate]);
 
   const skip = () => {
-    try { localStorage.setItem("nous_connect_skipped", "1"); } catch { /* ignore */ }
+    try { if (workspaceId) localStorage.setItem(`nous_connect_skipped:${workspaceId}`, "1"); } catch { /* ignore */ }
     navigate("/", { replace: true });
   };
 

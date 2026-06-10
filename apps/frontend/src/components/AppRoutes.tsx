@@ -116,11 +116,13 @@ export function AppRoutes() {
   // set by set_workspace_profile), the whole app — sidebar and all — is replaced
   // by the full-screen Connect screen. No access to anything until setup is done.
   const { isAuthenticated, userData } = useAuth();
+  const wsId = (userData as { workspace?: { id?: string } })?.workspace?.id;
   const onboarded = !!(userData as { workspace?: { business_type?: string } })?.workspace?.business_type;
-  // "Skip for now" lets a user into the app before onboarding (per-browser).
+  // "Skip for now" is scoped to THIS workspace, so a different/new account in the
+  // same browser still gets the gate.
   let skipped = false;
-  try { skipped = localStorage.getItem("nous_connect_skipped") === "1"; } catch { /* ignore */ }
-  if (isAuthenticated && !onboarded && !skipped) {
+  try { skipped = !!wsId && localStorage.getItem(`nous_connect_skipped:${wsId}`) === "1"; } catch { /* ignore */ }
+  if (isAuthenticated && wsId && !onboarded && !skipped) {
     return <Suspense fallback={<MinimalLoader />}><ConnectGate /></Suspense>;
   }
 
