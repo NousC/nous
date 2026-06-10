@@ -209,6 +209,46 @@ billingRouter.post('/subscribe', verifySupabaseAuth, async (req, res) => {
   }
 });
 
+// ── POST /api/billing/add-clients ──────────────────────────────────────────
+//   { count?: number }  — add N client workspaces to a Partner subscription.
+// Partner is per-unit ($100/mo per client): adding a client bumps the Stripe
+// quantity (prorated immediately), which lifts the workspace limit. The new
+// quantity syncs back via the subscription.updated webhook; we also write it
+// locally so the limit lifts without waiting for the hook.
+billingRouter.post('/add-clients', verifySupabaseAuth, async (req, res) => {
+  if (!billingEnabled()) return res.status(403).json({ error: 'billing_disabled' });
+  try {
+    const addN = Math.max(1, Number.parseInt(req.body?.count, 10) || 1);
+    const { team } = await ensureUserAndTeam(req.user);
+    const supabase = getSupabaseClient();
+    const { data: subscription } = await supabase
+      .from('subscriptions').select('*').eq('team_id', team.id).maybeSingle();
+    const plan = getPlanFromSubscription(subscription);
+
+    if (!plan.perWorkspaceUsd) return res.status(400).json({ error: 'not_a_per_client_plan' });
+    if (!subscription?.stripe_subscription_id || subscription.status !== 'active') {
+      return res.status(400).json({ error: 'no_active_subscription' });
+    }
+
+    const stripe = getStripe();
+    const sub = await stripe.subscriptions.retrieve(subscription.stripe_subscription_id);
+    const item = sub.items?.data?.[0];
+    if (!item) return res.status(400).json({ error: 'no_subscription_item' });
+
+    const newQty = (item.quantity ?? 1) + addN;
+    await stripe.subscriptions.update(sub.id, {
+      items: [{ id: item.id, quantity: newQty }],
+      proration_behavior: 'create_prorations',
+    });
+    await supabase.from('subscriptions').update({ quantity: newQty }).eq('team_id', team.id);
+
+    return res.json({ ok: true, quantity: newQty, added: addN, monthly_add_usd: addN * plan.perWorkspaceUsd });
+  } catch (err) {
+    console.error('[POST /api/billing/add-clients]', err);
+    return res.status(500).json({ error: 'add_clients_error', detail: err.message });
+  }
+});
+
 // ── POST /api/billing/customer-portal ──────────────────────────────────────
 billingRouter.post('/customer-portal', verifySupabaseAuth, async (req, res) => {
   if (!billingEnabled()) return res.status(403).json({ error: 'billing_disabled' });

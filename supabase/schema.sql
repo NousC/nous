@@ -942,6 +942,8 @@ CREATE TABLE subscriptions (
   stripe_subscription_id TEXT UNIQUE,
   stripe_price_id        TEXT,
   stripe_customer_id     TEXT,
+  quantity               INTEGER NOT NULL DEFAULT 1,  -- per-unit count for quantity-based plans (Partner clients); 1 for flat plans
+
   lifetime_credits_total INTEGER,
   lifetime_credits_used  INTEGER DEFAULT 0,
   created_at             TIMESTAMPTZ DEFAULT now(),

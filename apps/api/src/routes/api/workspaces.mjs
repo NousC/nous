@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { getSupabaseClient } from '@nous/core';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
 import { ensureUserAndTeam } from '../../lib/auth.mjs';
-import { getPlanFromSubscription, isSelfHosted } from '../../lib/plans.mjs';
+import { getPlanFromSubscription, effectiveWorkspaceLimit, isSelfHosted } from '../../lib/plans.mjs';
 import { getCountryFromRequest } from '../../lib/geo.mjs';
 
 export const workspacesRouter = Router();
@@ -40,31 +40,33 @@ workspacesRouter.post('/', verifySupabaseAuth, async (req, res) => {
         return res.status(403).json({ error: 'self_hosted_workspace_limit', message: 'Self-hosted installations support one workspace.' });
       }
     } else {
-      // Cloud: enforce the plan's workspace limit (Free/Start/Pro 1, Growth 3,
-      // Partner 5 base). Limit is read live from the plan, so it tracks the ladder.
+      // Cloud: enforce the team's effective workspace limit. Flat plans use the
+      // static limit (Free/Start/Pro 1, Growth 3); Partner uses its purchased
+      // Stripe quantity (clients bought, base 5), so paying for more lifts it.
       const { data: subscription } = await supabase
         .from('subscriptions')
-        .select('plan_id, status')
+        .select('plan_id, status, quantity')
         .eq('team_id', team.id)
         .maybeSingle();
       const plan = getPlanFromSubscription(subscription);
-      if (plan.workspaceLimit !== null) {
+      const limit = effectiveWorkspaceLimit(plan, subscription);
+      if (limit !== null) {
         const { count } = await supabase
           .from('workspaces')
           .select('id', { count: 'exact', head: true })
           .eq('team_id', team.id);
-        if ((count || 0) >= plan.workspaceLimit) {
+        if ((count || 0) >= limit) {
           // Partner is per-client: at the limit you ADD a client (+$ per month),
           // you don't "upgrade a tier". Everyone else upgrades.
           const partner = !!plan.perWorkspaceUsd;
           return res.status(402).json({
             error: partner ? 'add_client_required' : 'workspace_limit_reached',
             current_plan: plan.id,
-            limit: plan.workspaceLimit,
+            limit,
             per_workspace_usd: plan.perWorkspaceUsd ?? null,
             message: partner
-              ? `You're using all ${plan.workspaceLimit} client workspaces on Partner. Each additional client is $${plan.perWorkspaceUsd}/mo — add one from billing.`
-              : `Your ${plan.name} plan includes ${plan.workspaceLimit} workspace${plan.workspaceLimit === 1 ? '' : 's'}. Upgrade for more.`,
+              ? `You're using all ${limit} client workspaces on Partner. Each additional client is $${plan.perWorkspaceUsd}/mo — add one from billing.`
+              : `Your ${plan.name} plan includes ${limit} workspace${limit === 1 ? '' : 's'}. Upgrade for more.`,
             upgrade_url: '/settings?section=billing',
           });
         }

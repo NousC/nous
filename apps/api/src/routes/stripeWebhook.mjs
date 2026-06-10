@@ -92,6 +92,8 @@ export async function stripeWebhookHandler(req, res) {
             status: sub.status,
             stripe_subscription_id: sub.id,
             stripe_price_id: sub.items?.data?.[0]?.price?.id ?? null,
+            // Per-unit count (Partner clients). Flat plans report quantity 1.
+            quantity: sub.items?.data?.[0]?.quantity ?? 1,
             current_period_start: tsToIso(sub.current_period_start),
             current_period_end: tsToIso(sub.current_period_end),
             cancel_at_period_end: !!sub.cancel_at_period_end,

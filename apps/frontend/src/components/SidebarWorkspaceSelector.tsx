@@ -255,6 +255,19 @@ export function SidebarWorkspaceSelector({ collapsed = false }: SidebarWorkspace
 
       if (response.status === 402) {
         const data = await response.json();
+        // Partner: at the client limit, adding a workspace adds a client (+$/mo).
+        // Open the confirm dialog; on confirm we bump the Stripe quantity then create.
+        if (data.error === 'add_client_required' && !selfHosted) {
+          setPendingWorkspace({ name: workspaceName.trim(), icon: workspaceIcon });
+          setBillingInfo({
+            monthlyPrice: data.per_workspace_usd ?? 100,
+            planName: data.current_plan === 'scale' ? 'Partner' : (data.current_plan ?? 'Partner'),
+            currentWorkspaces: data.limit ?? 0,
+          });
+          setCreateDialogOpen(false);
+          setBillingDialogOpen(true);
+          return;
+        }
         if (data.error === 'billing_confirmation_required' && !selfHosted) {
           setPendingWorkspace({ name: workspaceName.trim(), icon: workspaceIcon });
           setBillingInfo(data.pricing);
@@ -305,8 +318,27 @@ export function SidebarWorkspaceSelector({ collapsed = false }: SidebarWorkspace
     }
   };
 
-  const handleBillingConfirm = () => {
-    createWorkspace(true);
+  const handleBillingConfirm = async () => {
+    // Partner add-client: bump the Stripe subscription quantity first (this lifts
+    // the workspace limit), then create the workspace.
+    try {
+      setCreating(true);
+      const apiUrl = import.meta.env.VITE_API_URL ?? '';
+      const r = await fetch(`${apiUrl}/api/billing/add-clients`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${session?.access_token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ count: 1 }),
+      });
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}));
+        throw new Error(e.detail || e.error || 'Could not add a client to your subscription');
+      }
+    } catch (err: any) {
+      toast({ title: 'Error', description: err.message || 'Could not add a client', variant: 'destructive' });
+      setCreating(false);
+      return;
+    }
+    await createWorkspace();
   };
 
   const handleBillingCancel = () => {
@@ -657,7 +689,7 @@ export function SidebarWorkspaceSelector({ collapsed = false }: SidebarWorkspace
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-sm text-muted-foreground">Additional cost</span>
-                    <span className="font-medium text-lg">{billingInfo.monthlyPrice}/month</span>
+                    <span className="font-medium text-lg">${billingInfo.monthlyPrice}/month</span>
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-sm text-muted-foreground">Your plan</span>
@@ -665,7 +697,7 @@ export function SidebarWorkspaceSelector({ collapsed = false }: SidebarWorkspace
                   </div>
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  You'll be charged a prorated amount today, then {billingInfo.monthlyPrice}/month on your regular billing date.
+                  You'll be charged a prorated amount today, then ${billingInfo.monthlyPrice}/month on your regular billing date.
                 </p>
               </>
             )}

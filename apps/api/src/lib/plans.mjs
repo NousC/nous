@@ -153,6 +153,21 @@ export function hasFeature(planId, feature) {
   return typeof v === 'boolean' ? v : false;
 }
 
+/**
+ * The team's real workspace allowance. Flat plans use the static plan limit
+ * (null = unlimited). Per-client plans (Partner) use the purchased Stripe
+ * quantity, floored at the base (so a Partner who bought 8 clients gets 8, not 5).
+ */
+export function effectiveWorkspaceLimit(plan, subscription) {
+  if (plan.workspaceLimit === null) return null; // unlimited
+  if (plan.perWorkspaceUsd) {
+    const base = plan.baseWorkspaces ?? plan.workspaceLimit;
+    const qty = Number(subscription?.quantity) || base;
+    return Math.max(base, qty);
+  }
+  return plan.workspaceLimit;
+}
+
 /** True when self-hosted mode is active. Bypasses all gating + metering. */
 export function isSelfHosted() {
   return process.env.SELF_HOSTED === 'true';

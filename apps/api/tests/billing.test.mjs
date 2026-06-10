@@ -59,6 +59,20 @@ test('hasFeature: lead lists + LinkedIn at Pro+, CRM sync at Growth+', async () 
   assert.equal(hasFeature('scale', 'crmSync'), true);
 });
 
+test('effectiveWorkspaceLimit: flat plans static; Partner tracks Stripe quantity', async () => {
+  const { PLANS, effectiveWorkspaceLimit } = await import('../src/lib/plans.mjs');
+  // Flat plans ignore quantity.
+  assert.equal(effectiveWorkspaceLimit(PLANS.pro, { quantity: 9 }), 1);
+  assert.equal(effectiveWorkspaceLimit(PLANS.growth, null), 3);
+  // Partner: max(base 5, purchased quantity).
+  assert.equal(effectiveWorkspaceLimit(PLANS.scale, { quantity: 5 }), 5);
+  assert.equal(effectiveWorkspaceLimit(PLANS.scale, { quantity: 8 }), 8);
+  assert.equal(effectiveWorkspaceLimit(PLANS.scale, { quantity: 2 }), 5, 'never below base');
+  assert.equal(effectiveWorkspaceLimit(PLANS.scale, null), 5, 'no sub → base');
+  // Defensive: a synthetic unlimited plan stays unlimited.
+  assert.equal(effectiveWorkspaceLimit({ workspaceLimit: null }, { quantity: 3 }), null);
+});
+
 test('getPlanFromSubscription: missing → free; past_due → free; starter/scale resolve', async () => {
   const { getPlanFromSubscription } = await import('../src/lib/plans.mjs');
   assert.equal(getPlanFromSubscription(null).id, 'free');
