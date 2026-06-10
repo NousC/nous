@@ -584,24 +584,40 @@ export async function classifyIdentifiers(
     for (const s of supRows) supByEmail.set(s.email, s.reason);
   }
 
-  // 2. Existing entity_identifiers — resolve both kinds in parallel, each
-  // chunked across many small IN queries.
-  const [emailRows, linkedinRows] = await Promise.all([
-    chunkedIn<{ value: string; entity_id: string }>(
+  // 2. Existing entity_identifiers. Emails are stored lowercased (same as the
+  // input), so an exact IN matches. LinkedIn URLs are stored RAW (scheme / www /
+  // case / trailing-slash vary), so an exact IN on normalized inputs would miss —
+  // pull the workspace's linkedin identifiers and match on the normalized form in
+  // JS, exactly how insertLeads dedups. (Domains below are stored normalized.)
+  const entityByEmail = new Map<string, string>();
+  if (emails.length) {
+    const emailRows = await chunkedIn<{ value: string; entity_id: string }>(
       chunk => supabase.from('entity_identifiers').select('value, entity_id')
         .eq('workspace_id', workspaceId).eq('kind', 'email').eq('status', 'active')
         .in('value', chunk),
       emails,
-    ),
-    chunkedIn<{ value: string; entity_id: string }>(
-      chunk => supabase.from('entity_identifiers').select('value, entity_id')
+    );
+    for (const i of emailRows) entityByEmail.set(i.value, i.entity_id);
+  }
+
+  const entityByLinkedIn = new Map<string, string>();
+  if (linkedinUrls.length) {
+    const PAGE = 1000;
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await supabase
+        .from('entity_identifiers')
+        .select('value, entity_id')
         .eq('workspace_id', workspaceId).eq('kind', 'linkedin_url').eq('status', 'active')
-        .in('value', chunk),
-      linkedinUrls,
-    ),
-  ]);
-  const entityByEmail = new Map<string, string>(emailRows.map(i => [i.value, i.entity_id]));
-  const entityByLinkedIn = new Map<string, string>(linkedinRows.map(i => [i.value, i.entity_id]));
+        .range(from, from + PAGE - 1);
+      if (error) throw error;
+      if (!data || data.length === 0) break;
+      for (const r of data) {
+        const n = normalizeLinkedInUrl(r.value);
+        if (n && !entityByLinkedIn.has(n)) entityByLinkedIn.set(n, r.entity_id);
+      }
+      if (data.length < PAGE) break;
+    }
+  }
 
   // 2b. Company-level resolution by domain — entity_identifiers(kind=domain)
   // plus the companies table (some domains live there but not as an identifier).
