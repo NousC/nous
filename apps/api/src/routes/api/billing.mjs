@@ -125,7 +125,7 @@ billingRouter.get('/state', verifySupabaseAuth, async (req, res) => {
 });
 
 // ── POST /api/billing/subscribe ────────────────────────────────────────────
-//   { plan: 'starter'|'pro'|'scale', interval?: 'month'|'year', promotion_code?: string }
+//   { plan: 'starter'|'pro'|'growth'|'scale', interval?: 'month'|'year', promotion_code?: string }
 // interval:'year' is currently Pro-only (the onboarding first-year offer) and
 // uses STRIPE_PRO_ANNUAL_PRICE_ID. A promotion_code, when valid, is auto-applied
 // to the session (so the drip email's code lands pre-filled); otherwise we fall
@@ -146,8 +146,12 @@ billingRouter.post('/subscribe', verifySupabaseAuth, async (req, res) => {
     let priceId;
     if (interval === 'year') {
       if (plan.id !== 'pro') return res.status(400).json({ error: 'annual_not_available', detail: plan.id });
+      // Annual billing is disabled until a correctly-priced annual Price is wired.
+      // STRIPE_PRO_ANNUAL_PRICE_ID is intentionally unset; the prior $2,988/yr price
+      // was 12× the old $249 Pro and is mispriced against the current $99/mo. Fail
+      // cleanly (400) rather than 500; setting the env again re-enables this path.
       priceId = process.env.STRIPE_PRO_ANNUAL_PRICE_ID;
-      if (!priceId) return res.status(500).json({ error: 'plan_not_configured', detail: 'STRIPE_PRO_ANNUAL_PRICE_ID' });
+      if (!priceId) return res.status(400).json({ error: 'annual_not_available', detail: 'pro_annual_disabled' });
     } else {
       priceId = process.env[plan.stripePriceEnv];
       if (!priceId) return res.status(500).json({ error: 'plan_not_configured', detail: plan.stripePriceEnv });

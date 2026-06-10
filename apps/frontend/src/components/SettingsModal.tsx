@@ -4266,7 +4266,7 @@ function SubscriptionSection({ session }: { session: any }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.access_token]);
 
-  const doSubscribe = async (planId: "starter" | "pro" | "scale") => {
+  const doSubscribe = async (planId: "starter" | "pro" | "growth" | "scale") => {
     setActionLoading(`subscribe:${planId}`);
     try {
       const r = await fetch(`${apiUrl}/api/billing/subscribe`, {
@@ -4422,8 +4422,8 @@ function SubscriptionSection({ session }: { session: any }) {
             <span className="font-medium">{formatNumber(ops.used)}</span>
           </div>
           <div>
-            <span className="text-muted-foreground">Enrichments/mo: </span>
-            <span className="font-medium">{formatNumber(enrichments.included)}</span>
+            <span className="text-muted-foreground">Enrichment: </span>
+            <span className="font-medium">{enrichments.included > 0 ? `${formatNumber(enrichments.included)}/mo` : "Bring your own keys"}</span>
           </div>
           {sub?.current_period_end ? (
             <div>
@@ -4453,29 +4453,38 @@ function SubscriptionSection({ session }: { session: any }) {
             />
           </div>
         </div>
-        <div className="space-y-2">
-          <div className="flex items-baseline justify-between">
-            <h3 className="text-sm font-medium">Enrichments this period</h3>
-            <span className="text-xs text-muted-foreground tabular-nums">
-              {formatNumber(enrichments.used)} / {formatNumber(enrichments.included)}
-            </span>
+        {enrichments.included > 0 ? (
+          <div className="space-y-2">
+            <div className="flex items-baseline justify-between">
+              <h3 className="text-sm font-medium">Enrichments this period</h3>
+              <span className="text-xs text-muted-foreground tabular-nums">
+                {formatNumber(enrichments.used)} / {formatNumber(enrichments.included)}
+              </span>
+            </div>
+            <div className="h-2 rounded-full bg-muted overflow-hidden">
+              <div
+                className={cn(
+                  "h-full rounded-full transition-all duration-500",
+                  enrichmentPct >= 90 ? "bg-red-500" : enrichmentPct >= 75 ? "bg-amber-500" : "bg-foreground",
+                )}
+                style={{ width: `${enrichmentPct}%` }}
+              />
+            </div>
           </div>
-          <div className="h-2 rounded-full bg-muted overflow-hidden">
-            <div
-              className={cn(
-                "h-full rounded-full transition-all duration-500",
-                enrichmentPct >= 90 ? "bg-red-500" : enrichmentPct >= 75 ? "bg-amber-500" : "bg-foreground",
-              )}
-              style={{ width: `${enrichmentPct}%` }}
-            />
+        ) : (
+          <div className="space-y-1">
+            <h3 className="text-sm font-medium">Enrichment</h3>
+            <p className="text-xs text-muted-foreground">
+              Bring your own keys — enrichment runs on your connected provider keys (Prospeo, Apollo, and others in Integrations) and is unmetered. {formatNumber(enrichments.used)} run this period.
+            </p>
           </div>
-        </div>
+        )}
       </div>
 
       {/* Upgrade / change plan */}
       <div className="space-y-3">
         <h3 className="text-sm font-medium">Change plan</h3>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           {allPlans.map((p) => {
             const isCurrent = p.id === planId;
             const isFree = p.id === "free";
@@ -4499,7 +4508,7 @@ function SubscriptionSection({ session }: { session: any }) {
                 </div>
                 <ul className="text-xs text-muted-foreground space-y-1">
                   <li>{formatNumber(p.includedOpsPerMonth)} GTM operations / month</li>
-                  <li>{formatNumber(p.enrichmentsPerMonth)} enrichments / month</li>
+                  <li>{p.enrichmentsPerMonth > 0 ? `${formatNumber(p.enrichmentsPerMonth)} enrichments / month` : "Enrichment: bring your own keys"}</li>
                   <li>
                     {p.workspaceLimit === null ? "Unlimited workspaces" : `${p.workspaceLimit} workspace${p.workspaceLimit === 1 ? "" : "s"}`}
                   </li>
@@ -4507,7 +4516,7 @@ function SubscriptionSection({ session }: { session: any }) {
                 {!isCurrent && !isFree ? (
                   <Button
                     size="sm"
-                    onClick={() => doSubscribe(p.id as "starter" | "pro" | "scale")}
+                    onClick={() => doSubscribe(p.id as "starter" | "pro" | "growth" | "scale")}
                     disabled={actionLoading === `subscribe:${p.id}`}
                     className="w-full h-8 text-xs"
                   >

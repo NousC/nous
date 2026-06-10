@@ -37,12 +37,13 @@ type BillingState = {
 };
 
 // Order on the page; Enterprise is appended client-side (marketing CTA).
-const PLAN_ORDER = ["free", "starter", "pro", "scale"];
+const PLAN_ORDER = ["free", "starter", "pro", "growth", "scale"];
 
 const PLAN_BLURB: Record<string, string> = {
   free: "For builders kicking the tires before committing volume.",
   starter: "For solo operators shipping campaigns from Claude Code.",
   pro: "For internal GTM teams scaling their operations.",
+  growth: "For teams running higher volume across more workspaces.",
   scale: "For agencies running multiple clients in parallel.",
   enterprise: "Embed Nous into your own product or agent stack.",
 };
@@ -57,6 +58,7 @@ const SUPPORT_LABEL: Record<string, string> = {
 // plan id so we can market a feature before the implementation lands.
 const FRONTEND_ONLY_BULLETS: Record<string, string[]> = {
   pro: ["Dedicated Slack channel"],
+  growth: ["Dedicated Slack channel", "LinkedIn engagement worker"],
   scale: ["Dedicated Slack channel", "Multi-client dashboard"],
 };
 
@@ -74,7 +76,9 @@ function planBullets(p: PlanInfo): string[] {
   const b = [
     "Unlimited contacts",
     `${num(p.includedOpsPerMonth)} GTM operations / month`,
-    `${num(p.enrichmentsPerMonth)} enrichments / month`,
+    p.enrichmentsPerMonth > 0
+      ? `${num(p.enrichmentsPerMonth)} enrichments / month`
+      : "Enrichment: bring your own keys",
     p.workspaceLimit === null
       ? "Unlimited workspaces"
       : `${p.workspaceLimit} workspace${p.workspaceLimit === 1 ? "" : "s"}`,
@@ -88,6 +92,20 @@ function planBullets(p: PlanInfo): string[] {
 }
 
 function UsageMeter({ label, used, included }: { label: string; used: number; included: number }) {
+  // included === 0 → bring-your-own-keys / unmetered. Show a note, not a 0/0 bar.
+  if (included <= 0) {
+    return (
+      <div>
+        <div className="flex items-baseline justify-between mb-2">
+          <span className="text-[14px] font-medium text-foreground">{label}</span>
+          <span className="text-[12px] text-muted-foreground/70">Bring your own keys · unmetered</span>
+        </div>
+        <p className="text-[12px] text-muted-foreground">
+          Runs on your connected provider keys. {num(used)} this period.
+        </p>
+      </div>
+    );
+  }
   const pct = included > 0 ? Math.min(100, Math.round((used / included) * 100)) : 0;
   const barColor = pct >= 90 ? "bg-red-500" : pct >= 75 ? "bg-amber-500" : "bg-foreground/80";
   return (
@@ -311,11 +329,11 @@ export default function UsageBilling() {
       <div className="mb-4">
         <h2 className="text-[15px] font-semibold text-foreground">Nous plans</h2>
         <p className="text-[13px] text-muted-foreground mt-0.5">
-          Pure-tier pricing. GTM operations and enrichments included per plan. No top-up packs or overage charges.
+          Pure-tier pricing. GTM operations included per plan; enrichment is bring-your-own-keys. No top-up packs or overage charges.
         </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         {orderedPlans.map((p) => {
           const isCurrent = p.id === planId;
           return (
@@ -374,7 +392,7 @@ export default function UsageBilling() {
           <span className="text-[13px] font-medium text-muted-foreground mb-0.5">Enterprise</span>
           <div className="text-[24px] font-bold text-foreground leading-tight mb-4">Custom</div>
           <ul className="space-y-2 mb-5">
-            {["Everything in Scale", "Unlimited GTM operations & enrichments", "SaaS license to embed", "SLA + dedicated support", "Custom contracts"].map((b) => (
+            {["Everything in Agency", "Unlimited GTM operations & enrichments", "SaaS license to embed", "SLA + dedicated support", "Custom contracts"].map((b) => (
               <li key={b} className="flex items-start gap-2 text-[12.5px] text-muted-foreground">
                 <Check className="h-3.5 w-3.5 text-emerald-500 flex-shrink-0 mt-[2px]" strokeWidth={2.5} />
                 <span>{b}</span>

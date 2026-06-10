@@ -271,7 +271,9 @@ export default function AdminSupportDashboard() {
     if (status === 'active') {
       const planColors: Record<string, string> = {
         'free': 'bg-gray-100 text-gray-700 border-gray-200',
+        'starter': 'bg-emerald-100 text-emerald-700 border-emerald-200',
         'pro': 'bg-blue-100 text-blue-700 border-blue-200',
+        'growth': 'bg-indigo-100 text-indigo-700 border-indigo-200',
         'scale': 'bg-purple-100 text-purple-700 border-purple-200',
       };
       const PlanIcon = plan_name === 'scale' ? Crown : CheckCircle2;
@@ -774,6 +776,20 @@ export default function AdminSupportDashboard() {
                   </div>
                 </button>
                 <button
+                  onClick={() => setSelectedPlan("starter")}
+                  className={`flex items-center gap-3 p-3 rounded-lg border-2 transition-all text-left ${
+                    selectedPlan === "starter"
+                      ? "border-emerald-500 bg-emerald-50"
+                      : "border-gray-200 hover:border-gray-300"
+                  }`}
+                >
+                  <CheckCircle2 className={`h-5 w-5 ${selectedPlan === "starter" ? "text-emerald-500" : "text-gray-400"}`} />
+                  <div>
+                    <p className="font-medium">Start</p>
+                    <p className="text-xs text-muted-foreground">10,000 ops/mo · 1 workspace</p>
+                  </div>
+                </button>
+                <button
                   onClick={() => setSelectedPlan("pro")}
                   className={`flex items-center gap-3 p-3 rounded-lg border-2 transition-all text-left ${
                     selectedPlan === "pro"
@@ -784,7 +800,21 @@ export default function AdminSupportDashboard() {
                   <Sparkles className={`h-5 w-5 ${selectedPlan === "pro" ? "text-blue-500" : "text-gray-400"}`} />
                   <div>
                     <p className="font-medium">Pro</p>
-                    <p className="text-xs text-muted-foreground">5,000 ops/mo · 3 workspaces · campaign analysis</p>
+                    <p className="text-xs text-muted-foreground">50,000 ops/mo · 1 workspace · CRM sync · lead lists</p>
+                  </div>
+                </button>
+                <button
+                  onClick={() => setSelectedPlan("growth")}
+                  className={`flex items-center gap-3 p-3 rounded-lg border-2 transition-all text-left ${
+                    selectedPlan === "growth"
+                      ? "border-indigo-500 bg-indigo-50"
+                      : "border-gray-200 hover:border-gray-300"
+                  }`}
+                >
+                  <Sparkles className={`h-5 w-5 ${selectedPlan === "growth" ? "text-indigo-500" : "text-gray-400"}`} />
+                  <div>
+                    <p className="font-medium">Growth</p>
+                    <p className="text-xs text-muted-foreground">100,000 ops/mo · 5 workspaces · LinkedIn engagement</p>
                   </div>
                 </button>
                 <button
@@ -797,8 +827,8 @@ export default function AdminSupportDashboard() {
                 >
                   <Crown className={`h-5 w-5 ${selectedPlan === "scale" ? "text-purple-500" : "text-gray-400"}`} />
                   <div>
-                    <p className="font-medium">Scale</p>
-                    <p className="text-xs text-muted-foreground">25,000 ops/mo · unlimited workspaces · CRM sync · public signal extraction</p>
+                    <p className="font-medium">Agency</p>
+                    <p className="text-xs text-muted-foreground">250,000 ops/mo · unlimited workspaces · multi-client dashboard</p>
                   </div>
                 </button>
               </div>

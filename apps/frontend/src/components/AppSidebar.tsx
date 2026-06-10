@@ -118,10 +118,10 @@ export function AppSidebar() {
       .catch(() => {});
   }, [session?.access_token]);
   // CRM Sync + Lists are cloud-only (never on self-host) and gated to Pro and up,
-  // matching the backend entitlement in plans.mjs (crmSync/leadLists on Pro + Scale).
+  // matching the backend entitlement in plans.mjs (crmSync/leadLists on Pro, Growth, Agency).
   const selfHosted = (userData as { self_hosted?: boolean })?.self_hosted === true;
   const showCloudFeatures =
-    !selfHosted && (plan === "pro" || plan === "scale" || plan === "enterprise");
+    !selfHosted && (plan === "pro" || plan === "growth" || plan === "scale" || plan === "enterprise");
   // Billing is a cloud-only surface — self-host is unmetered with no subscription,
   // so drop "Usage & Billing" entirely (ops are visible on the Ops page).
   const visibleBottomNavItems = selfHosted

@@ -132,7 +132,7 @@ function LockedLeads({ prompts }: { prompts: string[] }) {
           </span>
         </div>
         <p className="font-mono text-[12.5px] text-white/80">
-          Lead &amp; campaign analytics is available on Pro and Scale.
+          Lead &amp; campaign analytics is available on Pro and above.
         </p>
         <p className="mt-1 font-mono text-[11px] text-white/40">
           Outbound replies, lead-list conversion, and reply rate by channel — upgrade to unlock.

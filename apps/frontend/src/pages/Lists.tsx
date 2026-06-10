@@ -812,16 +812,16 @@ export default function Lists() {
     finally { setBusy(false); }
   };
 
-  // ── Gated — not on the Scale plan ───────────────────────────────────────────
+  // ── Gated — requires Pro or above (crmSync/leadLists unlock at Pro) ──────────
   if (gated) {
     return (
       <div className="h-full overflow-y-auto bg-background">
         <div className="px-8 py-7">
           <PageHeader title="Lists" />
           <div className="rounded-xl border border-border bg-muted/40 px-6 py-10 text-center">
-            <p className="text-[14px] font-semibold text-foreground">Lists is a Scale-plan feature</p>
+            <p className="text-[14px] font-semibold text-foreground">Lists is a Pro-plan feature</p>
             <p className="text-[13px] text-muted-foreground mt-1.5 max-w-md mx-auto">
-              Storing lead lists as context for the workspace is available on the Scale plan.
+              Storing lead lists as context for the workspace is available on the Pro plan and above.
             </p>
             <button onClick={() => navigate("/usage")}
               className="mt-4 inline-flex items-center h-9 px-4 rounded-lg bg-foreground text-background text-[13px] font-semibold hover:opacity-90 transition-opacity">

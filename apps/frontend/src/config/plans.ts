@@ -2,17 +2,20 @@
  * Nous Pricing — single source of truth (frontend mirror of apps/api/src/lib/plans.mjs).
  *
  * Model: monthly subscription, pure-tier. No top-up packs. Run out and upgrade.
- * Two metered units. GTM ops (the live op log) and enrichments (capped allowance).
- * Cloud only. Self-hosted bypasses all gating and metering.
+ * One metered unit: GTM ops (the live op log). Enrichment is bring-your-own-keys
+ * (enrichmentsPerMonth: 0 on every plan) — it runs on the workspace's own provider
+ * keys, so it is unmetered. Cloud only. Self-hosted bypasses all gating + metering.
  *
- * Plan IDs: 'free' | 'starter' | 'pro' | 'scale'.
- * Enterprise is a marketing-page CTA (mailto), not a backend tier.
+ * Plan IDs: 'free' | 'starter' | 'pro' | 'growth' | 'scale'.
+ * Customer-facing names: Free / Start / Pro / Growth / Agency. Internal ids
+ * 'starter' and 'scale' are kept (subscriptions key on them) but display as
+ * "Start" and "Agency". Enterprise is a marketing-page CTA (mailto), not a tier.
  *
  * `dedicatedSlack` and `multiClientDashboard` are display-only flags. The
  * backend does not gate on them. They drive what the UI shows the customer.
  */
 
-export type PlanId = 'free' | 'starter' | 'pro' | 'scale';
+export type PlanId = 'free' | 'starter' | 'pro' | 'growth' | 'scale';
 
 export interface PlanFeatures {
   /** Contextualisation / signal synthesis from private activities. */
@@ -48,7 +51,7 @@ export const PLANS: Record<PlanId, Plan> = {
     name: 'Free',
     monthlyPriceUsd: 0,
     includedOpsPerMonth: 1_000,
-    enrichmentsPerMonth: 25,
+    enrichmentsPerMonth: 0,
     workspaceLimit: 1,
     stripePriceEnv: null,
     features: {
@@ -63,10 +66,10 @@ export const PLANS: Record<PlanId, Plan> = {
   },
   starter: {
     id: 'starter',
-    name: 'Starter',
-    monthlyPriceUsd: 79,
+    name: 'Start',
+    monthlyPriceUsd: 29,
     includedOpsPerMonth: 10_000,
-    enrichmentsPerMonth: 100,
+    enrichmentsPerMonth: 0,
     workspaceLimit: 1,
     stripePriceEnv: 'STRIPE_STARTER_PRICE_ID',
     features: {
@@ -82,10 +85,10 @@ export const PLANS: Record<PlanId, Plan> = {
   pro: {
     id: 'pro',
     name: 'Pro',
-    monthlyPriceUsd: 249,
+    monthlyPriceUsd: 99,
     includedOpsPerMonth: 50_000,
-    enrichmentsPerMonth: 500,
-    workspaceLimit: 3,
+    enrichmentsPerMonth: 0,
+    workspaceLimit: 1,
     stripePriceEnv: 'STRIPE_PRO_PRICE_ID',
     features: {
       contextualization: true,
@@ -97,12 +100,31 @@ export const PLANS: Record<PlanId, Plan> = {
       supportTier: 'priority',
     },
   },
+  growth: {
+    id: 'growth',
+    name: 'Growth',
+    monthlyPriceUsd: 249,
+    includedOpsPerMonth: 100_000,
+    enrichmentsPerMonth: 0,
+    workspaceLimit: 5,
+    stripePriceEnv: 'STRIPE_GROWTH_PRICE_ID',
+    features: {
+      contextualization: true,
+      crmSync: true,
+      leadLists: true,
+      publicSignalExtraction: true,
+      dedicatedSlack: true,
+      multiClientDashboard: false,
+      supportTier: 'priority',
+    },
+  },
+  // Internal id stays 'scale'; displays as "Agency".
   scale: {
     id: 'scale',
-    name: 'Scale',
-    monthlyPriceUsd: 479,
+    name: 'Agency',
+    monthlyPriceUsd: 499,
     includedOpsPerMonth: 250_000,
-    enrichmentsPerMonth: 2_000,
+    enrichmentsPerMonth: 0,
     workspaceLimit: null,
     stripePriceEnv: 'STRIPE_SCALE_PRICE_ID',
     features: {
@@ -117,7 +139,7 @@ export const PLANS: Record<PlanId, Plan> = {
   },
 };
 
-const PLAN_ID_SET = new Set<PlanId>(['free', 'starter', 'pro', 'scale']);
+const PLAN_ID_SET = new Set<PlanId>(['free', 'starter', 'pro', 'growth', 'scale']);
 
 export function normalizePlanId(input: unknown): PlanId {
   const s = typeof input === 'string' ? input.toLowerCase() : '';
@@ -147,7 +169,9 @@ export function getPlanById(planId: unknown): Plan {
 export function getPlanFeaturesForDisplay(plan: Plan): string[] {
   const items: string[] = [
     `${plan.includedOpsPerMonth.toLocaleString()} GTM operations / month`,
-    `${plan.enrichmentsPerMonth.toLocaleString()} enrichments / month`,
+    plan.enrichmentsPerMonth > 0
+      ? `${plan.enrichmentsPerMonth.toLocaleString()} enrichments / month`
+      : 'Enrichment: bring your own keys',
     plan.workspaceLimit === null
       ? 'Unlimited workspaces'
       : `${plan.workspaceLimit} workspace${plan.workspaceLimit === 1 ? '' : 's'}`,

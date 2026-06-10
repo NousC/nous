@@ -1,22 +1,34 @@
 /**
  * Nous Pricing — server-side mirror of apps/frontend/src/config/plans.ts.
  *
- * Plan IDs: 'free' | 'starter' | 'pro' | 'scale'. Pure-tier model — no top-up
- * packs; run out of ops/enrichments → upgrade tier.
+ * Plan IDs: 'free' | 'starter' | 'pro' | 'growth' | 'scale'. Pure-tier model — no
+ * top-up packs; run out of ops/enrichments → upgrade tier.
  *
- * Two metered units:
+ * Customer-facing names: Free / Start / Pro / Growth / Agency. The internal ids
+ * 'starter' and 'scale' are kept (existing subscriptions + Stripe metadata key on
+ * them) but display as "Start" and "Agency". 'growth' is the tier inserted
+ * between Pro and Agency.
+ *
+ * Metered unit:
  *   - ops          — webhooks, MCP/SDK/API calls, scans (the live op log)
- *   - enrichments  — capped monthly allowance (external provider cost)
+ *
+ * Enrichment is bring-your-own-keys: no plan includes a managed enrichment
+ * allowance (enrichmentsPerMonth: 0). Enrichment runs on the workspace's own
+ * provider keys (Prospeo/Apollo/etc, connected in Integrations), so it's
+ * unmetered — requireEnrichmentQuota passes through when the allowance is 0.
+ * The field is kept (not removed) so a future plan can re-introduce a managed
+ * allowance by setting it > 0.
  *
  * Grandfathering: subscription.plan_id is set from checkout metadata, not from
- * Stripe Price ID. Existing subscribers on legacy $19/$79/$249 Prices keep
- * those Prices and continue paying the old amount; new subscribers pay the
- * new $79/$249/$479 via updated STRIPE_*_PRICE_ID env vars.
+ * Stripe Price ID. Existing subscribers on legacy Prices keep those Prices and
+ * continue paying the old amount; new subscribers pay the current
+ * $29/$99/$249/$499 via the STRIPE_*_PRICE_ID env vars. The new Growth tier
+ * needs STRIPE_GROWTH_PRICE_ID created in Stripe before it can be subscribed to.
  *
  * Self-hosted (SELF_HOSTED=true) bypasses all gating and metering — see access.mjs.
  */
 
-export const PLAN_IDS = ['free', 'starter', 'pro', 'scale'];
+export const PLAN_IDS = ['free', 'starter', 'pro', 'growth', 'scale'];
 
 export const PLANS = {
   free: {
@@ -24,7 +36,7 @@ export const PLANS = {
     name: 'Free',
     monthlyPriceUsd: 0,
     includedOpsPerMonth: 1_000,
-    enrichmentsPerMonth: 25,
+    enrichmentsPerMonth: 0,
     workspaceLimit: 1,
     stripePriceEnv: null,
     features: {
@@ -37,10 +49,10 @@ export const PLANS = {
   },
   starter: {
     id: 'starter',
-    name: 'Starter',
-    monthlyPriceUsd: 79,
+    name: 'Start',
+    monthlyPriceUsd: 29,
     includedOpsPerMonth: 10_000,
-    enrichmentsPerMonth: 100,
+    enrichmentsPerMonth: 0,
     workspaceLimit: 1,
     stripePriceEnv: 'STRIPE_STARTER_PRICE_ID',
     features: {
@@ -54,25 +66,46 @@ export const PLANS = {
   pro: {
     id: 'pro',
     name: 'Pro',
-    monthlyPriceUsd: 249,
+    monthlyPriceUsd: 99,
     includedOpsPerMonth: 50_000,
-    enrichmentsPerMonth: 500,
-    workspaceLimit: 3,
+    enrichmentsPerMonth: 0,
+    workspaceLimit: 1,
     stripePriceEnv: 'STRIPE_PRO_PRICE_ID',
     features: {
       contextualization: true,
+      // CRM sync + lead lists unlock here, and stay on every tier above.
       crmSync: true,
       leadLists: true,
       publicSignalExtraction: true,
       supportTier: 'priority',
     },
   },
+  growth: {
+    id: 'growth',
+    name: 'Growth',
+    monthlyPriceUsd: 249,
+    includedOpsPerMonth: 100_000,
+    enrichmentsPerMonth: 0,
+    workspaceLimit: 5,
+    stripePriceEnv: 'STRIPE_GROWTH_PRICE_ID',
+    features: {
+      contextualization: true,
+      crmSync: true,
+      leadLists: true,
+      publicSignalExtraction: true,
+      // The weekly background run that scrapes engagers off the workspace's own
+      // LinkedIn posts into the native "LinkedIn Engagers" list. Growth and up.
+      linkedinEngagement: true,
+      supportTier: 'priority',
+    },
+  },
+  // Internal id stays 'scale' (existing subscriptions key on it); displays as "Agency".
   scale: {
     id: 'scale',
-    name: 'Scale',
+    name: 'Agency',
     monthlyPriceUsd: 499,
     includedOpsPerMonth: 250_000,
-    enrichmentsPerMonth: 2_000,
+    enrichmentsPerMonth: 0,
     workspaceLimit: null,
     stripePriceEnv: 'STRIPE_SCALE_PRICE_ID',
     features: {
@@ -80,8 +113,6 @@ export const PLANS = {
       crmSync: true,
       leadLists: true,
       publicSignalExtraction: true,
-      // Scale-only: the weekly background run that scrapes engagers off the
-      // workspace's own LinkedIn posts into the native "LinkedIn Engagers" list.
       linkedinEngagement: true,
       supportTier: 'priority',
     },

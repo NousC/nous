@@ -36,7 +36,7 @@ const ENGAGEMENT_ALLOWLIST = new Set(
     .split(',').map(s => s.trim()).filter(Boolean),
 );
 
-// Scale plan (linkedinEngagement feature) or explicit allowlist → eligible.
+// Growth/Agency plans (linkedinEngagement feature) or explicit allowlist → eligible.
 function engagementEligible(req, workspaceId) {
   if (ENGAGEMENT_ALLOWLIST.has(workspaceId)) return true;
   return !!(req.plan && hasFeature(req.plan.id, 'linkedinEngagement'));

@@ -1,7 +1,7 @@
 /**
  * Pure unit tests for the billing layer — no DB required.
  *
- * Pure-tier model (Free/Starter/Pro/Scale), no top-up packs. Ops are metered
+ * Pure-tier model (Free/Start/Pro/Growth/Agency), no top-up packs. Ops are metered
  * off the live op log via team_ops_used; enrichments are a separate capped
  * allowance. These tests cover the deterministic plan logic against stubs.
  */
@@ -9,26 +9,45 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-test('plans: four tiers with the expected ops + enrichment ladders', async () => {
+test('plans: five tiers with the expected ops + enrichment ladders + prices', async () => {
   const { PLANS } = await import('../src/lib/plans.mjs');
-  assert.deepEqual(Object.keys(PLANS).sort(), ['free', 'pro', 'scale', 'starter']);
+  assert.deepEqual(Object.keys(PLANS).sort(), ['free', 'growth', 'pro', 'scale', 'starter']);
   assert.equal(PLANS.free.includedOpsPerMonth, 1_000);
-  assert.equal(PLANS.starter.includedOpsPerMonth, 5_000);
-  assert.equal(PLANS.pro.includedOpsPerMonth, 25_000);
-  assert.equal(PLANS.scale.includedOpsPerMonth, 100_000);
-  assert.equal(PLANS.free.enrichmentsPerMonth, 25);
-  assert.equal(PLANS.starter.enrichmentsPerMonth, 100);
-  assert.equal(PLANS.pro.enrichmentsPerMonth, 500);
-  assert.equal(PLANS.scale.enrichmentsPerMonth, 2_000);
+  assert.equal(PLANS.starter.includedOpsPerMonth, 10_000);
+  assert.equal(PLANS.pro.includedOpsPerMonth, 50_000);
+  assert.equal(PLANS.growth.includedOpsPerMonth, 100_000);
+  assert.equal(PLANS.scale.includedOpsPerMonth, 250_000);
+  // Enrichment is bring-your-own-keys: no plan includes a managed allowance.
+  for (const id of ['free', 'starter', 'pro', 'growth', 'scale']) {
+    assert.equal(PLANS[id].enrichmentsPerMonth, 0, `${id} should include 0 enrichments (BYOK)`);
+  }
+  // Pro is single-workspace like Start; Growth=5, Agency=unlimited.
+  assert.equal(PLANS.starter.workspaceLimit, 1);
+  assert.equal(PLANS.pro.workspaceLimit, 1);
+  assert.equal(PLANS.growth.workspaceLimit, 5);
+  assert.equal(PLANS.scale.workspaceLimit, null);
+  // Prices: Free $0 / Start $29 / Pro $99 / Growth $249 / Agency $499.
+  assert.equal(PLANS.free.monthlyPriceUsd, 0);
+  assert.equal(PLANS.starter.monthlyPriceUsd, 29);
+  assert.equal(PLANS.pro.monthlyPriceUsd, 99);
+  assert.equal(PLANS.growth.monthlyPriceUsd, 249);
+  assert.equal(PLANS.scale.monthlyPriceUsd, 499);
+  // Display names: internal ids 'starter'/'scale' show as Start/Agency.
+  assert.equal(PLANS.starter.name, 'Start');
+  assert.equal(PLANS.scale.name, 'Agency');
 });
 
-test('hasFeature: crmSync is Scale-only; contextualization is everywhere', async () => {
+test('hasFeature: crmSync + leadLists unlock at Pro and up; contextualization is everywhere', async () => {
   const { hasFeature } = await import('../src/lib/plans.mjs');
-  for (const p of ['free', 'starter', 'pro']) {
+  for (const p of ['free', 'starter']) {
     assert.equal(hasFeature(p, 'crmSync'), false, `${p} should not have crmSync`);
+    assert.equal(hasFeature(p, 'leadLists'), false, `${p} should not have leadLists`);
     assert.equal(hasFeature(p, 'contextualization'), true);
   }
-  assert.equal(hasFeature('scale', 'crmSync'), true);
+  for (const p of ['pro', 'growth', 'scale']) {
+    assert.equal(hasFeature(p, 'crmSync'), true, `${p} should have crmSync`);
+    assert.equal(hasFeature(p, 'leadLists'), true, `${p} should have leadLists`);
+  }
 });
 
 test('getPlanFromSubscription: missing → free; past_due → free; starter/scale resolve', async () => {
@@ -80,7 +99,7 @@ test('getTeamOpsUsage: exhausted plan reports 0 remaining (no top-up)', async ()
   const { getTeamOpsUsage } = await import('../src/lib/plans.mjs');
   const sub = { plan_id: 'pro', status: 'active', current_period_start: '2026-05-01T00:00:00Z' };
   const ops = await getTeamOpsUsage(makeOpsStub(99999), 't1', sub);
-  assert.equal(ops.included, 25000);
+  assert.equal(ops.included, 50000);
   assert.equal(ops.remaining, 0);
   assert.equal(ops.topupBalance, undefined, 'no top-up balance in the pure-tier model');
 });
@@ -107,9 +126,11 @@ test('getTeamEnrichmentUsage: counts enrichment_run rows against the plan allowa
   };
   const sub = { plan_id: 'starter', status: 'active', current_period_start: '2026-05-01T00:00:00Z' };
   const e = await getTeamEnrichmentUsage(stub, 't1', sub);
-  assert.equal(e.included, 100);
+  // BYOK: no managed allowance, so included is 0 and remaining clamps to 0.
+  // requireEnrichmentQuota bypasses entirely when included === 0 (see access.mjs).
+  assert.equal(e.included, 0);
   assert.equal(e.used, 40);
-  assert.equal(e.remaining, 60);
+  assert.equal(e.remaining, 0);
 });
 
 test('isSelfHosted reflects SELF_HOSTED env', async () => {

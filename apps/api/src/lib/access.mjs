@@ -124,6 +124,14 @@ export async function requireEnrichmentQuota(req, res, next) {
   if (isSelfHosted()) return next();
   try {
     const { team, subscription, plan, supabase } = await resolveTeamAndPlan(req);
+    // Bring-your-own-keys model: a plan with no managed enrichment allowance
+    // (enrichmentsPerMonth === 0) runs enrichment on the workspace's own provider
+    // keys, so it is unmetered — pass through, uncapped. Metering only kicks in if
+    // a future plan re-introduces a managed allowance (> 0).
+    if (!plan.enrichmentsPerMonth) {
+      req.enrichRemaining = Infinity;
+      return next();
+    }
     const enrich = await getTeamEnrichmentUsage(supabase, team.id, subscription);
     if (enrich.remaining <= 0) {
       return res.status(402).json({
