@@ -39,7 +39,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { get, post } from "./client.js";
 
-export const SERVER_VERSION = "0.26.0";
+export const SERVER_VERSION = "0.27.0";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 

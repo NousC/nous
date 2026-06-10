@@ -37,20 +37,31 @@ export function runWithApiKey(apiKey, fn) {
 
 // Credential written by `nous login` (the browser device-auth flow). The CLI and
 // the MCP server share ~/.nous/config.json, so a user who runs the login command
-// gets a key the MCP picks up on the next call — no paste, no env var.
-function fileApiKey() {
+// gets a key — and, for self-host, the API URL — the MCP picks up on the next
+// call, with no paste and no env var.
+function readFileConfig() {
   try {
     const dir = resolvedEnv("NOUS_CONFIG_DIR") || path.join(os.homedir(), ".nous");
-    const cfg = JSON.parse(fs.readFileSync(path.join(dir, "config.json"), "utf8"));
-    const k = cfg?.apiKey;
-    return k && !String(k).includes("${") ? k : undefined;
+    return JSON.parse(fs.readFileSync(path.join(dir, "config.json"), "utf8"));
   } catch {
-    return undefined;
+    return null;
   }
 }
+function clean(v) {
+  return v && !String(v).includes("${") ? v : undefined;   // drop unresolved ${...} markers
+}
+function fileApiKey() { return clean(readFileConfig()?.apiKey); }
+function fileApiUrl() { return clean(readFileConfig()?.apiUrl); }
 
 function currentApiKey() {
   return apiKeyStore.getStore()?.apiKey ?? resolvedEnv("NOUS_API_KEY") ?? fileApiKey();
+}
+
+// Resolve the API base per call: env → ~/.nous/config.json (set by `nous login
+// --url` on self-host) → cloud default. So a self-hoster who logs in via the CLI
+// gets the MCP pointed at their own instance automatically.
+function currentApiUrl() {
+  return resolvedEnv("NOUS_API_URL") ?? fileApiUrl() ?? "https://api.opennous.cloud";
 }
 
 // stdio-only preflight. A key may come from the env OR from `nous login`'s
@@ -72,7 +83,7 @@ async function request(method, path, { body, query } = {}) {
     throw new Error("Missing Nous API key. Pass it as an Authorization: Bearer header.");
   }
 
-  const url = new URL(path, API_URL);
+  const url = new URL(path, currentApiUrl());
 
   if (query) {
     for (const [key, value] of Object.entries(query)) {
