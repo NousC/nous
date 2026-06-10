@@ -602,25 +602,16 @@ export async function classifyIdentifiers(
 
   const entityByLinkedIn = new Map<string, string>();
   if (linkedinUrls.length) {
-    // Keyset-paginate by id (NOT .range() — the API gateway rejects the Range
-    // header on this table). Advance the cursor until a page comes back empty.
-    let after = '';
-    for (;;) {
-      let q = supabase
-        .from('entity_identifiers')
-        .select('id, value, entity_id')
-        .eq('workspace_id', workspaceId).eq('kind', 'linkedin_url').eq('status', 'active')
-        .order('id', { ascending: true })
-        .limit(1000);
-      if (after) q = q.gt('id', after);
-      const { data, error } = await q;
-      if (error) throw error;
-      if (!data || data.length === 0) break;
-      for (const r of data) {
-        const n = normalizeLinkedInUrl(r.value);
-        if (n && !entityByLinkedIn.has(n)) entityByLinkedIn.set(n, r.entity_id);
-      }
-      after = data[data.length - 1].id;
+    // Stored linkedin_urls are raw (scheme/www/case/slash vary), so match on the
+    // normalized form in JS. Simplest possible fetch while we diagnose the gateway.
+    const { data, error } = await supabase
+      .from('entity_identifiers')
+      .select('value, entity_id')
+      .eq('workspace_id', workspaceId).eq('kind', 'linkedin_url').eq('status', 'active');
+    if (error) { console.error('[classifyIdentifiers] linkedin fetch failed:', JSON.stringify(error)); throw error; }
+    for (const r of data || []) {
+      const n = normalizeLinkedInUrl(r.value);
+      if (n && !entityByLinkedIn.has(n)) entityByLinkedIn.set(n, r.entity_id);
     }
   }
 
