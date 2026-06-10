@@ -602,21 +602,25 @@ export async function classifyIdentifiers(
 
   const entityByLinkedIn = new Map<string, string>();
   if (linkedinUrls.length) {
-    const PAGE = 1000;
-    for (let from = 0; ; from += PAGE) {
-      const { data, error } = await supabase
+    // Keyset-paginate by id (NOT .range() — the API gateway rejects the Range
+    // header on this table). Advance the cursor until a page comes back empty.
+    let after = '';
+    for (;;) {
+      let q = supabase
         .from('entity_identifiers')
-        .select('value, entity_id')
+        .select('id, value, entity_id')
         .eq('workspace_id', workspaceId).eq('kind', 'linkedin_url').eq('status', 'active')
-        .order('entity_id', { ascending: true })
-        .range(from, from + PAGE - 1);
+        .order('id', { ascending: true })
+        .limit(1000);
+      if (after) q = q.gt('id', after);
+      const { data, error } = await q;
       if (error) throw error;
       if (!data || data.length === 0) break;
       for (const r of data) {
         const n = normalizeLinkedInUrl(r.value);
         if (n && !entityByLinkedIn.has(n)) entityByLinkedIn.set(n, r.entity_id);
       }
-      if (data.length < PAGE) break;
+      after = data[data.length - 1].id;
     }
   }
 
