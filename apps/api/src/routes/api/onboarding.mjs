@@ -220,6 +220,37 @@ onboardingRouter.get('/checklist', verifySupabaseAuth, async (req, res) => {
   }
 });
 
+// GET /api/onboarding/status — drives the gated "Connect your agent" screen.
+// onboarded = the agent has set the workspace profile (business_type present);
+// connected = a workspace API key has actually been used (the MCP has called in).
+onboardingRouter.get('/status', verifySupabaseAuth, async (req, res) => {
+  try {
+    const supabase = getSupabaseClient();
+    let workspaceId = req.workspaceId || null;
+    if (!workspaceId) {
+      const { user, team } = await ensureUserAndTeam(req.user);
+      const { data: wms } = await supabase
+        .from('workspace_members')
+        .select('workspace_id, workspaces:workspace_id(id, team_id)')
+        .eq('user_id', user.id);
+      const match = (wms || []).find(m => m.workspaces?.team_id === team.id);
+      workspaceId = match?.workspace_id || null;
+    }
+    if (!workspaceId) return res.json({ connected: false, onboarded: false });
+
+    const [{ data: ws }, { data: keys }] = await Promise.all([
+      supabase.from('workspaces').select('business_type').eq('id', workspaceId).maybeSingle(),
+      supabase.from('api_keys').select('last_used_at').eq('workspace_id', workspaceId).is('revoked_at', null),
+    ]);
+    const onboarded = !!ws?.business_type;
+    const connected = (keys || []).some(k => k.last_used_at);
+    return res.json({ connected, onboarded });
+  } catch (err) {
+    console.error('[GET /api/onboarding/status]', err);
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
 // POST /api/onboarding/complete
 onboardingRouter.post('/complete', verifySupabaseAuth, async (req, res) => {
   try {

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Copy, CheckCircle2, Plug, ArrowUpRight, Terminal, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
@@ -685,6 +685,12 @@ export default function Install() {
   const isClaudeClient = CLAUDE_CLIENTS.includes(client);
   const { userData, session, onboardingCompleted, refreshUserData } = useAuth();
   const selfHosted = (userData as { self_hosted?: boolean })?.self_hosted === true;
+  const navigate = useNavigate();
+  const workspaceId = (userData as { workspace?: { id?: string } })?.workspace?.id;
+  // The agent onboards the workspace; until it has, the app is locked to this
+  // screen (see ProtectedRoute). business_type is the signal it's done.
+  const onboarded = !!(userData as { workspace?: { business_type?: string } })?.workspace?.business_type;
+  const [conn, setConn] = useState<{ connected: boolean; onboarded: boolean }>({ connected: false, onboarded: false });
 
   // Onboarding moved to the agent, so the old wizard's final step no longer
   // runs. Landing here once fires the same first-run activation it did (welcome
@@ -701,15 +707,78 @@ export default function Install() {
       .catch(() => {});
   }, [onboardingCompleted, session?.access_token, refreshUserData]);
 
+  // While not onboarded, poll setup status so the screen reflects the agent
+  // connecting + onboarding live, and unlock the app the moment it's done.
+  useEffect(() => {
+    if (onboarded || !session?.access_token || !workspaceId) return;
+    let stopped = false;
+    const tick = async () => {
+      try {
+        const r = await fetch(`${SELF_HOST_API_URL}/api/onboarding/status?workspace_id=${workspaceId}`, {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        if (!r.ok) return;
+        const d = await r.json();
+        if (stopped) return;
+        setConn(d);
+        if (d.onboarded) { await refreshUserData(); navigate("/intelligence", { replace: true }); }
+      } catch { /* keep polling */ }
+    };
+    tick();
+    const iv = setInterval(tick, 4000);
+    return () => { stopped = true; clearInterval(iv); };
+  }, [onboarded, session?.access_token, workspaceId, refreshUserData, navigate]);
+
   return (
     <div className="h-full overflow-y-auto bg-muted/30">
       {/* Centered column keeps the three-step flow readable instead of
           stretched edge-to-edge. */}
       <div className="px-6 py-7 max-w-3xl mx-auto">
         <PageHeader
-          title="Install Nous"
-          subtitle="Add Nous to your tool, then tell Claude to route GTM work through it by default. Every path rides the same v2 Context API and the same MCP server."
+          title={onboarded ? "Install Nous" : "Connect Nous to your agent"}
+          subtitle={onboarded
+            ? "Add Nous to your tool, then tell Claude to route GTM work through it by default. Every path rides the same v2 Context API and the same MCP server."
+            : "Set up takes two minutes and happens inside Claude. Run these, then let your agent onboard you. This page unlocks the moment it's done."}
         />
+
+        {/* First-run connect hero — the one default path + live status. Shown
+            until the agent has onboarded the workspace, then the app unlocks. */}
+        {!onboarded && (
+          <div className="rounded-2xl border border-border/60 bg-background shadow-sm p-6 sm:p-8 mb-6">
+            <h2 className="text-[16px] font-semibold text-foreground">Run these in Claude Code</h2>
+            <p className="text-[13px] text-muted-foreground mt-1.5 leading-relaxed">
+              The last one opens your browser to sign you in — no API key to paste.
+            </p>
+            <div className="mt-4 space-y-3">
+              <CodeSnippet caption="1. Add the Nous plugin marketplace" code={CLAUDE_CODE_MARKETPLACE} />
+              <CodeSnippet caption="2. Install the Nous plugin" code={CLAUDE_CODE_INSTALL} />
+              <CodeSnippet caption="3. Sign in (opens your browser)" code={CLAUDE_CODE_LOGIN} />
+            </div>
+            <p className="text-[13px] text-muted-foreground mt-4 leading-relaxed">
+              Then tell your agent <span className="text-foreground font-medium">“set me up”</span>. It asks for your company, website, and what you sell, and builds your playbook.
+            </p>
+            <div className="mt-5 space-y-2 rounded-xl border border-border/60 bg-muted/30 px-4 py-3">
+              <div className="flex items-center gap-2 text-[13px]">
+                {conn.connected
+                  ? <CheckCircle2 className="h-4 w-4 text-emerald-600 flex-shrink-0" />
+                  : <span className="mx-1 h-2 w-2 flex-shrink-0 rounded-full bg-amber-500 animate-pulse" />}
+                <span className={conn.connected ? "text-foreground" : "text-muted-foreground"}>Agent connected</span>
+              </div>
+              <div className="flex items-center gap-2 text-[13px]">
+                {conn.onboarded
+                  ? <CheckCircle2 className="h-4 w-4 text-emerald-600 flex-shrink-0" />
+                  : <span className="mx-1 h-2 w-2 flex-shrink-0 rounded-full bg-amber-500 animate-pulse" />}
+                <span className={conn.onboarded ? "text-foreground" : "text-muted-foreground"}>Workspace onboarded — unlocks Nous</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {!onboarded && (
+          <p className="text-[12px] text-muted-foreground/70 mb-3">
+            On Cursor, Codex, or n8n instead — or want the manual config? It's all below.
+          </p>
+        )}
 
         {/* The whole guided flow sits in one elevated white card, lifted off
             the muted page behind it. */}

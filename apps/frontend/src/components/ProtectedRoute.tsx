@@ -7,7 +7,7 @@ interface ProtectedRouteProps {
 }
 
 export function ProtectedRoute({ children }: ProtectedRouteProps) {
-  const { isAuthenticated, loading, userDataLoading, userData, onboardingCompleted } = useAuth();
+  const { isAuthenticated, loading, userDataLoading, userData } = useAuth();
   const location = useLocation();
 
   // Only block the UI on the initial auth check, OR while we're fetching
@@ -31,12 +31,14 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
     return <Navigate to="/login" replace />;
   }
 
-  // Onboarding moved to the agent (you set up Nous by talking to Claude, not a
-  // web wizard). New users land on Install, which runs the first-run activation.
-  // Send anyone not yet activated there so they connect their agent first.
-  // /cli-login is exempt — a brand-new user must be able to approve their first
-  // key there before anything else is set up.
-  if (!onboardingCompleted && location.pathname !== '/install' && location.pathname !== '/cli-login') {
+  // Onboarding moved to the agent: you set up Nous by talking to Claude, not a
+  // web wizard. The app stays LOCKED to the Install ("Connect your agent")
+  // screen until the agent has onboarded the workspace — signalled by the
+  // workspace having a business_type, which set_workspace_profile sets (and the
+  // old wizard set too, so existing onboarded workspaces are never locked).
+  // /cli-login is exempt so a brand-new user can approve their first key.
+  const onboarded = !!(userData as { workspace?: { business_type?: string } })?.workspace?.business_type;
+  if (!onboarded && location.pathname !== '/install' && location.pathname !== '/cli-login') {
     return <Navigate to="/install" replace />;
   }
 
