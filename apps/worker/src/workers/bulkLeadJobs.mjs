@@ -113,7 +113,7 @@ export async function processBulkLeadJobs() {
           if (!l.email) { bump('no_email'); return; }
           if (fresh) { bump('reused'); return; }
           const status = await verifyLead(supabase, verifier, l);
-          if (status === 'DELIVERABLE') bump('deliverable');
+          if (status === 'VERIFIED') bump('deliverable');
           else if (status === 'RISKY') bump('risky');
           else if (status === 'UNAVAILABLE') bump('undeliverable');
           else bump('inconclusive');

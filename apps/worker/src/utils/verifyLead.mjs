@@ -7,7 +7,7 @@ import { recordVerificationObservation } from '@nous/core';
 import { logActivity } from './activity.mjs';
 import { decrypt } from './encryption.mjs';
 
-const DELIVERABLE = 'DELIVERABLE';
+const VERIFIED = 'VERIFIED';
 const RISKY = 'RISKY';
 const UNAVAILABLE = 'UNAVAILABLE';
 
@@ -30,7 +30,7 @@ async function verifyViaMillionVerifier(email, apiKey) {
   if (!res.ok) throw new Error(`MillionVerifier ${res.status}`);
   const body = await res.json();
   const r = String(body.result || '').toLowerCase();
-  const status = r === 'ok' ? DELIVERABLE
+  const status = r === 'ok' ? VERIFIED
     : r === 'catch_all' || r === 'unknown' ? RISKY
     : r === 'invalid' || r === 'disposable' ? UNAVAILABLE : null;
   return { status, raw: body };
@@ -43,7 +43,7 @@ async function verifyViaNeverBounce(email, apiKey) {
   const body = await res.json();
   if (body.status && body.status !== 'success') throw new Error(`NeverBounce ${body.status}`);
   const r = String(body.result || '').toLowerCase();
-  const status = r === 'valid' ? DELIVERABLE
+  const status = r === 'valid' ? VERIFIED
     : r === 'catchall' || r === 'unknown' ? RISKY
     : r === 'invalid' || r === 'disposable' ? UNAVAILABLE : null;
   return { status, raw: body };
@@ -68,7 +68,7 @@ export async function getVerifier(supabase, workspaceId, preferred) {
 export async function verifyLead(supabase, verifier, lead) {
   const { status, raw } = await verifier.run(lead.email, verifier.apiKey);
   if (status) await recordVerificationObservation(supabase, lead.workspace_id, lead.id, verifier.provider, status);
-  const label = { [DELIVERABLE]: 'Deliverable', [RISKY]: 'Risky', [UNAVAILABLE]: 'Undeliverable' }[status] || 'Inconclusive';
+  const label = { [VERIFIED]: 'Verified', [RISKY]: 'Risky', [UNAVAILABLE]: 'Unavailable' }[status] || 'Inconclusive';
   await logActivity(supabase, {
     workspaceId: lead.workspace_id, contactId: lead.id,
     type: 'verification_run', source: verifier.provider,

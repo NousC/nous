@@ -1,6 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Plus, Upload, RefreshCw, FileText, X, ArrowLeft, Download, Lock, Filter, ChevronDown, Linkedin } from "lucide-react";
+import { Plus, Upload, RefreshCw, FileText, X, ArrowLeft, Download, Lock, Filter, ChevronDown, Linkedin, Coins } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader } from "@/components/ui/page-header";
 import { parseCSVLine } from "@/components/contacts/PeopleImportModal";
@@ -50,7 +50,7 @@ const FB_FIELDS: { key: string; label: string; type?: "text"; values: { v: strin
   ] },
   { key: "emailStatus", label: "Email status", values: [
     { v: "has", l: "Has email" }, { v: "none", l: "No email" },
-    { v: "DELIVERABLE", l: "Deliverable" }, { v: "RISKY", l: "Risky" }, { v: "UNAVAILABLE", l: "Unavailable" },
+    { v: "VERIFIED", l: "Verified" }, { v: "RISKY", l: "Risky" }, { v: "UNAVAILABLE", l: "Unavailable" },
   ] },
   { key: "channel", label: "Channel", type: "text", values: [] },
   { key: "source", label: "Source", type: "text", values: [] },
@@ -158,9 +158,10 @@ function cellValue(lead: Lead, key: string): string {
 // Email deliverability shown as a colored pill: deliverable = green, risky =
 // amber, unavailable = grey (dead). Unknown values fall back to grey.
 const EMAIL_STATUS_TAG: Record<string, { label: string; cls: string }> = {
-  DELIVERABLE: { label: "Deliverable", cls: "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-400" },
+  VERIFIED:    { label: "Verified",    cls: "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-400" },
+  DELIVERABLE: { label: "Verified",    cls: "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-400" }, // legacy alias
   RISKY:       { label: "Risky",       cls: "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-400" },
-  UNAVAILABLE: { label: "Unavailable", cls: "bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300" },
+  UNAVAILABLE: { label: "Unavailable", cls: "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-400" },
 };
 function emailStatusTag(status: string | null) {
   if (!status) return <span className="text-muted-foreground/40">—</span>;
@@ -607,9 +608,7 @@ export default function Lists() {
       });
       if (res.ok) {
         const d = await res.json();
-        const reused = d.skipped_already_verified
-          ? ` · ${d.skipped_already_verified} already verified (no charge)` : "";
-        toast.success(`Enriched ${d.enriched} of ${d.requested}${reused}${d.skipped_quota ? ` · ${d.skipped_quota} skipped (allowance)` : ""}`);
+        setOpResult(buildResult("enrich", d));
       } else if (res.status === 402) {
         toast("Enrichment allowance exhausted — connect Prospeo/Apollo in Integrations or upgrade.");
       } else {
@@ -634,10 +633,7 @@ export default function Lists() {
       });
       if (res.ok) {
         const d = await res.json();
-        const reused = d.skipped_already_verified
-          ? ` · ${d.skipped_already_verified} recently verified (no charge)` : "";
-        const noEmail = d.skipped_no_email ? ` · ${d.skipped_no_email} without an email` : "";
-        toast.success(`Verified ${d.verified} — ${d.deliverable} deliverable · ${d.risky} risky · ${d.undeliverable} undeliverable${reused}${noEmail}`);
+        setOpResult(buildResult("verify", d));
       } else if (res.status === 409) {
         toast("Connect MillionVerifier or NeverBounce in Integrations to verify emails.");
       } else if (res.status === 402) {
@@ -669,6 +665,44 @@ export default function Lists() {
   type BulkJob = { id: string; kind: string; status: string; total: number; processed: number; provider?: string; result?: any };
   const [bulkJob, setBulkJob] = useState<BulkJob | null>(null);
   const jobActive = !!bulkJob && (bulkJob.status === "pending" || bulkJob.status === "running");
+
+  // Completion summary popup (shown after a sync run OR an async job finishes).
+  type ResultRow = { label: string; n: number; tone: "green" | "amber" | "red" | "muted" };
+  type OpResult = { kind: "enrich" | "verify"; rows: ResultRow[]; headline: number };
+  const [opResult, setOpResult] = useState<OpResult | null>(null);
+
+  // Normalize a sync response OR an async job.result into the summary rows.
+  // Sync verify keys: deliverable/risky/undeliverable/skipped_already_verified/skipped_no_email.
+  // Async verify keys: deliverable/risky/undeliverable/reused/no_email. (enrich analogous.)
+  function buildResult(kind: "enrich" | "verify", r: any): OpResult {
+    if (kind === "verify") {
+      const verified = r.deliverable || 0, risky = r.risky || 0, unavailable = r.undeliverable || 0;
+      const reused = r.skipped_already_verified ?? r.reused ?? 0;
+      const noEmail = r.skipped_no_email ?? r.no_email ?? 0;
+      return {
+        kind, headline: verified + risky + unavailable,
+        rows: [
+          { label: "Verified", n: verified, tone: "green" },
+          { label: "Risky", n: risky, tone: "amber" },
+          { label: "Unavailable", n: unavailable, tone: "red" },
+          ...(reused ? [{ label: "Recently verified — free", n: reused, tone: "muted" as const }] : []),
+          ...(noEmail ? [{ label: "No email — skipped", n: noEmail, tone: "muted" as const }] : []),
+        ],
+      };
+    }
+    const enriched = r.enriched || 0;
+    const reused = r.skipped_already_verified ?? r.reused ?? 0;
+    const noId = r.skipped_no_identifier ?? r.no_identifier ?? 0;
+    return {
+      kind, headline: enriched,
+      rows: [
+        { label: "Emails found", n: enriched, tone: "green" },
+        ...(reused ? [{ label: "Enriched recently — free", n: reused, tone: "muted" as const }] : []),
+        ...(noId ? [{ label: "No email or LinkedIn — skipped", n: noId, tone: "muted" as const }] : []),
+      ],
+    };
+  }
+
   // The true selection size.
   const hasSelection = selected.size > 0 || selectAllMatching;
   const selCount: number = selectAllMatching ? (matchingTotal ?? 0) : selected.size;
@@ -741,13 +775,7 @@ export default function Lists() {
           clearLeadsCache();
           await loadLeads(activeId, page, icpFilter, sort);
           if (job.status === "complete") {
-            const r = job.result || {};
-            if (job.kind === "verify") {
-              const v = (r.deliverable || 0) + (r.risky || 0) + (r.undeliverable || 0);
-              toast.success(`Verified ${v.toLocaleString()} — ${r.deliverable || 0} deliverable · ${r.risky || 0} risky · ${r.undeliverable || 0} undeliverable`);
-            } else {
-              toast.success(`Enriched ${(r.enriched || 0).toLocaleString()} lead${(r.enriched || 0) === 1 ? "" : "s"}`);
-            }
+            setOpResult(buildResult(job.kind as "enrich" | "verify", job.result || {}));
           } else {
             toast(job.error === "no_verifier_connected" ? "No verifier connected — add one in Integrations." : "Bulk job failed — try again.");
           }
@@ -1766,25 +1794,34 @@ export default function Lists() {
                     </div>
                   )}
 
-                  {/* Cost breakdown */}
-                  <div className="rounded-lg border border-border text-[13px] divide-y divide-border mb-3">
-                    <div className="flex items-center justify-between px-3 py-2.5">
-                      <span className="text-foreground font-medium">Will use {creditLabel}</span>
-                      <span className="text-foreground font-semibold tabular-nums">{opPreview.chargeable.toLocaleString()}</span>
+                  {/* Hero: the chargeable count, with a coins glyph */}
+                  <div className="flex items-center gap-3 rounded-xl border border-border bg-muted/30 px-4 py-3 mb-3">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-950/40 flex-shrink-0">
+                      <Coins className="h-[18px] w-[18px] text-amber-600 dark:text-amber-400" />
                     </div>
-                    {opPreview.reused > 0 && (
-                      <div className="flex items-center justify-between px-3 py-2.5 text-muted-foreground">
-                        <span>{reuseLabel} — free</span>
-                        <span className="tabular-nums">{opPreview.reused.toLocaleString()}</span>
-                      </div>
-                    )}
-                    {skipped > 0 && (
-                      <div className="flex items-center justify-between px-3 py-2.5 text-muted-foreground">
-                        <span>{skipLabel} — skipped</span>
-                        <span className="tabular-nums">{skipped.toLocaleString()}</span>
-                      </div>
-                    )}
+                    <div className="min-w-0">
+                      <div className="text-[18px] font-semibold text-foreground tabular-nums leading-tight">{opPreview.chargeable.toLocaleString()}</div>
+                      <div className="text-[11px] text-muted-foreground">will use {creditLabel}</div>
+                    </div>
                   </div>
+
+                  {/* Secondary breakdown — only the lines that apply */}
+                  {(opPreview.reused > 0 || skipped > 0) && (
+                    <div className="rounded-lg border border-border text-[12px] divide-y divide-border mb-3">
+                      {opPreview.reused > 0 && (
+                        <div className="flex items-center justify-between px-3 py-2 text-muted-foreground">
+                          <span>{reuseLabel} — free</span>
+                          <span className="tabular-nums">{opPreview.reused.toLocaleString()}</span>
+                        </div>
+                      )}
+                      {skipped > 0 && (
+                        <div className="flex items-center justify-between px-3 py-2 text-muted-foreground">
+                          <span>{skipLabel} — skipped</span>
+                          <span className="tabular-nums">{skipped.toLocaleString()}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   <p className="text-[11px] text-muted-foreground/70 mb-1">
                     Runs on your own connected key, billed at your provider's rate. Recently {confirmOp === "enrich" ? "enriched" : "verified"} leads are reused free.
@@ -1806,6 +1843,44 @@ export default function Lists() {
                 </>
               );
             })()}
+          </div>
+        </div>
+      )}
+
+      {/* Completion summary — shown after a run (sync) or job (async) finishes,
+          with each outcome on its own color-coded line. */}
+      {opResult && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setOpResult(null)}>
+          <div onClick={e => e.stopPropagation()} className="w-full max-w-sm rounded-xl border border-border bg-background p-5 shadow-xl">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[15px] font-semibold text-foreground">{opResult.kind === "verify" ? "Verification complete" : "Enrichment complete"}</span>
+              <button onClick={() => setOpResult(null)} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+            </div>
+            <p className="text-[12px] text-muted-foreground mb-3">
+              {opResult.kind === "verify"
+                ? `${opResult.headline.toLocaleString()} email${opResult.headline === 1 ? "" : "s"} checked.`
+                : `${opResult.headline.toLocaleString()} email${opResult.headline === 1 ? "" : "s"} found.`}
+            </p>
+            <div className="rounded-lg border border-border divide-y divide-border mb-4">
+              {opResult.rows.map(r => {
+                const dot = r.tone === "green" ? "bg-green-500" : r.tone === "amber" ? "bg-amber-500" : r.tone === "red" ? "bg-red-500" : "bg-zinc-400";
+                return (
+                  <div key={r.label} className="flex items-center justify-between px-3 py-2.5 text-[13px]">
+                    <span className="flex items-center gap-2 text-foreground">
+                      <span className={`h-2 w-2 rounded-full ${dot} flex-shrink-0`} />
+                      {r.label}
+                    </span>
+                    <span className="tabular-nums font-medium text-foreground">{r.n.toLocaleString()}</span>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="flex justify-end">
+              <button onClick={() => setOpResult(null)}
+                className="h-9 px-4 rounded-lg bg-foreground text-background text-[13px] font-semibold hover:opacity-90">
+                Done
+              </button>
+            </div>
           </div>
         </div>
       )}
