@@ -55,6 +55,13 @@ export async function getSignalBaseKey(supabase, workspaceId) {
   return _getProviderKey(supabase, workspaceId, 'signalbase', { requireEnrichmentToggle: false });
 }
 
+// Generic accessor for any workflow provider's decrypted API key (BYOK), used
+// by sibling services (e.g. email verification) that follow the same
+// connect-once-then-use pattern. No enrichment toggle by default.
+export async function getProviderApiKey(supabase, workspaceId, providerName) {
+  return _getProviderKey(supabase, workspaceId, providerName, { requireEnrichmentToggle: false });
+}
+
 async function _getProviderKey(supabase, workspaceId, providerName, { requireEnrichmentToggle }) {
   const { data: provider } = await supabase
     .from('workflow_providers')

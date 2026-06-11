@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useLayoutEffect, useCallback, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Plus, Upload, RefreshCw, FileText, X, ArrowLeft, Download, Lock, Filter, ChevronDown } from "lucide-react";
+import { Plus, Upload, RefreshCw, FileText, X, ArrowLeft, Download, Lock, Filter, ChevronDown, Linkedin } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader } from "@/components/ui/page-header";
 import { parseCSVLine } from "@/components/contacts/PeopleImportModal";
@@ -22,6 +22,16 @@ const FIXED_COLS: { key: string; label: string; w: number }[] = [
   { key: "linkedin_url", label: "LinkedIn", w: 150 },
 ];
 const FIXED_KEYS = new Set(FIXED_COLS.map(c => c.key));
+
+// The default custom columns every list carries (mirrors the backend
+// DEFAULT_LEAD_COLUMNS in packages/core). Surfaced on every list — even an older
+// list whose stored `columns` predate them — so the default column set is always
+// enforced, not just on lists created after the defaults were added.
+const DEFAULT_CUSTOM_COLS: { key: string; label: string }[] = [
+  { key: "title",        label: "Title" },
+  { key: "industry",     label: "Industry" },
+  { key: "company_size", label: "Company size" },
+];
 const CUSTOM_W = 150;
 const STATUS_W = 100;
 const SEL_W = 40;
@@ -158,6 +168,23 @@ function autoMap(headers: string[], customCols: LeadColumn[]): Record<string, st
   return map;
 }
 
+// Reload-instant cache. The in-memory ref cache is wiped on every page reload,
+// so a refresh always paid two sequential round-trips (lists → then leads)
+// before anything painted. These mirror the last-viewed lists + leads pages to
+// sessionStorage, scoped per workspace, so a reload repaints the previous view
+// immediately and only revalidates in the background.
+const SS_LISTS = (ws: string) => `lists.lists.${ws}`;
+const SS_LEADS = (ws: string) => `lists.leadsCache.${ws}`;
+const LEADS_CACHE_CAP = 12; // most-recent (list+page+filter) pages kept on disk
+
+function ssGet<T>(key: string): T | null {
+  try { const v = sessionStorage.getItem(key); return v ? (JSON.parse(v) as T) : null; }
+  catch { return null; }
+}
+function ssSet(key: string, value: unknown) {
+  try { sessionStorage.setItem(key, JSON.stringify(value)); } catch { /* quota or disabled */ }
+}
+
 export default function Lists() {
   const { session, userData } = useAuth();
   const token = session?.access_token ?? "";
@@ -285,6 +312,7 @@ export default function Lists() {
       const d = res.ok ? await res.json() : {};
       const next: LeadList[] = d.lead_lists ?? [];
       setLists(next);
+      ssSet(SS_LISTS(workspaceId), next);
       setActiveId(prev => {
         if (prev && next.some(l => l.id === prev)) return prev;
         const fromUrl = initialListRef.current;
@@ -296,6 +324,36 @@ export default function Lists() {
   }, [workspaceId, token]);
 
   useEffect(() => { loadLists(); }, [loadLists]);
+
+  // Before the network returns, repaint the last view from sessionStorage: the
+  // sidebar lists, the active list, and the leads-page cache. Runs once, in a
+  // layout effect (pre-paint) so there's no empty flash on reload.
+  const rehydrated = useRef(false);
+  useLayoutEffect(() => {
+    if (!workspaceId || rehydrated.current) return;
+    rehydrated.current = true;
+    const savedLeads = ssGet<Record<string, { leads: Lead[]; counts: { icp: number; non_icp: number } | null }>>(SS_LEADS(workspaceId));
+    if (savedLeads) for (const [k, v] of Object.entries(savedLeads)) leadsCache.current.set(k, v);
+    const savedLists = ssGet<LeadList[]>(SS_LISTS(workspaceId));
+    if (savedLists && savedLists.length) {
+      setLists(savedLists);
+      setLoading(false);
+      setActiveId(prev => {
+        if (prev && savedLists.some(l => l.id === prev)) return prev;
+        const fromUrl = initialListRef.current;
+        if (fromUrl && savedLists.some(l => l.id === fromUrl)) return fromUrl;
+        return savedLists[0]?.id ?? null;
+      });
+    }
+  }, [workspaceId]);
+
+  // Drop both the in-memory and on-disk leads cache (called on every mutation so
+  // a reload never repaints stale rows). Reassigns rather than .clear() so it's
+  // unambiguous at the call sites below.
+  const clearLeadsCache = useCallback(() => {
+    leadsCache.current = new Map();
+    try { sessionStorage.removeItem(SS_LEADS(workspaceId)); } catch { /* ignore */ }
+  }, [workspaceId]);
 
   const PAGE_SIZE = 50;
   const loadLeads = useCallback(
@@ -321,6 +379,9 @@ export default function Lists() {
         setLeads(nextLeads);
         if (d.counts) setCounts(d.counts);
         leadsCache.current.set(cacheKey, { leads: nextLeads, counts: nextCounts });
+        // Mirror the most-recent pages to disk so a reload repaints instantly.
+        const entries = Array.from(leadsCache.current.entries()).slice(-LEADS_CACHE_CAP);
+        ssSet(SS_LEADS(workspaceId), Object.fromEntries(entries));
       } catch { if (!cached) setLeads([]); }
       finally { setLeadsLoading(false); }
     }, [workspaceId, token, statusFilter, replyFilter, fbFilters]);
@@ -381,9 +442,16 @@ export default function Lists() {
   }, [activeId, page, setSearchParams]);
 
   const activeList = lists.find(l => l.id === activeId) ?? null;
-  const customCols = activeList?.columns ?? [];
-  // Show the ICP filter when the list is ICP-scored (icp or icp_score column).
-  const hasIcp = customCols.some(c => c.key === "icp" || c.key === "icp_score");
+  // Always include the default custom columns, even on older lists whose stored
+  // `columns` predate them — the default column set is enforced for every list.
+  const customCols = (() => {
+    const stored = activeList?.columns ?? [];
+    const have = new Set(stored.map(c => c.key));
+    return [...stored, ...DEFAULT_CUSTOM_COLS.filter(d => !have.has(d.key))];
+  })();
+  // ICP is a default segmentation on every list, so the All / ICP / Non-ICP
+  // filter is always shown — never gated on whether the list was scored yet.
+  const hasIcp = true;
 
   // Filter builder — add/replace (one active value per field) and remove.
   const fbFieldDef = FB_FIELDS.find(f => f.key === fbField) ?? FB_FIELDS[0];
@@ -470,7 +538,7 @@ export default function Lists() {
         });
       }
       clearSelection();
-      leadsCache.current.clear();
+      clearLeadsCache();
       await loadLeads(activeId, page, icpFilter, sort);
       await loadLists();
     } catch { /* silent */ }
@@ -499,9 +567,39 @@ export default function Lists() {
         toast("Couldn't enrich — try again.");
       }
       clearSelection();
-      leadsCache.current.clear();
+      clearLeadsCache();
       await loadLeads(activeId, page, icpFilter, sort);
     } catch { toast("Couldn't enrich — try again."); }
+    finally { setBusy(false); }
+  }
+
+  async function verifySelected() {
+    if (!activeId || (selected.size === 0 && !selectAllMatching)) return;
+    setBusy(true);
+    try {
+      const ids = await resolveSelectedIds();
+      const res = await fetch(`${apiUrl}/api/lead-lists/${activeId}/verify`, {
+        method: "POST",
+        headers: { ...authHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ workspaceId, ids }),
+      });
+      if (res.ok) {
+        const d = await res.json();
+        const reused = d.skipped_already_verified
+          ? ` · ${d.skipped_already_verified} recently verified (no charge)` : "";
+        const noEmail = d.skipped_no_email ? ` · ${d.skipped_no_email} without an email` : "";
+        toast.success(`Verified ${d.verified} — ${d.deliverable} deliverable · ${d.risky} risky · ${d.undeliverable} undeliverable${reused}${noEmail}`);
+      } else if (res.status === 409) {
+        toast("Connect MillionVerifier or NeverBounce in Integrations to verify emails.");
+      } else if (res.status === 402) {
+        toast("Verification allowance exhausted — connect a verifier in Integrations or upgrade.");
+      } else {
+        toast("Couldn't verify — try again.");
+      }
+      clearSelection();
+      clearLeadsCache();
+      await loadLeads(activeId, page, icpFilter, sort);
+    } catch { toast("Couldn't verify — try again."); }
     finally { setBusy(false); }
   }
 
@@ -546,7 +644,7 @@ export default function Lists() {
         const missing = app?.kind === "linkedin" ? "no LinkedIn URL" : "no email";
         toast.success(`Pushed ${pushed} to ${app?.label || "campaign"} · ${camp?.name || "campaign"}${skipped ? ` · ${skipped} skipped (${missing})` : ""}`);
         setPushOpen(false); clearSelection();
-        leadsCache.current.clear();
+        clearLeadsCache();
         await loadLeads(activeId, page, icpFilter, sort);
       }
     } catch { toast("Push failed — try again."); }
@@ -582,9 +680,19 @@ export default function Lists() {
       });
       const d = res.ok ? await res.json() : null;
       setNewName(""); setCreating(false);
+      const newId = d?.lead_list?.id ?? null;
+      // A brand-new empty list starts with three blank rows — the starting point,
+      // matching the table look. Skipped when importing: the CSV fills it instead.
+      if (newId && !thenImport) {
+        await Promise.all([0, 1, 2].map(() =>
+          fetch(`${apiUrl}/api/lead-lists/${newId}/leads/blank`, {
+            method: "POST", headers: jsonHeaders, body: JSON.stringify({ workspaceId }),
+          }).catch(() => {})));
+        clearLeadsCache();
+      }
       await loadLists();
-      if (d?.lead_list?.id) {
-        setActiveId(d.lead_list.id);
+      if (newId) {
+        setActiveId(newId);
         if (thenImport) { setImporting(true); setResult(null); }
       }
     } catch { /* silent */ }
@@ -647,7 +755,7 @@ export default function Lists() {
           body: JSON.stringify({ workspaceId, channel, ids: batch }),
         }).catch(() => {});
       }
-      leadsCache.current.clear();
+      clearLeadsCache();
       toast.success(`Exported ${rows.length} lead${rows.length === 1 ? "" : "s"} · tagged channel “${channel}”`);
       setCsvOpen(false); setCsvName("");
       if (exportScope === "selected") clearSelection();
@@ -686,7 +794,7 @@ export default function Lists() {
     };
     setLeads(prev => [...prev, blank]);
     setLists(prev => prev.map(l => l.id === listId ? { ...l, lead_count: (l.lead_count ?? 0) + 1 } : l));
-    leadsCache.current.clear();
+    clearLeadsCache();
     setEditValue("");
     setEditCell({ id: tempId, key: "name" });
 
@@ -731,7 +839,7 @@ export default function Lists() {
       if (key === "name" || key === "email" || key === "company" || key === "linkedin_url") return { ...l, [key]: value };
       return { ...l, fields: { ...l.fields, [key]: value } };
     }));
-    leadsCache.current.clear();
+    clearLeadsCache();
     // A brand-new row may still be creating server-side — wait for its real id.
     if (id.startsWith("temp-")) {
       const real = await (blankCreates.current.get(id) ?? Promise.resolve(null));
@@ -819,7 +927,7 @@ export default function Lists() {
       setResult({ inserted, skipped });
       setImporting(false); setImportStep("upload");
       setCsvHeaders([]); setCsvRows([]); setMapping({});
-      leadsCache.current.clear();
+      clearLeadsCache();
       loadLeads(activeId, page, icpFilter, sort);
       loadLists();
     } catch { /* silent */ }
@@ -967,7 +1075,7 @@ export default function Lists() {
             {/* LEFT — ICP segmentation chips */}
             <div className="flex items-center gap-1.5">
               {hasIcp && ([
-                ["all", "All", counts ? counts.icp + counts.non_icp : null],
+                ["all", "All", activeList?.lead_count ?? (counts ? counts.icp + counts.non_icp : null)],
                 ["icp", "ICP", counts?.icp ?? null],
                 ["non", "Non-ICP", counts?.non_icp ?? null],
               ] as const).map(([key, label, n]) => (
@@ -1102,6 +1210,10 @@ export default function Lists() {
               className="h-7 px-2.5 rounded-md text-[12px] font-medium border border-border text-foreground/80 hover:bg-muted/50 transition-colors disabled:opacity-40">
               {busy ? "Enriching…" : "Enrich"}
             </button>
+            <button onClick={verifySelected} disabled={busy} title="Validate email deliverability via your MillionVerifier / NeverBounce key"
+              className="h-7 px-2.5 rounded-md text-[12px] font-medium border border-border text-foreground/80 hover:bg-muted/50 transition-colors disabled:opacity-40">
+              {busy ? "Verifying…" : "Verify emails"}
+            </button>
             <button onClick={deleteSelected} disabled={busy}
               className="h-7 px-2.5 rounded-md text-[12px] font-medium border border-red-300 text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40 transition-colors disabled:opacity-40">
               Delete
@@ -1216,8 +1328,9 @@ export default function Lists() {
                             ) : isLink ? (
                               <a href={val} target="_blank" rel="noopener noreferrer"
                                  onClick={e => e.stopPropagation()}
-                                 className="text-blue-600 dark:text-blue-400 hover:underline">
-                                {val.replace(/^https?:\/\/(www\.)?linkedin\.com\//, "").replace(/\/$/, "") || "profile"}
+                                 title="Open LinkedIn profile"
+                                 className="inline-flex items-center text-[#0A66C2] hover:opacity-70 transition-opacity">
+                                <Linkedin className="h-[18px] w-[18px]" fill="currentColor" stroke="white" strokeWidth={1.5} />
                               </a>
                             ) : (
                               val || <span className="text-muted-foreground/40">—</span>

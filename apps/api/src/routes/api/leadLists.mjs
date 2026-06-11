@@ -19,6 +19,7 @@ import {
 import { hasFeature } from '../../lib/plans.mjs';
 import { requireEnrichmentQuota, requireRecordsBalance } from '../../lib/access.mjs';
 import { enrichContact } from '../../services/enrichment.mjs';
+import { getVerifier, verifyLead } from '../../services/verification.mjs';
 import { listCampaigns, pushLeads, SEQUENCERS } from '../../services/sequencerPush.mjs';
 
 export const leadListsRouter = Router();
@@ -430,6 +431,87 @@ leadListsRouter.post('/:id/enrich', requireEnrichmentQuota, async (req, res) => 
     return res.json({ enriched, skipped_quota: skippedQuota, skipped_no_identifier: skippedNoId, skipped_already_verified: skippedVerified, requested: ids.length });
   } catch (err) {
     console.error('[POST /api/lead-lists/:id/enrich]', err);
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
+// POST /api/lead-lists/:id/verify — validate deliverability of the emails on
+// selected leads via the workspace's own MillionVerifier / NeverBounce key.
+// Distinct from /enrich: this only acts on leads that ALREADY have an email,
+// and the verifier's verdict upgrades the email_status shown on the lead.
+// Same plan allowance + 90-day reuse-gate as enrichment.
+const MAX_VERIFY = 200;
+leadListsRouter.post('/:id/verify', requireEnrichmentQuota, async (req, res) => {
+  try {
+    const supabase = getSupabaseClient();
+    const workspaceId = req.body.workspaceId || req.workspaceId;
+    const ids = Array.isArray(req.body.ids) ? req.body.ids.slice(0, MAX_VERIFY) : [];
+    if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
+    if (ids.length === 0) return res.status(400).json({ error: 'ids array required' });
+
+    // Resolve the workspace's verifier up front — if none is connected, tell the
+    // client to connect one rather than silently no-op'ing.
+    const verifier = await getVerifier(supabase, workspaceId);
+    if (!verifier) return res.status(409).json({ error: 'no_verifier_connected' });
+
+    const cap = typeof req.enrichRemaining === 'number' ? req.enrichRemaining : Infinity;
+    const { data: leads } = await supabase
+      .from('leads')
+      .select('id, workspace_id, email, name')
+      .eq('workspace_id', workspaceId).eq('lead_list_id', req.params.id).in('id', ids);
+
+    // Reuse-gate — never re-pay to re-verify within VERIFY_STALE_DAYS. The last
+    // verification date comes off the append-only verification observations
+    // (method='verification'), the same pattern as the enrich reuse-gate.
+    const VERIFY_STALE_DAYS = 90;
+    const staleBefore = Date.now() - VERIFY_STALE_DAYS * 86400000;
+    const lastVerified = new Map();
+    if ((leads || []).length) {
+      const { data: verObs } = await supabase
+        .from('observations')
+        .select('entity_id, observed_at')
+        .eq('workspace_id', workspaceId)
+        .eq('method', 'verification')
+        .in('entity_id', (leads || []).map(l => l.id))
+        .order('observed_at', { ascending: false });
+      for (const o of verObs || []) {
+        if (!lastVerified.has(o.entity_id)) lastVerified.set(o.entity_id, o.observed_at);
+      }
+    }
+
+    let deliverable = 0, risky = 0, undeliverable = 0;
+    let skippedNoEmail = 0, skippedRecent = 0, skippedQuota = 0;
+    for (const l of leads || []) {
+      if (!l.email) { skippedNoEmail++; continue; }
+      const lv = lastVerified.get(l.id);
+      if (lv && new Date(lv).getTime() >= staleBefore) { skippedRecent++; continue; }
+      if (deliverable + risky + undeliverable >= cap) { skippedQuota++; continue; }
+      try {
+        const status = await verifyLead(supabase, verifier, l);
+        if (status === 'DELIVERABLE')      deliverable++;
+        else if (status === 'RISKY')       risky++;
+        else if (status === 'UNAVAILABLE') undeliverable++;
+      } catch (e) {
+        console.warn('[POST /api/lead-lists/:id/verify] verify failed', l.id, e.message);
+      }
+    }
+    const verified = deliverable + risky + undeliverable;
+    // One run-level op tagged to this list (per-lead logs stay unscoped, like enrich).
+    await supabase.from('workspace_system_log').insert({
+      workspace_id: workspaceId, source: verifier.provider, event_type: 'verification_run',
+      summary: `Verified ${verified} email${verified === 1 ? '' : 's'} (${deliverable} deliverable · ${risky} risky · ${undeliverable} undeliverable)`
+        + (skippedRecent ? ` · reused ${skippedRecent} recently verified (no charge)` : ''),
+      metadata: { lead_list_id: req.params.id, category: 'verify', provider: verifier.provider, deliverable, risky, undeliverable, reused: skippedRecent, requested: ids.length },
+      billable_ops: 0, occurred_at: new Date().toISOString(),
+    }).then(() => {}, () => {});
+
+    return res.json({
+      verified, deliverable, risky, undeliverable,
+      skipped_no_email: skippedNoEmail, skipped_already_verified: skippedRecent,
+      skipped_quota: skippedQuota, provider: verifier.provider, requested: ids.length,
+    });
+  } catch (err) {
+    console.error('[POST /api/lead-lists/:id/verify]', err);
     return res.status(500).json({ error: 'internal_error' });
   }
 });

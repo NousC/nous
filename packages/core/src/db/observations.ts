@@ -137,6 +137,29 @@ export async function recordEnrichmentObservations(
   return recordObservations(supabase, inputs);
 }
 
+/**
+ * Record a standalone email-verification result as a `reachability_status`
+ * state observation, tagged with the verifier as the source (millionverifier /
+ * neverbounce) and `method: 'verification'`. This is a DIFFERENT method from
+ * enrichment: enrichment guesses a status while finding the email; verification
+ * independently validates an email we already hold. The newer observation wins
+ * in the claim engine, so a verify run upgrades the `email_status` shown on a
+ * lead. The `method` also lets the lead-list verify reuse-gate ("don't re-pay
+ * to re-verify within 90 days") query verification runs specifically.
+ */
+export async function recordVerificationObservation(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  entityId: string,
+  source: string,
+  status: string,
+): Promise<number> {
+  if (!status) return 0;
+  return recordObservations(supabase, [
+    { workspaceId, entityId, kind: 'state', property: 'reachability_status', value: status, source, method: 'verification' },
+  ]);
+}
+
 /** Load observations by id (workspace-scoped) — used to resolve a claim's
  *  supporting_observation_ids to their sources/values for the CRM-hygiene
  *  provenance gate and proof payload. */

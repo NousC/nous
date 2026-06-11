@@ -544,7 +544,9 @@ INSERT INTO workflow_providers (name, display_name, category) VALUES
   ('pipedrive','Pipedrive','crm'),
   ('attio','Attio','crm'),
   ('apollo','Apollo.io','enrichment'),
-  ('prospeo','Prospeo','enrichment')
+  ('prospeo','Prospeo','enrichment'),
+  ('millionverifier','MillionVerifier','verification'),
+  ('neverbounce','NeverBounce','verification')
 ON CONFLICT (name) DO NOTHING;
 
 CREATE TABLE workflow_provider_connections (

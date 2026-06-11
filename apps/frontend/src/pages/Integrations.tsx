@@ -22,6 +22,8 @@ const HARDCODED_PROVIDERS: AvailableProvider[] = [
   { id:"smartlead",  name:"smartlead",  display_name:"Smartlead",  logo_url:"/provider-logos/smartlead.png",  category:"outbound"     },
   { id:"apollo",     name:"apollo",     display_name:"Apollo",     logo_url:"/provider-logos/apollo.svg",     category:"enrichment"   },
   { id:"prospeo",    name:"prospeo",    display_name:"Prospeo",    logo_url:"/provider-logos/prospeo.svg",    category:"enrichment"   },
+  { id:"millionverifier", name:"millionverifier", display_name:"MillionVerifier", logo_url:"/provider-logos/millionverifier.svg", category:"verification" },
+  { id:"neverbounce",     name:"neverbounce",     display_name:"NeverBounce",     logo_url:"/provider-logos/neverbounce.svg",     category:"verification" },
   { id:"fireflies", name:"fireflies", display_name:"Fireflies.ai", logo_url:"/provider-logos/fireflies.svg", category:"meetings"     },
   { id:"fathom",    name:"fathom",    display_name:"Fathom",       logo_url:"/provider-logos/fathom.svg",    category:"meetings"     },
   { id:"cal_com",   name:"cal_com",   display_name:"Cal.com",      logo_url:"/provider-logos/cal_com.svg",   category:"meetings"     },
@@ -41,9 +43,9 @@ const HARDCODED_PROVIDERS: AvailableProvider[] = [
 ];
 const EXCLUDED = new Set(["assetly","gmail","mailchimp","google_analytics","granola","notion","clickup","openai","gemini","google","rb2b","anthropic","stripe","signalbase","salesforce"]);
 
-const CATEGORY_ORDER = ["self","crm","outbound","enrichment","meetings","communication","database","ai","analytics","productivity","other"] as const;
+const CATEGORY_ORDER = ["self","crm","outbound","enrichment","verification","meetings","communication","database","ai","analytics","productivity","other"] as const;
 const CATEGORY_LABEL: Record<string,string> = {
-  self:"Nous", crm:"CRM", outbound:"Outbound", enrichment:"Enrichment", meetings:"Meetings",
+  self:"Nous", crm:"CRM", outbound:"Outbound", enrichment:"Enrichment", verification:"Email verification", meetings:"Meetings",
   communication:"Communication", database:"Database", ai:"AI", analytics:"Analytics",
   productivity:"Productivity", other:"Other",
 };
