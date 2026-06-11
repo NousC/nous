@@ -19,7 +19,7 @@ export default function Impressum() {
   return (
     <NousPageLayout
       seoTitle="Impressum | Nous"
-      seoDescription="Legal notice and company information for Nous — memory layer for GTM agents."
+      seoDescription="Legal notice and company information for Nous — the GTM Context API for agents."
     >
       {(t) => (
         <>

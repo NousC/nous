@@ -11,9 +11,9 @@
 </div>
 
 <div align="center">
-  <strong>Customer graph for GTM agents.</strong><br/>
-  Every person, conversation, and touchpoint across your GTM tool stack, in one place.<br/>
-  Everything happening inside your GTM, visible to your agents.
+  <strong>The GTM Context API for agents.</strong><br/>
+  Nous unifies fragmented data across your go-to-market tools into a unified customer graph<br/>
+  to make agents context-aware about what is happening inside GTM.
 </div>
 
 <br/>
@@ -33,18 +33,19 @@ Your GTM stack is fragmented. Apollo for prospecting, HubSpot for CRM, Smartlead
 
 Nous resolves the fragmentation into one customer graph your agents can query.
 
+- **Everything in one place.** Every event, every touchpoint, every conversation, in one queryable record.
 - **Identity resolution.** Every contact across every tool, merged into one clean record. No duplicates, no gaps.
-- **Complete timeline.** Every email, call, LinkedIn message, and CRM event in one place. Know exactly where a prospect stands before you act.
-- **Live sync.** Outbound tools, communication tools, and CRM stay in sync.
-- **Agent-ready.** Your agents query the full account in a single MCP call. No data wrangling.
-- **Revenue attribution.** Tie campaigns, channels, and actions directly to pipeline and closed deals.
+- **Built for the terminal.** Run GTM inside the terminal, plug into Claude Code, Codex, or your own agent via MCP.
+- **25+ integrations.** Connects your GTM tools across CRMs, outbound, and LinkedIn.
+- **Always in sync.** Keeps your outbound tools and CRM in sync.
+- **A smarter ICP.** Build a sharper ICP model by analyzing what drives wins and losses over time.
 
 ## Features
 
 | Feature | What it does |
 |---|---|
-| **Account record** | Full context and activity history per person across every channel |
-| **MCP connector** | One call returns the complete account record to any MCP-compatible agent |
+| **Unified customer graph** | Every person, conversation, and touchpoint at an account, in one queryable record |
+| **The Context API** | One call returns the whole account to any agent, over MCP or REST |
 | **ICP scoring** | Scores contacts against your ICP as new signals arrive |
 | **Inbound enrichment** | Cleans and enriches inbound leads before they hit your CRM |
 | **Pattern analysis** | Reports on wins, losses, and the campaigns actually driving pipeline |

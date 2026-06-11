@@ -65,7 +65,7 @@ export default function PrivacyPolicy() {
           </div>
 
           <Section t={t} title="1. Introduction">
-            <p style={S.body(t)}>Nous ("we," "our," or "us") is committed to protecting your privacy. This Privacy Policy explains how we collect, use, and safeguard your information when you use Nous — the memory layer for GTM agents — and related services at opennous.cloud.</p>
+            <p style={S.body(t)}>Nous ("we," "our," or "us") is committed to protecting your privacy. This Privacy Policy explains how we collect, use, and safeguard your information when you use Nous — the GTM Context API for agents — and related services at opennous.cloud.</p>
             <p style={S.body(t)}>By using the Service, you agree to the collection and use of information in accordance with this policy.</p>
           </Section>
 

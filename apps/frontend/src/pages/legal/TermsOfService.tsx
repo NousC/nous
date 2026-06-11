@@ -35,12 +35,12 @@ export default function TermsOfService() {
           </div>
 
           <Section t={t} title="1. Agreement to Terms">
-            <p style={S.body(t)}>These Terms of Service ("Terms") constitute a legally binding agreement between you and Nous governing your access to and use of Nous — the memory layer for GTM agents — including opennous.cloud, the MCP server, and related APIs (collectively, the "Service").</p>
+            <p style={S.body(t)}>These Terms of Service ("Terms") constitute a legally binding agreement between you and Nous governing your access to and use of Nous — the GTM Context API for agents — including opennous.cloud, the MCP server, and related APIs (collectively, the "Service").</p>
             <p style={S.body(t)}>By accessing or using the Service, you agree to be bound by these Terms. If you do not agree, you may not use the Service.</p>
           </Section>
 
           <Section t={t} title="2. Description of Service">
-            <p style={S.body(t)}>Nous is the memory layer for GTM agents — a hosted memory and signal layer for AI agents running sales and marketing workflows. The Service enables users to:</p>
+            <p style={S.body(t)}>Nous is the GTM Context API for agents — a hosted memory and signal layer for AI agents running sales and marketing workflows. The Service enables users to:</p>
             <ul style={{ listStyle: "none", padding: 0, display: "flex", flexDirection: "column", gap: "6px" }}>
               {["Store and retrieve structured memory about contacts and companies via MCP or REST API","Ingest signals from connected tools (email, LinkedIn, CRM, analytics)","Run AI-powered memory synthesis, enrichment, and research","Expose persistent context to AI agents via the Nous MCP server","Collaborate across workspaces with unlimited team members"].map(i => <Li key={i} t={t}>{i}</Li>)}
             </ul>
