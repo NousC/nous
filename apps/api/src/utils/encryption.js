@@ -62,24 +62,26 @@ export function encrypt(data) {
 export function decrypt(encryptedData) {
   try {
     const key = getEncryptionKey();
-    
-    // Parse the encrypted data
-    const parts = encryptedData.split(':');
-    if (parts.length !== 3) {
-      throw new Error('Invalid encrypted data format');
+    const parts = String(encryptedData).split(':');
+
+    // CBC format (iv:data) — what the workflow-provider connect flow writes for
+    // BYOK keys (Prospeo/Apollo/MillionVerifier/NeverBounce). Must be handled
+    // here or those keys can't be read back (verify saw "no verifier connected").
+    if (parts.length === 2 && /^[0-9a-f]{32}$/i.test(parts[0])) {
+      const decipher = crypto.createDecipheriv('aes-256-cbc', key, Buffer.from(parts[0], 'hex'));
+      return decipher.update(parts[1], 'hex', 'utf8') + decipher.final('utf8');
     }
 
-    const iv = Buffer.from(parts[0], 'hex');
-    const encrypted = parts[1];
-    const tag = Buffer.from(parts[2], 'hex');
+    // GCM format (iv:data:tag).
+    if (parts.length === 3) {
+      const iv = Buffer.from(parts[0], 'hex');
+      const tag = Buffer.from(parts[2], 'hex');
+      const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
+      decipher.setAuthTag(tag);
+      return decipher.update(parts[1], 'hex', 'utf8') + decipher.final('utf8');
+    }
 
-    const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
-    decipher.setAuthTag(tag);
-
-    let decrypted = decipher.update(encrypted, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
-
-    return decrypted;
+    throw new Error('Invalid encrypted data format');
   } catch (error) {
     console.error('[ENCRYPTION] Error decrypting data:', error.message);
     throw new Error('Failed to decrypt data');

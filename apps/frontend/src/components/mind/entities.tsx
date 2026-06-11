@@ -124,8 +124,8 @@ export function ActivityIcon({ source, type }: { source: string | null; type: st
   if (s === "cal_com"         || s === "cal.com" || t.includes("cal.com")) return logo("/provider-logos/cal_com.svg");
   if (s === "apollo"          || t.includes("apollo"))            return logo("/provider-logos/apollo.svg");
   if (s === "prospeo"         || t.includes("prospeo"))           return logo("/provider-logos/prospeo.svg");
-  if (s === "millionverifier" || t.includes("millionverifier"))   return logo("/provider-logos/millionverifier.svg");
-  if (s === "neverbounce"     || t.includes("neverbounce"))       return logo("/provider-logos/neverbounce.svg");
+  if (s === "millionverifier" || t.includes("millionverifier"))   return logo("/provider-logos/millionverifier.png");
+  if (s === "neverbounce"     || t.includes("neverbounce"))       return logo("/provider-logos/neverbounce.png");
   if (t.includes("meeting")   || t.includes("call"))              return <Phone className="w-3.5 h-3.5 text-muted-foreground/45 flex-shrink-0" />;
   if (t.includes("note")      || t.includes("manual"))            return <FileText className="w-3.5 h-3.5 text-muted-foreground/45 flex-shrink-0" />;
   return <MessageSquare className="w-3.5 h-3.5 text-muted-foreground/30 flex-shrink-0" />;
@@ -154,8 +154,8 @@ const LOGO_FALLBACK: Record<string, string> = {
   emailbison: "/provider-logos/emailbison.png",
   heyreach: "/provider-logos/heyreach.png",
   smartlead: "/provider-logos/smartlead.png",
-  millionverifier: "/provider-logos/millionverifier.svg",
-  neverbounce: "/provider-logos/neverbounce.svg",
+  millionverifier: "/provider-logos/millionverifier.png",
+  neverbounce: "/provider-logos/neverbounce.png",
 };
 
 // Logos whose marks are predominantly black/dark — they need a light tile.
