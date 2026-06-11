@@ -19,6 +19,7 @@ import { resolveOutcomes } from './workers/mindOutcomes.mjs';
 import { processLeadReplies } from './workers/leadReplies.mjs';
 import { runScorecardLoop } from './workers/scorecardLoop.mjs';
 import { processClaimJobs } from './workers/claimEngine.mjs';
+import { processBulkLeadJobs } from './workers/bulkLeadJobs.mjs';
 import { scoreEntities } from './workers/scoreEntities.mjs';
 import { processEmbeddings } from './workers/embeddings.mjs';
 import { runCrmAutoSync } from './workers/crmSync.mjs';
@@ -210,6 +211,12 @@ console.log('[WORKER] Trigger delivery — every 30 seconds');
 // a new observation pulls the belief back toward truth. See docs/v2-build-plan.md.
 cron.schedule('* * * * *', processClaimJobs);
 console.log('[WORKER] Claim-derivation engine — every minute');
+
+// ── Bulk enrich / verify jobs — every 20 seconds ─────────────────────────────
+// Drains lead_bulk_jobs (enqueued by the API for large enrich/verify selections)
+// in resumable chunks, advancing `processed` so the UI shows live progress.
+cron.schedule('*/20 * * * * *', processBulkLeadJobs);
+console.log('[WORKER] Bulk enrich/verify jobs — every 20 seconds');
 
 // ── Scorecard prediction-write — every 10 minutes ────────────────────────────
 // Stakes an `icp_fit` prediction on every person-entity that has claims but no

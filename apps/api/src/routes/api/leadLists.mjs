@@ -351,46 +351,73 @@ leadListsRouter.patch('/:id/leads/:leadId', async (req, res) => {
   }
 });
 
+// Sync (inline) cap per request; larger selections go async via a bulk job.
+const MAX_ENRICH = 200;
+const MAX_BULK = 5000; // hard ceiling on a single background job
+
+// PostgREST IN-lists can't hold thousands of ids — fetch leads in URL-safe chunks.
+async function fetchLeadsByIds(supabase, workspaceId, listId, ids, columns) {
+  const out = [];
+  for (let i = 0; i < ids.length; i += 200) {
+    const { data } = await supabase.from('leads').select(columns)
+      .eq('workspace_id', workspaceId).eq('lead_list_id', listId).in('id', ids.slice(i, i + 200));
+    if (data) out.push(...data);
+  }
+  return out;
+}
+
+// Latest observation timestamp per entity for a method ('enrichment'|'verification'), chunked.
+async function lastRunByEntity(supabase, workspaceId, method, entityIds) {
+  const map = new Map();
+  for (let i = 0; i < entityIds.length; i += 200) {
+    const { data } = await supabase.from('observations').select('entity_id, observed_at')
+      .eq('workspace_id', workspaceId).eq('method', method)
+      .in('entity_id', entityIds.slice(i, i + 200)).order('observed_at', { ascending: false });
+    for (const o of data || []) if (!map.has(o.entity_id)) map.set(o.entity_id, o.observed_at);
+  }
+  return map;
+}
+
+// Enqueue an async bulk enrich/verify job; the worker (bulkLeadJobs) drains it.
+async function enqueueBulkJob(supabase, { workspaceId, listId, kind, provider, ids, createdBy }) {
+  const { data, error } = await supabase.from('lead_bulk_jobs').insert({
+    workspace_id: workspaceId, lead_list_id: listId, kind, provider: provider || null,
+    total: ids.length, lead_ids: ids, created_by: createdBy || null,
+  }).select('id').single();
+  if (error) throw error;
+  return data.id;
+}
+
 // POST /api/lead-lists/:id/enrich — find emails for selected leads (single or bulk)
 // via the workspace's own Prospeo/Apollo key. Capped to the plan's remaining
 // enrichment allowance; writes email + verification status back onto each lead.
-const MAX_ENRICH = 200;
 leadListsRouter.post('/:id/enrich', requireEnrichmentQuota, async (req, res) => {
   try {
     const supabase = getSupabaseClient();
     const workspaceId = req.body.workspaceId || req.workspaceId;
-    const ids = Array.isArray(req.body.ids) ? req.body.ids.slice(0, MAX_ENRICH) : [];
+    const ids = Array.isArray(req.body.ids) ? req.body.ids.slice(0, MAX_BULK) : [];
     if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
     if (ids.length === 0) return res.status(400).json({ error: 'ids array required' });
 
+    // Large selections run async — enqueue a job the worker drains with live
+    // progress, instead of holding this request open for thousands of calls.
+    if (req.body.background) {
+      const jobId = await enqueueBulkJob(supabase, {
+        workspaceId, listId: req.params.id, kind: 'enrich', ids, createdBy: req.userId,
+      });
+      return res.json({ job_id: jobId, status: 'pending', total: ids.length });
+    }
+
     // Cap to the remaining monthly allowance (Infinity on self-host / BYOK).
     const cap = typeof req.enrichRemaining === 'number' ? req.enrichRemaining : Infinity;
-    const { data: leads } = await supabase
-      .from('leads')
-      .select('id, workspace_id, email, linkedin_url, name, company, domain, email_status')
-      .eq('workspace_id', workspaceId).eq('lead_list_id', req.params.id).in('id', ids);
+    const leads = await fetchLeadsByIds(supabase, workspaceId, req.params.id, ids,
+      'id, workspace_id, email, linkedin_url, name, company, domain, email_status');
 
-    // Reuse-gate — never re-pay to verify a lead we already enriched recently.
-    // The entity is workspace-global, so a lead already verified in ANOTHER list
-    // reuses that result here for free. "Recently" = within ENRICH_STALE_DAYS;
-    // older than that an email may have changed (job move, etc.), so we re-verify.
-    // The enrichment date comes straight off the append-only enrichment
-    // observations (method='enrichment') — no extra bookkeeping table needed.
+    // Reuse-gate — never re-pay to enrich a lead we processed recently. The date
+    // comes off the append-only enrichment observations (method='enrichment').
     const ENRICH_STALE_DAYS = 90;
     const staleBefore = Date.now() - ENRICH_STALE_DAYS * 86400000;
-    const lastEnriched = new Map();
-    if ((leads || []).length) {
-      const { data: enrichObs } = await supabase
-        .from('observations')
-        .select('entity_id, observed_at')
-        .eq('workspace_id', workspaceId)
-        .eq('method', 'enrichment')
-        .in('entity_id', (leads || []).map(l => l.id))
-        .order('observed_at', { ascending: false });
-      for (const o of enrichObs || []) {
-        if (!lastEnriched.has(o.entity_id)) lastEnriched.set(o.entity_id, o.observed_at);
-      }
-    }
+    const lastEnriched = await lastRunByEntity(supabase, workspaceId, 'enrichment', (leads || []).map(l => l.id));
 
     // Classify each lead the SAME way the run loop below does, so a dry-run
     // preview is exact. A lead is chargeable only if it has an identifier to
@@ -418,7 +445,7 @@ leadListsRouter.post('/:id/enrich', requireEnrichmentQuota, async (req, res) => 
       const c = classify(l);
       if (c === 'no_identifier') { skippedNoId++; continue; }
       if (c === 'reused') { skippedVerified++; continue; }
-      if (enriched >= cap) { skippedQuota++; continue; }
+      if (enriched >= Math.min(cap, MAX_ENRICH)) { skippedQuota++; continue; }
       const [first, ...rest] = (l.name || '').trim().split(' ');
       const contact = {
         id: l.id, workspace_id: l.workspace_id, email: l.email, linkedin_url: l.linkedin_url,
@@ -464,7 +491,7 @@ leadListsRouter.post('/:id/verify', requireEnrichmentQuota, async (req, res) => 
   try {
     const supabase = getSupabaseClient();
     const workspaceId = req.body.workspaceId || req.workspaceId;
-    const ids = Array.isArray(req.body.ids) ? req.body.ids.slice(0, MAX_VERIFY) : [];
+    const ids = Array.isArray(req.body.ids) ? req.body.ids.slice(0, MAX_BULK) : [];
     if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
     if (ids.length === 0) return res.status(400).json({ error: 'ids array required' });
 
@@ -473,30 +500,25 @@ leadListsRouter.post('/:id/verify', requireEnrichmentQuota, async (req, res) => 
     const connected = await listConnectedVerifiers(supabase, workspaceId);
     if (connected.length === 0) return res.status(409).json({ error: 'no_verifier_connected' });
 
+    // Large selections run async — enqueue a job the worker drains with live
+    // progress. Honour the provider the user picked in the modal.
+    if (req.body.background) {
+      const provider = connected.includes(req.body.provider) ? req.body.provider : connected[0];
+      const jobId = await enqueueBulkJob(supabase, {
+        workspaceId, listId: req.params.id, kind: 'verify', provider, ids, createdBy: req.userId,
+      });
+      return res.json({ job_id: jobId, status: 'pending', total: ids.length, provider });
+    }
+
     const cap = typeof req.enrichRemaining === 'number' ? req.enrichRemaining : Infinity;
-    const { data: leads } = await supabase
-      .from('leads')
-      .select('id, workspace_id, email, name')
-      .eq('workspace_id', workspaceId).eq('lead_list_id', req.params.id).in('id', ids);
+    const leads = await fetchLeadsByIds(supabase, workspaceId, req.params.id, ids,
+      'id, workspace_id, email, name');
 
     // Reuse-gate — never re-pay to re-verify within VERIFY_STALE_DAYS. The last
-    // verification date comes off the append-only verification observations
-    // (method='verification'), the same pattern as the enrich reuse-gate.
+    // verification date comes off the append-only verification observations.
     const VERIFY_STALE_DAYS = 90;
     const staleBefore = Date.now() - VERIFY_STALE_DAYS * 86400000;
-    const lastVerified = new Map();
-    if ((leads || []).length) {
-      const { data: verObs } = await supabase
-        .from('observations')
-        .select('entity_id, observed_at')
-        .eq('workspace_id', workspaceId)
-        .eq('method', 'verification')
-        .in('entity_id', (leads || []).map(l => l.id))
-        .order('observed_at', { ascending: false });
-      for (const o of verObs || []) {
-        if (!lastVerified.has(o.entity_id)) lastVerified.set(o.entity_id, o.observed_at);
-      }
-    }
+    const lastVerified = await lastRunByEntity(supabase, workspaceId, 'verification', (leads || []).map(l => l.id));
 
     // Pre-check: a lead is verifiable only if it HAS an email and wasn't verified
     // recently. Same classification the run loop uses, so the preview is exact.
@@ -529,7 +551,7 @@ leadListsRouter.post('/:id/verify', requireEnrichmentQuota, async (req, res) => 
       const c = classify(l);
       if (c === 'no_email') { skippedNoEmail++; continue; }
       if (c === 'reused') { skippedRecent++; continue; }
-      if (deliverable + risky + undeliverable >= cap) { skippedQuota++; continue; }
+      if (deliverable + risky + undeliverable >= Math.min(cap, MAX_VERIFY)) { skippedQuota++; continue; }
       try {
         const status = await verifyLead(supabase, verifier, l);
         if (status === 'DELIVERABLE')      deliverable++;
@@ -556,6 +578,49 @@ leadListsRouter.post('/:id/verify', requireEnrichmentQuota, async (req, res) => 
     });
   } catch (err) {
     console.error('[POST /api/lead-lists/:id/verify]', err);
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
+// GET /api/lead-lists/:id/jobs/active — the latest unfinished bulk job for this
+// list, so the frontend can resume the progress bar after a reload. Returns
+// { job: null } when none is running.
+leadListsRouter.get('/:id/jobs/active', async (req, res) => {
+  try {
+    const supabase = getSupabaseClient();
+    const workspaceId = req.query.workspaceId || req.workspaceId;
+    if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
+    const { data, error } = await supabase
+      .from('lead_bulk_jobs')
+      .select('id, kind, provider, status, total, processed, result, created_at')
+      .eq('workspace_id', workspaceId).eq('lead_list_id', req.params.id)
+      .in('status', ['pending', 'running'])
+      .order('created_at', { ascending: false }).limit(1);
+    if (error?.code === '42P01' || error?.code === 'PGRST205') return res.json({ job: null });
+    if (error) throw error;
+    return res.json({ job: data?.[0] || null });
+  } catch (err) {
+    console.error('[GET /api/lead-lists/:id/jobs/active]', err);
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
+// GET /api/lead-lists/:id/jobs/:jobId — poll one bulk job's progress/result.
+leadListsRouter.get('/:id/jobs/:jobId', async (req, res) => {
+  try {
+    const supabase = getSupabaseClient();
+    const workspaceId = req.query.workspaceId || req.workspaceId;
+    if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
+    const { data, error } = await supabase
+      .from('lead_bulk_jobs')
+      .select('id, kind, provider, status, total, processed, result, error, created_at, finished_at')
+      .eq('workspace_id', workspaceId).eq('lead_list_id', req.params.id).eq('id', req.params.jobId)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return res.status(404).json({ error: 'not_found' });
+    return res.json({ job: data });
+  } catch (err) {
+    console.error('[GET /api/lead-lists/:id/jobs/:jobId]', err);
     return res.status(500).json({ error: 'internal_error' });
   }
 });

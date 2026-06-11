@@ -489,6 +489,30 @@ CREATE TABLE claim_jobs (
 );
 CREATE INDEX claim_jobs_pending ON claim_jobs(enqueued_at) WHERE picked_at IS NULL;
 
+-- Async bulk enrich / verify jobs for lead lists (drained by workers/bulkLeadJobs.mjs).
+-- lead_list_id is a plain UUID (leads/lead_lists are views). See migration
+-- 2026_06_11_lead_bulk_jobs.sql for the full rationale.
+CREATE TABLE lead_bulk_jobs (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  workspace_id  UUID NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  lead_list_id  UUID NOT NULL,
+  kind          TEXT NOT NULL CHECK (kind IN ('enrich', 'verify')),
+  provider      TEXT,
+  status        TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'complete', 'failed')),
+  total         INT  NOT NULL DEFAULT 0,
+  processed     INT  NOT NULL DEFAULT 0,
+  result        JSONB,
+  lead_ids      UUID[] NOT NULL DEFAULT '{}',
+  error         TEXT,
+  created_by    UUID,
+  locked_at     TIMESTAMPTZ,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  started_at    TIMESTAMPTZ,
+  finished_at   TIMESTAMPTZ
+);
+CREATE INDEX lead_bulk_jobs_pickup ON lead_bulk_jobs(created_at) WHERE status IN ('pending', 'running');
+CREATE INDEX lead_bulk_jobs_list   ON lead_bulk_jobs(lead_list_id, created_at DESC);
+
 CREATE OR REPLACE FUNCTION enqueue_claim_recompute()
 RETURNS TRIGGER LANGUAGE plpgsql AS $$
 BEGIN

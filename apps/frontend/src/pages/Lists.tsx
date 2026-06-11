@@ -624,7 +624,13 @@ export default function Lists() {
   const [opPreview, setOpPreview] = useState<OpPreview | null>(null);
   const [opLoading, setOpLoading] = useState(false);
   const [verifyProvider, setVerifyProvider] = useState("");
-  // The true selection size (the run is capped server-side; see modal note).
+  // Selections above this run async as a background job (worker drains with
+  // live progress); at/under it they run inline in the request.
+  const SYNC_MAX = 200;
+  type BulkJob = { id: string; kind: string; status: string; total: number; processed: number; provider?: string; result?: any };
+  const [bulkJob, setBulkJob] = useState<BulkJob | null>(null);
+  const jobActive = !!bulkJob && (bulkJob.status === "pending" || bulkJob.status === "running");
+  // The true selection size.
   const hasSelection = selected.size > 0 || selectAllMatching;
   const selCount: number = selectAllMatching ? (matchingTotal ?? 0) : selected.size;
 
@@ -654,9 +660,75 @@ export default function Lists() {
   async function runConfirmed() {
     const op = confirmOp;
     setConfirmOp(null);
+    if (!op) return;
+    // Large selections → async background job; small → inline run.
+    if (selCount > SYNC_MAX) { await startBulkJob(op); return; }
     if (op === "enrich") await enrichSelected();
-    else if (op === "verify") await verifySelected(verifyProvider || undefined);
+    else await verifySelected(verifyProvider || undefined);
   }
+
+  // Kick off an async bulk job and start tracking its progress.
+  async function startBulkJob(op: "enrich" | "verify") {
+    if (!activeId) return;
+    try {
+      const ids = await resolveSelectedIds();
+      const body: Record<string, unknown> = { workspaceId, ids, background: true };
+      if (op === "verify") body.provider = verifyProvider || undefined;
+      const res = await fetch(`${apiUrl}/api/lead-lists/${activeId}/${op}`, {
+        method: "POST", headers: { ...authHeaders, "Content-Type": "application/json" }, body: JSON.stringify(body),
+      });
+      if (res.status === 409) { toast("Connect MillionVerifier or NeverBounce in Integrations to verify emails."); return; }
+      if (!res.ok) { toast("Couldn't start — try again."); return; }
+      const d = await res.json();
+      clearSelection();
+      setBulkJob({ id: d.job_id, kind: op, status: "pending", total: d.total, processed: 0, provider: d.provider });
+      toast.success(`${op === "enrich" ? "Enriching" : "Verifying"} ${Number(d.total).toLocaleString()} in the background…`);
+    } catch { toast("Couldn't start — try again."); }
+  }
+
+  // Poll the active bulk job until it finishes; refresh rows + toast on completion.
+  useEffect(() => {
+    if (!activeId || !jobActive || !bulkJob) return;
+    const jobId = bulkJob.id;
+    const t = setInterval(async () => {
+      try {
+        const res = await fetch(`${apiUrl}/api/lead-lists/${activeId}/jobs/${jobId}?workspaceId=${workspaceId}`, { headers: authHeaders });
+        if (!res.ok) return;
+        const { job } = await res.json();
+        if (!job) return;
+        setBulkJob(job);
+        if (job.status === "complete" || job.status === "failed") {
+          clearInterval(t);
+          clearLeadsCache();
+          await loadLeads(activeId, page, icpFilter, sort);
+          if (job.status === "complete") {
+            const r = job.result || {};
+            if (job.kind === "verify") {
+              const v = (r.deliverable || 0) + (r.risky || 0) + (r.undeliverable || 0);
+              toast.success(`Verified ${v.toLocaleString()} — ${r.deliverable || 0} deliverable · ${r.risky || 0} risky · ${r.undeliverable || 0} undeliverable`);
+            } else {
+              toast.success(`Enriched ${(r.enriched || 0).toLocaleString()} lead${(r.enriched || 0) === 1 ? "" : "s"}`);
+            }
+          } else {
+            toast(job.error === "no_verifier_connected" ? "No verifier connected — add one in Integrations." : "Bulk job failed — try again.");
+          }
+          setTimeout(() => setBulkJob(null), 4000);
+        }
+      } catch { /* transient */ }
+    }, 2500);
+    return () => clearInterval(t);
+  }, [activeId, workspaceId, jobActive, bulkJob?.id]);
+
+  // On list switch, resume any in-flight bulk job's progress bar.
+  useEffect(() => {
+    if (!activeId || !workspaceId) return;
+    let cancelled = false;
+    fetch(`${apiUrl}/api/lead-lists/${activeId}/jobs/active?workspaceId=${workspaceId}`, { headers: authHeaders })
+      .then(r => (r.ok ? r.json() : { job: null }))
+      .then(({ job }) => { if (!cancelled) setBulkJob(job || null); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [activeId, workspaceId]);
 
   // Load the connected sequencer's campaigns when the export modal opens.
   useEffect(() => {
@@ -1295,6 +1367,18 @@ export default function Lists() {
               <span className="text-[12px] text-muted-foreground/50">Select leads to enrich or verify</span>
             )}
             <div className="mr-auto" />
+            {/* Live progress for an async bulk enrich/verify job */}
+            {jobActive && bulkJob && (
+              <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
+                <span className="inline-block w-28 h-1.5 rounded-full bg-muted overflow-hidden">
+                  <span className="block h-full bg-foreground transition-all"
+                    style={{ width: `${bulkJob.total ? Math.min(100, Math.round((bulkJob.processed / bulkJob.total) * 100)) : 0}%` }} />
+                </span>
+                <span className="tabular-nums">
+                  {bulkJob.kind === "verify" ? "Verifying" : "Enriching"} {bulkJob.processed.toLocaleString()}/{bulkJob.total.toLocaleString()}
+                </span>
+              </div>
+            )}
             {hasSelection && (
               <div className="relative">
                 <button
@@ -1308,12 +1392,12 @@ export default function Lists() {
                 {exportOpen && exportScope === "selected" && renderExportMenu()}
               </div>
             )}
-            <button onClick={() => openConfirm("enrich")} disabled={busy || !hasSelection}
+            <button onClick={() => openConfirm("enrich")} disabled={busy || jobActive || !hasSelection}
               title="Find missing emails for the selected leads (Prospeo / Apollo)"
               className="h-7 px-2.5 rounded-md text-[12px] font-medium border border-border text-foreground/80 hover:bg-muted/50 transition-colors disabled:opacity-40">
               {busy ? "Enriching…" : "Enrich"}
             </button>
-            <button onClick={() => openConfirm("verify")} disabled={busy || !hasSelection}
+            <button onClick={() => openConfirm("verify")} disabled={busy || jobActive || !hasSelection}
               title="Validate email deliverability for the selected leads (MillionVerifier / NeverBounce)"
               className="h-7 px-2.5 rounded-md text-[12px] font-medium border border-border text-foreground/80 hover:bg-muted/50 transition-colors disabled:opacity-40">
               {busy ? "Verifying…" : "Verify"}
@@ -1665,9 +1749,10 @@ export default function Lists() {
                   <p className="text-[11px] text-muted-foreground/70 mb-1">
                     Runs on your own connected key, billed at your provider's rate. Recently {confirmOp === "enrich" ? "enriched" : "verified"} leads are reused free.
                   </p>
-                  {selCount > opPreview.total && (
-                    <p className="text-[11px] text-amber-600 mb-1">
-                      Processing the first {opPreview.total.toLocaleString()} of {selCount.toLocaleString()} selected. Bulk batching for larger lists is coming.
+                  {selCount > SYNC_MAX && (
+                    <p className="text-[11px] text-muted-foreground/70 mb-1">
+                      Runs in the background with a live progress bar — you can keep working.
+                      {selCount > opPreview.total && ` Processing the first ${opPreview.total.toLocaleString()} of ${selCount.toLocaleString()}.`}
                     </p>
                   )}
 
