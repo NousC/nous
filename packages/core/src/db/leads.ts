@@ -78,7 +78,8 @@ export async function listLeadLists(
 ): Promise<LeadList[]> {
   // `lead_lists` and `leads` are v2 VIEWs (Phase 5), so PostgREST can't embed
   // `leads(count)` across them — there's no FK between two views. Fetch the
-  // lists, then count each list's leads with a separate head+count query.
+  // lists, then get every list's count in ONE grouped query via the
+  // `lead_list_counts` RPC (was a head+count query per list — N round-trips).
   const { data, error } = await supabase
     .from('lead_lists')
     .select(LEAD_LIST_COLUMNS)
@@ -86,16 +87,17 @@ export async function listLeadLists(
     .order('created_at', { ascending: false });
   if (error) throw error;
   const lists = (data || []) as unknown as LeadList[];
-  return Promise.all(
-    lists.map(async list => {
-      const { count } = await supabase
-        .from('leads')
-        .select('*', { count: 'exact', head: true })
-        .eq('workspace_id', workspaceId)
-        .eq('lead_list_id', (list as unknown as { id: string }).id);
-      return { ...list, lead_count: count ?? 0 };
-    }),
+  const { data: countRows, error: countError } = await supabase
+    .rpc('lead_list_counts', { p_ws: workspaceId });
+  if (countError) throw countError;
+  const counts = new Map<string, number>(
+    ((countRows || []) as { lead_list_id: string; lead_count: number }[])
+      .map(r => [r.lead_list_id, Number(r.lead_count) || 0]),
   );
+  return lists.map(list => ({
+    ...list,
+    lead_count: counts.get((list as unknown as { id: string }).id) ?? 0,
+  }));
 }
 
 export async function getLeadList(
