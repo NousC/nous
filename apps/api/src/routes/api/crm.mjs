@@ -31,7 +31,7 @@ function decryptCred(encryptedValue) {
 }
 
 // Resolve a CRM token for (workspace, provider) from its sync-config connection.
-async function resolveCrmTokenForProvider(supabase, workspaceId, provider) {
+export async function resolveCrmTokenForProvider(supabase, workspaceId, provider) {
   const { data: cfg } = await supabase.from('crm_sync_configs')
     .select('connection_id').eq('workspace_id', workspaceId).eq('provider', provider).maybeSingle();
   if (!cfg?.connection_id) return null;

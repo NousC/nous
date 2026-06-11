@@ -7,10 +7,12 @@ import {
   createTrigger,
   TRIGGER_EVENTS,
   countHygieneProposals,
+  syncCrmProvider,
 } from '@nous/core';
 import { seedScorecardFromMemory } from '../../lib/scorecardSeed.mjs';
 import { requireFeature, resolveTeamAndPlan, hasFeature, isSelfHosted } from '../../lib/access.mjs';
 import { testProviderCredentials, encryptCredentials } from '../api/workflowProviders.mjs';
+import { resolveCrmTokenForProvider } from '../api/crm.mjs';
 import { runClosedDeals } from '../api/mind.mjs';
 
 // ── Workspace status + onboarding — the agent's setup surface ──────────────────
@@ -552,6 +554,64 @@ workspaceStatusV2Router.post('/crm-sync', requireFeature('crmSync'), async (req,
     return res.json({ ok: true, config: data });
   } catch (err) {
     console.error('[POST /v2/workspace/crm-sync]', err);
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
+// ── POST /v2/workspace/crm-sync-now ──────────────────────────────────────────
+// Agent-callable: run an immediate incremental pull NOW instead of waiting for
+// the daily cron. Same code path (syncCrmProvider) the auto-sync worker uses, so
+// manual and scheduled pulls stay consistent. CRM must already be configured.
+const SYNC_NOW_PROVIDERS = ['hubspot', 'pipedrive', 'attio'];
+workspaceStatusV2Router.post('/crm-sync-now', requireFeature('crmSync'), async (req, res) => {
+  try {
+    const supabase = getSupabaseClient();
+    const workspaceId = req.workspaceId;
+    const provider = String(req.body?.provider || 'hubspot').toLowerCase();
+    const full = req.body?.full === true;
+    if (provider === 'salesforce') return res.status(400).json({ error: 'salesforce_not_yet_supported' });
+    if (!SYNC_NOW_PROVIDERS.includes(provider)) return res.status(400).json({ error: `unsupported_provider: ${provider}` });
+
+    const { data: cfg } = await supabase.from('crm_sync_configs')
+      .select('id, last_synced_at, contacts_synced')
+      .eq('workspace_id', workspaceId).eq('provider', provider).maybeSingle();
+    if (!cfg) return res.status(400).json({ error: 'sync_not_configured', message: `Configure ${provider} sync first with configure_crm_sync.` });
+
+    const token = await resolveCrmTokenForProvider(supabase, workspaceId, provider);
+    if (!token) return res.status(400).json({ error: 'crm_not_connected', message: `${provider} isn't connected. Connect it on the Integrations page first.` });
+
+    const startedAt = new Date().toISOString();
+    // full=true re-fetches everything; otherwise resume from the last cursor.
+    const since = full ? null : (cfg.last_synced_at || null);
+    let result;
+    try {
+      result = await syncCrmProvider(supabase, workspaceId, provider, token, since);
+    } catch (err) {
+      return res.status(502).json({ error: 'provider_fetch_failed', message: err.message });
+    }
+
+    // Advance the cursor only on a clean run, so a partial failure retries the
+    // same window next time (no missed records).
+    const patch = {
+      contacts_synced: (cfg.contacts_synced || 0) + result.contacts.inserted + result.companies.inserted,
+      updated_at: new Date().toISOString(),
+    };
+    if (result.errors.length === 0) patch.last_synced_at = startedAt;
+    await supabase.from('crm_sync_configs').update(patch).eq('id', cfg.id);
+
+    const fetched = result.contacts.fetched + result.companies.fetched + result.deals.fetched;
+    const created = result.contacts.inserted + result.companies.inserted + result.deals.inserted;
+    const updated = result.contacts.updated + result.companies.updated + result.deals.updated;
+    await supabase.from('workspace_system_log').insert({
+      workspace_id: workspaceId, source: provider,
+      event_type: result.errors.length ? 'sync_partial' : 'sync_complete',
+      summary: `Pulled ${fetched} from ${provider} — ${created} new, ${updated} updated${result.errors.length ? ` · ${result.errors.length} errors` : ''}`,
+      metadata: { trigger: 'agent', ...result },
+    }).then(() => {}, () => {});
+
+    return res.json({ ok: true, provider, fetched, created, updated, errors: result.errors });
+  } catch (err) {
+    console.error('[POST /v2/workspace/crm-sync-now]', err);
     return res.status(500).json({ error: 'internal_error' });
   }
 });

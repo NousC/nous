@@ -39,7 +39,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { get, post } from "./client.js";
 
-export const SERVER_VERSION = "0.29.0";
+export const SERVER_VERSION = "0.30.0";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -823,6 +823,39 @@ export function createServer() {
           return { content: [{ type: "text", text: `${args.provider} isn't connected yet. Tell the user to connect it on the Integrations page, then configure sync.` }] };
         }
         throw e;
+      }
+    }
+  );
+
+  // ===========================================================================
+  // TOOL: sync_crm_now  —  POST /v2/workspace/crm-sync-now
+  // Run an immediate incremental CRM pull right now, instead of waiting for the
+  // daily auto-sync cron — e.g. straight after configure_crm_sync, or whenever
+  // the user wants the latest. Same engine the scheduled sync uses.
+  // ===========================================================================
+  server.tool(
+    "sync_crm_now",
+    "Pull the latest from a connected CRM (HubSpot/Pipedrive/Attio) RIGHT NOW, instead of waiting for " +
+    "the daily auto-sync. Use it just after configure_crm_sync to seed the data, or whenever the user " +
+    "wants an immediate refresh. Incremental by default (only what changed since the last pull); pass " +
+    "full:true to re-fetch everything. The CRM must already be connected and sync configured — if not, " +
+    "it'll tell you to connect/configure first.",
+    {
+      provider: z.enum(["hubspot", "pipedrive", "attio"]).optional().describe("Which connected CRM to pull from (default hubspot)."),
+      full: z.boolean().optional().describe("true = re-fetch everything; default = incremental since the last sync."),
+    },
+    async ({ provider, full }) => {
+      try {
+        const r = await post("/v2/workspace/crm-sync-now", { provider: provider || "hubspot", full: full === true });
+        const errs = (r.errors && r.errors.length) ? ` · ${r.errors.length} error(s)` : "";
+        return { content: [{ type: "text", text:
+          `Pulled from ${r.provider}: ${r.fetched ?? 0} records — ${r.created ?? 0} new, ${r.updated ?? 0} updated${errs}.` }] };
+      } catch (e) {
+        const msg = String(e?.message ?? e);
+        if (/sync_not_configured/.test(msg)) return { content: [{ type: "text", text: `Sync isn't configured for that CRM yet — call configure_crm_sync first.` }] };
+        if (/crm_not_connected/.test(msg)) return { content: [{ type: "text", text: `That CRM isn't connected. Tell the user to connect it on the Integrations page, then try again.` }] };
+        if (/salesforce_not_yet_supported/.test(msg)) return { content: [{ type: "text", text: `Salesforce pull isn't supported yet — only HubSpot, Pipedrive, and Attio.` }] };
+        return { content: [{ type: "text", text: `Couldn't sync: ${msg}` }] };
       }
     }
   );
