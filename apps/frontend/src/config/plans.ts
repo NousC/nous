@@ -2,9 +2,11 @@
  * Nous Pricing — single source of truth (frontend mirror of apps/api/src/lib/plans.mjs).
  *
  * Model: monthly subscription, pure-tier. No top-up packs. Run out and upgrade.
- * One metered unit: GTM ops (the live op log). Enrichment is bring-your-own-keys
+ * Two metered units: GTM ops (a flow — the live op log) and records (a stock —
+ * unique people + companies held). Enrichment is bring-your-own-keys
  * (enrichmentsPerMonth: 0 on every plan) — it runs on the workspace's own provider
- * keys, so it is unmetered. Cloud only. Self-hosted bypasses all gating + metering.
+ * keys, so it is unmetered. CRM sync + lead lists are on every cloud plan (cloud-
+ * only on self-host). Self-hosted bypasses all gating + metering.
  *
  * Plan IDs: 'free' | 'starter' | 'pro' | 'growth' | 'scale'.
  * Customer-facing names: Free / Start / Pro / Growth / Agency. Internal ids
@@ -41,6 +43,8 @@ export interface Plan {
   name: string;
   monthlyPriceUsd: number;
   includedOpsPerMonth: number;
+  /** Records (unique people + companies) the plan can hold. */
+  recordsLimit: number;
   enrichmentsPerMonth: number;
   workspaceLimit: number | null; // null = unlimited
   features: PlanFeatures;
@@ -58,13 +62,16 @@ export const PLANS: Record<PlanId, Plan> = {
     name: 'Free',
     monthlyPriceUsd: 0,
     includedOpsPerMonth: 1_000,
+    recordsLimit: 100,
     enrichmentsPerMonth: 0,
     workspaceLimit: 1,
     stripePriceEnv: null,
     features: {
       contextualization: true,
-      crmSync: false,
-      leadLists: false,
+      // CRM sync + lead lists are on every CLOUD plan — tiering is by the ops +
+      // records meters, not feature gates. Cloud-only on self-host (access.mjs).
+      crmSync: true,
+      leadLists: true,
       linkedinEngagement: false,
       publicSignalExtraction: false,
       dedicatedSlack: false,
@@ -77,13 +84,14 @@ export const PLANS: Record<PlanId, Plan> = {
     name: 'Start',
     monthlyPriceUsd: 29,
     includedOpsPerMonth: 10_000,
+    recordsLimit: 1_000,
     enrichmentsPerMonth: 0,
     workspaceLimit: 1,
     stripePriceEnv: 'STRIPE_STARTER_PRICE_ID',
     features: {
       contextualization: true,
-      crmSync: false,
-      leadLists: false,
+      crmSync: true,
+      leadLists: true,
       linkedinEngagement: false,
       publicSignalExtraction: false,
       dedicatedSlack: false,
@@ -96,13 +104,13 @@ export const PLANS: Record<PlanId, Plan> = {
     name: 'Pro',
     monthlyPriceUsd: 99,
     includedOpsPerMonth: 25_000,
+    recordsLimit: 10_000,
     enrichmentsPerMonth: 0,
     workspaceLimit: 1,
     stripePriceEnv: 'STRIPE_PRO_PRICE_ID',
     features: {
       contextualization: true,
-      // Lead lists + LinkedIn engagement unlock here. CRM sync is Growth+.
-      crmSync: false,
+      crmSync: true,
       leadLists: true,
       linkedinEngagement: true,
       publicSignalExtraction: true,
@@ -116,6 +124,7 @@ export const PLANS: Record<PlanId, Plan> = {
     name: 'Growth',
     monthlyPriceUsd: 249,
     includedOpsPerMonth: 100_000,
+    recordsLimit: 100_000,
     enrichmentsPerMonth: 0,
     workspaceLimit: 3,
     stripePriceEnv: 'STRIPE_GROWTH_PRICE_ID',
@@ -141,6 +150,7 @@ export const PLANS: Record<PlanId, Plan> = {
     baseWorkspaces: 5,
     opsPerWorkspace: 100_000,
     includedOpsPerMonth: 500_000,
+    recordsLimit: 100_000, // per client workspace
     enrichmentsPerMonth: 0,
     workspaceLimit: 5,
     stripePriceEnv: 'STRIPE_SCALE_PRICE_ID',
@@ -184,25 +194,26 @@ export function getPlanById(planId: unknown): Plan {
   return getPlan(planId);
 }
 
+/**
+ * Plan card bullets. We show only the three things that scale with a plan:
+ * GTM operations / month, records, and the bring-your-own-keys note. CRM sync,
+ * lead lists, LinkedIn and the full intelligence brain are on every plan, so
+ * they are not per-tier differentiators and are not listed here.
+ */
 export function getPlanFeaturesForDisplay(plan: Plan): string[] {
-  const workspaceLine = plan.perWorkspaceUsd
-    ? `${plan.baseWorkspaces} client workspaces included, then $${plan.perWorkspaceUsd}/mo each`
-    : plan.workspaceLimit === null
-      ? 'Unlimited workspaces'
-      : `${plan.workspaceLimit} workspace${plan.workspaceLimit === 1 ? '' : 's'}`;
+  const recordsLine = plan.perWorkspaceUsd
+    ? `${plan.recordsLimit.toLocaleString()} records per client`
+    : `${plan.recordsLimit.toLocaleString()} records`;
   const items: string[] = [
     `${plan.includedOpsPerMonth.toLocaleString()} GTM operations / month`,
+    recordsLine,
     plan.enrichmentsPerMonth > 0
       ? `${plan.enrichmentsPerMonth.toLocaleString()} enrichments / month`
       : 'Enrichment: bring your own keys',
-    workspaceLine,
   ];
-  // Order mirrors the marketing site: lead db + LinkedIn at Pro, CRM sync at Growth.
-  if (plan.features.leadLists) items.push('Centralized lead database');
-  if (plan.features.linkedinEngagement) items.push('LinkedIn engagement worker');
-  if (plan.features.crmSync) items.push('CRM synchronization');
-  if (plan.features.publicSignalExtraction) items.push('Public signal extraction');
-  if (plan.features.dedicatedSlack) items.push('Dedicated Slack channel');
-  if (plan.features.multiClientDashboard) items.push('Multi-client dashboard');
+  // Partner is sold per client workspace — keep that one structural line.
+  if (plan.perWorkspaceUsd) {
+    items.push(`${plan.baseWorkspaces} client workspaces included, then $${plan.perWorkspaceUsd}/mo each`);
+  }
   return items;
 }

@@ -10,15 +10,11 @@ type PlanInfo = {
   name: string;
   monthlyPriceUsd: number;
   includedOpsPerMonth: number;
+  recordsLimit: number;
   enrichmentsPerMonth: number;
   workspaceLimit: number | null;
   perWorkspaceUsd?: number | null;
   baseWorkspaces?: number | null;
-  crmSync?: boolean;
-  leadLists?: boolean;
-  linkedinEngagement?: boolean;
-  publicSignalExtraction?: boolean;
-  supportTier?: string;
 };
 
 type BillingState = {
@@ -35,6 +31,7 @@ type BillingState = {
     is_comp?: boolean;
   } | null;
   ops?: { used: number; included: number; remaining: number } | null;
+  records?: { used: number; included: number; remaining: number } | null;
   enrichments?: { used: number; included: number; remaining: number } | null;
   allPlans?: PlanInfo[];
 };
@@ -50,20 +47,6 @@ const PLAN_BLURB: Record<string, string> = {
   scale: "For agencies running multiple clients in parallel.",
 };
 
-const SUPPORT_LABEL: Record<string, string> = {
-  community: "Community support",
-  email: "Email support",
-  priority: "Priority support",
-};
-
-// Display-only bullets that the backend does NOT gate on. Driven purely by
-// plan id so we can market a feature before the implementation lands.
-const FRONTEND_ONLY_BULLETS: Record<string, string[]> = {
-  pro: ["Dedicated Slack channel"],
-  growth: ["Dedicated Slack channel"],
-  scale: ["Dedicated Slack channel", "Multi-client dashboard"],
-};
-
 function num(n: number | undefined) {
   return Number(n || 0).toLocaleString();
 }
@@ -73,27 +56,26 @@ function fmtDate(s?: string | null) {
   return new Date(s).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
 }
 
-/** Feature checklist for a plan card. */
+/**
+ * Plan card bullets. Only the three things that scale with a plan: GTM
+ * operations / month, records, and the bring-your-own-keys note. CRM sync,
+ * lead lists, LinkedIn and the full intelligence brain are on every plan, so
+ * they are not listed as per-tier differentiators.
+ */
 function planBullets(p: PlanInfo): string[] {
   const b = [
-    "Unlimited contacts",
     `${num(p.includedOpsPerMonth)} GTM operations / month`,
+    p.perWorkspaceUsd
+      ? `${num(p.recordsLimit)} records per client`
+      : `${num(p.recordsLimit)} records`,
     p.enrichmentsPerMonth > 0
       ? `${num(p.enrichmentsPerMonth)} enrichments / month`
       : "Enrichment: bring your own keys",
-    p.perWorkspaceUsd
-      ? `${p.baseWorkspaces} client workspaces included, then $${p.perWorkspaceUsd}/mo each`
-      : p.workspaceLimit === null
-        ? "Unlimited workspaces"
-        : `${p.workspaceLimit} workspace${p.workspaceLimit === 1 ? "" : "s"}`,
   ];
-  // Order mirrors the marketing site: lead db + LinkedIn at Pro, CRM sync at Growth.
-  if (p.leadLists) b.push("Centralized lead database");
-  if (p.linkedinEngagement) b.push("LinkedIn engagement worker");
-  if (p.crmSync) b.push("CRM synchronization");
-  if (p.publicSignalExtraction) b.push("Public signal extraction");
-  for (const extra of FRONTEND_ONLY_BULLETS[p.id] ?? []) b.push(extra);
-  b.push(SUPPORT_LABEL[p.supportTier ?? "community"] ?? "Community support");
+  // Partner is sold per client workspace — keep that one structural line.
+  if (p.perWorkspaceUsd) {
+    b.push(`${p.baseWorkspaces} client workspaces included, then $${p.perWorkspaceUsd}/mo each`);
+  }
   return b;
 }
 
@@ -255,6 +237,7 @@ export default function UsageBilling() {
   const planId = state.plan;
   const sub = state.subscription;
   const ops = state.ops ?? { used: 0, included: 0, remaining: 0 };
+  const records = state.records ?? { used: 0, included: 0, remaining: 0 };
   const enrich = state.enrichments ?? { used: 0, included: 0, remaining: 0 };
   const apiPlans = state.allPlans ?? [];
 
@@ -323,6 +306,7 @@ export default function UsageBilling() {
           {/* Usage */}
           <div className="p-6 md:p-7 bg-muted/30 border-t md:border-t-0 md:border-l border-border space-y-5">
             <UsageMeter label="GTM operations" used={ops.used} included={ops.included} />
+            <UsageMeter label="Records" used={records.used} included={records.included} />
             <UsageMeter label="Enrichments" used={enrich.used} included={enrich.included} />
             <p className="text-[12px] text-muted-foreground/70 pt-1">
               {periodLabel ? `Current billing period · ${periodLabel}` : "Resets at the start of each month."}
@@ -335,7 +319,7 @@ export default function UsageBilling() {
       <div className="mb-4">
         <h2 className="text-[15px] font-semibold text-foreground">Nous plans</h2>
         <p className="text-[13px] text-muted-foreground mt-0.5">
-          Pure-tier pricing. GTM operations included per plan; enrichment is bring-your-own-keys. No top-up packs or overage charges.
+          Pure-tier pricing. GTM operations and records included per plan; enrichment is bring-your-own-keys. No top-up packs or overage charges.
         </p>
       </div>
 

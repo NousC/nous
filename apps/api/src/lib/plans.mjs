@@ -9,8 +9,11 @@
  * them) but display as "Start" and "Agency". 'growth' is the tier inserted
  * between Pro and Agency.
  *
- * Metered unit:
- *   - ops          — webhooks, MCP/SDK/API calls, scans (the live op log)
+ * Metered units (each with the same warn → 3-day grace → restrict model):
+ *   - ops          — webhooks, MCP/SDK/API calls, scans (the live op log); a flow
+ *   - records      — unique people + companies held in the entity graph; a stock.
+ *                    Lead-list people, CRM contacts and engagers are the same
+ *                    entities rows, so a person in five lists counts once.
  *
  * Enrichment is bring-your-own-keys: no plan includes a managed enrichment
  * allowance (enrichmentsPerMonth: 0). Enrichment runs on the workspace's own
@@ -36,13 +39,17 @@ export const PLANS = {
     name: 'Free',
     monthlyPriceUsd: 0,
     includedOpsPerMonth: 1_000,
+    recordsLimit: 100,
     enrichmentsPerMonth: 0,
     workspaceLimit: 1,
     stripePriceEnv: null,
     features: {
       contextualization: true,
-      crmSync: false,
-      leadLists: false,
+      // CRM sync + lead lists are on every CLOUD plan — tiering is by the ops +
+      // records meters, not feature gates. CLOUD_ONLY_FEATURES still blocks them
+      // on self-host (see access.mjs).
+      crmSync: true,
+      leadLists: true,
       publicSignalExtraction: false,
       supportTier: 'community',
     },
@@ -52,13 +59,14 @@ export const PLANS = {
     name: 'Start',
     monthlyPriceUsd: 29,
     includedOpsPerMonth: 10_000,
+    recordsLimit: 1_000,
     enrichmentsPerMonth: 0,
     workspaceLimit: 1,
     stripePriceEnv: 'STRIPE_STARTER_PRICE_ID',
     features: {
       contextualization: true,
-      crmSync: false,
-      leadLists: false,
+      crmSync: true,
+      leadLists: true,
       publicSignalExtraction: false,
       supportTier: 'email',
     },
@@ -68,13 +76,13 @@ export const PLANS = {
     name: 'Pro',
     monthlyPriceUsd: 99,
     includedOpsPerMonth: 25_000,
+    recordsLimit: 10_000,
     enrichmentsPerMonth: 0,
     workspaceLimit: 1,
     stripePriceEnv: 'STRIPE_PRO_PRICE_ID',
     features: {
       contextualization: true,
-      // Lead lists + LinkedIn engagement unlock here. CRM sync is Growth+.
-      crmSync: false,
+      crmSync: true,
       leadLists: true,
       linkedinEngagement: true,
       publicSignalExtraction: true,
@@ -86,6 +94,7 @@ export const PLANS = {
     name: 'Growth',
     monthlyPriceUsd: 249,
     includedOpsPerMonth: 100_000,
+    recordsLimit: 100_000,
     enrichmentsPerMonth: 0,
     workspaceLimit: 3,
     stripePriceEnv: 'STRIPE_GROWTH_PRICE_ID',
@@ -111,6 +120,7 @@ export const PLANS = {
     baseWorkspaces: 5,
     opsPerWorkspace: 100_000,
     includedOpsPerMonth: 500_000,
+    recordsLimit: 100_000, // per client workspace
     enrichmentsPerMonth: 0,
     workspaceLimit: 5,
     stripePriceEnv: 'STRIPE_SCALE_PRICE_ID',
@@ -314,5 +324,97 @@ export async function getTeamEnrichmentUsage(supabase, teamId, subscription) {
     included,
     remaining: Math.max(0, included - used),
     periodStart: periodStart.toISOString(),
+  };
+}
+
+/**
+ * Records held by a team — unique people + companies in the entity graph across
+ * all the team's workspaces. This is a STOCK (current total), not a per-period
+ * flow, so there is no period filter. Leads, contacts and CRM accounts are the
+ * same `entities` rows (different views), so a person in five lists is counted
+ * once — we count unique humans + companies, never list rows.
+ */
+export async function getTeamRecordsUsage(supabase, teamId, subscription) {
+  const plan = getPlanFromSubscription(subscription);
+
+  const { data: workspaces } = await supabase
+    .from('workspaces')
+    .select('id')
+    .eq('team_id', teamId);
+  const wsIds = (workspaces ?? []).map((w) => w.id);
+
+  let used = 0;
+  if (wsIds.length) {
+    const { count } = await supabase
+      .from('entities')
+      .select('id', { count: 'exact', head: true })
+      .in('workspace_id', wsIds)
+      .in('type', ['person', 'company'])
+      // Exclude 'merged' dedup tombstones — a person merged into another entity
+      // counts once (as the survivor), never twice.
+      .neq('status', 'merged');
+    used = count ?? 0;
+  }
+  const included = plan.recordsLimit;
+
+  return {
+    used,
+    included,
+    remaining: Math.max(0, included - used),
+  };
+}
+
+/**
+ * Records state + grace clock — the stock-meter twin of getTeamOpsState. Same
+ * warn/grace/restricted model and same 3-day window (OPS_GRACE_DAYS), but the
+ * unit is records held (a stock) not ops/month (a flow). "Over" = the team holds
+ * at least as many people+companies as the plan allows. Persists one bit:
+ * team_records_grace.grace_started_at. Records is a stock, so "back under"
+ * happens by pruning or upgrading — the clock clears automatically either way.
+ */
+export async function getTeamRecordsState(supabase, teamId, subscription) {
+  const usage = await getTeamRecordsUsage(supabase, teamId, subscription);
+  const { used, included } = usage;
+  const percentUsed = included > 0 ? Math.round((used / included) * 100) : 0;
+  const over = included > 0 && used >= included;
+
+  const { data: graceRow } = await supabase
+    .from('team_records_grace')
+    .select('grace_started_at')
+    .eq('team_id', teamId)
+    .maybeSingle();
+  let graceStartedAt = graceRow?.grace_started_at ? new Date(graceRow.grace_started_at) : null;
+
+  if (!over) {
+    // Back under (or never over) — clear a stale clock so the next crossing restarts it.
+    if (graceStartedAt) {
+      await supabase
+        .from('team_records_grace')
+        .upsert({ team_id: teamId, grace_started_at: null, updated_at: new Date().toISOString() });
+      graceStartedAt = null;
+    }
+    return {
+      ...usage,
+      percentUsed,
+      state: percentUsed >= OPS_WARN_PCT ? 'warn' : 'ok',
+      graceUntil: null,
+    };
+  }
+
+  // Over the limit — start the clock on first crossing.
+  if (!graceStartedAt) {
+    const now = new Date();
+    await supabase
+      .from('team_records_grace')
+      .upsert({ team_id: teamId, grace_started_at: now.toISOString(), updated_at: now.toISOString() });
+    graceStartedAt = now;
+  }
+  const graceUntil = new Date(graceStartedAt.getTime() + OPS_GRACE_DAYS * DAY_MS);
+  const restricted = Date.now() >= graceUntil.getTime();
+  return {
+    ...usage,
+    percentUsed,
+    state: restricted ? 'restricted' : 'grace',
+    graceUntil: graceUntil.toISOString(),
   };
 }

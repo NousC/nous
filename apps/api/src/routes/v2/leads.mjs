@@ -5,6 +5,7 @@ import {
   updateLead,
   getLeadList,
 } from '@nous/core';
+import { requireRecordsBalance } from '../../lib/access.mjs';
 
 export const leadsV2Router = Router();
 
@@ -108,7 +109,7 @@ leadsV2Router.get('/', async (req, res) => {
 //         is_repeat_contact?, features?, fields? }
 // Workspace-wide dedup on email + normalized linkedin_url is on by default;
 // pass importDuplicates: true to force-insert.
-leadsV2Router.post('/', async (req, res) => {
+leadsV2Router.post('/', requireRecordsBalance, async (req, res) => {
   try {
     const supabase = getSupabaseClient();
     const workspaceId = req.workspaceId;
@@ -133,7 +134,7 @@ leadsV2Router.post('/', async (req, res) => {
 
 // ─── POST /v2/leads/bulk — up to 1000 rows in one call ──────────────────────
 // Same dedup behavior as POST /v2/leads.
-leadsV2Router.post('/bulk', async (req, res) => {
+leadsV2Router.post('/bulk', requireRecordsBalance, async (req, res) => {
   try {
     const supabase = getSupabaseClient();
     const workspaceId = req.workspaceId;

@@ -18,6 +18,7 @@ import {
   getPlanFromSubscription,
   getTeamOpsState,
   getTeamEnrichmentUsage,
+  getTeamRecordsState,
   isSelfHosted,
 } from '../../lib/plans.mjs';
 
@@ -76,9 +77,10 @@ billingRouter.get('/state', verifySupabaseAuth, async (req, res) => {
       .maybeSingle();
 
     const plan = getPlanFromSubscription(subscription);
-    const [ops, enrichments] = await Promise.all([
+    const [ops, enrichments, records] = await Promise.all([
       getTeamOpsState(supabase, team.id, subscription),
       getTeamEnrichmentUsage(supabase, team.id, subscription),
+      getTeamRecordsState(supabase, team.id, subscription),
     ]);
 
     return res.json({
@@ -109,20 +111,24 @@ billingRouter.get('/state', verifySupabaseAuth, async (req, res) => {
         included: enrichments.included,
         remaining: enrichments.remaining,
       },
+      records: {
+        used: records.used,
+        included: records.included,
+        remaining: records.remaining,
+        percentUsed: records.percentUsed,
+        state: records.state,        // 'ok' | 'warn' | 'grace' | 'restricted'
+        graceUntil: records.graceUntil,
+      },
       allPlans: Object.values(PLANS).map((p) => ({
         id: p.id,
         name: p.name,
         monthlyPriceUsd: p.monthlyPriceUsd,
         includedOpsPerMonth: p.includedOpsPerMonth,
+        recordsLimit: p.recordsLimit,
         enrichmentsPerMonth: p.enrichmentsPerMonth,
         workspaceLimit: p.workspaceLimit,
         perWorkspaceUsd: p.perWorkspaceUsd ?? null,
         baseWorkspaces: p.baseWorkspaces ?? null,
-        crmSync: p.features.crmSync,
-        leadLists: p.features.leadLists,
-        linkedinEngagement: p.features.linkedinEngagement ?? false,
-        publicSignalExtraction: p.features.publicSignalExtraction,
-        supportTier: p.features.supportTier,
       })),
     });
   } catch (err) {
