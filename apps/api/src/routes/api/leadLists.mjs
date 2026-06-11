@@ -15,11 +15,13 @@ import {
   deleteLeadList,
   updateLead,
   assertClaims,
+  selectLeadIdsByFilter,
 } from '@nous/core';
 import { hasFeature } from '../../lib/plans.mjs';
 import { requireEnrichmentQuota, requireRecordsBalance } from '../../lib/access.mjs';
-import { enrichContact } from '../../services/enrichment.mjs';
+import { enrichContact, getApolloEnrichmentKey } from '../../services/enrichment.mjs';
 import { getVerifier, verifyLead, listConnectedVerifiers } from '../../services/verification.mjs';
+import { estimateCost } from '../../lib/providerPricing.mjs';
 import { listCampaigns, pushLeads, SEQUENCERS } from '../../services/sequencerPush.mjs';
 
 export const leadListsRouter = Router();
@@ -395,9 +397,14 @@ leadListsRouter.post('/:id/enrich', requireEnrichmentQuota, async (req, res) => 
   try {
     const supabase = getSupabaseClient();
     const workspaceId = req.body.workspaceId || req.workspaceId;
-    const ids = Array.isArray(req.body.ids) ? req.body.ids.slice(0, MAX_BULK) : [];
+    let ids = Array.isArray(req.body.ids) ? req.body.ids.slice(0, MAX_BULK) : [];
     if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
-    if (ids.length === 0) return res.status(400).json({ error: 'ids array required' });
+    // Filter-based selection — the agent (and bulk actions) target "all leads
+    // missing an email / with a domain but no email" without enumerating ids.
+    if (ids.length === 0 && req.body.filter && typeof req.body.filter === 'object') {
+      ids = await selectLeadIdsByFilter(supabase, workspaceId, req.params.id, req.body.filter, MAX_BULK);
+    }
+    if (ids.length === 0) return res.status(400).json({ error: 'ids array or filter required' });
 
     // Large selections run async — enqueue a job the worker drains with live
     // progress, instead of holding this request open for thousands of calls.
@@ -437,7 +444,11 @@ leadListsRouter.post('/:id/enrich', requireEnrichmentQuota, async (req, res) => 
         const c = classify(l);
         if (c === 'chargeable') chargeable++; else if (c === 'reused') reused++; else noId++;
       }
-      return res.json({ preview: true, total: ids.length, chargeable, reused, no_identifier: noId });
+      // Quote the cost in real money via whichever enrichment provider the
+      // workspace uses (Apollo if connected+toggled, else Prospeo).
+      const provider = (await getApolloEnrichmentKey(supabase, workspaceId)) ? 'apollo' : 'prospeo';
+      return res.json({ preview: true, total: ids.length, chargeable, reused, no_identifier: noId,
+        provider, cost: estimateCost(provider, chargeable) });
     }
 
     let enriched = 0, skippedQuota = 0, skippedNoId = 0, skippedVerified = 0;
@@ -491,9 +502,14 @@ leadListsRouter.post('/:id/verify', requireEnrichmentQuota, async (req, res) => 
   try {
     const supabase = getSupabaseClient();
     const workspaceId = req.body.workspaceId || req.workspaceId;
-    const ids = Array.isArray(req.body.ids) ? req.body.ids.slice(0, MAX_BULK) : [];
+    let ids = Array.isArray(req.body.ids) ? req.body.ids.slice(0, MAX_BULK) : [];
     if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
-    if (ids.length === 0) return res.status(400).json({ error: 'ids array required' });
+    // Filter-based selection — the agent targets "all unverified" (has an email,
+    // no verdict yet) without enumerating ids. Defaults to unverified-only.
+    if (ids.length === 0 && req.body.filter && typeof req.body.filter === 'object') {
+      ids = await selectLeadIdsByFilter(supabase, workspaceId, req.params.id, req.body.filter, MAX_BULK);
+    }
+    if (ids.length === 0) return res.status(400).json({ error: 'ids array or filter required' });
 
     // Which verifiers are connected — drives the modal's provider picker and the
     // "connect a verifier" prompt when none exist.
@@ -537,7 +553,11 @@ leadListsRouter.post('/:id/verify', requireEnrichmentQuota, async (req, res) => 
         const c = classify(l);
         if (c === 'chargeable') chargeable++; else if (c === 'reused') reused++; else noEmail++;
       }
-      return res.json({ preview: true, total: ids.length, chargeable, reused, no_email: noEmail, connected_verifiers: connected });
+      // Estimate against the verifier that would actually run (the one the caller
+      // picked if connected, else the MillionVerifier→NeverBounce default).
+      const provider = connected.includes(req.body.provider) ? req.body.provider : connected[0];
+      return res.json({ preview: true, total: ids.length, chargeable, reused, no_email: noEmail,
+        connected_verifiers: connected, provider, cost: estimateCost(provider, chargeable) });
     }
 
     // Resolve the verifier to run with — honour the provider the user picked in

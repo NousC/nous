@@ -39,7 +39,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { get, post } from "./client.js";
 
-export const SERVER_VERSION = "0.28.0";
+export const SERVER_VERSION = "0.29.0";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -1015,6 +1015,116 @@ export function createServer() {
         }
       }
       return { content: [{ type: "text", text: lines.join("\n") }] };
+    }
+  );
+
+  // ===========================================================================
+  // TOOLS: enrich_leads / verify_leads  —  POST /api/lead-lists/:id/enrich|verify
+  // The agent OPERATES the lead list. Both are two-step: a dry-run preview that
+  // quotes the chargeable count + provider + $ estimate (report it to the user
+  // first), then a confirmed run as a background job. Target by `filter` so no
+  // ids are needed (enrich {emailStatus:'none'} = all missing an email; verify
+  // defaults to all unverified). BYOK — the $ is the user's own provider spend.
+  // ===========================================================================
+  const fmtCost = (c) => {
+    if (!c) return "no chargeable records — nothing to spend";
+    const money = c.low === c.high ? `~$${c.low.toFixed(2)}` : `~$${c.low.toFixed(2)}–$${c.high.toFixed(2)}`;
+    return `${money} via ${c.label} (${(c.count ?? 0).toLocaleString()} ${c.action})`;
+  };
+  const LEAD_FILTER_SHAPE = {
+    emailStatus: z.enum(["has", "none", "unverified"]).optional().describe("none = no email yet; unverified = has an email but no verification verdict; has = has any email."),
+    domain: z.enum(["has", "none"]).optional().describe("has = a company domain is known; none = no domain."),
+    icp: z.enum(["true", "false"]).optional().describe("true = ICP-qualified leads only."),
+    status: z.string().optional().describe("Lifecycle: pending | sent | replied | bounced."),
+    source: z.string().optional().describe("Substring of where the lead came from (campaign / import name)."),
+    size: z.string().optional().describe("Substring of company size, e.g. '1 to 10'."),
+    channel: z.string().optional().describe("Last-contacted channel substring, or 'none' for not-yet-contacted."),
+  };
+
+  server.tool(
+    "enrich_leads",
+    "Find missing emails for leads in a lead list, on the workspace's own Prospeo/Apollo key. TWO STEPS, " +
+    "always: first call WITHOUT confirm to get a dry-run cost preview (chargeable vs already-on-file, the " +
+    "provider, and the $ estimate) — REPORT THAT TO THE USER and get their go-ahead — then call again with " +
+    "confirm:true to run it as a background job. Select leads with `filter` instead of listing ids: " +
+    "{emailStatus:'none'} = every lead missing an email (the usual case); {domain:'has', emailStatus:'none'} = " +
+    "has a company domain but no email. Defaults to {emailStatus:'none'} if neither filter nor ids is given. " +
+    "Call lead_list_operations with no id first to find the list's id.",
+    {
+      lead_list_id: z.string().describe("The lead list's UUID."),
+      filter: z.object(LEAD_FILTER_SHAPE).optional().describe("Pick leads by attribute. Omit (with no ids) to default to all leads missing an email."),
+      ids: z.array(z.string()).optional().describe("Explicit lead ids — an alternative to filter."),
+      confirm: z.boolean().optional().describe("Omit or false = dry-run cost preview only (spends nothing). true = actually run it as a background job."),
+    },
+    async ({ lead_list_id, filter, ids, confirm }) => {
+      const sel = (ids && ids.length) ? { ids } : { filter: filter || { emailStatus: "none" } };
+      const path = `/api/lead-lists/${encodeURIComponent(lead_list_id)}/enrich`;
+      try {
+        if (!confirm) {
+          const r = await post(path, { ...sel, preview: true });
+          const lines = [
+            `ENRICH PREVIEW — list ${lead_list_id}`,
+            `  ${r.total ?? 0} selected · ${r.chargeable ?? 0} chargeable · ${r.reused ?? 0} already on file (free) · ${r.no_identifier ?? 0} no identifier`,
+            `  provider: ${r.provider || "—"}`,
+            `  estimated cost: ${fmtCost(r.cost)}`,
+            "",
+            r.chargeable
+              ? "Report this to the user. To run it, call enrich_leads again with the same selection and confirm:true."
+              : "Nothing chargeable to enrich.",
+          ];
+          return { content: [{ type: "text", text: lines.join("\n") }] };
+        }
+        const r = await post(path, { ...sel, background: true });
+        return { content: [{ type: "text", text:
+          `Enrichment started — job ${r.job_id}, ${r.total} lead${r.total === 1 ? "" : "s"} queued. It runs in the background; report back to the user that it's running.` }] };
+      } catch (e) {
+        return { content: [{ type: "text", text: `Couldn't enrich: ${e.message}` }] };
+      }
+    }
+  );
+
+  server.tool(
+    "verify_leads",
+    "Validate email deliverability for leads in a lead list, on the workspace's own MillionVerifier / " +
+    "NeverBounce key. TWO STEPS, always: first call WITHOUT confirm for a dry-run cost preview (chargeable " +
+    "vs recently-verified, which verifiers are connected, and the $ estimate) — REPORT THAT TO THE USER — " +
+    "then call again with confirm:true to run it as a background job. Defaults to verifying every UNVERIFIED " +
+    "email (has an address, no verdict yet); narrow with `filter` or pass `ids`. If no verifier is connected " +
+    "it will say so — tell the user to add a MillionVerifier or NeverBounce key in Integrations.",
+    {
+      lead_list_id: z.string().describe("The lead list's UUID."),
+      filter: z.object(LEAD_FILTER_SHAPE).optional().describe("Pick leads by attribute. Omit (with no ids) to default to all unverified emails."),
+      ids: z.array(z.string()).optional().describe("Explicit lead ids — an alternative to filter."),
+      provider: z.enum(["millionverifier", "neverbounce"]).optional().describe("Which verifier to use. Defaults to MillionVerifier, then NeverBounce."),
+      confirm: z.boolean().optional().describe("Omit or false = dry-run cost preview only. true = actually run it as a background job."),
+    },
+    async ({ lead_list_id, filter, ids, provider, confirm }) => {
+      const sel = (ids && ids.length) ? { ids } : { filter: filter || { emailStatus: "unverified" } };
+      const path = `/api/lead-lists/${encodeURIComponent(lead_list_id)}/verify`;
+      try {
+        if (!confirm) {
+          const r = await post(path, { ...sel, provider, preview: true });
+          const lines = [
+            `VERIFY PREVIEW — list ${lead_list_id}`,
+            `  ${r.total ?? 0} selected · ${r.chargeable ?? 0} chargeable · ${r.reused ?? 0} recently verified (free) · ${r.no_email ?? 0} no email`,
+            `  verifier: ${r.provider || "—"}${r.connected_verifiers ? `  (connected: ${r.connected_verifiers.join(", ") || "none"})` : ""}`,
+            `  estimated cost: ${fmtCost(r.cost)}`,
+            "",
+            r.chargeable
+              ? "Report this to the user. To run it, call verify_leads again with the same selection and confirm:true."
+              : "Nothing chargeable to verify.",
+          ];
+          return { content: [{ type: "text", text: lines.join("\n") }] };
+        }
+        const r = await post(path, { ...sel, provider, background: true });
+        return { content: [{ type: "text", text:
+          `Verification started — job ${r.job_id}, ${r.total} email${r.total === 1 ? "" : "s"} queued via ${r.provider}. It runs in the background; report back to the user.` }] };
+      } catch (e) {
+        const msg = /no_verifier_connected/.test(e.message)
+          ? "No email verifier is connected. Tell the user to add a MillionVerifier or NeverBounce API key in Integrations, then try again."
+          : `Couldn't verify: ${e.message}`;
+        return { content: [{ type: "text", text: msg }] };
+      }
     }
   );
 

@@ -305,24 +305,73 @@ const CHANNEL_SOURCES: Record<string, string[]> = {
   slack: ['slack'],
 };
 
+// The lead-list filter dimensions, shared by the paged table read (listLeads)
+// and agent/bulk targeting (selectLeadIdsByFilter) so "all unverified" resolves
+// to the same set everywhere.
+export interface LeadFilterOpts {
+  icp?: 'true' | 'false';
+  status?: string;        // pending | sent | replied | bounced
+  reply?: string;         // interested | objection | wrong_fit | unsubscribe
+  verified?: string;      // exact email_status value
+  channel?: string;       // none | a known group (linkedin/email/…) | free-text substring of last_channel
+  emailStatus?: string;   // has | none | unverified | <exact email_status value>
+  domain?: string;        // has | none
+  size?: string;          // substring match on fields->>company_size
+  source?: string;        // free-text substring of the lead's source
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function applyLeadFilters(query: any, opts: LeadFilterOpts): any {
+  if (opts.icp === 'true' || opts.icp === 'false') query = query.filter('fields->>icp', 'eq', opts.icp);
+  if (opts.status)   query = query.eq('status', opts.status);
+  if (opts.reply)    query = query.eq('reply_outcome', opts.reply);
+  if (opts.verified) query = query.eq('email_status', opts.verified);
+  // Channel: 'none' = never contacted; a known group expands to its sources;
+  // anything else is a free-text substring match on the raw last_channel source.
+  if (opts.channel === 'none') query = query.is('last_channel', null);
+  else if (opts.channel && CHANNEL_SOURCES[opts.channel]) query = query.in('last_channel', CHANNEL_SOURCES[opts.channel]);
+  else if (opts.channel) query = query.ilike('last_channel', `%${opts.channel}%`);
+  // Email: has/none; 'unverified' = has an email but no verification verdict yet;
+  // else an exact email_status (DELIVERABLE/RISKY/UNAVAILABLE).
+  if (opts.emailStatus === 'has') query = query.not('email', 'is', null);
+  else if (opts.emailStatus === 'none') query = query.is('email', null);
+  else if (opts.emailStatus === 'unverified') query = query.not('email', 'is', null).is('email_status', null);
+  else if (opts.emailStatus) query = query.eq('email_status', opts.emailStatus);
+  if (opts.domain === 'has') query = query.not('domain', 'is', null);
+  else if (opts.domain === 'none') query = query.is('domain', null);
+  if (opts.size) query = query.ilike('fields->>company_size', `%${opts.size}%`);
+  // Source: free-text substring match on where the lead came from.
+  if (opts.source) query = query.ilike('source', `%${opts.source}%`);
+  return query;
+}
+
+// Resolve the lead ids in a list that match a filter. Selects only `id`, so the
+// view's per-row subqueries are pruned and it stays cheap even at the cap — this
+// powers agent/bulk "enrich all unverified / with a domain but no email" targeting.
+export async function selectLeadIdsByFilter(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  leadListId: string,
+  filter: LeadFilterOpts = {},
+  cap = 5000,
+): Promise<string[]> {
+  if (!isUUID(leadListId)) return [];
+  let query = supabase.from('leads').select('id')
+    .eq('workspace_id', workspaceId).eq('lead_list_id', leadListId);
+  query = applyLeadFilters(query, filter);
+  const { data, error } = await query.order('created_at', { ascending: false }).limit(cap);
+  if (error) throw error;
+  return ((data || []) as { id: string }[]).map(r => r.id);
+}
+
 export async function listLeads(
   supabase: SupabaseClient,
   workspaceId: string,
   leadListId: string,
-  opts: {
+  opts: LeadFilterOpts & {
     limit?: number;
     offset?: number;
-    icp?: 'true' | 'false';
     sort?: 'recent' | 'icp_score_desc' | 'icp_score_asc';
-    status?: string;        // pending | sent | replied | bounced
-    reply?: string;         // interested | objection | wrong_fit | unsubscribe
-    verified?: string;      // email_status value, e.g. 'verified'
-    // Filter-builder dimensions ("Where <column> is <value>").
-    channel?: string;       // none | a known group (linkedin/email/…) | free-text substring of last_channel
-    emailStatus?: string;   // has | none | <exact email_status value>
-    domain?: string;        // has | none
-    size?: string;          // substring match on fields->>company_size
-    source?: string;        // free-text substring of the lead's source
   } = {},
 ): Promise<Lead[]> {
   if (!isUUID(leadListId)) return [];
@@ -348,26 +397,7 @@ export async function listLeads(
     .select(LEAD_COLUMNS)
     .eq('workspace_id', workspaceId)
     .eq('lead_list_id', leadListId);
-  if (opts.icp === 'true' || opts.icp === 'false') {
-    query = query.filter('fields->>icp', 'eq', opts.icp);
-  }
-  if (opts.status)   query = query.eq('status', opts.status);
-  if (opts.reply)    query = query.eq('reply_outcome', opts.reply);
-  if (opts.verified) query = query.eq('email_status', opts.verified);
-  // ── Filter-builder dimensions ──
-  // Channel: 'none' = never contacted; a known group key expands to its sources;
-  // anything else is a free-text substring match on the raw last_channel source.
-  if (opts.channel === 'none') query = query.is('last_channel', null);
-  else if (opts.channel && CHANNEL_SOURCES[opts.channel]) query = query.in('last_channel', CHANNEL_SOURCES[opts.channel]);
-  else if (opts.channel) query = query.ilike('last_channel', `%${opts.channel}%`);
-  if (opts.emailStatus === 'has') query = query.not('email', 'is', null);
-  else if (opts.emailStatus === 'none') query = query.is('email', null);
-  else if (opts.emailStatus) query = query.eq('email_status', opts.emailStatus);
-  if (opts.domain === 'has') query = query.not('domain', 'is', null);
-  else if (opts.domain === 'none') query = query.is('domain', null);
-  if (opts.size) query = query.ilike('fields->>company_size', `%${opts.size}%`);
-  // Source: free-text substring match on where the lead came from.
-  if (opts.source) query = query.ilike('source', `%${opts.source}%`);
+  query = applyLeadFilters(query, opts);
   const { data, error } = await query
     .order('created_at', { ascending: false })
     .range(offset, offset + limit - 1);
