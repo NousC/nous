@@ -199,6 +199,38 @@ export async function requireEnrichmentQuota(req, res, next) {
 }
 
 /**
+ * LinkedIn connect gate. Given a workspace, resolve its team's plan and report
+ * whether another LinkedIn account may be connected (used < plan.linkedinProfiles).
+ * This is the ONE count-gated resource — LinkedIn accounts cost real money/risk,
+ * so the number per workspace is the plan lever. Self-host bypasses (unlimited).
+ *
+ * Returns { allowed, limit, used, plan, planName } — callers 402 on !allowed.
+ */
+export async function checkLinkedinSlot(supabase, workspaceId) {
+  if (isSelfHosted()) return { allowed: true, limit: Infinity, used: 0, plan: 'self_hosted', planName: 'Self-hosted' };
+  const { data: ws } = await supabase
+    .from('workspaces')
+    .select('team_id')
+    .eq('id', workspaceId)
+    .maybeSingle();
+  // Unknown workspace — don't block here; downstream auth will reject it.
+  if (!ws) return { allowed: true, limit: 0, used: 0, plan: 'free', planName: 'Free' };
+  const { data: subscription } = await supabase
+    .from('subscriptions')
+    .select('*')
+    .eq('team_id', ws.team_id)
+    .maybeSingle();
+  const plan = getPlanFromSubscription(subscription);
+  const limit = plan.linkedinProfiles ?? 0;
+  const { count } = await supabase
+    .from('workspace_linkedin_connections')
+    .select('id', { count: 'exact', head: true })
+    .eq('workspace_id', workspaceId);
+  const used = count ?? 0;
+  return { allowed: used < limit, limit, used, plan: plan.id, planName: plan.name };
+}
+
+/**
  * Throw if the current plan doesn't include the feature.
  * For use inside route handlers that already resolved the team. Mirrors the
  * middleware shape for parity.

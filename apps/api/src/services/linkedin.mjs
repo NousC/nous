@@ -9,6 +9,7 @@
 
 import { logActivity as coreLogActivity } from '@nous/core';
 import { scoreICP } from './enrichment.mjs';
+import { checkLinkedinSlot } from '../lib/access.mjs';
 
 const BASE = () => {
   const dsn = process.env.UNIPILE_DSN;
@@ -377,7 +378,9 @@ export async function runLinkedInSync(supabase, workspaceId) {
     .from('workspace_linkedin_connections')
     .select('unipile_account_id')
     .eq('workspace_id', workspaceId)
-    .single();
+    .order('connected_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
 
   if (!conn) return { skipped: true, reason: 'not_connected' };
 
@@ -403,7 +406,9 @@ export async function pollInviteAcceptances(supabase, workspaceId) {
     .from('workspace_linkedin_connections')
     .select('unipile_account_id')
     .eq('workspace_id', workspaceId)
-    .single();
+    .order('connected_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
   if (!conn) return { checked: 0, accepted: 0 };
 
   // Fetch all pending sent invitations from Unipile (paginated)
@@ -578,13 +583,22 @@ export function registerLinkedInRoutes(app, supabase, verifySupabaseAuth, verify
       if (!workspaceId || !uuidRe.test(workspaceId))
         return res.status(400).json({ error: 'invalid_workspace_id' });
 
-      const { data } = await supabase
+      const { data: rows } = await supabase
         .from('workspace_linkedin_connections')
-        .select('id, linkedin_name, linkedin_headline, linkedin_profile_url, connected_at')
+        .select('id, unipile_account_id, linkedin_name, linkedin_headline, linkedin_profile_url, connected_at')
         .eq('workspace_id', workspaceId)
-        .single();
+        .order('connected_at', { ascending: false });
+      const connections = rows || [];
+      const slot = await checkLinkedinSlot(supabase, workspaceId);
 
-      return res.json({ connected: !!data, connection: data || null });
+      return res.json({
+        connected: connections.length > 0,
+        connection: connections[0] || null, // backward-compat: the newest connection
+        connections,
+        limit: slot.limit,
+        used: slot.used,
+        can_connect_more: slot.allowed,
+      });
     } catch (err) {
       return res.status(500).json({ error: err.message });
     }
@@ -600,6 +614,23 @@ export function registerLinkedInRoutes(app, supabase, verifySupabaseAuth, verify
 
       if (!process.env.UNIPILE_API_KEY || !process.env.UNIPILE_DSN)
         return res.status(503).json({ error: 'linkedin_not_configured', message: 'Unipile credentials not yet set up' });
+
+      // Gate: connected-LinkedIn count is the one plan-limited resource. Block
+      // before starting the Unipile auth flow so the user isn't sent through
+      // OAuth only to be rejected on save.
+      const slot = await checkLinkedinSlot(supabase, workspaceId);
+      if (!slot.allowed) {
+        return res.status(402).json({
+          error: 'linkedin_limit_reached',
+          limit: slot.limit,
+          used: slot.used,
+          current_plan: slot.plan,
+          upgrade_url: '/settings?section=billing',
+          message: slot.limit === 0
+            ? `Connecting a LinkedIn account isn't available on the ${slot.planName} plan. Upgrade to connect LinkedIn.`
+            : `You've connected ${slot.used} of ${slot.limit} LinkedIn account${slot.limit === 1 ? '' : 's'} on the ${slot.planName} plan. Upgrade or contact us to add more.`,
+        });
+      }
 
       const { url } = await createHostedAuthLink(workspaceId);
       return res.json({ url });
@@ -634,6 +665,8 @@ export function registerLinkedInRoutes(app, supabase, verifySupabaseAuth, verify
       const headline = im.headline || null;
 
       // Upsert into DB
+      // Upsert keyed on (workspace_id, unipile_account_id): re-connecting the same
+      // account updates it; a different account inserts a new row (multi-account).
       await supabase.from('workspace_linkedin_connections').upsert({
         workspace_id,
         unipile_account_id: account_id,
@@ -641,7 +674,7 @@ export function registerLinkedInRoutes(app, supabase, verifySupabaseAuth, verify
         linkedin_headline:    headline,
         linkedin_profile_url: profileUrl,
         connected_at:         new Date().toISOString(),
-      }, { onConflict: 'workspace_id' });
+      }, { onConflict: 'workspace_id,unipile_account_id' });
 
       // Register webhook so Unipile pushes events to us
       await ensureWebhookRegistered(account_id);
@@ -662,23 +695,29 @@ export function registerLinkedInRoutes(app, supabase, verifySupabaseAuth, verify
   // DELETE /api/linkedin/disconnect?workspaceId=...
   app.delete('/api/linkedin/disconnect', verifySupabaseAuth, async (req, res) => {
     try {
-      const { workspaceId } = req.query;
+      const { workspaceId, accountId } = req.query;
       if (!workspaceId || !uuidRe.test(workspaceId))
         return res.status(400).json({ error: 'invalid_workspace_id' });
 
-      // Get account_id before deleting
-      const { data } = await supabase
+      // Disconnect one specific account (accountId = unipile_account_id) or, when
+      // none is given, every LinkedIn account in the workspace (back-compat).
+      let read = supabase
         .from('workspace_linkedin_connections')
         .select('unipile_account_id')
-        .eq('workspace_id', workspaceId)
-        .single();
+        .eq('workspace_id', workspaceId);
+      if (accountId) read = read.eq('unipile_account_id', accountId);
+      const { data: rows } = await read;
 
-      if (data?.unipile_account_id && process.env.UNIPILE_API_KEY) {
-        await deleteAccount(data.unipile_account_id).catch(() => {});
+      for (const row of rows || []) {
+        if (row.unipile_account_id && process.env.UNIPILE_API_KEY) {
+          await deleteAccount(row.unipile_account_id).catch(() => {});
+        }
       }
 
-      await supabase.from('workspace_linkedin_connections').delete().eq('workspace_id', workspaceId);
-      return res.json({ success: true });
+      let del = supabase.from('workspace_linkedin_connections').delete().eq('workspace_id', workspaceId);
+      if (accountId) del = del.eq('unipile_account_id', accountId);
+      await del;
+      return res.json({ success: true, removed: (rows || []).length });
     } catch (err) {
       return res.status(500).json({ error: err.message });
     }
@@ -698,7 +737,9 @@ export function registerLinkedInRoutes(app, supabase, verifySupabaseAuth, verify
         .from('workspace_linkedin_connections')
         .select('unipile_account_id')
         .eq('workspace_id', workspaceId)
-        .single();
+        .order('connected_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
       if (!conn) return res.status(404).json({ error: 'linkedin_not_connected' });
 
@@ -740,7 +781,9 @@ export function registerLinkedInRoutes(app, supabase, verifySupabaseAuth, verify
         .from('workspace_linkedin_connections')
         .select('unipile_account_id')
         .eq('workspace_id', workspaceId)
-        .single();
+        .order('connected_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
       if (!conn) return res.status(404).json({ error: 'linkedin_not_connected' });
 
@@ -772,7 +815,9 @@ export function registerLinkedInRoutes(app, supabase, verifySupabaseAuth, verify
         .from('workspace_linkedin_connections')
         .select('unipile_account_id')
         .eq('workspace_id', workspaceId)
-        .single();
+        .order('connected_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
       if (!conn) return res.status(404).json({ error: 'linkedin_not_connected' });
 
       const memberId = await resolveLinkedInMemberId(supabase, workspaceId, conn.unipile_account_id, {
@@ -841,7 +886,9 @@ export function registerLinkedInRoutes(app, supabase, verifySupabaseAuth, verify
         .from('workspace_linkedin_connections')
         .select('unipile_account_id')
         .eq('workspace_id', workspaceId)
-        .single();
+        .order('connected_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
       if (!conn) return res.status(404).json({ error: 'linkedin_not_connected' });
 
       let result;
@@ -912,7 +959,9 @@ export function registerLinkedInRoutes(app, supabase, verifySupabaseAuth, verify
         .from('workspace_linkedin_connections')
         .select('unipile_account_id')
         .eq('workspace_id', workspaceId)
-        .single();
+        .order('connected_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
       if (!conn) return res.status(404).json({ error: 'linkedin_not_connected' });
 
       // Resolve the post's social_id — Unipile requires this, not the URL-visible ID

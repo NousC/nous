@@ -45,6 +45,8 @@ export interface Plan {
   includedOpsPerMonth: number;
   /** Records (unique people + companies) the plan can hold. */
   recordsLimit: number;
+  /** Connected LinkedIn accounts allowed per workspace (the one gated resource). */
+  linkedinProfiles: number;
   enrichmentsPerMonth: number;
   workspaceLimit: number | null; // null = unlimited
   features: PlanFeatures;
@@ -63,6 +65,7 @@ export const PLANS: Record<PlanId, Plan> = {
     monthlyPriceUsd: 0,
     includedOpsPerMonth: 1_000,
     recordsLimit: 100,
+    linkedinProfiles: 0,
     enrichmentsPerMonth: 0,
     workspaceLimit: 1,
     stripePriceEnv: null,
@@ -85,6 +88,7 @@ export const PLANS: Record<PlanId, Plan> = {
     monthlyPriceUsd: 29,
     includedOpsPerMonth: 10_000,
     recordsLimit: 1_000,
+    linkedinProfiles: 1,
     enrichmentsPerMonth: 0,
     workspaceLimit: 1,
     stripePriceEnv: 'STRIPE_STARTER_PRICE_ID',
@@ -105,6 +109,7 @@ export const PLANS: Record<PlanId, Plan> = {
     monthlyPriceUsd: 99,
     includedOpsPerMonth: 25_000,
     recordsLimit: 10_000,
+    linkedinProfiles: 1,
     enrichmentsPerMonth: 0,
     workspaceLimit: 1,
     stripePriceEnv: 'STRIPE_PRO_PRICE_ID',
@@ -125,6 +130,7 @@ export const PLANS: Record<PlanId, Plan> = {
     monthlyPriceUsd: 249,
     includedOpsPerMonth: 100_000,
     recordsLimit: 100_000,
+    linkedinProfiles: 5,
     enrichmentsPerMonth: 0,
     workspaceLimit: 3,
     stripePriceEnv: 'STRIPE_GROWTH_PRICE_ID',
@@ -151,6 +157,7 @@ export const PLANS: Record<PlanId, Plan> = {
     opsPerWorkspace: 100_000,
     includedOpsPerMonth: 500_000,
     recordsLimit: 100_000, // per client workspace
+    linkedinProfiles: 1, // per client workspace
     enrichmentsPerMonth: 0,
     workspaceLimit: 5,
     stripePriceEnv: 'STRIPE_SCALE_PRICE_ID',
