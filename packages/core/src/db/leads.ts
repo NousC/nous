@@ -7,10 +7,14 @@ import type { Lead, LeadList, LeadColumn, LeadStatus, ReplyOutcome } from '../ty
 
 const LEAD_LIST_COLUMNS = 'id, workspace_id, name, source, columns, created_at, updated_at';
 
+// Only the columns the lead-list UI actually renders. The `leads` VIEW derives
+// every column with a correlated subquery, and PostgreSQL prunes the subqueries
+// for columns we don't SELECT — so omitting unused ones (sent_at, send_variant,
+// is_repeat_contact, features, replied_at, contact_id, updated_at) drops ~7
+// per-row lookups per page, including the costly updated_at max-over-all-claims.
 const LEAD_COLUMNS =
   'id, lead_list_id, workspace_id, email, name, company, linkedin_url, ' +
-  'sent_at, send_variant, is_repeat_contact, features, fields, scorecard_score, ' +
-  'reply_outcome, replied_at, status, contact_id, created_at, updated_at, ' +
+  'fields, scorecard_score, reply_outcome, status, created_at, ' +
   'domain, email_status, last_channel, source';
 
 // Columns a new list starts with, beyond the fixed name / email / company /

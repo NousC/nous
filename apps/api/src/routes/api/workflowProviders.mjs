@@ -511,7 +511,7 @@ workflowProvidersRouter.get('/slack/channels', verifySupabaseAuth, async (req, r
 // Providers connectable via the simplified /:name/test + /:name/connect endpoints
 // (used by the Mind popup quick-connect flow). Anything not in this list still works
 // via the generic /connections endpoint used by Settings → Integrations.
-const NAMED_PROVIDERS = ['apollo', 'instantly', 'lemlist', 'emailbison', 'heyreach', 'smartlead', 'prospeo', 'hubspot', 'pipedrive', 'attio', 'calendly', 'fireflies', 'fathom', 'cal_com'];
+const NAMED_PROVIDERS = ['apollo', 'instantly', 'lemlist', 'emailbison', 'heyreach', 'smartlead', 'prospeo', 'millionverifier', 'neverbounce', 'hubspot', 'pipedrive', 'attio', 'calendly', 'fireflies', 'fathom', 'cal_com'];
 
 const CAL_COM_API_VERSION = '2026-05-01';
 
@@ -820,6 +820,23 @@ async function testNamedProvider(name, apiKey) {
     });
     if (r.status === 401 || r.status === 403) return { verified: false, message: 'Invalid Prospeo API key' };
     return { verified: true, message: 'Prospeo API key verified' };
+  }
+
+  if (name === 'millionverifier') {
+    // The credits endpoint is the lightest connectivity check (no email spent).
+    const r = await fetch(`https://api.millionverifier.com/api/v3/credits?api=${encodeURIComponent(apiKey)}`);
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || d.error) return { verified: false, message: d.error || 'Invalid MillionVerifier API key' };
+    const credits = d.credits?.total ?? d.credits ?? null;
+    return { verified: true, message: credits != null ? `Connected to MillionVerifier (${credits} credits)` : 'Connected to MillionVerifier' };
+  }
+
+  if (name === 'neverbounce') {
+    const r = await fetch(`https://api.neverbounce.com/v4/account/info?key=${encodeURIComponent(apiKey)}`);
+    const d = await r.json().catch(() => ({}));
+    if (d.status && d.status !== 'success') return { verified: false, message: d.message || 'Invalid NeverBounce API key' };
+    if (!r.ok) return { verified: false, message: `NeverBounce returned ${r.status} — check your API key` };
+    return { verified: true, message: 'Connected to NeverBounce' };
   }
 
   if (name === 'hubspot') {

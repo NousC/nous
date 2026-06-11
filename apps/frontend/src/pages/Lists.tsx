@@ -143,12 +143,48 @@ function cellValue(lead: Lead, key: string): string {
   if (key === "__domain") return lead.domain ?? (typeof lead.fields?.domain === "string" ? lead.fields.domain : "");
   if (key === "__email_status") return lead.email_status ?? "";
   if (key === "__channel") return channelLabel(lead.last_channel);
-  // ICP score — the lead's fit (0–100), surfaced as a guaranteed column.
-  if (key === "__icp") return lead.scorecard_score == null ? "" : String(lead.scorecard_score);
+  // ICP score — the lead's fit (0–100), surfaced as a guaranteed column. Prefer
+  // the ICP fit score (fields.icp_score, set by scoring); fall back to the scorecard.
+  if (key === "__icp") {
+    const fit = (lead.fields?.icp_score as number | string | null | undefined) ?? lead.scorecard_score;
+    return fit == null ? "" : String(fit);
+  }
   // Lead source — where this lead came from. A system column, always present.
   if (key === "__source") return lead.source ?? "";
   const v = lead.fields?.[key];
   return v == null ? "" : String(v);
+}
+
+// Email deliverability shown as a colored pill: deliverable = green, risky =
+// amber, unavailable = grey (dead). Unknown values fall back to grey.
+const EMAIL_STATUS_TAG: Record<string, { label: string; cls: string }> = {
+  DELIVERABLE: { label: "Deliverable", cls: "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-400" },
+  RISKY:       { label: "Risky",       cls: "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-400" },
+  UNAVAILABLE: { label: "Unavailable", cls: "bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300" },
+};
+function emailStatusTag(status: string | null) {
+  if (!status) return <span className="text-muted-foreground/40">—</span>;
+  const t = EMAIL_STATUS_TAG[status.toUpperCase()] ?? { label: status, cls: "bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300" };
+  return <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-medium ${t.cls}`}>{t.label}</span>;
+}
+
+// Lifecycle status / reply outcome as a colored pill: positive = green,
+// in-flight = blue, neutral = grey, negative = amber/red.
+const STATUS_TAG: Record<string, string> = {
+  interested:  "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-400",
+  replied:     "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-400",
+  sent:        "bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-400",
+  pending:     "bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300",
+  objection:   "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-400",
+  wrong_fit:   "bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300",
+  bounced:     "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-400",
+  unsubscribe: "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-400",
+};
+function statusTag(lead: Lead) {
+  const v = (lead.reply_outcome || lead.status || "").toString();
+  if (!v) return <span className="text-muted-foreground/40">—</span>;
+  const cls = STATUS_TAG[v] ?? "bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300";
+  return <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-medium capitalize ${cls}`}>{v.replace(/_/g, " ")}</span>;
 }
 
 // Guess a mapping for each CSV header: a fixed column, an existing custom
@@ -454,7 +490,10 @@ export default function Lists() {
   // Always include the default custom columns, even on older lists whose stored
   // `columns` predate them — the default column set is enforced for every list.
   const customCols = (() => {
-    const stored = activeList?.columns ?? [];
+    // Drop any stored ICP column — the always-present system `__icp` column
+    // already shows the fit score (and is the sortable one), so a custom
+    // `icp`/`icp_score` column would render a duplicate "ICP" header.
+    const stored = (activeList?.columns ?? []).filter(c => c.key !== "icp" && c.key !== "icp_score");
     const have = new Set(stored.map(c => c.key));
     return [...stored, ...DEFAULT_CUSTOM_COLS.filter(d => !have.has(d.key))];
   })();
@@ -1336,16 +1375,29 @@ export default function Lists() {
                 <button onClick={() => { setStatusFilter(""); setReplyFilter(""); }}
                   className="text-[12px] text-muted-foreground hover:text-foreground">Clear</button>
               )}
+              {/* Enrich / Verify live on the filter line — disabled until you
+                  select leads, so there's no separate action row. */}
+              <div className="h-5 w-px bg-border mx-0.5" />
+              <button onClick={() => openConfirm("enrich")} disabled={busy || jobActive || !hasSelection}
+                title="Find missing emails for the selected leads (Prospeo / Apollo)"
+                className="h-7 px-2.5 rounded-md text-[12px] font-medium border border-border text-foreground/80 hover:bg-muted/50 transition-colors disabled:opacity-40">
+                {busy ? "Enriching…" : "Enrich"}
+              </button>
+              <button onClick={() => openConfirm("verify")} disabled={busy || jobActive || !hasSelection}
+                title="Validate email deliverability for the selected leads (MillionVerifier / NeverBounce)"
+                className="h-7 px-2.5 rounded-md text-[12px] font-medium border border-border text-foreground/80 hover:bg-muted/50 transition-colors disabled:opacity-40">
+                {busy ? "Verifying…" : "Verify"}
+              </button>
             </div>
             </div>
           </div>
         )}
 
-        {/* Action bar — Enrich/Verify always shown (disabled until you select);
-            selection-specific actions appear once leads are ticked. */}
-        {activeList && (
+        {/* Selection action bar — only when leads are ticked or a bulk job is
+            running. Enrich/Verify moved up to the filter line. */}
+        {activeList && (hasSelection || (jobActive && bulkJob)) && (
           <div className="flex items-center gap-2 mb-3">
-            {hasSelection ? (
+            {hasSelection && (
               <>
                 <span className="text-[12px] text-muted-foreground tabular-nums">
                   {selectAllMatching
@@ -1363,8 +1415,6 @@ export default function Lists() {
                   </button>
                 )}
               </>
-            ) : (
-              <span className="text-[12px] text-muted-foreground/50">Select leads to enrich or verify</span>
             )}
             <div className="mr-auto" />
             {/* Live progress for an async bulk enrich/verify job */}
@@ -1392,16 +1442,6 @@ export default function Lists() {
                 {exportOpen && exportScope === "selected" && renderExportMenu()}
               </div>
             )}
-            <button onClick={() => openConfirm("enrich")} disabled={busy || jobActive || !hasSelection}
-              title="Find missing emails for the selected leads (Prospeo / Apollo)"
-              className="h-7 px-2.5 rounded-md text-[12px] font-medium border border-border text-foreground/80 hover:bg-muted/50 transition-colors disabled:opacity-40">
-              {busy ? "Enriching…" : "Enrich"}
-            </button>
-            <button onClick={() => openConfirm("verify")} disabled={busy || jobActive || !hasSelection}
-              title="Validate email deliverability for the selected leads (MillionVerifier / NeverBounce)"
-              className="h-7 px-2.5 rounded-md text-[12px] font-medium border border-border text-foreground/80 hover:bg-muted/50 transition-colors disabled:opacity-40">
-              {busy ? "Verifying…" : "Verify"}
-            </button>
             {hasSelection && (
               <button onClick={deleteSelected} disabled={busy}
                 className="h-7 px-2.5 rounded-md text-[12px] font-medium border border-red-300 text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40 transition-colors disabled:opacity-40">
@@ -1437,7 +1477,7 @@ export default function Lists() {
                     />
                   </div>
                   {allCols.map((c, i) => {
-                    const sortable = c.key === "icp_score";
+                    const sortable = c.key === "icp_score" || c.key === "__icp";
                     return (
                     <div key={c.key}
                       draggable={i !== 0}
@@ -1525,6 +1565,8 @@ export default function Lists() {
                                 onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); saveEdit(); } if (e.key === "Escape") setEditCell(null); }}
                                 className="w-full bg-transparent p-0 text-[13px] text-foreground outline-none border-0"
                               />
+                            ) : c.key === "__email_status" ? (
+                              emailStatusTag(l.email_status)
                             ) : isLink ? (
                               <a href={val} target="_blank" rel="noopener noreferrer"
                                  onClick={e => e.stopPropagation()}
@@ -1538,10 +1580,8 @@ export default function Lists() {
                           </div>
                           );
                         })}
-                        <div className="px-3 py-2.5 text-[12px] capitalize flex-shrink-0" style={{ width: STATUS_W }}>
-                          <span className={l.reply_outcome ? "text-green-700 dark:text-green-500" : "text-muted-foreground/60"}>
-                            {l.reply_outcome || l.status}
-                          </span>
+                        <div className="px-3 py-2.5 text-[12px] flex-shrink-0" style={{ width: STATUS_W }}>
+                          {statusTag(l)}
                         </div>
                       </div>
                     ))}
