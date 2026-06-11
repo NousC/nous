@@ -220,9 +220,12 @@ export function AppSidebar() {
             />
           </button>
         )}
+        {/* Expanded: the open Setup drawer lists every setup surface. Collapsed:
+            the drawer reads as closed, so only its entry point (Install) shows —
+            the rest live one click away once the sidebar is expanded. */}
         {(setupOpen || collapsed) && (
           <ul className="flex flex-col gap-0.5 mt-0.5">
-            {setupItems.map(renderNavItem)}
+            {(collapsed ? setupItems.slice(0, 1) : setupItems).map(renderNavItem)}
           </ul>
         )}
       </nav>

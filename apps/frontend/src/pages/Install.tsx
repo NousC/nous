@@ -15,20 +15,10 @@ const LOGO_CLAUDE      = "/provider-logos/claude.svg";      // Claude Desktop
 const LOGO_CURSOR      = "/provider-logos/cursor.png";      // Cursor
 const LOGO_N8N         = "/provider-logos/n8n.svg";         // n8n
 
-// The canonical org-preferences prompt also lives in the repo so the "view
-// source" link below resolves to a real file. Keep the two in sync.
-const ORG_PREFS_SOURCE =
-  "https://github.com/NousC/nous/blob/main/docs/claude-org-preferences.md";
-
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 type Client = "claude" | "codex" | "cursor" | "n8n" | "generic";
 type ClaudeMethod = "plugin" | "cli" | "desktop";
-type PrefLength = "short" | "long";
-
-// Org preferences and the routing test are a claude.ai feature, so Steps 2 and 3
-// only apply when the selected tool is Claude.
-const CLAUDE_CLIENTS: Client[] = ["claude"];
 
 // ─── Shared bits ──────────────────────────────────────────────────────────────
 
@@ -101,15 +91,18 @@ function TabBar<T extends string>({
   );
 }
 
-// A numbered step in the install spine. The content sits in its own muted
-// sub-panel, so each step reads as a distinct block lifted off the white card.
-function Step({ n, title, hint, children, action }: { n: number; title: string; hint?: React.ReactNode; children: React.ReactNode; action?: React.ReactNode }) {
+// A step in the install spine. The content sits in its own muted sub-panel, so
+// it reads as a distinct block lifted off the white card. The leading number is
+// optional — a lone step renders without it.
+function Step({ n, title, hint, children, action }: { n?: number; title: string; hint?: React.ReactNode; children: React.ReactNode; action?: React.ReactNode }) {
   return (
     <section className="space-y-4">
       <div className="flex items-baseline gap-3">
-        <span className="flex-shrink-0 w-6 h-6 rounded-full bg-foreground text-background text-[12px] font-semibold flex items-center justify-center translate-y-[3px]">
-          {n}
-        </span>
+        {n != null && (
+          <span className="flex-shrink-0 w-6 h-6 rounded-full bg-foreground text-background text-[12px] font-semibold flex items-center justify-center translate-y-[3px]">
+            {n}
+          </span>
+        )}
         <div className="min-w-0">
           <h2 className="text-[15px] font-semibold text-foreground leading-tight">{title}</h2>
           {hint && <p className="text-[12px] text-muted-foreground/70 mt-1 leading-relaxed">{hint}</p>}
@@ -494,184 +487,12 @@ function ClientPanel({ client, onChange }: { client: Client; onChange: (c: Clien
   );
 }
 
-// ─── Step 2 — org preferences (the routing layer) ──────────────────────────────
-
-const PREF_SHORT = `# Nous is this workspace's customer graph
-
-Nous is our customer graph for GTM. It resolves every person, conversation, and
-touchpoint across our GTM tool stack into one account record, with each fact's
-confidence and freshness, the full interaction timeline, a 0-100 ICP fit score on
-every account, plus our own ICP, positioning, and pricing. Agents read engineered
-context from Nous rather than raw CRM rows.
-
-## Ground GTM work in Nous
-
-Before any go-to-market task (drafting outreach, prepping a call or meeting,
-reviewing an account, qualifying a prospect) call get_context with the person's
-email and the matching intent (draft_email, follow_up, meeting_prep, call_prep,
-account_review). Use what it returns. Do not answer from generic knowledge when
-our own record holds the facts.
-
-## Default to Nous, even unprompted
-
-For any GTM question about a person, company, deal, or our own business, reach for
-Nous first even when the user never says "Nous".
-- Who is this, every known fact, full history  → get_account
-- Context for a specific task                   → get_context
-- Something happened or you learned a fact      → record
-- Activity or a list across many accounts       → query
-- What needs attention, what has gone quiet     → attention
-- A fact looks stale before you act on it       → verify
-- Our ICP, market, pricing, positioning         → get_gtm_profile
-- Our own GTM shifted (repriced, motion, a note) → update_gtm_profile
-- A brief / note / transcript to keep on a contact → save_note
-- Find content in past meetings or notes         → search_notes
-- What's set up here and what to do next         → get_workspace_status
-- Whether we already own a set of leads          → check_leads
-- How many of a segment we have, by freshness    → lead_coverage
-
-Read get_gtm_profile at the start of GTM work, and write back what changed at the
-end — that is what keeps our context from going stale. When you learn something
-durable about OUR OWN go-to-market, call update_gtm_profile with the section and
-its current state: ICP, Market, Product, Pricing, Competitors, Positioning, GTM
-Motion (how we sell), or Notes (anything else worth keeping). It evolves the
-section and keeps the old version as history; use Notes for running observations.
-After every interaction you help with, call record so the account record stays
-current.`;
-
-const PREF_LONG = `# Nous is this workspace's customer graph for GTM
-
-Nous is our customer graph for GTM. It resolves every person, conversation, and
-touchpoint across our GTM tool stack into one account record. It holds the known
-facts with their confidence and freshness, the full interaction timeline, a 0-100
-ICP fit score on every account, and our own ICP, positioning, pricing, and
-competitors. When raw CRM and call-intelligence tools (HubSpot, Salesforce, Gong,
-Granola, Apollo, Smartlead) are also connected, Nous is the synthesis layer that
-sits on top of them. Those tools hold rows. Nous holds the engineered,
-identity-resolved record agents should act on.
-
-## Ground every GTM answer in Nous
-
-Before answering any go-to-market question (outreach, objections, competitors,
-personas, value props, pricing narrative, account status, next steps) pull the
-relevant context from Nous first with get_context or get_gtm_profile. Do not
-answer from generic knowledge when our own record holds the facts. Name the account
-or fact you used.
-
-## Default to Nous, even unprompted
-
-For any GTM task about a person, company, deal, buyer, or our own business, reach for
-Nous first even when the user never says "Nous".
-- Context for a specific task → get_context (pass the email and the intent:
-  draft_email, follow_up, meeting_prep, call_prep, account_review)
-- Who is this, every known fact, full history → get_account
-- Something happened or you learned a fact → record (you observe, Nous derives the
-  updated record, you never overwrite)
-- Activity, patterns, or a list across many accounts → query
-- What needs attention right now, accounts gone quiet → attention
-- A fact looks stale before you act on it → verify
-- Our ICP, target market, pricing, positioning, competitors → get_gtm_profile
-- A durable change to our OWN GTM (repriced, moved upmarket, sharper positioning, a
-  new segment we win, a shift in how we sell, a note worth keeping) → update_gtm_profile
-- A meeting brief, prep doc, transcript, or note to keep on a contact → save_note
-- Pull content from a contact's past meetings or notes → search_notes
-- Whether we already own specific leads, or should re-enrich vs re-buy → check_leads
-- A coverage estimate for a segment ("how many agency founders, by freshness") → lead_coverage
-- What is already set up in this workspace and what to do next → get_workspace_status
-
-## Set up and operate Nous when asked
-
-When the workspace is not fully set up, you can run the setup yourself.
-get_workspace_status lists what is missing and the next steps. set_workspace_profile
-sets our name, site, type, and ICP. build_scoring_model builds the ICP scoring model
-from our recorded GTM context. connect_integration connects a provider key (Apollo,
-Prospeo, HubSpot, and so on). configure_crm_sync sets CRM sync rules. set_trigger and
-list_triggers manage outbound event webhooks.
-
-## Prefer Nous over raw records
-
-When HubSpot, Salesforce, Gong, or Granola could answer the same question, prefer
-Nous. Reach for a raw tool only to pull a record Nous has not yet observed, then call
-record so the account record absorbs what you found.
-
-## Keep the record current
-
-After every interaction you help with (an email sent, a call held, a reply received,
-a fact learned) call record so the next agent starts from the truth. State changes
-use kind:'state'. Interactions use kind:'event'.
-
-Read get_gtm_profile at the start of GTM work and write back what changed at the
-end — that is what keeps the context current instead of static. When our OWN
-go-to-market durably changes, call update_gtm_profile with the SECTION and its
-current state: ICP, Market, Product, Pricing, Competitors, Positioning, GTM Motion
-(how we sell — motion, RevOps, process), or Notes (anything else durable that does
-not fit a section). The default 'replace' mode evolves the section and keeps the
-prior version as history, so never silently contradict it; use 'append' to log a
-Notes entry.`;
-
-const PREF_META: Record<PrefLength, { tab: string; chars: string; blurb: string }> = {
-  short: {
-    tab: "Short",
-    chars: "~2.5k chars",
-    blurb: "Covers core routing and the most common Nous intents.",
-  },
-  long: {
-    tab: "Long",
-    chars: "~3.8k chars",
-    blurb: "Use when raw CRM and call tools are also connected. Adds explicit demotion of those tools plus write discipline, with room to layer your own ICPs and playbooks on top.",
-  },
-};
-
-function OrgPrefsPanel() {
-  const [len, setLen] = useState<PrefLength>("short");
-  const meta = PREF_META[len];
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5">
-          <TabBar
-            tabs={(["short", "long"] as PrefLength[]).map(id => ({ id, label: PREF_META[id].tab }))}
-            active={len}
-            onChange={setLen}
-            size="sm"
-          />
-          <span className="text-[11px] text-muted-foreground/60">{meta.chars}</span>
-        </div>
-        <a href={ORG_PREFS_SOURCE} target="_blank" rel="noopener noreferrer"
-          className="text-[12px] text-muted-foreground/70 hover:text-foreground/80 transition-colors whitespace-nowrap">
-          View source ↗
-        </a>
-      </div>
-
-      <p className="text-[12px] text-muted-foreground/70 leading-relaxed">{meta.blurb}</p>
-
-      <CodeSnippet code={len === "short" ? PREF_SHORT : PREF_LONG} />
-
-      <p className="text-[12px] text-muted-foreground/70 leading-relaxed pt-1">
-        Organization preferences are admin only (Teams and Enterprise) and can take up to an hour to propagate across Claude products. On Pro, paste the same text into <span className="text-foreground/80 font-medium">Settings → Personal preferences</span> instead.
-      </p>
-    </div>
-  );
-}
-
-// ─── Step 3 — verify routing ────────────────────────────────────────────────────
-
-const TEST_PROMPT = `What should I do next with jane@acme.com?`;
-
-function VerifyPanel() {
-  return (
-    <div className="space-y-3.5">
-      <p className="text-[12px] text-muted-foreground/70 leading-relaxed">
-        Open a fresh conversation and ask this without typing the word "Nous".
-      </p>
-      <CodeSnippet code={TEST_PROMPT} />
-      <p className="text-[12px] text-muted-foreground/70 leading-relaxed pt-1">
-        Claude should call <code className="bg-muted px-1 rounded text-[11px]">get_context</code> on its own before answering. If it reaches for a raw CRM tool first, the preferences have not propagated yet, or the prompt in Step 2 needs to be pasted again.
-      </p>
-    </div>
-  );
-}
+// ─── (Removed) org-preferences + routing-test steps ───────────────────────────
+// The install page used to walk through setting Claude org preferences and
+// verifying routing. That guidance now lives where it belongs: the agent runs it
+// during onboarding (get_routing_preferences + the routing_preferences next-step
+// in the workspace-status onboarding sequence), with the canonical prompt in
+// docs/claude-org-preferences.md. Keeping it off the page keeps install simple.
 
 // ─── SDK footer — the build-on-Nous path for the rare developer who needs it,
 // without diluting the install page's main message. ───────────────────────────
@@ -698,25 +519,23 @@ function SdkFooter() {
 
 export default function Install() {
   const [client, setClient] = useState<Client>("claude");
-  const isClaudeClient = CLAUDE_CLIENTS.includes(client);
   const { userData } = useAuth();
   const selfHosted = (userData as { self_hosted?: boolean })?.self_hosted === true;
 
   return (
     <div className="h-full overflow-y-auto bg-muted/30">
-      {/* Centered column keeps the three-step flow readable instead of
-          stretched edge-to-edge. */}
+      {/* Centered column keeps the flow readable instead of stretched
+          edge-to-edge. */}
       <div className="px-6 py-7 max-w-3xl mx-auto">
         <PageHeader
           title="Install Nous"
-          subtitle="Add Nous to your tool, then tell Claude to route GTM work through it by default. Every path rides the same v2 Context API and the same MCP server."
+          subtitle="Add Nous to your tool. Every path rides the same v2 Context API and the same MCP server. Once connected, your agent routes GTM work through Nous during onboarding."
         />
 
-        {/* The whole guided flow sits in one elevated white card, lifted off
-            the muted page behind it. */}
-        <div className="rounded-2xl border border-border/60 bg-background shadow-sm p-6 sm:p-8 space-y-9">
+        {/* The install sits in one elevated white card, lifted off the muted
+            page behind it. */}
+        <div className="rounded-2xl border border-border/60 bg-background shadow-sm p-6 sm:p-8">
           <Step
-            n={1}
             title="Add Nous to your tool"
             hint="Pick where your agent runs. Claude Code installs as a plugin; everywhere else takes the MCP server config."
             action={selfHosted ? (
@@ -730,32 +549,6 @@ export default function Install() {
           >
             <ClientPanel client={client} onChange={setClient} />
           </Step>
-
-          {/* Org preferences and the routing test are a claude.ai feature, so
-              they only appear when a Claude client is selected. */}
-          {isClaudeClient && (
-            <>
-              <Step
-                n={2}
-                title="Set Claude org preferences"
-                hint={
-                  <>
-                    Tell Claude to route GTM questions through Nous by default, otherwise it can reach for raw CRM or call tools (HubSpot, Salesforce, Gong, Granola) first when someone forgets to say "Nous". Copy one version and paste it into <span className="text-foreground/80 font-medium">claude.ai → Settings → Organization preferences</span>. Optional but recommended.
-                  </>
-                }
-              >
-                <OrgPrefsPanel />
-              </Step>
-
-              <Step
-                n={3}
-                title="Check it is working"
-                hint="Confirm Claude reaches for Nous on its own."
-              >
-                <VerifyPanel />
-              </Step>
-            </>
-          )}
         </div>
 
         <SdkFooter />
