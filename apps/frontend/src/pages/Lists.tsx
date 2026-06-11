@@ -284,6 +284,15 @@ export default function Lists() {
   useEffect(() => {
     try { localStorage.setItem("lists.colW", JSON.stringify(colW)); } catch { /* ignore */ }
   }, [colW]);
+  // Per-list column order (drag-to-reorder), keyed by list id → ordered column
+  // keys. Name stays pinned first; any column not listed keeps its default spot.
+  const [colOrder, setColOrder] = useState<Record<string, string[]>>(() => {
+    try { return JSON.parse(localStorage.getItem("lists.colOrder") || "{}"); } catch { return {}; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("lists.colOrder", JSON.stringify(colOrder)); } catch { /* ignore */ }
+  }, [colOrder]);
+  const dragColRef = useRef<string | null>(null);
   const resizeRef = useRef<{ key: string; startX: number; startW: number } | null>(null);
   function startResize(e: React.MouseEvent, key: string, w: number) {
     e.preventDefault();
@@ -574,7 +583,7 @@ export default function Lists() {
     finally { setBusy(false); }
   }
 
-  async function verifySelected() {
+  async function verifySelected(provider?: string) {
     if (!activeId || (selected.size === 0 && !selectAllMatching)) return;
     setBusy(true);
     try {
@@ -582,7 +591,7 @@ export default function Lists() {
       const res = await fetch(`${apiUrl}/api/lead-lists/${activeId}/verify`, {
         method: "POST",
         headers: { ...authHeaders, "Content-Type": "application/json" },
-        body: JSON.stringify({ workspaceId, ids }),
+        body: JSON.stringify({ workspaceId, ids, provider }),
       });
       if (res.ok) {
         const d = await res.json();
@@ -602,6 +611,51 @@ export default function Lists() {
       await loadLeads(activeId, page, icpFilter, sort);
     } catch { toast("Couldn't verify — try again."); }
     finally { setBusy(false); }
+  }
+
+  // ── Pre-flight confirmation for enrich/verify ────────────────────────────────
+  // Both run a free dry-run preview first so the modal can show an exact cost
+  // breakdown (chargeable / reused-free / skipped) before any credit is spent.
+  type OpPreview = {
+    total: number; chargeable: number; reused: number;
+    no_identifier?: number; no_email?: number; connected_verifiers?: string[];
+  };
+  const [confirmOp, setConfirmOp] = useState<null | "enrich" | "verify">(null);
+  const [opPreview, setOpPreview] = useState<OpPreview | null>(null);
+  const [opLoading, setOpLoading] = useState(false);
+  const [verifyProvider, setVerifyProvider] = useState("");
+  // The true selection size (the run is capped server-side; see modal note).
+  const hasSelection = selected.size > 0 || selectAllMatching;
+  const selCount: number = selectAllMatching ? (matchingTotal ?? 0) : selected.size;
+
+  async function openConfirm(op: "enrich" | "verify") {
+    if (!activeId || (selected.size === 0 && !selectAllMatching)) return;
+    setConfirmOp(op); setOpPreview(null); setVerifyProvider(""); setOpLoading(true);
+    try {
+      const ids = await resolveSelectedIds();
+      const res = await fetch(`${apiUrl}/api/lead-lists/${activeId}/${op}`, {
+        method: "POST",
+        headers: { ...authHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ workspaceId, ids, preview: true }),
+      });
+      if (res.status === 409) { // verify only — no verifier connected
+        setConfirmOp(null);
+        toast("Connect MillionVerifier or NeverBounce in Integrations to verify emails.");
+        return;
+      }
+      if (!res.ok) { setConfirmOp(null); toast("Couldn't prepare — try again."); return; }
+      const d: OpPreview = await res.json();
+      setOpPreview(d);
+      if (op === "verify") setVerifyProvider(d.connected_verifiers?.[0] || "");
+    } catch { setConfirmOp(null); toast("Couldn't prepare — try again."); }
+    finally { setOpLoading(false); }
+  }
+
+  async function runConfirmed() {
+    const op = confirmOp;
+    setConfirmOp(null);
+    if (op === "enrich") await enrichSelected();
+    else if (op === "verify") await verifySelected(verifyProvider || undefined);
   }
 
   // Load the connected sequencer's campaigns when the export modal opens.
@@ -652,7 +706,7 @@ export default function Lists() {
     finally { setPushing(false); }
   }
 
-  const allCols = [
+  const baseCols = [
     ...FIXED_COLS,
     { key: "__domain", label: "Domain", w: 120 },
     { key: "__icp", label: "ICP", w: 64 },
@@ -661,7 +715,32 @@ export default function Lists() {
     { key: "__email_status", label: "Email status", w: 100 },
     { key: "__channel", label: "Channel", w: 84 },
     { key: "__added", label: activeList?.source === "linkedin_engagement" ? "Engaged" : "Added", w: 96 },
+  ];
+  // Apply the saved per-list column order. Name (the frozen first column) is
+  // always pinned leftmost; movable columns sort by the saved order, and any
+  // column missing from it (e.g. a newly added one) keeps its default position.
+  const savedOrder = (activeId && colOrder[activeId]) || [];
+  const orderRank = new Map(savedOrder.map((k, i) => [k, i]));
+  const movable = baseCols.filter(c => c.key !== "name");
+  const defaultIdx = new Map(movable.map((c, i) => [c.key, i]));
+  const rank = (k: string) => (orderRank.has(k) ? orderRank.get(k)! : 1000 + (defaultIdx.get(k) ?? 0));
+  const allCols = [
+    ...baseCols.filter(c => c.key === "name"),
+    ...[...movable].sort((a, b) => rank(a.key) - rank(b.key)),
   ].map(c => ({ ...c, w: Math.max(60, colW[c.key] ?? c.w) }));
+
+  // Drop column `dragged` at the position of column `target` (both movable, i.e.
+  // not the pinned Name), persisting the new order for the active list.
+  const moveColumn = (dragged: string, target: string) => {
+    if (!activeId || dragged === target || dragged === "name" || target === "name") return;
+    const keys = allCols.map(c => c.key).filter(k => k !== "name");
+    const from = keys.indexOf(dragged);
+    const to = keys.indexOf(target);
+    if (from < 0 || to < 0) return;
+    keys.splice(from, 1);
+    keys.splice(to, 0, dragged);
+    setColOrder(prev => ({ ...prev, [activeId]: keys }));
+  };
 
   const resetImport = () => {
     setImporting(false); setImportStep("upload");
@@ -737,8 +816,10 @@ export default function Lists() {
         ? all
         : all.filter(l => selected.has(l.id));
       if (rows.length === 0) { toast("No leads to export."); setCsvBusy(false); return; }
-      const keys = [...FIXED_COLS.map(c => c.key), "__domain", "__icp", ...customCols.map(c => c.key), "__source", "__email_status", "__channel"];
-      const labels = [...FIXED_COLS.map(c => c.label), "Domain", "ICP", ...customCols.map(c => c.label), "Source", "Email status", "Channel"];
+      // Export follows the on-screen column order (minus the Added timestamp).
+      const exportCols = allCols.filter(c => c.key !== "__added");
+      const keys = exportCols.map(c => c.key);
+      const labels = exportCols.map(c => c.label);
       const esc = (v: string) => `"${String(v ?? "").replace(/"/g, '""')}"`;
       const csv = [[...labels, "Channel"].map(esc).join(","),
         ...rows.map(l => [...keys.map(k => cellValue(l, k)), channel].map(esc).join(","))].join("\n");
@@ -1188,49 +1269,64 @@ export default function Lists() {
           </div>
         )}
 
-        {/* Selection actions — right-aligned, minimal */}
-        {activeList && (selected.size > 0 || selectAllMatching) && (
+        {/* Action bar — Enrich/Verify always shown (disabled until you select);
+            selection-specific actions appear once leads are ticked. */}
+        {activeList && (
           <div className="flex items-center gap-2 mb-3">
-            <span className="text-[12px] text-muted-foreground tabular-nums">
-              {selectAllMatching
-                ? matchingTotal != null
-                  ? `All ${matchingTotal.toLocaleString()} matching selected`
-                  : "All matching records selected"
-                : `${selected.size} selected`}
-            </span>
-            {/* Expand the page selection to every record matching the filters */}
-            {!selectAllMatching && allVisibleSelected &&
-              (matchingTotal == null ? leads.length === PAGE_SIZE || page > 0 : matchingTotal > selected.size) && (
-              <button onClick={() => setSelectAllMatching(true)}
-                className="text-[12px] font-medium text-foreground underline underline-offset-2 hover:opacity-80">
-                Select all {matchingTotal != null ? matchingTotal.toLocaleString() : ""} matching
-              </button>
+            {hasSelection ? (
+              <>
+                <span className="text-[12px] text-muted-foreground tabular-nums">
+                  {selectAllMatching
+                    ? matchingTotal != null
+                      ? `All ${matchingTotal.toLocaleString()} matching selected`
+                      : "All matching records selected"
+                    : `${selected.size} selected`}
+                </span>
+                {/* Expand the page selection to every record matching the filters */}
+                {!selectAllMatching && allVisibleSelected &&
+                  (matchingTotal == null ? leads.length === PAGE_SIZE || page > 0 : matchingTotal > selected.size) && (
+                  <button onClick={() => setSelectAllMatching(true)}
+                    className="text-[12px] font-medium text-foreground underline underline-offset-2 hover:opacity-80">
+                    Select all {matchingTotal != null ? matchingTotal.toLocaleString() : ""} matching
+                  </button>
+                )}
+              </>
+            ) : (
+              <span className="text-[12px] text-muted-foreground/50">Select leads to enrich or verify</span>
             )}
             <div className="mr-auto" />
-            <div className="relative">
-              <button
-                onClick={() => { const open = exportOpen && exportScope === "selected"; setExportScope("selected"); setExportOpen(!open); }}
-                disabled={busy}
-                title="Export the selected leads"
-                className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md text-[12px] font-medium border border-border text-foreground/80 hover:bg-muted/50 transition-colors disabled:opacity-40">
-                <Download className="h-3.5 w-3.5" /> Export
-                <ChevronDown className="h-3 w-3 opacity-60" />
-              </button>
-              {exportOpen && exportScope === "selected" && renderExportMenu()}
-            </div>
-            <button onClick={enrichSelected} disabled={busy}
+            {hasSelection && (
+              <div className="relative">
+                <button
+                  onClick={() => { const open = exportOpen && exportScope === "selected"; setExportScope("selected"); setExportOpen(!open); }}
+                  disabled={busy}
+                  title="Export the selected leads"
+                  className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md text-[12px] font-medium border border-border text-foreground/80 hover:bg-muted/50 transition-colors disabled:opacity-40">
+                  <Download className="h-3.5 w-3.5" /> Export
+                  <ChevronDown className="h-3 w-3 opacity-60" />
+                </button>
+                {exportOpen && exportScope === "selected" && renderExportMenu()}
+              </div>
+            )}
+            <button onClick={() => openConfirm("enrich")} disabled={busy || !hasSelection}
+              title="Find missing emails for the selected leads (Prospeo / Apollo)"
               className="h-7 px-2.5 rounded-md text-[12px] font-medium border border-border text-foreground/80 hover:bg-muted/50 transition-colors disabled:opacity-40">
               {busy ? "Enriching…" : "Enrich"}
             </button>
-            <button onClick={verifySelected} disabled={busy} title="Validate email deliverability via your MillionVerifier / NeverBounce key"
+            <button onClick={() => openConfirm("verify")} disabled={busy || !hasSelection}
+              title="Validate email deliverability for the selected leads (MillionVerifier / NeverBounce)"
               className="h-7 px-2.5 rounded-md text-[12px] font-medium border border-border text-foreground/80 hover:bg-muted/50 transition-colors disabled:opacity-40">
-              {busy ? "Verifying…" : "Verify emails"}
+              {busy ? "Verifying…" : "Verify"}
             </button>
-            <button onClick={deleteSelected} disabled={busy}
-              className="h-7 px-2.5 rounded-md text-[12px] font-medium border border-red-300 text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40 transition-colors disabled:opacity-40">
-              Delete
-            </button>
-            <button onClick={clearSelection} className="text-[12px] text-muted-foreground hover:text-foreground">Clear</button>
+            {hasSelection && (
+              <button onClick={deleteSelected} disabled={busy}
+                className="h-7 px-2.5 rounded-md text-[12px] font-medium border border-red-300 text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40 transition-colors disabled:opacity-40">
+                Delete
+              </button>
+            )}
+            {hasSelection && (
+              <button onClick={clearSelection} className="text-[12px] text-muted-foreground hover:text-foreground">Clear</button>
+            )}
           </div>
         )}
       </div>
@@ -1259,7 +1355,14 @@ export default function Lists() {
                   {allCols.map((c, i) => {
                     const sortable = c.key === "icp_score";
                     return (
-                    <div key={c.key} className={`relative px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-shrink-0 ${i === 0 ? "sticky left-10 z-30 bg-muted/50 border-r border-border" : ""}`} style={{ width: c.w }}>
+                    <div key={c.key}
+                      draggable={i !== 0}
+                      onDragStart={e => { if (i === 0) return; dragColRef.current = c.key; e.dataTransfer.effectAllowed = "move"; }}
+                      onDragOver={e => { if (i !== 0 && dragColRef.current && dragColRef.current !== c.key) e.preventDefault(); }}
+                      onDrop={e => { e.preventDefault(); if (dragColRef.current) moveColumn(dragColRef.current, c.key); dragColRef.current = null; }}
+                      onDragEnd={() => { dragColRef.current = null; }}
+                      title={i !== 0 ? "Drag to reorder" : undefined}
+                      className={`relative px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-shrink-0 ${i !== 0 ? "cursor-grab active:cursor-grabbing" : ""} ${i === 0 ? "sticky left-10 z-30 bg-muted/50 border-r border-border" : ""}`} style={{ width: c.w }}>
                       {sortable ? (
                         <button
                           onClick={() => setSort(s => (s === "icp_score_desc" ? "icp_score_asc" : "icp_score_desc"))}
@@ -1275,6 +1378,7 @@ export default function Lists() {
                         c.label
                       )}
                       <div
+                        draggable={false}
                         onMouseDown={e => startResize(e, c.key, c.w)}
                         title="Drag to resize"
                         className="absolute top-0 right-0 h-full w-1.5 cursor-col-resize hover:bg-foreground/20"
@@ -1498,6 +1602,85 @@ export default function Lists() {
                 {busy ? "Deleting…" : "Delete list"}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Enrich / Verify pre-flight — exact cost breakdown from a free dry-run
+          before any credit is spent. Verify also picks the provider here. */}
+      {confirmOp && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => !busy && setConfirmOp(null)}>
+          <div onClick={e => e.stopPropagation()} className="w-full max-w-md rounded-xl border border-border bg-background p-5 shadow-xl">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-[15px] font-semibold text-foreground">{confirmOp === "enrich" ? "Enrich leads" : "Verify emails"}</span>
+              <button onClick={() => setConfirmOp(null)} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+            </div>
+
+            {opLoading || !opPreview ? (
+              <div className="text-[13px] text-muted-foreground py-8 text-center">
+                Checking {selCount.toLocaleString()} lead{selCount === 1 ? "" : "s"}…
+              </div>
+            ) : (() => {
+              const provider = verifyProvider;
+              const providerLabel = provider === "neverbounce" ? "NeverBounce" : provider === "millionverifier" ? "MillionVerifier" : "your provider";
+              const creditLabel = confirmOp === "enrich" ? "your Prospeo / Apollo credits" : `your ${providerLabel} credits`;
+              const skipped = confirmOp === "enrich" ? (opPreview.no_identifier ?? 0) : (opPreview.no_email ?? 0);
+              const skipLabel = confirmOp === "enrich" ? "no email or LinkedIn" : "no email";
+              const reuseLabel = confirmOp === "enrich" ? "enriched recently" : "verified recently";
+              return (
+                <>
+                  {/* Provider picker — only when more than one verifier is connected */}
+                  {confirmOp === "verify" && (opPreview.connected_verifiers?.length ?? 0) > 1 && (
+                    <div className="mb-3">
+                      <div className="text-[11px] font-medium text-muted-foreground/70 mb-1.5">Verify with</div>
+                      <select value={verifyProvider} onChange={e => setVerifyProvider(e.target.value)}
+                        className="w-full h-9 rounded-lg border border-border bg-background px-3 text-[13px] text-foreground outline-none focus:border-muted-foreground">
+                        {opPreview.connected_verifiers!.map(p => (
+                          <option key={p} value={p}>{p === "neverbounce" ? "NeverBounce" : "MillionVerifier"}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  {/* Cost breakdown */}
+                  <div className="rounded-lg border border-border text-[13px] divide-y divide-border mb-3">
+                    <div className="flex items-center justify-between px-3 py-2.5">
+                      <span className="text-foreground font-medium">Will use {creditLabel}</span>
+                      <span className="text-foreground font-semibold tabular-nums">{opPreview.chargeable.toLocaleString()}</span>
+                    </div>
+                    {opPreview.reused > 0 && (
+                      <div className="flex items-center justify-between px-3 py-2.5 text-muted-foreground">
+                        <span>{reuseLabel} — free</span>
+                        <span className="tabular-nums">{opPreview.reused.toLocaleString()}</span>
+                      </div>
+                    )}
+                    {skipped > 0 && (
+                      <div className="flex items-center justify-between px-3 py-2.5 text-muted-foreground">
+                        <span>{skipLabel} — skipped</span>
+                        <span className="tabular-nums">{skipped.toLocaleString()}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <p className="text-[11px] text-muted-foreground/70 mb-1">
+                    Runs on your own connected key, billed at your provider's rate. Recently {confirmOp === "enrich" ? "enriched" : "verified"} leads are reused free.
+                  </p>
+                  {selCount > opPreview.total && (
+                    <p className="text-[11px] text-amber-600 mb-1">
+                      Processing the first {opPreview.total.toLocaleString()} of {selCount.toLocaleString()} selected. Bulk batching for larger lists is coming.
+                    </p>
+                  )}
+
+                  <div className="flex items-center justify-end gap-2 mt-4">
+                    <button onClick={() => setConfirmOp(null)} className="text-[13px] text-muted-foreground hover:text-foreground px-3 py-1.5">Cancel</button>
+                    <button onClick={runConfirmed} disabled={busy || opPreview.chargeable === 0}
+                      className="h-9 px-4 rounded-lg bg-foreground text-background text-[13px] font-semibold hover:opacity-90 disabled:opacity-40">
+                      {confirmOp === "enrich" ? `Enrich ${opPreview.chargeable.toLocaleString()}` : `Verify ${opPreview.chargeable.toLocaleString()}`}
+                    </button>
+                  </div>
+                </>
+              );
+            })()}
           </div>
         </div>
       )}

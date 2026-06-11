@@ -65,15 +65,31 @@ async function verifyViaNeverBounce(email, apiKey) {
   return { status, raw: body };
 }
 
-// Returns the workspace's connected verifier, preferring MillionVerifier, else
+const RUNNERS = { millionverifier: verifyViaMillionVerifier, neverbounce: verifyViaNeverBounce };
+
+// Returns the workspace's connected verifier. When `preferred` is given and that
+// provider is connected, it's used; otherwise prefer MillionVerifier, else
 // NeverBounce. null when neither is connected — the caller surfaces a
 // "connect a verifier" prompt instead of silently doing nothing.
-export async function getVerifier(supabase, workspaceId) {
+export async function getVerifier(supabase, workspaceId, preferred) {
+  if (preferred && RUNNERS[preferred]) {
+    const key = await getProviderApiKey(supabase, workspaceId, preferred);
+    if (key) return { provider: preferred, apiKey: key, run: RUNNERS[preferred] };
+  }
   const mvKey = await getProviderApiKey(supabase, workspaceId, 'millionverifier');
   if (mvKey) return { provider: 'millionverifier', apiKey: mvKey, run: verifyViaMillionVerifier };
   const nbKey = await getProviderApiKey(supabase, workspaceId, 'neverbounce');
   if (nbKey) return { provider: 'neverbounce', apiKey: nbKey, run: verifyViaNeverBounce };
   return null;
+}
+
+// Which verifiers the workspace has connected, for the Verify modal's provider
+// picker. Order = display preference (MillionVerifier first).
+export async function listConnectedVerifiers(supabase, workspaceId) {
+  const out = [];
+  if (await getProviderApiKey(supabase, workspaceId, 'millionverifier')) out.push('millionverifier');
+  if (await getProviderApiKey(supabase, workspaceId, 'neverbounce')) out.push('neverbounce');
+  return out;
 }
 
 // Verify a single lead's email with the given (already-resolved) verifier,

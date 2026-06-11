@@ -19,7 +19,7 @@ import {
 import { hasFeature } from '../../lib/plans.mjs';
 import { requireEnrichmentQuota, requireRecordsBalance } from '../../lib/access.mjs';
 import { enrichContact } from '../../services/enrichment.mjs';
-import { getVerifier, verifyLead } from '../../services/verification.mjs';
+import { getVerifier, verifyLead, listConnectedVerifiers } from '../../services/verification.mjs';
 import { listCampaigns, pushLeads, SEQUENCERS } from '../../services/sequencerPush.mjs';
 
 export const leadListsRouter = Router();
@@ -392,14 +392,32 @@ leadListsRouter.post('/:id/enrich', requireEnrichmentQuota, async (req, res) => 
       }
     }
 
+    // Classify each lead the SAME way the run loop below does, so a dry-run
+    // preview is exact. A lead is chargeable only if it has an identifier to
+    // work from AND isn't a recently-enriched reuse.
+    const classify = (l) => {
+      if (!l.email && !l.linkedin_url) return 'no_identifier';
+      const le = lastEnriched.get(l.id);
+      if (l.email && l.email_status && le && new Date(le).getTime() >= staleBefore) return 'reused';
+      return 'chargeable';
+    };
+
+    // Dry-run preview — return the cost breakdown without calling a provider or
+    // writing anything. Powers the pre-flight confirmation modal.
+    if (req.body.preview) {
+      let chargeable = 0, reused = 0, noId = 0;
+      for (const l of leads || []) {
+        const c = classify(l);
+        if (c === 'chargeable') chargeable++; else if (c === 'reused') reused++; else noId++;
+      }
+      return res.json({ preview: true, total: ids.length, chargeable, reused, no_identifier: noId });
+    }
+
     let enriched = 0, skippedQuota = 0, skippedNoId = 0, skippedVerified = 0;
     for (const l of leads || []) {
-      if (!l.email && !l.linkedin_url) { skippedNoId++; continue; }
-      // Already enriched + has a verified email, recently → reuse, don't re-pay.
-      const le = lastEnriched.get(l.id);
-      if (l.email && l.email_status && le && new Date(le).getTime() >= staleBefore) {
-        skippedVerified++; continue;
-      }
+      const c = classify(l);
+      if (c === 'no_identifier') { skippedNoId++; continue; }
+      if (c === 'reused') { skippedVerified++; continue; }
       if (enriched >= cap) { skippedQuota++; continue; }
       const [first, ...rest] = (l.name || '').trim().split(' ');
       const contact = {
@@ -450,10 +468,10 @@ leadListsRouter.post('/:id/verify', requireEnrichmentQuota, async (req, res) => 
     if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
     if (ids.length === 0) return res.status(400).json({ error: 'ids array required' });
 
-    // Resolve the workspace's verifier up front — if none is connected, tell the
-    // client to connect one rather than silently no-op'ing.
-    const verifier = await getVerifier(supabase, workspaceId);
-    if (!verifier) return res.status(409).json({ error: 'no_verifier_connected' });
+    // Which verifiers are connected — drives the modal's provider picker and the
+    // "connect a verifier" prompt when none exist.
+    const connected = await listConnectedVerifiers(supabase, workspaceId);
+    if (connected.length === 0) return res.status(409).json({ error: 'no_verifier_connected' });
 
     const cap = typeof req.enrichRemaining === 'number' ? req.enrichRemaining : Infinity;
     const { data: leads } = await supabase
@@ -480,12 +498,37 @@ leadListsRouter.post('/:id/verify', requireEnrichmentQuota, async (req, res) => 
       }
     }
 
+    // Pre-check: a lead is verifiable only if it HAS an email and wasn't verified
+    // recently. Same classification the run loop uses, so the preview is exact.
+    const classify = (l) => {
+      if (!l.email) return 'no_email';
+      const lv = lastVerified.get(l.id);
+      if (lv && new Date(lv).getTime() >= staleBefore) return 'reused';
+      return 'chargeable';
+    };
+
+    // Dry-run preview — cost breakdown + which verifiers are connected, without
+    // spending a credit. Powers the pre-flight confirmation modal + picker.
+    if (req.body.preview) {
+      let chargeable = 0, reused = 0, noEmail = 0;
+      for (const l of leads || []) {
+        const c = classify(l);
+        if (c === 'chargeable') chargeable++; else if (c === 'reused') reused++; else noEmail++;
+      }
+      return res.json({ preview: true, total: ids.length, chargeable, reused, no_email: noEmail, connected_verifiers: connected });
+    }
+
+    // Resolve the verifier to run with — honour the provider the user picked in
+    // the modal (falls back to MillionVerifier→NeverBounce preference).
+    const verifier = await getVerifier(supabase, workspaceId, req.body.provider);
+    if (!verifier) return res.status(409).json({ error: 'no_verifier_connected' });
+
     let deliverable = 0, risky = 0, undeliverable = 0;
     let skippedNoEmail = 0, skippedRecent = 0, skippedQuota = 0;
     for (const l of leads || []) {
-      if (!l.email) { skippedNoEmail++; continue; }
-      const lv = lastVerified.get(l.id);
-      if (lv && new Date(lv).getTime() >= staleBefore) { skippedRecent++; continue; }
+      const c = classify(l);
+      if (c === 'no_email') { skippedNoEmail++; continue; }
+      if (c === 'reused') { skippedRecent++; continue; }
       if (deliverable + risky + undeliverable >= cap) { skippedQuota++; continue; }
       try {
         const status = await verifyLead(supabase, verifier, l);
