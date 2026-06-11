@@ -314,10 +314,11 @@ export async function listLeads(
     reply?: string;         // interested | objection | wrong_fit | unsubscribe
     verified?: string;      // email_status value, e.g. 'verified'
     // Filter-builder dimensions ("Where <column> is <value>").
-    channel?: string;       // linkedin | email | meeting | slack | none (last_channel group)
+    channel?: string;       // none | a known group (linkedin/email/…) | free-text substring of last_channel
     emailStatus?: string;   // has | none | <exact email_status value>
     domain?: string;        // has | none
     size?: string;          // substring match on fields->>company_size
+    source?: string;        // free-text substring of the lead's source
   } = {},
 ): Promise<Lead[]> {
   if (!isUUID(leadListId)) return [];
@@ -330,7 +331,7 @@ export async function listLeads(
   // The icp-score sort RPC only knows the icp filter; if a status/reply/verified
   // filter is active, fall through to the plain query so those apply correctly.
   if ((sort === 'icp_score_desc' || sort === 'icp_score_asc') && !opts.status && !opts.reply
-      && !opts.verified && !opts.channel && !opts.emailStatus && !opts.domain && !opts.size) {
+      && !opts.verified && !opts.channel && !opts.emailStatus && !opts.domain && !opts.size && !opts.source) {
     const { data, error } = await supabase.rpc('lead_list_leads', {
       p_ws: workspaceId, p_list: leadListId, p_lim: limit, p_off: offset,
       p_icp: opts.icp ?? null, p_sort: sort,
@@ -350,14 +351,19 @@ export async function listLeads(
   if (opts.reply)    query = query.eq('reply_outcome', opts.reply);
   if (opts.verified) query = query.eq('email_status', opts.verified);
   // ── Filter-builder dimensions ──
+  // Channel: 'none' = never contacted; a known group key expands to its sources;
+  // anything else is a free-text substring match on the raw last_channel source.
   if (opts.channel === 'none') query = query.is('last_channel', null);
   else if (opts.channel && CHANNEL_SOURCES[opts.channel]) query = query.in('last_channel', CHANNEL_SOURCES[opts.channel]);
+  else if (opts.channel) query = query.ilike('last_channel', `%${opts.channel}%`);
   if (opts.emailStatus === 'has') query = query.not('email', 'is', null);
   else if (opts.emailStatus === 'none') query = query.is('email', null);
   else if (opts.emailStatus) query = query.eq('email_status', opts.emailStatus);
   if (opts.domain === 'has') query = query.not('domain', 'is', null);
   else if (opts.domain === 'none') query = query.is('domain', null);
   if (opts.size) query = query.ilike('fields->>company_size', `%${opts.size}%`);
+  // Source: free-text substring match on where the lead came from.
+  if (opts.source) query = query.ilike('source', `%${opts.source}%`);
   const { data, error } = await query
     .order('created_at', { ascending: false })
     .range(offset, offset + limit - 1);

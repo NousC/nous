@@ -40,7 +40,9 @@ const NEW_COL = "__new__"; // mapping target: create a new column from this head
 
 // Filter-builder dimensions — "Where <column> is <value>". Each field key is the
 // query param sent to the leads endpoint; values map to that param's accepted set.
-const FB_FIELDS: { key: string; label: string; values: { v: string; l: string }[] }[] = [
+// Filter dimensions. Most pick from a fixed value set; `type: "text"` fields
+// (Channel, Source) take a free-typed substring instead — you type what to match.
+const FB_FIELDS: { key: string; label: string; type?: "text"; values: { v: string; l: string }[] }[] = [
   { key: "size", label: "Company size", values: [
     { v: "1 to 10", l: "1–10" }, { v: "11 to 50", l: "11–50" }, { v: "51 to 200", l: "51–200" },
     { v: "201 to 500", l: "201–500" }, { v: "501 to 1,000", l: "501–1,000" },
@@ -50,10 +52,8 @@ const FB_FIELDS: { key: string; label: string; values: { v: string; l: string }[
     { v: "has", l: "Has email" }, { v: "none", l: "No email" },
     { v: "DELIVERABLE", l: "Deliverable" }, { v: "RISKY", l: "Risky" }, { v: "UNAVAILABLE", l: "Unavailable" },
   ] },
-  { key: "channel", label: "Channel", values: [
-    { v: "linkedin", l: "LinkedIn" }, { v: "email", l: "Email" }, { v: "meeting", l: "Meeting" },
-    { v: "slack", l: "Slack" }, { v: "none", l: "Not contacted" },
-  ] },
+  { key: "channel", label: "Channel", type: "text", values: [] },
+  { key: "source", label: "Source", type: "text", values: [] },
   { key: "domain", label: "Domain", values: [ { v: "has", l: "Has domain" }, { v: "none", l: "No domain" } ] },
 ];
 const fbLabel = (field: string, value: string) => {
@@ -456,8 +456,9 @@ export default function Lists() {
   // Filter builder — add/replace (one active value per field) and remove.
   const fbFieldDef = FB_FIELDS.find(f => f.key === fbField) ?? FB_FIELDS[0];
   const addFbFilter = () => {
-    if (!fbValue) return;
-    setFbFilters(prev => [...prev.filter(f => f.field !== fbField), { field: fbField, value: fbValue }]);
+    const value = fbValue.trim();
+    if (!value) return;
+    setFbFilters(prev => [...prev.filter(f => f.field !== fbField), { field: fbField, value }]);
     setFbValue(""); setFbOpen(false);
   };
   const removeFbFilter = (field: string) => setFbFilters(prev => prev.filter(f => f.field !== field));
@@ -1131,14 +1132,25 @@ export default function Lists() {
                       </select>
                       <span className="text-muted-foreground">is</span>
                     </div>
-                    <select
-                      value={fbValue}
-                      onChange={e => setFbValue(e.target.value)}
-                      className="h-8 w-full rounded-md border border-border bg-background text-[12px] text-foreground px-2 outline-none focus:border-muted-foreground"
-                    >
-                      <option value="">Select a value…</option>
-                      {fbFieldDef.values.map(v => <option key={v.v} value={v.v}>{v.l}</option>)}
-                    </select>
+                    {fbFieldDef.type === "text" ? (
+                      <input
+                        value={fbValue}
+                        onChange={e => setFbValue(e.target.value)}
+                        onKeyDown={e => { if (e.key === "Enter") addFbFilter(); }}
+                        autoFocus
+                        placeholder={`Type a ${fbFieldDef.label.toLowerCase()}…`}
+                        className="h-8 w-full rounded-md border border-border bg-background text-[12px] text-foreground px-2 outline-none focus:border-muted-foreground"
+                      />
+                    ) : (
+                      <select
+                        value={fbValue}
+                        onChange={e => setFbValue(e.target.value)}
+                        className="h-8 w-full rounded-md border border-border bg-background text-[12px] text-foreground px-2 outline-none focus:border-muted-foreground"
+                      >
+                        <option value="">Select a value…</option>
+                        {fbFieldDef.values.map(v => <option key={v.v} value={v.v}>{v.l}</option>)}
+                      </select>
+                    )}
                     <button
                       onClick={addFbFilter}
                       disabled={!fbValue}
