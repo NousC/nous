@@ -680,9 +680,16 @@ CREATE TABLE workspace_linkedin_connections (
   linkedin_name        TEXT,
   linkedin_headline    TEXT,
   linkedin_profile_url TEXT,
+  label                TEXT,                  -- per-rep label, e.g. "Sarah Chen"
+  owner_user_id        UUID,                  -- FK to users added after users is defined
+  is_active            BOOLEAN NOT NULL DEFAULT true,
   connected_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE (workspace_id)
+  -- A workspace can connect many LinkedIn accounts (one per rep). The plan's
+  -- linkedinProfiles limit is enforced in code. Re-connecting the same account
+  -- updates its row in place.
+  UNIQUE (workspace_id, unipile_account_id)
 );
+CREATE INDEX wlc_workspace ON workspace_linkedin_connections(workspace_id);
 ALTER TABLE workspace_linkedin_connections ENABLE ROW LEVEL SECURITY;
 CREATE POLICY wlc_all ON workspace_linkedin_connections
   FOR ALL USING (is_workspace_member(workspace_id));
@@ -883,6 +890,9 @@ ALTER TABLE workflow_provider_connections
 ALTER TABLE workspace_members
   ADD CONSTRAINT workspace_members_user_id_fkey
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+ALTER TABLE workspace_linkedin_connections
+  ADD CONSTRAINT workspace_linkedin_connections_owner_user_id_fkey
+  FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE SET NULL;
 
 CREATE TABLE team_members (
   id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),

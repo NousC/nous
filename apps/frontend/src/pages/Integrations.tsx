@@ -79,7 +79,10 @@ export default function Integrations() {
   const [connSuccess, setConnSuccess] = useState<string|null>(null);
   const [connOAuthLoading, setConnOAuthLoading] = useState(false);
   const [liveConns, setLiveConns] = useState<IntegrationConn[]>([]);
-  const [linkedinStatus, setLinkedinStatus] = useState<{connected:boolean; needs_reconnect?:boolean; connection:any}|null>(null);
+  const [linkedinStatus, setLinkedinStatus] = useState<{
+    connected:boolean; needs_reconnect?:boolean; connection:any;
+    connections?:any[]; limit?:number; used?:number; can_connect_more?:boolean;
+  }|null>(null);
   const [linkedinBusy, setLinkedinBusy] = useState(false);
 
   const fetchLinkedInStatus = () => {
@@ -125,7 +128,7 @@ export default function Integrations() {
     setLinkedinBusy(true);
     try {
       const res = await fetch(`${apiUrl}/api/linkedin/connect?workspaceId=${workspaceId}`, { headers:{ Authorization:`Bearer ${token}` } });
-      if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.error || "Couldn't start LinkedIn connection"); }
+      if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.message || e.error || "Couldn't start LinkedIn connection"); }
       const { url } = await res.json();
       const w = 600, h = 700;
       window.open(url, "LinkedInUnipile", `width=${w},height=${h},left=${window.screenX+(window.outerWidth-w)/2},top=${window.screenY+(window.outerHeight-h)/2}`);
@@ -141,15 +144,18 @@ export default function Integrations() {
     } catch (err: any) { toast.error(err.message || "Failed to connect LinkedIn"); setLinkedinBusy(false); }
   };
 
-  const disconnectLinkedIn = async () => {
+  const disconnectLinkedIn = async (accountId?: string) => {
     if (!token || !workspaceId) return;
-    if (!window.confirm("Disconnect LinkedIn? This removes the Unipile link and stops LinkedIn signals + the weekly engagement run.")) return;
+    if (!window.confirm(accountId
+      ? "Disconnect this LinkedIn account? This removes the Unipile link and stops its signals + weekly engagement run."
+      : "Disconnect LinkedIn? This removes the Unipile link and stops LinkedIn signals + the weekly engagement run.")) return;
     setLinkedinBusy(true);
     try {
-      const res = await fetch(`${apiUrl}/api/linkedin/disconnect?workspaceId=${workspaceId}`, { method:"DELETE", headers:{ Authorization:`Bearer ${token}` } });
+      const qs = accountId ? `&accountId=${encodeURIComponent(accountId)}` : "";
+      const res = await fetch(`${apiUrl}/api/linkedin/disconnect?workspaceId=${workspaceId}${qs}`, { method:"DELETE", headers:{ Authorization:`Bearer ${token}` } });
       if (!res.ok) throw new Error("Failed to disconnect");
       toast.success("LinkedIn disconnected");
-      setLinkedinStatus({ connected: false, connection: null });
+      fetchLinkedInStatus();
     } catch (err: any) { toast.error(err.message || "Failed to disconnect"); }
     finally { setLinkedinBusy(false); }
   };
@@ -321,30 +327,45 @@ export default function Integrations() {
         {((catTab === "all" || catTab === "communication") || filteredConns.length > 0) ? (
           <div className="rounded-xl border border-border overflow-hidden">
             {(catTab === "all" || catTab === "communication") && (
-              <div className="flex items-center gap-4 px-4 py-3.5 border-b border-border/60 last:border-0 hover:bg-muted/50 transition-colors group">
-                <IntegrationLogo url="/provider-logos/linkedin.png" name="LinkedIn" />
-                <div className="flex-1 min-w-0">
-                  <div className="text-[13px] font-semibold text-foreground">LinkedIn</div>
-                  <div className="text-[12px] text-muted-foreground/70 truncate">
-                    {linkedinStatus?.connected
-                      ? `Connected${linkedinStatus.connection?.linkedin_name ? ` as ${linkedinStatus.connection.linkedin_name}` : ""}`
-                      : "Sync your LinkedIn messages, connections, and post engagers"}
+              <div className="px-4 py-3.5 border-b border-border/60 last:border-0 hover:bg-muted/50 transition-colors">
+                <div className="flex items-center gap-4 group">
+                  <IntegrationLogo url="/provider-logos/linkedin.png" name="LinkedIn" />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[13px] font-semibold text-foreground">LinkedIn</div>
+                    <div className="text-[12px] text-muted-foreground/70 truncate">
+                      {(linkedinStatus?.connections?.length ?? 0) > 0
+                        ? `${linkedinStatus?.used ?? linkedinStatus?.connections?.length} of ${linkedinStatus?.limit ?? 0} account${(linkedinStatus?.limit ?? 0) === 1 ? "" : "s"} connected · one per rep`
+                        : "Sync your LinkedIn messages, connections, and post engagers"}
+                    </div>
                   </div>
+                  {linkedinStatus?.can_connect_more === false ? (
+                    <span className="text-[11px] px-2 py-0.5 rounded-md border text-muted-foreground border-border bg-muted/30 flex-shrink-0"
+                      title={(linkedinStatus?.limit ?? 0) === 0 ? "Connecting LinkedIn isn't on this plan" : "You've reached your plan's LinkedIn limit — upgrade or contact us"}>
+                      {(linkedinStatus?.limit ?? 0) === 0 ? "Not on this plan" : "Limit reached"}
+                    </span>
+                  ) : (
+                    <button onClick={() => connectLinkedIn()} disabled={linkedinBusy}
+                      className="text-[12px] font-medium flex-shrink-0 rounded-md bg-primary text-primary-foreground px-3 py-1.5 hover:bg-primary/90 disabled:opacity-40">
+                      {linkedinBusy ? "Connecting…" : (linkedinStatus?.connections?.length ?? 0) > 0 ? "Add account" : "Connect"}
+                    </button>
+                  )}
                 </div>
-                <span className={`text-[11px] px-2 py-0.5 rounded-md border flex-shrink-0 ${linkedinStatus?.connected ? "text-emerald-700 border-emerald-200 bg-emerald-50" : linkedinStatus?.needs_reconnect ? "text-amber-700 border-amber-200 bg-amber-50" : "text-muted-foreground border-border bg-muted/30"}`}>
-                  {linkedinStatus?.connected ? "Connected" : linkedinStatus?.needs_reconnect ? "Needs reconnect" : "Not connected"}
-                </span>
-                {linkedinStatus?.connected ? (
-                  <button onClick={disconnectLinkedIn} disabled={linkedinBusy}
-                    title="Disconnect LinkedIn"
-                    className="text-[12px] font-medium text-muted-foreground hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100 flex-shrink-0 rounded-md border border-border px-2.5 py-1 hover:border-red-200 disabled:opacity-40">
-                    {linkedinBusy ? "Removing…" : "Disconnect"}
-                  </button>
-                ) : (
-                  <button onClick={connectLinkedIn} disabled={linkedinBusy}
-                    className="text-[12px] font-medium flex-shrink-0 rounded-md bg-primary text-primary-foreground px-3 py-1.5 hover:bg-primary/90 disabled:opacity-40">
-                    {linkedinBusy ? "Connecting…" : linkedinStatus?.needs_reconnect ? "Reconnect" : "Connect"}
-                  </button>
+                {(linkedinStatus?.connections?.length ?? 0) > 0 && (
+                  <div className="mt-2.5 space-y-1.5 pl-[52px]">
+                    {linkedinStatus!.connections!.map((c:any) => (
+                      <div key={c.id} className="flex items-center gap-3 group/acct">
+                        <span className={`h-1.5 w-1.5 rounded-full flex-shrink-0 ${c.linkedin_profile_url ? "bg-emerald-500" : "bg-amber-500"}`} />
+                        <div className="flex-1 min-w-0 text-[12.5px] text-foreground truncate">
+                          {c.linkedin_name || c.unipile_account_id}
+                          {!c.linkedin_profile_url && <span className="text-amber-600 ml-2 text-[11px]">needs reconnect</span>}
+                        </div>
+                        <button onClick={() => disconnectLinkedIn(c.unipile_account_id)} disabled={linkedinBusy}
+                          className="text-[11.5px] font-medium text-muted-foreground hover:text-red-500 transition-colors opacity-0 group-hover/acct:opacity-100 flex-shrink-0 rounded-md border border-border px-2 py-0.5 hover:border-red-200 disabled:opacity-40">
+                          Disconnect
+                        </button>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
             )}

@@ -17,7 +17,9 @@ linkedinRouter.get('/status', verifySupabaseAuth, async (req, res) => {
       .from('workspace_linkedin_connections')
       .select('id, linkedin_name, linkedin_headline, linkedin_profile_url, connected_at')
       .eq('workspace_id', workspaceId)
-      .single();
+      .order('connected_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
     // A row with no profile URL means the LinkedIn link never captured (or went
     // stale on Unipile's side) — it's not usefully connected, so surface it as

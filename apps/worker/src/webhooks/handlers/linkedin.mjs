@@ -189,7 +189,9 @@ async function backfillLinkedInMessages(supabase, workspaceId, contactId, { link
       .from('workspace_linkedin_connections')
       .select('unipile_account_id')
       .eq('workspace_id', workspaceId)
-      .single();
+      .order('connected_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
     if (!conn?.unipile_account_id) {
       console.log('[LINKEDIN_BACKFILL] no unipile account for workspace', workspaceId);
       return;
@@ -262,7 +264,9 @@ async function getUnipileAccountId(supabase, workspaceId) {
     .from('workspace_linkedin_connections')
     .select('unipile_account_id')
     .eq('workspace_id', workspaceId)
-    .single();
+    .order('connected_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
   return data?.unipile_account_id || null;
 }
 

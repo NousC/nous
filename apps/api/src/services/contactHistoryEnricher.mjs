@@ -86,6 +86,8 @@ async function getWorkspaceConnections(supabase, workspaceId) {
     .from('workspace_linkedin_connections')
     .select('unipile_account_id')
     .eq('workspace_id', workspaceId)
+    .order('connected_at', { ascending: false })
+    .limit(1)
     .maybeSingle();
   if (liConn?.unipile_account_id) map.linkedin = { account_id: liConn.unipile_account_id };
 

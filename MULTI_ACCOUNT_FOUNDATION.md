@@ -41,13 +41,13 @@ connect is the plan lever.
 
 | | Free | Start | Pro | Growth | Partner |
 |---|---|---|---|---|---|
-| **Connected LinkedIn accounts** (per workspace) | 0 | 0 | 1 | **3** | 3 per client |
+| **Connected LinkedIn accounts** (per workspace) | 0 | 1 | 1 | **5** | 1 per client workspace |
 | **Connected mailboxes** | unlimited | unlimited | unlimited | unlimited | unlimited |
 
 - **Hard gate at connect time**, no grace window (it's a "buy the plan" gate, like a feature —
   not a usage meter). Trying to connect an Nth LinkedIn over the limit → blocked with an
   upgrade prompt.
-- **Over Growth's 3 → "talk to us."** No self-serve per-additional-profile pricing —
+- **Over Growth's 5 → "talk to us."** No self-serve per-additional-profile pricing —
   explicitly out of scope (see §6). The block message routes to contact, not a checkout.
 - **Mailboxes are ungated** — connect as many as you want on any cloud plan. LinkedIn is the
   only count-gated resource.
@@ -79,7 +79,7 @@ connect is the plan lever.
 - Keep the existing index on `workspace_id`.
 
 **Plan config** (`plans.mjs` + `plans.ts`):
-- Add `linkedinProfiles`: free 0, starter 0, pro 1, growth 3, scale 3.
+- Add `linkedinProfiles`: free 0, starter 1, pro 1, growth 5, scale 1 (per client workspace).
 
 **Gate** (`access.mjs` + the connect route in `apps/api/src/services/linkedin.mjs`,
 ~line 637 where the row is upserted):
