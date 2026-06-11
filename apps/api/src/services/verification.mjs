@@ -11,10 +11,12 @@ import { getProviderApiKey } from './enrichment.mjs';
 
 // Our canonical reachability vocabulary, shared with enrichment so the
 // email_status column + filters keep working unchanged.
-//   DELIVERABLE — safe to send
+//   VERIFIED — safe to send
 //   RISKY       — catch-all / unknown, send at your own risk
 //   UNAVAILABLE — invalid / disposable, do not send
-const DELIVERABLE = 'DELIVERABLE';
+// VERIFIED (not "DELIVERABLE") matches the value Prospeo enrichment already
+// writes, so enrich + verify share one email_status vocabulary.
+const VERIFIED = 'VERIFIED';
 const RISKY = 'RISKY';
 const UNAVAILABLE = 'UNAVAILABLE';
 
@@ -38,7 +40,7 @@ async function verifyViaMillionVerifier(email, apiKey) {
   const body = await res.json();
   const result = String(body.result || '').toLowerCase();
   const status =
-    result === 'ok'                                  ? DELIVERABLE :
+    result === 'ok'                                  ? VERIFIED :
     result === 'catch_all' || result === 'unknown'   ? RISKY :
     result === 'invalid' || result === 'disposable'  ? UNAVAILABLE :
     null; // 'error' or unexpected — treat as inconclusive, don't overwrite
@@ -58,7 +60,7 @@ async function verifyViaNeverBounce(email, apiKey) {
   }
   const result = String(body.result || '').toLowerCase();
   const status =
-    result === 'valid'                                ? DELIVERABLE :
+    result === 'valid'                                ? VERIFIED :
     result === 'catchall' || result === 'unknown'     ? RISKY :
     result === 'invalid' || result === 'disposable'   ? UNAVAILABLE :
     null;
@@ -102,7 +104,7 @@ export async function verifyLead(supabase, verifier, lead) {
     await recordVerificationObservation(supabase, lead.workspace_id, lead.id, verifier.provider, status);
   }
 
-  const label = { [DELIVERABLE]: 'Deliverable', [RISKY]: 'Risky', [UNAVAILABLE]: 'Undeliverable' }[status] || 'Inconclusive';
+  const label = { [VERIFIED]: 'Verified', [RISKY]: 'Risky', [UNAVAILABLE]: 'Unavailable' }[status] || 'Inconclusive';
   await logActivity(supabase, {
     workspaceId: lead.workspace_id, contactId: lead.id,
     type: 'verification_run', source: verifier.provider,

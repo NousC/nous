@@ -554,7 +554,7 @@ leadListsRouter.post('/:id/verify', requireEnrichmentQuota, async (req, res) => 
       if (deliverable + risky + undeliverable >= Math.min(cap, MAX_VERIFY)) { skippedQuota++; continue; }
       try {
         const status = await verifyLead(supabase, verifier, l);
-        if (status === 'DELIVERABLE')      deliverable++;
+        if (status === 'VERIFIED')      deliverable++;
         else if (status === 'RISKY')       risky++;
         else if (status === 'UNAVAILABLE') undeliverable++;
       } catch (e) {
