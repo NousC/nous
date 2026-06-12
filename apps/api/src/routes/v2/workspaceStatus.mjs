@@ -172,7 +172,7 @@ workspaceStatusV2Router.get('/status', async (req, res) => {
         id: 'onboarding',
         title: 'Finish onboarding the workspace',
         why: `Missing: ${profileMissing.join(', ')}. Everything else builds on the workspace knowing who you are and who you sell to.`,
-        how: 'Ask for company name, website, service-or-software, and a sentence on the ideal customer, then call set_workspace_profile.',
+        how: 'Ask for the company name + website, then RESEARCH the company from its website yourself (home, product, pricing, about, customers/case studies) so you can pre-fill instead of interrogating the user. Confirm service-or-software and a first cut of the ideal customer, then call set_workspace_profile. Treat this research as the groundwork for the GTM playbook next — dig in now, do not just collect a one-liner.',
       });
     }
 
@@ -243,9 +243,14 @@ workspaceStatusV2Router.get('/status', async (req, res) => {
     if (onboardingDone && !playbookDone) {
       next_steps.push({
         id: 'gtm_playbook',
-        title: 'Build the GTM playbook',
-        why: 'No ICP scoring model yet, so accounts are not scored for fit. This is what makes Nous prioritise.',
-        how: 'Work through the GTM context (what they sell, who, problems, pricing, competitors) with update_gtm_profile, then build_scoring_model. STRONGER: ask for a few closed-won and closed-lost customer domains and call record_closed_deals — a model trained on real outcomes beats one from a description.',
+        title: 'Research the company and build the GTM playbook',
+        why: 'No ICP scoring model yet, so accounts are not scored for fit. This is what makes Nous prioritise — and it is only as good as the context behind it.',
+        how: 'This is the heart of the setup — do REAL research, not one question. '
+          + '(1) RESEARCH: read the company website (home, product, pricing, about, blog, case studies/customers) and any public material, and infer how they go to market. '
+          + '(2) FILL EVERY SECTION with update_gtm_profile — Market (who + segment/geo), Product (what it does + the problem it solves), Pricing (model + tiers), Competitors (named alternatives), Positioning (the wedge / why them), GTM Motion (PLG / sales-led / outbound + sales cycle), and ICP (the sharp ideal-customer definition the score is built on). '
+          + '(3) CONFIRM: show the user the drafted context and let them correct it BEFORE you build anything — never build silently off your own guesses. '
+          + '(4) OUTCOMES (ask EARLY): get a handful of closed-WON and closed-LOST customer domains and call record_closed_deals — a model trained on real outcomes beats one from a description, and the won-vs-lost contrast sharpens the ICP. '
+          + '(5) BUILD: call build_scoring_model. A one-line ICP is not enough.',
       });
     }
 

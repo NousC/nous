@@ -104,7 +104,7 @@ Open `https://app.yourdomain.com` and create the first account — it becomes th
 ./update.sh      # pulls latest, rebuilds the containers, flags any new DB migrations
 ```
 
-CRM Sync and Lead Lists are the only features reserved for [Nous Cloud](https://opennous.cloud) — everything else (the customer graph, MCP server, ICP scoring, enrichment, integrations) is fully open on self-host.
+CRM Sync is the only feature reserved for [Nous Cloud](https://opennous.cloud) — everything else (the customer graph, Lead Lists, MCP server, ICP scoring, enrichment, integrations) is fully open on self-host.
 
 ## Local development
 

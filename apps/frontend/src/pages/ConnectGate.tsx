@@ -89,8 +89,12 @@ export default function ConnectGate() {
   const [celebrating, setCelebrating] = useState(false);
 
   // Self-host: point the login (and therefore the MCP) at THIS instance, not cloud.
-  const login = selfHosted && API_URL
-    ? `npx @opennous/cli login --url ${API_URL}`
+  // Prefer an explicit VITE_API_URL (separate api subdomain); otherwise fall back
+  // to the page's own origin (single-domain self-host, where nginx proxies the API
+  // under the same host) so the login command is never left targeting Nous Cloud.
+  const apiBase = API_URL || (selfHosted ? window.location.origin : "");
+  const login = selfHosted && apiBase
+    ? `npx @opennous/cli login --url ${apiBase}`
     : "npx @opennous/cli login";
   const TABS = makeTabs(login);
   const active = TABS.find(t => t.id === tab) ?? TABS[0];

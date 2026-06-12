@@ -553,8 +553,10 @@ export function createServer() {
     "(2) connect core channels — Gmail/email, LinkedIn, and a meeting note-taker (Fireflies/Fathom/" +
     "Calendly); (3) connect enrichment/outbound (Prospeo/Apollo/Instantly); (4) set up webhooks for " +
     "the connected tools so their events flow in; (5) import first records (CSV from the CRM) on the " +
-    "Accounts page, then backfill enrichment; (6) build the GTM playbook (update_gtm_profile + " +
-    "build_scoring_model, asking for closed-won/lost domains). " +
+    "Accounts page, then backfill enrichment; (6) RESEARCH the company from its website and build the " +
+    "GTM playbook — fill EVERY context section (Market, Product, Pricing, Competitors, Positioning, GTM " +
+    "Motion, ICP) with update_gtm_profile, CONFIRM the draft with the user before building, ask for " +
+    "closed-won/lost domains (record_closed_deals), then build_scoring_model. " +
     "KNOW THE CONSTRAINTS: Gmail uses Google OAuth and LinkedIn has NO public API (Nous connects it " +
     "natively via Unipile) — you CANNOT connect those yourself; tell the user to set them up on the " +
     "Integrations page. Key-based tools (Prospeo, Apollo, Instantly, HubSpot token) you CAN connect " +

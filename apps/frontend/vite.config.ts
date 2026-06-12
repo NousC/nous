@@ -10,18 +10,16 @@ export default defineConfig(({ mode }) => {
     server: {
       host: "::",
       port: 8080,
-      proxy: {
-        '/api': {
+      // Proxy every API path the app, CLI, and MCP hit, so the dev server's own
+      // origin is a complete API base (matching production single-domain self-host
+      // where nginx fronts all of these under one host).
+      proxy: Object.fromEntries(
+        ['/api', '/v2', '/me', '/health'].map((p) => [p, {
           target: process.env.VITE_API_URL || 'http://localhost:3000',
           changeOrigin: true,
           secure: false,
-        },
-        '/me': {
-          target: process.env.VITE_API_URL || 'http://localhost:3000',
-          changeOrigin: true,
-          secure: false,
-        },
-      },
+        }]),
+      ),
     },
     plugins: [
       react(),
