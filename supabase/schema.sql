@@ -708,6 +708,9 @@ CREATE TABLE workspace_linkedin_connections (
   owner_user_id        UUID,                  -- FK to users added after users is defined
   is_active            BOOLEAN NOT NULL DEFAULT true,
   connected_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  -- Per-account on/off for the weekly LinkedIn Engagers scrape. Default true so
+  -- existing connected accounts keep running; users toggle it from the Lists page.
+  engagement_enabled   BOOLEAN NOT NULL DEFAULT true,
   -- A workspace can connect many LinkedIn accounts (one per rep). The plan's
   -- linkedinProfiles limit is enforced in code. Re-connecting the same account
   -- updates its row in place.

@@ -1,6 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Plus, Upload, RefreshCw, FileText, X, ArrowLeft, Download, Lock, Filter, ChevronDown, Linkedin, Coins } from "lucide-react";
+import { Plus, Upload, RefreshCw, FileText, X, ArrowLeft, Download, Lock, Filter, ChevronDown, Linkedin, Coins, Settings2, Calendar } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader } from "@/components/ui/page-header";
 import { parseCSVLine } from "@/components/contacts/PeopleImportModal";
@@ -261,6 +261,21 @@ export default function Lists() {
 
   // Right-click → styled delete confirmation (replaces window.confirm).
   const [deleteTarget, setDeleteTarget] = useState<LeadList | null>(null);
+
+  // Manage panel for the auto-managed "LinkedIn Engagers" list.
+  type EngagementInfo = {
+    available: boolean;
+    reason: string | null;
+    enabled: boolean;
+    reads_from: string | null;
+    schedule: string;
+    window: { posts: number; days: number };
+    self_host: boolean;
+    last_run: { summary: string; at: string; metadata?: unknown } | null;
+  };
+  const [engageOpen, setEngageOpen] = useState(false);
+  const [engageInfo, setEngageInfo] = useState<EngagementInfo | null>(null);
+  const [engageBusy, setEngageBusy] = useState(false);
 
   // Mapped CSV import
   const [importing, setImporting] = useState(false);
@@ -918,14 +933,42 @@ export default function Lists() {
     finally { setBusy(false); }
   };
 
-  // Right-click a list → open the styled confirm (engagers list is protected).
+  // Right-click a list → delete confirm for normal lists, or the manage panel for
+  // the auto-managed engagers list (which can't be deleted, only toggled).
   const requestDeleteList = (list: LeadList) => {
     if (!list) return;
     if (list.source === "linkedin_engagement") {
-      toast("LinkedIn Engagers is managed automatically and can't be deleted.");
+      openEngagement();
       return;
     }
     setDeleteTarget(list);
+  };
+
+  // Open the LinkedIn Engagers manage panel and (re)load its status.
+  const openEngagement = async () => {
+    setEngageOpen(true);
+    setEngageInfo(null);
+    try {
+      const res = await fetch(`${apiUrl}/api/linkedin/engagement?workspaceId=${workspaceId}`, { headers: authHeaders });
+      if (res.ok) setEngageInfo(await res.json());
+    } catch { /* leave null — panel shows a loading/empty state */ }
+  };
+
+  // Flip the weekly scrape on/off.
+  const toggleEngagement = async (next: boolean) => {
+    if (engageBusy) return;
+    setEngageBusy(true);
+    setEngageInfo(prev => (prev ? { ...prev, enabled: next } : prev)); // optimistic
+    try {
+      const res = await fetch(`${apiUrl}/api/linkedin/engagement`, {
+        method: "PATCH", headers: jsonHeaders,
+        body: JSON.stringify({ workspaceId, enabled: next }),
+      });
+      if (!res.ok) throw new Error("toggle failed");
+    } catch {
+      setEngageInfo(prev => (prev ? { ...prev, enabled: !next } : prev)); // revert
+      toast("Couldn't update — try again.");
+    } finally { setEngageBusy(false); }
   };
   const confirmDeleteList = async () => {
     const list = deleteTarget;
@@ -1242,23 +1285,33 @@ export default function Lists() {
 
         {/* Tabs — one per list, rounded-top folder tabs on a gray bar */}
         <div className="flex items-end gap-1 mb-4 overflow-x-auto rounded-lg bg-muted/60 px-1.5 pt-1.5">
-          {lists.map(l => (
-            <button
-              key={l.id}
-              onClick={() => { setActiveId(l.id); resetImport(); setEditCell(null); }}
-              onContextMenu={e => { e.preventDefault(); requestDeleteList(l); }}
-              title={l.source === "linkedin_engagement" ? "Managed automatically — fills from your LinkedIn post engagers" : "Right-click to delete this list"}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-[13px] rounded-t-lg border border-b-0 whitespace-nowrap transition-colors ${
-                l.id === activeId
-                  ? "bg-background border-border text-foreground font-medium shadow-[0_-1px_2px_rgba(0,0,0,0.03)]"
-                  : "bg-transparent border-transparent text-muted-foreground hover:text-foreground hover:bg-background/50"
-              }`}
-            >
-              {l.source === "linkedin_engagement" && <Lock className="h-3 w-3 opacity-50" />}
-              {l.name}
-              <span className="text-[11px] text-muted-foreground/60 tabular-nums">{l.lead_count ?? 0}</span>
-            </button>
-          ))}
+          {lists.map(l => {
+            const engagers = l.source === "linkedin_engagement";
+            return (
+            <div key={l.id} className="relative flex items-stretch">
+              <button
+                onClick={() => { setActiveId(l.id); resetImport(); setEditCell(null); }}
+                onContextMenu={e => { e.preventDefault(); requestDeleteList(l); }}
+                title={engagers ? "Auto-managed — right-click or click the gear to manage" : "Right-click to delete this list"}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-[13px] rounded-t-lg border border-b-0 whitespace-nowrap transition-colors ${
+                  l.id === activeId
+                    ? "bg-background border-border text-foreground font-medium shadow-[0_-1px_2px_rgba(0,0,0,0.03)]"
+                    : "bg-transparent border-transparent text-muted-foreground hover:text-foreground hover:bg-background/50"
+                }`}
+              >
+                {engagers && <Lock className="h-3 w-3 opacity-50" />}
+                {l.name}
+                <span className="text-[11px] text-muted-foreground/60 tabular-nums">{l.lead_count ?? 0}</span>
+                {engagers && (
+                  <Settings2
+                    onClick={e => { e.stopPropagation(); openEngagement(); }}
+                    className="h-3.5 w-3.5 ml-0.5 opacity-40 hover:opacity-90 transition-opacity"
+                  />
+                )}
+              </button>
+            </div>
+            );
+          })}
           {creating ? (
             <span className="flex items-center gap-1.5 px-1.5 pb-1.5">
               <input
@@ -1881,6 +1934,97 @@ export default function Lists() {
                 Done
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* LinkedIn Engagers — manage panel (visibility + on/off) */}
+      {engageOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setEngageOpen(false)}>
+          <div onClick={e => e.stopPropagation()} className="w-full max-w-md rounded-xl border border-border bg-background p-5 shadow-xl">
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-2">
+                <Linkedin className="h-4 w-4 text-[#0a66c2]" />
+                <span className="text-[15px] font-semibold text-foreground">LinkedIn Engagers</span>
+                <span className="text-[11px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">Auto-managed</span>
+              </div>
+              <button onClick={() => setEngageOpen(false)} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+            </div>
+
+            {!engageInfo ? (
+              <p className="text-[13px] text-muted-foreground mt-4">Loading…</p>
+            ) : (
+              <>
+                <p className="text-[13px] text-muted-foreground mt-3 leading-relaxed">
+                  Every Monday, Nous reads everyone who commented on or reacted to your last{" "}
+                  {engageInfo.window.posts} LinkedIn posts (past {engageInfo.window.days} days) and adds them here.
+                  Each engagement also lands on that person’s timeline across your accounts. They become People the
+                  moment they actually reply.
+                </p>
+
+                <div className="mt-4 space-y-2 text-[13px]">
+                  {engageInfo.reads_from && (
+                    <div className="flex items-center gap-2 text-foreground/80">
+                      <Linkedin className="h-3.5 w-3.5 text-muted-foreground" />
+                      <span className="text-muted-foreground">Reads from</span>
+                      <span className="font-medium text-foreground truncate">{engageInfo.reads_from}</span>
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2 text-foreground/80">
+                    <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+                    <span className="text-muted-foreground">Schedule</span>
+                    <span className="font-medium text-foreground">{engageInfo.schedule}</span>
+                  </div>
+                  {engageInfo.last_run && (
+                    <div className="flex items-start gap-2 text-foreground/80">
+                      <RefreshCw className="h-3.5 w-3.5 text-muted-foreground mt-0.5" />
+                      <span className="text-muted-foreground">Last run</span>
+                      <span className="font-medium text-foreground">{engageInfo.last_run.summary}</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* On/off — shown when there's a connection to govern */}
+                {engageInfo.reason !== "not_connected" && engageInfo.reason !== "not_configured" ? (
+                  <div className="mt-5 flex items-center justify-between rounded-lg border border-border px-3.5 py-3">
+                    <div>
+                      <div className="text-[13px] font-medium text-foreground">Weekly engagement scrape</div>
+                      <div className="text-[12px] text-muted-foreground">
+                        {engageInfo.enabled ? "On — runs every Monday" : "Off — no engagers are pulled"}
+                      </div>
+                    </div>
+                    <button
+                      role="switch" aria-checked={engageInfo.enabled} disabled={engageBusy}
+                      onClick={() => toggleEngagement(!engageInfo.enabled)}
+                      className={`relative h-6 w-11 rounded-full transition-colors disabled:opacity-50 ${engageInfo.enabled ? "bg-foreground" : "bg-muted-foreground/30"}`}
+                    >
+                      <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-background transition-transform ${engageInfo.enabled ? "translate-x-[22px]" : "translate-x-0.5"}`} />
+                    </button>
+                  </div>
+                ) : null}
+
+                {/* Availability note when it can't actually run here */}
+                {!engageInfo.available && (
+                  <div className="mt-4 rounded-lg bg-muted/60 px-3.5 py-3 text-[12.5px] text-muted-foreground">
+                    {engageInfo.reason === "not_configured" && (
+                      engageInfo.self_host
+                        ? "Set APIFY_TOKEN in your worker environment to enable engagement scraping."
+                        : "Engagement scraping isn’t configured on this deployment yet."
+                    )}
+                    {engageInfo.reason === "not_connected" && (
+                      <>Connect your LinkedIn first to start pulling engagers.{" "}
+                        <button onClick={() => navigate("/integrations")} className="underline hover:text-foreground">Connect LinkedIn →</button>
+                      </>
+                    )}
+                    {engageInfo.reason === "needs_plan" && (
+                      <>Available on the Pro plan and up.{" "}
+                        <button onClick={() => navigate("/usage")} className="underline hover:text-foreground">Upgrade →</button>
+                      </>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
           </div>
         </div>
       )}

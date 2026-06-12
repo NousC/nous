@@ -14,12 +14,14 @@
 //   The moment they actually reply / DM / meet, a real-source interaction lands
 //   and they graduate into People automatically. Comment in, conversation out.
 //
-// Cloud + Pro/Growth/Partner plans only. NOT a self-host feature — self-host has no
-// plan concept and lead lists are already cloud-only (see access.mjs / the
-// feature split). Gating (any one no-op silences the whole thing — safe by default):
-//   * APIFY_TOKEN unset                   -> feature off everywhere
-//   * workspace has no LinkedIn connected -> skipped
-//   * workspace not on Pro/Growth/Partner (and not in LINKEDIN_ENGAGEMENT_WORKSPACES) -> skipped
+// Eligibility: cloud needs a Pro/Growth/Partner plan (or the allowlist); self-host
+// runs for any connected workspace (no plan concept). Lead lists are now open on
+// self-host (see access.mjs / the feature split). Gating (any one no-op silences
+// the whole thing — safe by default):
+//   * APIFY_TOKEN unset                            -> feature off everywhere
+//   * workspace has no LinkedIn connected          -> skipped
+//   * engagement_enabled = false                   -> user turned it off, skipped
+//   * cloud + not Pro/Growth/Partner (no allowlist) -> skipped
 
 import { getSupabaseClient, insertLeads, createLeadList, listLeadLists, logWorkerRun } from '@nous/core';
 import { runActor, hasApifyToken } from '../utils/apify.mjs';
@@ -73,10 +75,11 @@ function postTs(p, now) {
   return null;
 }
 
-// Is this workspace allowed to run? Cloud, Pro/Growth/Partner only — this is NOT
-// a self-host feature (self-host has no plans, and lead lists are cloud-only).
-// The allowlist is for cloud dogfood / pilots; everyone else needs an active plan.
+// Is this workspace allowed to run? Self-host runs for any connected workspace
+// (no plan concept). On cloud it needs an active Pro/Growth/Partner plan; the
+// allowlist is for cloud dogfood / pilots.
 async function isEligible(supabase, workspaceId) {
+  if (process.env.SELF_HOSTED === 'true') return true;
   if (ALLOWLIST.has(workspaceId)) return true;
   const { data: ws } = await supabase.from('workspaces').select('team_id').eq('id', workspaceId).maybeSingle();
   if (!ws?.team_id) return false;
@@ -158,6 +161,10 @@ async function runForWorkspace(supabase, conn) {
   const workspaceId = conn.workspace_id;
   const profileUrl = conn.linkedin_profile_url;
   if (!profileUrl) return null;
+  if (conn.engagement_enabled === false) {
+    console.log(`[ENGAGE] ${workspaceId} engagement turned off — skipping`);
+    return null;
+  }
   if (!(await isEligible(supabase, workspaceId))) {
     console.log(`[ENGAGE] ${workspaceId} not eligible (needs active Scale plan or allowlist) — skipping`);
     return null;
@@ -277,7 +284,7 @@ export async function runLinkedInEngagement() {
   const supabase = getSupabaseClient();
   const { data: conns, error } = await supabase
     .from('workspace_linkedin_connections')
-    .select('workspace_id, linkedin_profile_url')
+    .select('workspace_id, linkedin_profile_url, engagement_enabled')
     .not('linkedin_profile_url', 'is', null);
   if (error) { console.error('[ENGAGE] load connections failed', error.message); return; }
   if (!conns?.length) {

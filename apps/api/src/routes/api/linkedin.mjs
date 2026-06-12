@@ -35,6 +35,94 @@ linkedinRouter.get('/status', verifySupabaseAuth, async (req, res) => {
   }
 });
 
+// Is this workspace allowed to RUN the engagement scrape? Mirrors the worker's
+// isEligible: self-host always, cloud needs an active Pro/Growth/Partner plan
+// (internal id 'scale' = Partner), or the allowlist.
+async function engagementEligible(supabase, workspaceId) {
+  if (process.env.SELF_HOSTED === 'true') return { ok: true };
+  const allow = new Set((process.env.LINKEDIN_ENGAGEMENT_WORKSPACES || '')
+    .split(',').map(s => s.trim()).filter(Boolean));
+  if (allow.has(workspaceId)) return { ok: true };
+  const { data: ws } = await supabase
+    .from('workspaces').select('team_id').eq('id', workspaceId).maybeSingle();
+  if (!ws?.team_id) return { ok: false, reason: 'no_team' };
+  const { data: sub } = await supabase
+    .from('subscriptions').select('plan_id, status').eq('team_id', ws.team_id).maybeSingle();
+  const dead = !sub || ['canceled', 'incomplete_expired', 'past_due'].includes(sub.status);
+  const paid = sub && ['pro', 'growth', 'scale'].includes(sub.plan_id);
+  if (dead || !paid) return { ok: false, reason: 'needs_plan' };
+  return { ok: true };
+}
+
+// Manage panel for the auto-managed "LinkedIn Engagers" list: schedule, what it
+// reads from, last run, the on/off state, and whether it's even available here.
+linkedinRouter.get('/engagement', verifySupabaseAuth, async (req, res) => {
+  try {
+    const supabase = getSupabaseClient();
+    const { workspaceId } = req.query;
+    if (!workspaceId || !UUID.test(workspaceId))
+      return res.status(400).json({ error: 'invalid_workspace_id' });
+
+    // A workspace can have several connected LinkedIn accounts (one per rep) —
+    // aggregate across all of them for the single workspace-level panel.
+    const { data: conns } = await supabase
+      .from('workspace_linkedin_connections')
+      .select('linkedin_name, linkedin_profile_url, engagement_enabled')
+      .eq('workspace_id', workspaceId);
+    const usable = (conns || []).filter(c => c.linkedin_profile_url);
+
+    const configured = !!process.env.APIFY_TOKEN;            // feature off everywhere without it
+    const connected = usable.length > 0;
+    const elig = connected ? await engagementEligible(supabase, workspaceId) : { ok: false, reason: 'not_connected' };
+    const reason = !configured ? 'not_configured'
+      : !connected ? 'not_connected'
+      : elig.ok ? null : elig.reason;
+    // Enabled if any connected account is actively scraping; the toggle flips them all.
+    const enabled = connected ? usable.some(c => c.engagement_enabled !== false) : true;
+    const readsFrom = usable.map(c => c.linkedin_name || c.linkedin_profile_url).filter(Boolean).join(', ') || null;
+
+    const { data: last } = await supabase
+      .from('workspace_system_log')
+      .select('summary, occurred_at, metadata')
+      .eq('workspace_id', workspaceId).eq('source', 'linkedin_engagement').eq('event_type', 'run')
+      .order('occurred_at', { ascending: false }).limit(1).maybeSingle();
+
+    return res.json({
+      available: configured && connected && elig.ok,
+      reason,                                   // null when available; else why not
+      enabled,
+      reads_from: readsFrom,
+      schedule: 'Weekly · Mondays',
+      window: { posts: Number(process.env.ENGAGEMENT_MAX_POSTS || 5), days: Number(process.env.ENGAGEMENT_WINDOW_DAYS || 7) },
+      self_host: process.env.SELF_HOSTED === 'true',
+      last_run: last ? { summary: last.summary, at: last.occurred_at, metadata: last.metadata } : null,
+    });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Toggle the weekly scrape on/off for this workspace.
+linkedinRouter.patch('/engagement', verifySupabaseAuth, async (req, res) => {
+  try {
+    const supabase = getSupabaseClient();
+    const { workspaceId, enabled } = req.body || {};
+    if (!workspaceId || !UUID.test(workspaceId))
+      return res.status(400).json({ error: 'invalid_workspace_id' });
+    if (typeof enabled !== 'boolean')
+      return res.status(400).json({ error: 'enabled_must_be_boolean' });
+
+    const { error } = await supabase
+      .from('workspace_linkedin_connections')
+      .update({ engagement_enabled: enabled })
+      .eq('workspace_id', workspaceId);
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json({ ok: true, enabled });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 linkedinRouter.get('/connect', verifySupabaseAuth, async (req, res) => {
   try {
     const { workspaceId } = req.query;

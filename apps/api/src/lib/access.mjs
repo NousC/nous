@@ -60,8 +60,9 @@ export async function resolveTeamAndPlan(req) {
  *   router.post('/sync-now', verifySupabaseAuth, requireFeature('crmSync'), handler);
  */
 // Features that are NOT available on self-host (cloud-only). Self-host gets
-// everything else, unmetered. Add governance/enterprise features here later.
-const CLOUD_ONLY_FEATURES = new Set(['crmSync', 'leadLists']);
+// everything else, unmetered. Lead lists are included on self-host; CRM Sync
+// stays cloud-only. Add governance/enterprise features here later.
+const CLOUD_ONLY_FEATURES = new Set(['crmSync']);
 
 export function requireFeature(feature) {
   return async function requireFeatureMiddleware(req, res, next) {

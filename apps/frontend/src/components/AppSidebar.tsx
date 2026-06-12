@@ -48,8 +48,8 @@ const mainNavItems: NavItem[] = [
   { title: "Context",  url: "/intelligence", icon: Brain    },
 ];
 
-// Cloud-only surfaces, rendered inline under Context. Different gates:
-// Lists (lead database) is Pro+, CRM Sync is Growth+.
+// Surfaces rendered inline under Context. Different gates: Lists (lead database)
+// is open on self-host and Pro+ on cloud; CRM Sync is cloud-only, Growth+.
 const crmSyncNavItem: NavItem = { title: "CRM Sync", url: "/crm-sync", icon: Database };
 const listsNavItem: NavItem  = { title: "Lists",    url: "/lists",    icon: List     };
 
@@ -116,11 +116,12 @@ export function AppSidebar() {
       .then(d => { if (d?.plan) setPlan(String(d.plan).toLowerCase()); })
       .catch(() => {});
   }, [session?.access_token]);
-  // Cloud-only (never on self-host). Gates match plans.mjs: lead lists on Pro+,
-  // CRM sync on Growth+. (Internal id 'scale' = the Partner plan.)
+  // Lists (lead database) is open on self-host; on cloud it's Pro+. CRM Sync stays
+  // cloud-only, Growth+. Gates match access.mjs (crmSync cloud-only) + plans.mjs.
+  // (Internal id 'scale' = the Partner plan.)
   const selfHosted = (userData as { self_hosted?: boolean })?.self_hosted === true;
   const showLeadLists =
-    !selfHosted && (plan === "pro" || plan === "growth" || plan === "scale");
+    selfHosted || plan === "pro" || plan === "growth" || plan === "scale";
   const showCrmSync =
     !selfHosted && (plan === "growth" || plan === "scale");
   // Lead-related surfaces (Lists, lead/campaign analytics) unlock with lead lists.
@@ -230,8 +231,8 @@ export function AppSidebar() {
         )}
       </nav>
 
-      {/* Main navigation — Ops / Accounts / Context, with the cloud-only
-          CRM Sync + Lists surfaced inline under Context for Pro+ workspaces. */}
+      {/* Main navigation — Ops / Accounts / Context, with CRM Sync (cloud-only,
+          Pro+) and Lists (self-host, or Pro+ on cloud) surfaced inline under Context. */}
       <nav className="px-2.5 pt-7">
         <ul className="flex flex-col gap-0.5">
           {mainNavItems.map(renderNavItem)}
