@@ -228,14 +228,24 @@ workspaceStatusV2Router.get('/status', async (req, res) => {
       });
     }
 
-    // 5. First records — CSV into Accounts, then backfill enrichment.
+    // 5. First records — CSV into Accounts. But channels FIRST: a record imported
+    // before any channel is connected has nothing to backfill activity from, so it
+    // lands as a bare name + score with an empty timeline. Adapt the step.
+    const anyChannelConnected = gmailConnected || linkedinConnected || meetingConnected;
     if (onboardingDone && recordCount === 0) {
-      next_steps.push({
-        id: 'import_records',
-        title: 'Add the first records (CSV, ideally from the CRM)',
-        why: 'An empty workspace has nothing to score or act on. Importing the CRM contacts seeds the account record.',
-        how: 'Tell the user to upload a CSV on the Accounts page (export from their CRM). After import, they can run backfill enrichment so the new records get scored. You cannot upload the file — guide them to it.',
-      });
+      next_steps.push(anyChannelConnected
+        ? {
+            id: 'import_records',
+            title: 'Add the first records (CSV, ideally from the CRM)',
+            why: 'An empty workspace has nothing to score or act on. Importing the CRM contacts seeds the account record, and your connected channels can backfill their real activity.',
+            how: 'Tell the user to upload a CSV on the Accounts page, ideally exported from their CRM. After import, run backfill enrichment + activity so the records get scored and their past interactions attach. You cannot upload the file — guide them to it.',
+          }
+        : {
+            id: 'import_records',
+            title: 'Connect a channel FIRST, then add records',
+            why: 'Importing records before any channel (LinkedIn/Gmail/meeting note-taker) is connected leaves them as names with an ICP score but an EMPTY timeline — there is no connected source to backfill their past activity from. Connect channels first so the import actually comes alive.',
+            how: 'Do NOT rush to a CSV yet. First get the core channels connected — LinkedIn + Gmail at minimum, ideally a meeting note-taker — and any other relevant tools, so that once records are imported you can backfill real activity onto them. ONLY THEN upload the CSV (ideally exported from the CRM) on the Accounts page. Importing into a workspace with no channels gives a score but no history.',
+          });
     }
 
     // 6. GTM playbook — once the workspace has its setup + first records, build

@@ -552,8 +552,10 @@ export function createServer() {
     "(1) profile (set_workspace_profile); " +
     "(2) connect core channels — Gmail/email, LinkedIn, and a meeting note-taker (Fireflies/Fathom/" +
     "Calendly); (3) connect enrichment/outbound (Prospeo/Apollo/Instantly); (4) set up webhooks for " +
-    "the connected tools so their events flow in; (5) import first records (CSV from the CRM) on the " +
-    "Accounts page, then backfill enrichment; (6) RESEARCH the company from its website and build the " +
+    "the connected tools so their events flow in; (5) ONLY AFTER channels are connected (LinkedIn + " +
+    "Gmail at minimum, ideally a note-taker), import first records (CSV, ideally from the CRM) on the " +
+    "Accounts page — connecting channels first is what lets the import backfill real activity instead " +
+    "of a bare score — then backfill enrichment; (6) RESEARCH the company from its website and build the " +
     "GTM playbook — fill EVERY context section (Market, Product, Pricing, Competitors, Positioning, GTM " +
     "Motion, ICP) with update_gtm_profile, CONFIRM the draft with the user before building, ask for " +
     "closed-won/lost domains (record_closed_deals), then build_scoring_model. " +

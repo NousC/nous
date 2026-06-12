@@ -27,6 +27,10 @@ const HARDCODED_PROVIDERS: AvailableProvider[] = [
   { id:"fireflies", name:"fireflies", display_name:"Fireflies.ai", logo_url:"/provider-logos/fireflies.svg", category:"meetings"     },
   { id:"fathom",    name:"fathom",    display_name:"Fathom",       logo_url:"/provider-logos/fathom.svg",    category:"meetings"     },
   { id:"cal_com",   name:"cal_com",   display_name:"Cal.com",      logo_url:"/provider-logos/cal_com.svg",   category:"meetings"     },
+  // LinkedIn connects natively (Unipile), not via a key form — clicking Connect in
+  // the catalog hands off to connectLinkedIn(). It only appears here while NOT
+  // connected; once accounts exist it renders as its own row on the main list.
+  { id:"linkedin",  name:"linkedin",  display_name:"LinkedIn",     logo_url:"/provider-logos/linkedin.png",  category:"communication" },
   {
     id:"smtp", name:"smtp", display_name:"Custom SMTP / IMAP",
     logo_url:"/provider-logos/smtp.svg", category:"communication",
@@ -109,12 +113,21 @@ export default function Integrations() {
   const visibleConns = liveConns.filter(c => !EXCLUDED.has((c.provider?.name || "").toLowerCase()));
   const connected  = visibleConns.filter(i=>i.is_verified);
   const needsAuth  = visibleConns.filter(i=>!i.is_verified);
-  const notConnected = allProviders.filter(p=>!visibleConns.some(i=>i.provider?.name===p.name||i.name===p.name));
+  const linkedinAccountCount = linkedinStatus?.connections?.length ?? 0;
+  const notConnected = allProviders.filter(p => {
+    // LinkedIn lives in workspace_linkedin_connections (native), not workflow
+    // connections — show it in the catalog only until at least one account is on.
+    if (p.name === "linkedin") return linkedinAccountCount === 0;
+    return !visibleConns.some(i=>i.provider?.name===p.name||i.name===p.name);
+  });
 
   const isOAuth = (p: AvailableProvider | null) =>
     p?.auth_type === "oauth2" || ["airtable","notion","google_analytics","slack","gmail","granola","salesforce"].includes(p?.name ?? "");
 
   const startConnect = (p: AvailableProvider) => {
+    // LinkedIn is native (Unipile) — hand off to its own popup flow, not the
+    // credential form. Close the catalog so the popup is unobstructed.
+    if (p.name === "linkedin") { setAddOpen(false); connectLinkedIn(); return; }
     const hardcoded = HARDCODED_PROVIDERS.find(h => h.name === p.name);
     const merged = hardcoded ? { ...p, auth_fields: hardcoded.auth_fields, auth_type: hardcoded.auth_type } : p;
     setConnecting(merged); setConnApiKey(""); setConnCreds({}); setConnName(merged.display_name);
@@ -292,6 +305,9 @@ export default function Integrations() {
   const connsWithCat = allConns.map(c => ({ ...c, category: c.provider?.category }));
   const connectedGrouped = groupByCategory(connsWithCat);
   const connectedCats = connectedGrouped.map(([cat]) => cat);
+  // LinkedIn renders as its own row on the main list only once at least one account
+  // is connected; before that it lives in the Add-integration catalog like any tool.
+  const showLinkedInRow = (catTab === "all" || catTab === "communication") && linkedinAccountCount > 0;
   const filteredConns = catTab === "all"
     ? connsWithCat
     : connsWithCat.filter(c => {
@@ -323,10 +339,11 @@ export default function Integrations() {
           ))}
         </div>
 
-        {/* Integrations list — LinkedIn (native Unipile) sits inline as the first row */}
-        {((catTab === "all" || catTab === "communication") || filteredConns.length > 0) ? (
+        {/* Integrations list — connected LinkedIn (native Unipile) sits inline as the
+            first row; when nothing is connected it's offered in the + catalog instead. */}
+        {(showLinkedInRow || filteredConns.length > 0) ? (
           <div className="rounded-xl border border-border overflow-hidden">
-            {(catTab === "all" || catTab === "communication") && (
+            {showLinkedInRow && (
               <div className="px-4 py-3.5 border-b border-border/60 last:border-0 hover:bg-muted/50 transition-colors">
                 <div className="flex items-center gap-4 group">
                   <IntegrationLogo url="/provider-logos/linkedin.png" name="LinkedIn" />
