@@ -11,22 +11,17 @@
 </div>
 
 <div align="center">
-  <h3>The GTM Context API for agents.</h3>
-  Unify your go-to-market tools into one customer graph and give any agent the whole<br/>
-  account in a single call — every person, conversation, and signal, resolved and verified.<br/>
-  Open source, and available as a hosted service.
-</div>
-
-<br/>
-
-<div align="center">
   <a href="https://docs.opennous.cloud">Docs</a> ·
   <a href="https://docs.opennous.cloud/public-api/introduction">Public API</a> ·
   <a href="https://docs.opennous.cloud/mcp/introduction">MCP Server</a> ·
   <a href="https://discord.gg/2Ph4ZYXw">Discord</a>
 </div>
 
-<div align="center"><sub>Pst — join our stargazers :)</sub></div>
+# Nous
+
+**The GTM Context API for agents.** Unify your go-to-market tools into one customer graph and give any agent the whole account in a single call, every person, conversation, and signal, in one record. Open source, and available as a [hosted service](https://opennous.cloud).
+
+_Pst — join our stargazers :)_
 
 ---
 
@@ -46,11 +41,6 @@
 | `get_context(domain)` | the right context for a task, token-budgeted for the prompt |
 | `get_account(domain)` | the whole account: every contact, touch, and signal |
 | `query("...")` | ask the graph in natural language |
-
-| Also | |
-|---|---|
-| `verify(fact)` | source, confidence, and freshness on any fact |
-| `record(event)` | write an outcome back, and the graph self-heals |
 
 ## Quick start
 
@@ -105,7 +95,7 @@ Ask the graph in natural language.
 query("which accounts went quiet after a positive reply?")
 ```
 
-Returns the matching accounts, resolved and verified.
+Returns the matching accounts, resolved.
 
 ## Power your agent
 
@@ -135,47 +125,28 @@ Now tell your agent **“Set me up — onboard my workspace and build my playboo
 
 ## Open source vs Cloud
 
-Nous is open source under AGPL-3.0. Self-host runs the open primitive in full, unmetered: the customer graph, identity resolution, `get_context` / `get_account` / `query`, `verify`, `record`, the MCP server, enrichment, and all 25+ integrations.
+Nous is open source under AGPL-3.0. Self-host runs the open primitive in full, unmetered. **Nous Cloud** adds the team layer on top of the same graph — the part go-to-market teams need, hosted and managed.
 
-**Nous Cloud** adds the team layer on top of the same graph — the part go-to-market teams need, and the part you don't want to run yourself.
-
-| Open source (self-host) | Nous Cloud |
-|---|---|
-| `get_context` · `get_account` · `query` | everything in open source, plus: |
-| Identity resolution · the customer graph | CRM two-way sync |
-| `verify` · `record` · MCP server | Lead Lists |
-| 25+ integrations · enrichment (BYO keys) | The ICP model (learns from won/loss) |
+<div align="center">
+  <img src=".github/assets/open-source-vs-cloud.svg" alt="Nous Open Source vs Cloud" width="760" />
+</div>
 
 ## Self-host
 
-Run the whole stack — API, worker, MCP server, frontend, Redis, and Caddy (automatic HTTPS) — with Docker Compose. You bring a [Supabase](https://supabase.com) project (Postgres + auth) and an Anthropic API key.
+Run the whole stack — API, worker, MCP server, frontend, Redis, and Caddy (automatic HTTPS) — with Docker Compose, on your own infrastructure. You bring a [Supabase](https://supabase.com) project and an Anthropic API key.
 
-```bash
-git clone https://github.com/NousC/nous.git
-cd nous
-cp nous.env.example nous.env
-#   Fill in APP/API/MCP domains, Supabase keys, ANTHROPIC_API_KEY.
-#   SELF_HOSTED=true is already set — it runs the open primitive, unmetered.
-openssl rand -hex 32        # paste into ENCRYPTION_KEY=
-#   Run supabase/schema.sql in your Supabase SQL editor once.
-docker compose --env-file nous.env up -d --build
-```
-
-Open `https://app.yourdomain.com`, create the first account (it becomes the owner), and point your agent at it. To close signups afterward, set `DISABLE_SIGNUPS=true` and re-run `./update.sh`.
-
-For local development against your Supabase project without Docker:
-
-```bash
-git clone https://github.com/NousC/nous.git && cd nous
-cp .env.example .env        # Supabase + Anthropic keys
-pnpm install && pnpm dev
-```
-
-→ [Full self-host guide](https://docs.opennous.cloud)
+→ **[Follow the self-host guide](https://docs.opennous.cloud/installation/docker-compose)** for the full walkthrough.
 
 ## Tech stack
 
-Node.js (ESM) + Express · Vite + React · Supabase (Postgres + pgvector) · `@modelcontextprotocol/sdk` · Anthropic Claude · pnpm workspaces.
+| Layer | Stack |
+|---|---|
+| API | Node.js (ESM), Express |
+| Frontend | Vite, React, shadcn/ui |
+| Database | Supabase (PostgreSQL + pgvector) |
+| MCP | `@modelcontextprotocol/sdk` |
+| AI | Anthropic Claude |
+| Package manager | pnpm workspaces |
 
 ## Contributing
 
@@ -183,7 +154,7 @@ We love contributions. See the [Contributing Guide](CONTRIBUTING.md) before open
 
 ## License
 
-AGPL-3.0. Self-host free forever, or skip the setup with [Nous Cloud](https://opennous.cloud).
+Nous is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0). You are free to use, modify, and self-host it. If you run a modified version as a network service, the AGPL requires you to make your source available to that service's users. Nous Cloud runs this same open core, hosted and managed, with the team layer (CRM sync, lead lists, the ICP model) added on top. See the [LICENSE](LICENSE) file for the full text.
 
 ## Compliance
 
