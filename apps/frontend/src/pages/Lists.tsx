@@ -142,6 +142,7 @@ function cellValue(lead: Lead, key: string): string {
   if (key === "__added") return lead.created_at ? relTime(lead.created_at) : "";
   if (key === "__domain") return lead.domain ?? (typeof lead.fields?.domain === "string" ? lead.fields.domain : "");
   if (key === "__email_status") return lead.email_status ?? "";
+  if (key === "__signal") return lead.reply_outcome ?? "";
   if (key === "__channel") return channelLabel(lead.last_channel);
   // ICP score — the lead's fit (0–100), surfaced as a guaranteed column. Prefer
   // the ICP fit score (fields.icp_score, set by scoring); fall back to the scorecard.
@@ -162,6 +163,7 @@ const EMAIL_STATUS_TAG: Record<string, { label: string; cls: string }> = {
   DELIVERABLE: { label: "Verified",    cls: "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-400" }, // legacy alias
   RISKY:       { label: "Risky",       cls: "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-400" },
   UNAVAILABLE: { label: "Unavailable", cls: "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-400" },
+  BOUNCED:     { label: "Bounced",     cls: "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-400" },
 };
 function emailStatusTag(status: string | null) {
   if (!status) return <span className="text-muted-foreground/40">—</span>;
@@ -182,9 +184,33 @@ const STATUS_TAG: Record<string, string> = {
   unsubscribe: "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-400",
 };
 function statusTag(lead: Lead) {
-  const v = (lead.reply_outcome || lead.status || "").toString();
+  // Lifecycle only (pending/sent/replied/bounced). The reply disposition lives in
+  // its own Signal column now — keep the two axes distinct.
+  const v = (lead.status || "").toString();
   if (!v) return <span className="text-muted-foreground/40">—</span>;
   const cls = STATUS_TAG[v] ?? "bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300";
+  return <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-medium capitalize ${cls}`}>{v.replace(/_/g, " ")}</span>;
+}
+
+// Reply disposition (the canonical reply signal) as its own colored pill —
+// distinct from STATUS (lifecycle) and EMAIL STATUS (deliverability). Covers the
+// canonical taxonomy plus the legacy reply_outcome / sentiment vocabularies.
+const SIGNAL_TAG: Record<string, string> = {
+  positive:       "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-400",
+  interested:     "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-400",
+  objection:      "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-400",
+  neutral:        "bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300",
+  auto_reply:     "bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300",
+  negative:       "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-400",
+  wrong_fit:      "bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300",
+  unsubscribe:    "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-400",
+  do_not_contact: "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-400",
+  bounce:         "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-400",
+};
+function signalTag(lead: Lead) {
+  const v = (lead.reply_outcome || "").toString();
+  if (!v) return <span className="text-muted-foreground/40">—</span>;
+  const cls = SIGNAL_TAG[v] ?? "bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300";
   return <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-medium capitalize ${cls}`}>{v.replace(/_/g, " ")}</span>;
 }
 
@@ -867,6 +893,7 @@ export default function Lists() {
     ...customCols.map(c => ({ key: c.key, label: c.label, w: CUSTOM_W })),
     { key: "__source", label: "Source", w: 130 },
     { key: "__email_status", label: "Email status", w: 100 },
+    { key: "__signal", label: "Signal", w: 110 },
     { key: "__channel", label: "Channel", w: 84 },
     { key: "__added", label: activeList?.source === "linkedin_engagement" ? "Engaged" : "Added", w: 96 },
   ];
@@ -1648,6 +1675,8 @@ export default function Lists() {
                               />
                             ) : c.key === "__email_status" ? (
                               emailStatusTag(l.email_status)
+                            ) : c.key === "__signal" ? (
+                              signalTag(l)
                             ) : isLink ? (
                               <a href={val} target="_blank" rel="noopener noreferrer"
                                  onClick={e => e.stopPropagation()}
