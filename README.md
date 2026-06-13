@@ -11,9 +11,10 @@
 </div>
 
 <div align="center">
-  <strong>The GTM Context API for agents.</strong><br/>
-  Nous unifies fragmented data across your go-to-market tools into a unified customer graph<br/>
-  to make agents context-aware about what is happening inside GTM.
+  <h3>The GTM Context API for agents.</h3>
+  Unify your go-to-market tools into one customer graph and give any agent the whole<br/>
+  account in a single call — every person, conversation, and signal, resolved and verified.<br/>
+  Open source, and available as a hosted service.
 </div>
 
 <br/>
@@ -25,153 +26,90 @@
   <a href="https://discord.gg/2Ph4ZYXw">Discord</a>
 </div>
 
+<div align="center"><sub>Pst — join our stargazers :)</sub></div>
+
 ---
 
-## What Nous does
+## Why Nous?
 
-Your GTM stack is fragmented. Apollo for prospecting, HubSpot for CRM, Smartlead for sequences, Gmail for email, LinkedIn for social. Each tool holds part of the picture, and none of them are queryable by an agent.
+- **One call, the whole account.** Your agent gets the entire identity-resolved account in a single call, instead of stitching six tools together and guessing over raw dumps.
+- **LLM-ready context.** Structured, token-budgeted, agent-shaped. Every fact carries its own source, confidence, and freshness.
+- **We handle the hard stuff.** Identity resolution across Apollo, HubSpot, Gmail, and LinkedIn into one canonical record per person.
+- **Agent ready.** Connect Nous to any agent or MCP client with a single command.
+- **25+ integrations.** Your CRM, outbound, email, and LinkedIn, unified into one graph.
+- **Open source.** Self-host the whole primitive under AGPL, or skip the setup with Nous Cloud.
 
-Nous resolves the fragmentation into one customer graph your agents can query.
-
-- **Everything in one place.** Every event, every touchpoint, every conversation, in one queryable record.
-- **Identity resolution.** Every contact across every tool, merged into one clean record. No duplicates, no gaps.
-- **Built for the terminal.** Run GTM inside the terminal, plug into Claude Code, Codex, or your own agent via MCP.
-- **25+ integrations.** Connects your GTM tools across CRMs, outbound, and LinkedIn.
-- **Always in sync.** Keeps your outbound tools and CRM in sync.
-- **A smarter ICP.** Build a sharper ICP model by analyzing what drives wins and losses over time.
-
-## One call, the whole account
-
-Point your agent at an account and Nous returns the whole thing — every contact, signal, and touchpoint — resolved and verified, in a single call. Three endpoints cover most of what an agent needs:
+## Core endpoints
 
 | Endpoint | What it returns |
 |---|---|
-| `get_account(domain)` | the whole account: every contact, touch, and signal |
 | `get_context(domain)` | the right context for a task, token-budgeted for the prompt |
+| `get_account(domain)` | the whole account: every contact, touch, and signal |
 | `query("...")` | ask the graph in natural language |
 
-A `get_context` call comes back agent-shaped, every fact carrying its own confidence and freshness:
+| Also | |
+|---|---|
+| `verify(fact)` | source, confidence, and freshness on any fact |
+| `record(event)` | write an outcome back, and the graph self-heals |
+
+## Quick start
+
+Connect Nous to your agent over MCP:
+
+```bash
+claude mcp add nous -- npx -y @opennous/mcp
+```
+
+Your agent now has `get_context`, `get_account`, and `query`. Ask it for an account and it pulls the whole thing in one call.
+
+### `get_context`
+
+The right context for a task, token-budgeted and agent-shaped. Every fact carries its own confidence and freshness:
+
+```bash
+get_context(domain="acme.com", intent="account_review")
+```
 
 ```json
 {
   "entity": { "id": "ent_acme", "type": "account" },
-  "intent": "account_review",
   "summary": "Acme Corp, ~500 employees. Sarah Chen (VP RevOps) promoted 3 months ago. 12 SDR roles posted in the last 7 days. Open deal, $45k, economic buyer not yet identified.",
   "claims": [
-    { "property": "company.headcount", "value": 500, "confidence": 0.9, "freshness": "30d", "epistemic_class": "observed", "last_observed_at": "2026-05-30" },
-    { "property": "signal.hiring", "value": "12 SDR roles in 7 days", "confidence": 0.95, "freshness": "7d", "epistemic_class": "observed", "last_observed_at": "2026-06-10" }
+    { "property": "company.headcount", "value": 500, "confidence": 0.9, "freshness": "30d", "last_observed_at": "2026-05-30" },
+    { "property": "signal.hiring", "value": "12 SDR roles in 7 days", "confidence": 0.95, "freshness": "7d", "last_observed_at": "2026-06-10" }
   ],
   "stakeholders": [
-    { "entity_id": "ent_sarah", "name": "Sarah Chen", "role": "VP RevOps" }
+    { "name": "Sarah Chen", "role": "VP RevOps" }
   ],
   "timeline": [
-    { "when": "2026-06-05", "type": "call", "tier": "brief", "summary": "competitor name-dropped" }
+    { "when": "2026-06-05", "type": "call", "summary": "competitor name-dropped" }
   ],
-  "predictions": [
-    { "kind": "icp_fit", "value": "high", "confidence": 0.82 }
-  ],
-  "meta": { "token_estimate": 1200, "claims_total": 47, "claims_returned": 12, "timeline_events": 9 }
+  "predictions": [ { "kind": "icp_fit", "value": "high", "confidence": 0.82 } ],
+  "meta": { "token_estimate": 1200, "claims_total": 47, "claims_returned": 12 }
 }
 ```
 
-Your agent reads this, not six raw tool dumps it has to stitch together and guess over.
+### `get_account`
 
-## Features
-
-| Feature | What it does |
-|---|---|
-| **Unified customer graph** | Every person, conversation, and touchpoint at an account, in one queryable record |
-| **The Context API** | One call returns the whole account to any agent, over MCP or REST |
-| **ICP scoring** | Scores contacts against your ICP as new signals arrive |
-| **Inbound enrichment** | Cleans and enriches inbound leads before they hit your CRM |
-| **Pattern analysis** | Reports on wins, losses, and the campaigns actually driving pipeline |
-| **CRM sync** | Enriches Salesforce, HubSpot, and Pipedrive while keeping them in sync |
-
----
-
-## Tech stack
-
-| Layer | Stack |
-|---|---|
-| API | Node.js (ESM), Express |
-| Frontend | Vite, React, shadcn/ui |
-| Database | Supabase (PostgreSQL + pgvector) |
-| MCP | `@modelcontextprotocol/sdk` |
-| AI | Anthropic Claude |
-| Package manager | pnpm workspaces |
-
----
-
-## Self-host
-
-Run the whole stack — API, worker, MCP server, frontend, Redis, and Caddy (automatic HTTPS) — with Docker Compose. You bring an external [Supabase](https://supabase.com) project (Postgres + auth) and an Anthropic API key; everything else runs in containers.
-
-**Prerequisites**
-
-- A Linux server with Docker + Docker Compose
-- A [Supabase](https://supabase.com) project (free tier is fine)
-- An [Anthropic API key](https://console.anthropic.com)
-- Three DNS records — `app`, `api`, `mcp` — pointing at your server
+The whole account, every contact and signal, in one object.
 
 ```bash
-# 1. Clone
-git clone https://github.com/NousC/nous.git
-cd nous
-
-# 2. Configure
-cp nous.env.example nous.env
-#    Fill in: APP_DOMAIN / API_DOMAIN / MCP_DOMAIN, your Supabase URL + keys,
-#    and ANTHROPIC_API_KEY. Generate the encryption key:
-openssl rand -hex 32      # paste the output into ENCRYPTION_KEY=
-#    SELF_HOSTED=true is already set — it runs the open primitive, unmetered.
-
-# 3. Create the database
-#    Open supabase/schema.sql in your Supabase SQL editor and run it once.
-
-# 4. Launch (Caddy provisions TLS automatically once your DNS resolves)
-docker compose --env-file nous.env up -d --build
+get_account(domain="acme.com")
 ```
 
-Open `https://app.yourdomain.com` and create the first account — it becomes the **owner**. You'll land on the **Connect** screen — from here you point your agent at this instance and let it onboard the workspace (see [Connect your agent](#connect-your-agent--and-let-it-onboard-you) below; on self-host, sign in with `npx @opennous/cli login --url https://api.yourdomain.com`). To close public registration afterward, set `DISABLE_SIGNUPS=true` in `nous.env` (and turn off signups in Supabase → Authentication), then re-run `./update.sh`. Invite teammates from **Settings → Team**.
+### `query`
 
-**Updating**
+Ask the graph in natural language.
 
 ```bash
-./update.sh      # pulls latest, rebuilds the containers, flags any new DB migrations
+query("which accounts went quiet after a positive reply?")
 ```
 
-Self-host runs the open primitive in full: the customer graph, identity resolution, `get_context` / `get_account` / `query`, `verify`, `record`, the MCP server, enrichment, and all 25+ integrations — unmetered.
+Returns the matching accounts, resolved and verified.
 
-The **team layer is reserved for [Nous Cloud](https://opennous.cloud)**: CRM two-way sync, Lead Lists, and the ICP model (the win/loss learning loop). These serve go-to-market teams rather than the developer primitive, and they're what the hosted plans add on top of the open core.
+## Power your agent
 
-| Open source (self-host) | Nous Cloud |
-|---|---|
-| `get_context` · `get_account` · `query` | everything in open source, plus: |
-| Identity resolution · the customer graph | CRM two-way sync |
-| `verify` · `record` · MCP server | Lead Lists |
-| 25+ integrations · enrichment (BYO keys) | The ICP model (learns from won/loss) |
-
-## Local development
-
-For contributing to Nous — runs the apps directly against your Supabase project, no Docker:
-
-```bash
-git clone https://github.com/NousC/nous.git
-cd nous
-cp .env.example .env   # fill in Supabase + Anthropic keys
-pnpm install
-pnpm dev
-```
-
-→ [Full docs](https://docs.opennous.cloud)
-
----
-
-## Connect your agent — and let it onboard you
-
-Nous is operated by your **agent**, not by clicking through the app. When you sign in you land on a **Connect** screen that stays up until your agent has set the workspace up. Three steps:
-
-**1. Add Nous to your agent**
+Nous is operated by your **agent**, not by clicking through an app. Add it to your stack in one step:
 
 - **Claude Code** — `/plugin marketplace add NousC/nous` then `/plugin install nous@nous-plugins`
 - **Codex** — add to `~/.codex/config.toml`:
@@ -185,44 +123,70 @@ Nous is operated by your **agent**, not by clicking through the app. When you si
   { "mcpServers": { "nous": { "command": "npx", "args": ["-y", "@opennous/mcp"] } } }
   ```
 
-**2. Sign in** — run this once. It opens your browser, mints a workspace key, and saves it (plus your API URL) to `~/.nous/config.json`, which the MCP reads automatically — no key to paste:
+Then sign in once — it opens your browser, mints a workspace key, and saves it to `~/.nous/config.json` (the MCP reads it automatically, no key to paste):
 
 ```bash
-npx @opennous/cli login --url https://api.yourdomain.com   # self-host: your API domain
-# On Nous Cloud, drop --url (it defaults to https://api.opennous.cloud)
+npx @opennous/cli login    # on self-host, add --url https://api.yourdomain.com
 ```
 
-**3. Onboard** — tell your agent:
-
-> Set me up — onboard my workspace and build my playbook.
-
-Your agent reads `get_workspace_status` and walks you through setup **in order**: profile → connect Gmail / LinkedIn / a meeting note-taker → enrichment → webhooks → import your CRM contacts (CSV, on the Accounts page). On [Nous Cloud](https://opennous.cloud) it also builds the ICP model from your closed-won/lost deals (a Cloud team-layer feature). The Connect screen unlocks the moment the workspace is onboarded, and drops you on the live Ops log so you can watch what the agent did.
-
-**Prefer to paste a key instead of signing in?** Create one at **Settings → API Keys** and set it directly (the in-app Install page generates this snippet for you):
-
-```json
-{
-  "mcpServers": {
-    "nous": {
-      "command": "npx",
-      "args": ["-y", "@opennous/mcp"],
-      "env": {
-        "NOUS_API_KEY": "your-api-key",
-        "NOUS_API_URL": "https://api.yourdomain.com"
-      }
-    }
-  }
-}
-```
-
-`NOUS_API_URL` is your own API domain on self-host, or `https://api.opennous.cloud` on Nous Cloud.
+Now tell your agent **“Set me up — onboard my workspace and build my playbook,”** and it walks setup in order: profile → connect Gmail / LinkedIn / a note-taker → enrichment → import your CRM contacts.
 
 → [Full MCP docs](https://docs.opennous.cloud/mcp/introduction)
 
----
+## Open source vs Cloud
+
+Nous is open source under AGPL-3.0. Self-host runs the open primitive in full, unmetered: the customer graph, identity resolution, `get_context` / `get_account` / `query`, `verify`, `record`, the MCP server, enrichment, and all 25+ integrations.
+
+**Nous Cloud** adds the team layer on top of the same graph — the part go-to-market teams need, and the part you don't want to run yourself.
+
+| Open source (self-host) | Nous Cloud |
+|---|---|
+| `get_context` · `get_account` · `query` | everything in open source, plus: |
+| Identity resolution · the customer graph | CRM two-way sync |
+| `verify` · `record` · MCP server | Lead Lists |
+| 25+ integrations · enrichment (BYO keys) | The ICP model (learns from won/loss) |
+
+## Self-host
+
+Run the whole stack — API, worker, MCP server, frontend, Redis, and Caddy (automatic HTTPS) — with Docker Compose. You bring a [Supabase](https://supabase.com) project (Postgres + auth) and an Anthropic API key.
+
+```bash
+git clone https://github.com/NousC/nous.git
+cd nous
+cp nous.env.example nous.env
+#   Fill in APP/API/MCP domains, Supabase keys, ANTHROPIC_API_KEY.
+#   SELF_HOSTED=true is already set — it runs the open primitive, unmetered.
+openssl rand -hex 32        # paste into ENCRYPTION_KEY=
+#   Run supabase/schema.sql in your Supabase SQL editor once.
+docker compose --env-file nous.env up -d --build
+```
+
+Open `https://app.yourdomain.com`, create the first account (it becomes the owner), and point your agent at it. To close signups afterward, set `DISABLE_SIGNUPS=true` and re-run `./update.sh`.
+
+For local development against your Supabase project without Docker:
+
+```bash
+git clone https://github.com/NousC/nous.git && cd nous
+cp .env.example .env        # Supabase + Anthropic keys
+pnpm install && pnpm dev
+```
+
+→ [Full self-host guide](https://docs.opennous.cloud)
+
+## Tech stack
+
+Node.js (ESM) + Express · Vite + React · Supabase (Postgres + pgvector) · `@modelcontextprotocol/sdk` · Anthropic Claude · pnpm workspaces.
+
+## Contributing
+
+We love contributions. See the [Contributing Guide](CONTRIBUTING.md) before opening a PR.
+
+## License
+
+AGPL-3.0. Self-host free forever, or skip the setup with [Nous Cloud](https://opennous.cloud).
 
 ## Compliance
 
-- We do not scrape LinkedIn or any third-party platform
-- Signal ingestion uses only official OAuth flows and approved webhooks
-- No customer data is sent to third parties without explicit configuration
+- We do not scrape LinkedIn or any third-party platform.
+- Signal ingestion uses only official OAuth flows and approved webhooks.
+- No customer data is sent to third parties without explicit configuration.
