@@ -428,7 +428,7 @@ workspaceStatusV2Router.post('/onboarding', async (req, res) => {
 // playbook — the agent records the context with update_gtm_profile, then calls
 // this to turn it into a weighted scoring model. Pass force:true to rebuild over
 // an existing model. Shares its implementation with the human web route.
-workspaceStatusV2Router.post('/scoring-model', async (req, res) => {
+workspaceStatusV2Router.post('/scoring-model', requireFeature('icpScoring'), async (req, res) => {
   try {
     const supabase = getSupabaseClient();
     const force = req.body?.force === true;

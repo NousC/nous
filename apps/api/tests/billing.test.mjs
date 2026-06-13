@@ -40,23 +40,48 @@ test('plans: five tiers with the expected ops + enrichment ladders + prices', as
   assert.equal(PLANS.scale.name, 'Partner');
 });
 
-test('hasFeature: lead lists + LinkedIn at Pro+, CRM sync at Growth+', async () => {
+test('hasFeature: team-layer features (crmSync/leadLists/icpScoring) on every cloud plan', async () => {
   const { hasFeature } = await import('../src/lib/plans.mjs');
-  for (const p of ['free', 'starter']) {
-    assert.equal(hasFeature(p, 'crmSync'), false, `${p} should not have crmSync`);
-    assert.equal(hasFeature(p, 'leadLists'), false, `${p} should not have leadLists`);
-    assert.equal(hasFeature(p, 'linkedinEngagement'), false, `${p} should not have linkedinEngagement`);
-    assert.equal(hasFeature(p, 'contextualization'), true);
+  // Pure-tier model: every feature is on every cloud plan; tiers differ by the ops
+  // + records meters, not feature gates. Self-host is gated separately by
+  // CLOUD_ONLY_FEATURES — see the requireFeature test below.
+  for (const p of ['free', 'starter', 'pro', 'growth', 'scale']) {
+    assert.equal(hasFeature(p, 'contextualization'), true, `${p} contextualization`);
+    assert.equal(hasFeature(p, 'crmSync'), true, `${p} crmSync`);
+    assert.equal(hasFeature(p, 'leadLists'), true, `${p} leadLists`);
+    assert.equal(hasFeature(p, 'icpScoring'), true, `${p} icpScoring`);
   }
-  // Lead lists + LinkedIn engagement unlock at Pro and stay up the ladder.
+  // LinkedIn engagement is the one feature that still unlocks at Pro+.
+  assert.equal(hasFeature('free', 'linkedinEngagement'), false);
+  assert.equal(hasFeature('starter', 'linkedinEngagement'), false);
   for (const p of ['pro', 'growth', 'scale']) {
-    assert.equal(hasFeature(p, 'leadLists'), true, `${p} should have leadLists`);
-    assert.equal(hasFeature(p, 'linkedinEngagement'), true, `${p} should have linkedinEngagement`);
+    assert.equal(hasFeature(p, 'linkedinEngagement'), true, `${p} linkedinEngagement`);
   }
-  // CRM sync is Growth+ only — NOT on Pro.
-  assert.equal(hasFeature('pro', 'crmSync'), false, 'Pro should NOT have crmSync');
-  assert.equal(hasFeature('growth', 'crmSync'), true);
-  assert.equal(hasFeature('scale', 'crmSync'), true);
+});
+
+test('requireFeature: the Cloud team layer is blocked on self-host, the open primitive passes', async () => {
+  process.env.SELF_HOSTED = 'true';
+  try {
+    const { requireFeature } = await import('../src/lib/access.mjs');
+    const run = async (feature) => {
+      let status = null, body = null, nexted = false;
+      const res = { status(s) { status = s; return this; }, json(b) { body = b; return this; } };
+      await requireFeature(feature)({}, res, () => { nexted = true; });
+      return { status, body, nexted };
+    };
+    // CRM sync, lead lists + the ICP model are Cloud-only — 403 on self-host.
+    for (const f of ['crmSync', 'leadLists', 'icpScoring']) {
+      const r = await run(f);
+      assert.equal(r.nexted, false, `${f} must NOT pass on self-host`);
+      assert.equal(r.status, 403, `${f} → 403`);
+      assert.equal(r.body.error, 'cloud_only_feature', `${f} → cloud_only_feature`);
+    }
+    // The open primitive is unmetered + available on self-host.
+    const open = await run('contextualization');
+    assert.equal(open.nexted, true, 'contextualization must pass on self-host');
+  } finally {
+    delete process.env.SELF_HOSTED;
+  }
 });
 
 test('effectiveWorkspaceLimit: flat plans static; Partner tracks Stripe quantity', async () => {

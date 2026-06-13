@@ -116,12 +116,12 @@ export function AppSidebar() {
       .then(d => { if (d?.plan) setPlan(String(d.plan).toLowerCase()); })
       .catch(() => {});
   }, [session?.access_token]);
-  // Lists (lead database) is open on self-host; on cloud it's Pro+. CRM Sync stays
-  // cloud-only, Growth+. Gates match access.mjs (crmSync cloud-only) + plans.mjs.
-  // (Internal id 'scale' = the Partner plan.)
+  // Lists (lead database) is part of the Cloud team layer — cloud-only (Pro+), not
+  // on self-host. CRM Sync is cloud-only too (Growth+). Gates match access.mjs
+  // (crmSync/leadLists/icpScoring cloud-only) + plans.mjs. ('scale' = Partner plan.)
   const selfHosted = (userData as { self_hosted?: boolean })?.self_hosted === true;
   const showLeadLists =
-    selfHosted || plan === "pro" || plan === "growth" || plan === "scale";
+    !selfHosted && (plan === "pro" || plan === "growth" || plan === "scale");
   const showCrmSync =
     !selfHosted && (plan === "growth" || plan === "scale");
   // Lead-related surfaces (Lists, lead/campaign analytics) unlock with lead lists.

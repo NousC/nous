@@ -5,8 +5,8 @@
  * Two metered units: GTM ops (a flow — the live op log) and records (a stock —
  * unique people + companies held). Enrichment is bring-your-own-keys
  * (enrichmentsPerMonth: 0 on every plan) — it runs on the workspace's own provider
- * keys, so it is unmetered. CRM sync + lead lists are on every cloud plan (cloud-
- * only on self-host). Self-hosted bypasses all gating + metering.
+ * keys, so it is unmetered. CRM sync, lead lists + the ICP model are on every cloud
+ * plan (the Cloud team layer — blocked on self-host). Self-hosted bypasses metering.
  *
  * Plan IDs: 'free' | 'starter' | 'pro' | 'growth' | 'scale'.
  * Customer-facing names: Free / Start / Pro / Growth / Agency. Internal ids
@@ -26,6 +26,8 @@ export interface PlanFeatures {
   crmSync: boolean;
   /** Lead list builder + saved-view exports. */
   leadLists: boolean;
+  /** The ICP model — scoring model built from won/loss signals. Cloud team layer. */
+  icpScoring: boolean;
   /** Weekly LinkedIn engagement worker → native "LinkedIn Engagers" list. */
   linkedinEngagement: boolean;
   /** Public signal extraction (rb2b-style webhook ingest into the graph). */
@@ -75,6 +77,7 @@ export const PLANS: Record<PlanId, Plan> = {
       // records meters, not feature gates. Cloud-only on self-host (access.mjs).
       crmSync: true,
       leadLists: true,
+      icpScoring: true,
       linkedinEngagement: false,
       publicSignalExtraction: false,
       dedicatedSlack: false,
@@ -96,6 +99,7 @@ export const PLANS: Record<PlanId, Plan> = {
       contextualization: true,
       crmSync: true,
       leadLists: true,
+      icpScoring: true,
       linkedinEngagement: false,
       publicSignalExtraction: false,
       dedicatedSlack: false,
@@ -117,6 +121,7 @@ export const PLANS: Record<PlanId, Plan> = {
       contextualization: true,
       crmSync: true,
       leadLists: true,
+      icpScoring: true,
       linkedinEngagement: true,
       publicSignalExtraction: true,
       dedicatedSlack: true,
@@ -139,6 +144,7 @@ export const PLANS: Record<PlanId, Plan> = {
       // CRM synchronization unlocks here, on top of everything in Pro.
       crmSync: true,
       leadLists: true,
+      icpScoring: true,
       linkedinEngagement: true,
       publicSignalExtraction: true,
       dedicatedSlack: true,
@@ -165,6 +171,7 @@ export const PLANS: Record<PlanId, Plan> = {
       contextualization: true,
       crmSync: true,
       leadLists: true,
+      icpScoring: true,
       linkedinEngagement: true,
       publicSignalExtraction: true,
       dedicatedSlack: true,

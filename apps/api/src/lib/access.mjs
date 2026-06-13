@@ -59,10 +59,12 @@ export async function resolveTeamAndPlan(req) {
  * Usage:
  *   router.post('/sync-now', verifySupabaseAuth, requireFeature('crmSync'), handler);
  */
-// Features that are NOT available on self-host (cloud-only). Self-host gets
-// everything else, unmetered. Lead lists are included on self-host; CRM Sync
-// stays cloud-only. Add governance/enterprise features here later.
-const CLOUD_ONLY_FEATURES = new Set(['crmSync']);
+// Features that are NOT available on self-host (cloud-only). Self-host gets the
+// open primitive — the customer graph, identity resolution, get_context /
+// get_account / query, verify, record, MCP, integrations — unmetered. The team
+// layer (CRM sync, lead lists, the ICP model) is reserved for Nous Cloud and is
+// the OSS→cloud conversion lever. Add governance/enterprise features here later.
+const CLOUD_ONLY_FEATURES = new Set(['crmSync', 'leadLists', 'icpScoring']);
 
 export function requireFeature(feature) {
   return async function requireFeatureMiddleware(req, res, next) {

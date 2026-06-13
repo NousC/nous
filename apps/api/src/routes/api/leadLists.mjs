@@ -18,13 +18,20 @@ import {
   selectLeadIdsByFilter,
 } from '@nous/core';
 import { hasFeature } from '../../lib/plans.mjs';
-import { requireEnrichmentQuota, requireRecordsBalance } from '../../lib/access.mjs';
+import { requireEnrichmentQuota, requireRecordsBalance, requireFeature } from '../../lib/access.mjs';
 import { enrichContact, getApolloEnrichmentKey } from '../../services/enrichment.mjs';
 import { getVerifier, verifyLead, listConnectedVerifiers } from '../../services/verification.mjs';
 import { estimateCost } from '../../lib/providerPricing.mjs';
 import { listCampaigns, pushLeads, SEQUENCERS } from '../../services/sequencerPush.mjs';
 
 export const leadListsRouter = Router();
+
+// Lead Lists are part of the Cloud team layer — reserved for Nous Cloud and not
+// available on self-host (see CLOUD_ONLY_FEATURES in access.mjs). This router-level
+// guard covers every lead-list route at once, and stashes req.plan for the
+// engagement-eligibility check below. On cloud every plan has leadLists, so this
+// only ever blocks self-host (403 cloud_only_feature).
+leadListsRouter.use(requireFeature('leadLists'));
 
 // Max leads accepted per import request. The frontend chunks larger uploads.
 const MAX_IMPORT = 2000;

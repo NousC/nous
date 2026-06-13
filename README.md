@@ -123,7 +123,7 @@ cp nous.env.example nous.env
 #    Fill in: APP_DOMAIN / API_DOMAIN / MCP_DOMAIN, your Supabase URL + keys,
 #    and ANTHROPIC_API_KEY. Generate the encryption key:
 openssl rand -hex 32      # paste the output into ENCRYPTION_KEY=
-#    SELF_HOSTED=true is already set — it unlocks every feature, unmetered.
+#    SELF_HOSTED=true is already set — it runs the open primitive, unmetered.
 
 # 3. Create the database
 #    Open supabase/schema.sql in your Supabase SQL editor and run it once.
@@ -140,7 +140,16 @@ Open `https://app.yourdomain.com` and create the first account — it becomes th
 ./update.sh      # pulls latest, rebuilds the containers, flags any new DB migrations
 ```
 
-CRM Sync is the only feature reserved for [Nous Cloud](https://opennous.cloud) — everything else (the customer graph, Lead Lists, MCP server, ICP scoring, enrichment, integrations) is fully open on self-host.
+Self-host runs the open primitive in full: the customer graph, identity resolution, `get_context` / `get_account` / `query`, `verify`, `record`, the MCP server, enrichment, and all 25+ integrations — unmetered.
+
+The **team layer is reserved for [Nous Cloud](https://opennous.cloud)**: CRM two-way sync, Lead Lists, and the ICP model (the win/loss learning loop). These serve go-to-market teams rather than the developer primitive, and they're what the hosted plans add on top of the open core.
+
+| Open source (self-host) | Nous Cloud |
+|---|---|
+| `get_context` · `get_account` · `query` | everything in open source, plus: |
+| Identity resolution · the customer graph | CRM two-way sync |
+| `verify` · `record` · MCP server | Lead Lists |
+| 25+ integrations · enrichment (BYO keys) | The ICP model (learns from won/loss) |
 
 ## Local development
 
@@ -187,7 +196,7 @@ npx @opennous/cli login --url https://api.yourdomain.com   # self-host: your API
 
 > Set me up — onboard my workspace and build my playbook.
 
-Your agent reads `get_workspace_status` and walks you through setup **in order**: profile → connect Gmail / LinkedIn / a meeting note-taker → enrichment → webhooks → import your CRM contacts (CSV, on the Accounts page) → build the ICP scoring model from your closed-won/lost deals. The Connect screen unlocks the moment the workspace is onboarded, and drops you on the live Ops log so you can watch what the agent did.
+Your agent reads `get_workspace_status` and walks you through setup **in order**: profile → connect Gmail / LinkedIn / a meeting note-taker → enrichment → webhooks → import your CRM contacts (CSV, on the Accounts page). On [Nous Cloud](https://opennous.cloud) it also builds the ICP model from your closed-won/lost deals (a Cloud team-layer feature). The Connect screen unlocks the moment the workspace is onboarded, and drops you on the live Ops log so you can watch what the agent did.
 
 **Prefer to paste a key instead of signing in?** Create one at **Settings → API Keys** and set it directly (the in-app Install page generates this snippet for you):
 

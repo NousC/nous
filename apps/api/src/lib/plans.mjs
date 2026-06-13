@@ -46,11 +46,12 @@ export const PLANS = {
     stripePriceEnv: null,
     features: {
       contextualization: true,
-      // CRM sync + lead lists are on every CLOUD plan — tiering is by the ops +
-      // records meters, not feature gates. CLOUD_ONLY_FEATURES still blocks them
-      // on self-host (see access.mjs).
+      // CRM sync, lead lists + the ICP model are on every CLOUD plan — tiering is
+      // by the ops + records meters, not feature gates. CLOUD_ONLY_FEATURES blocks
+      // all three on self-host (the team layer is Cloud-only — see access.mjs).
       crmSync: true,
       leadLists: true,
+      icpScoring: true,
       publicSignalExtraction: false,
       supportTier: 'community',
     },
@@ -69,6 +70,7 @@ export const PLANS = {
       contextualization: true,
       crmSync: true,
       leadLists: true,
+      icpScoring: true,
       publicSignalExtraction: false,
       supportTier: 'email',
     },
@@ -87,6 +89,7 @@ export const PLANS = {
       contextualization: true,
       crmSync: true,
       leadLists: true,
+      icpScoring: true,
       linkedinEngagement: true,
       publicSignalExtraction: true,
       supportTier: 'priority',
@@ -107,6 +110,7 @@ export const PLANS = {
       // CRM synchronization unlocks here, on top of everything in Pro.
       crmSync: true,
       leadLists: true,
+      icpScoring: true,
       linkedinEngagement: true,
       publicSignalExtraction: true,
       supportTier: 'priority',
@@ -133,6 +137,7 @@ export const PLANS = {
       contextualization: true,
       crmSync: true,
       leadLists: true,
+      icpScoring: true,
       linkedinEngagement: true,
       publicSignalExtraction: true,
       supportTier: 'priority',

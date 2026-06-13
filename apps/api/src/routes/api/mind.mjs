@@ -14,8 +14,14 @@ import { Router } from 'express';
 import { getSupabaseClient, listSignals, listNotes, scoreLead, getAttention, getWorkspaceEntityId, getOrCreateEntity, logActivity, discoverSignals, upsertSignal, pipelineFeatures, scoreAndStake, rescoreOpenPredictions, isNonFeatureProp } from '@nous/core';
 import { extractAndRecordWebsiteSignals } from '../../services/websiteSignals.mjs';
 import { seedScorecardFromMemory } from '../../lib/scorecardSeed.mjs';
+import { requireFeature } from '../../lib/access.mjs';
 
 export const mindRouter = Router();
+
+// The ICP model is part of the Cloud team layer — building/seeding the scoring
+// model is reserved for Nous Cloud (CLOUD_ONLY_FEATURES in access.mjs). On cloud
+// every plan has it, so this only blocks self-host (403 cloud_only_feature).
+const requireIcpModel = requireFeature('icpScoring');
 
 // Features a seed signal's rule may reference. The lead feature snapshot is
 // populated by enrichment; until then rules are valid but inert.
@@ -679,7 +685,7 @@ mindRouter.get('/context-changes', async (req, res) => {
 // POST /api/mind/scorecard/seed — translate the plain-English ICP into a seed
 // Scorecard. Body: { workspaceId, force? }. Refuses to clobber an existing
 // Scorecard unless force=true.
-mindRouter.post('/scorecard/seed', async (req, res) => {
+mindRouter.post('/scorecard/seed', requireIcpModel, async (req, res) => {
   try {
     const { workspaceId, force } = req.body;
     if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
@@ -974,7 +980,7 @@ export async function runClosedDeals(supabase, workspaceId, { won = [], lost = [
     };
 }
 
-mindRouter.post('/closed-deals', async (req, res) => {
+mindRouter.post('/closed-deals', requireIcpModel, async (req, res) => {
   try {
     const { workspaceId, won = [], lost = [] } = req.body;
     if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
