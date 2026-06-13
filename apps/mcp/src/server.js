@@ -270,6 +270,50 @@ export function createServer() {
   );
 
   // ===========================================================================
+  // TOOL: record_signal  —  a buying signal, as a structured signal.<class> fact
+  // A validated wrapper over record: one canonical way to write a signal, so it
+  // both shows on the account's Signals tab AND feeds the ICP scorecard as a
+  // feature (signal.* claims flow into the feature map the scorer reads).
+  // ===========================================================================
+  server.tool(
+    "record_signal",
+    "Record a buying signal on a person or company — a concrete, current reason to reach out, " +
+    "found by research (signal-scan). Stored as a structured signal.<class> fact so it shows on the " +
+    "account's Signals tab AND feeds the ICP scoring model as a feature. One call per signal; one " +
+    "current signal per class (the strongest). class is one of stack | hiring | momentum | friction | " +
+    "intent | domain. score is 0-10 (exclusivity x intent — score honestly, a 4 is useful). Be " +
+    "specific: 'posted 3 SDR roles in 30 days', not 'they're growing'.",
+    {
+      focus: z.string().describe("Email address or entity UUID of the person/company"),
+      signal_class: z.enum(["stack", "hiring", "momentum", "friction", "intent", "domain"])
+        .describe("the signal class"),
+      detected: z.string().describe("the specific, factual finding"),
+      implies: z.string().optional().describe("what the prospect is likely experiencing because of it"),
+      score: z.number().min(0).max(10).describe("strength 0-10 (exclusivity x intent)"),
+      approach: z.enum(["pain_led", "value_led", "fallback"]).optional()
+        .describe("recommended outreach approach"),
+      angle: z.string().optional().describe("one-line outreach angle this signal enables"),
+    },
+    async ({ focus, signal_class, detected, implies, score, approach, angle }) => {
+      const result = await post("/v2/observations", {
+        focus,
+        observations: [{
+          kind: "state",
+          property: `signal.${signal_class}`,
+          value: { detected, implies: implies ?? null, score, approach: approach ?? null, angle: angle ?? null },
+          source: "signal-scan",
+        }],
+      });
+      return {
+        content: [{
+          type: "text",
+          text: `Recorded ${signal_class} signal (score ${score}/10) on ${result.entity_id || focus}.`,
+        }],
+      };
+    }
+  );
+
+  // ===========================================================================
   // TOOL: query  —  POST /v2/query
   // Retrieve a corpus of activity across many people. You do the analysis.
   // ===========================================================================

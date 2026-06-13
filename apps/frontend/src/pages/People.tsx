@@ -30,6 +30,7 @@ function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token:
   const [loading, setLoading] = useState(true);
   const [acts, setActs] = useState<any[]>([]);
   const [mems, setMems] = useState<any[]>([]);
+  const [signals, setSignals] = useState<any[]>([]);
   const [raw, setRaw] = useState<any>(null);
   const [editingField, setEditingField] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
@@ -59,7 +60,7 @@ function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token:
     setLoading(true);
     fetch(`${apiUrl}/api/contacts/${contact.id}`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d) { setActs((d.activities ?? []).filter((a: any) => a.activity_type !== 'icp_scored')); setMems(d.memories ?? []); setRaw(d.contact ?? null); } setLoading(false); })
+      .then(d => { if (d) { setActs((d.activities ?? []).filter((a: any) => a.activity_type !== 'icp_scored')); setMems(d.memories ?? []); setSignals(d.signals ?? []); setRaw(d.contact ?? null); } setLoading(false); })
       .catch(() => setLoading(false));
   }, [contact.id, token]);
 
@@ -90,10 +91,8 @@ function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token:
   // Documents (meeting briefs, transcripts, notes) live in the notes layer with a
   // doc_type; plain atomic facts are the rest. Documents → Notes tab, facts → Facts.
   const documents = mems.filter((m: any) => m.metadata?.doc_type);
-  // Signals (from signal-scan) are notes with category "Signal" — route them to
-  // their own tab and keep them out of Facts.
-  const signals   = mems.filter((m: any) => m.category === "Signal");
-  const facts     = mems.filter((m: any) => !m.metadata?.doc_type && m.category !== "Signal");
+  const facts     = mems.filter((m: any) => !m.metadata?.doc_type);
+  // `signals` come from d.signals (signal.* claims) — see fetch above.
 
   const TABS: { id: DetailTab; label: string; count?: number }[] = [
     { id:"activity",  label:"Activity",  count: acts.length    },
@@ -215,20 +214,17 @@ function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token:
               signals.length === 0
                 ? <p className="text-[13px] text-muted-foreground/70 py-12 text-center">No signals yet — run signal-scan on this account</p>
                 : <div className="divide-y divide-border/60">
-                    {signals.map((m: any) => {
-                      const cls   = m.metadata?.signal_class || m.category;
-                      const score = m.metadata?.score;
-                      const angle = m.metadata?.angle;
-                      const col   = score == null ? "#6b7280" : score >= 8 ? "#15803d" : score >= 5 ? "#b45309" : "#6b7280";
+                    {signals.map((s: any) => {
+                      const col = s.score == null ? "#6b7280" : s.score >= 8 ? "#15803d" : s.score >= 5 ? "#b45309" : "#6b7280";
                       return (
-                        <div key={m.id} className="py-3">
+                        <div key={s.signal_class} className="py-3">
                           <div className="flex items-baseline gap-2 mb-1">
-                            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 capitalize">{String(cls).toLowerCase()}</span>
-                            {score != null && <span className="text-[12px] font-semibold tabular-nums" style={{ color: col }}>{score}/10</span>}
-                            <span className="text-[12px] text-muted-foreground/70 ml-auto">{relTime(m.created_at)}</span>
+                            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 capitalize">{s.signal_class}</span>
+                            {s.score != null && <span className="text-[12px] font-semibold tabular-nums" style={{ color: col }}>{s.score}/10</span>}
+                            {s.updated_at && <span className="text-[12px] text-muted-foreground/70 ml-auto">{relTime(s.updated_at)}</span>}
                           </div>
-                          <p className="text-[13px] text-foreground/80 leading-relaxed">{m.content}</p>
-                          {angle && <p className="text-[12px] text-muted-foreground italic mt-1">Angle: {angle}</p>}
+                          <p className="text-[13px] text-foreground/80 leading-relaxed">{s.detected}{s.implies ? ` — ${s.implies}` : ""}</p>
+                          {s.angle && <p className="text-[12px] text-muted-foreground italic mt-1">Angle: {s.angle}</p>}
                         </div>
                       );
                     })}
