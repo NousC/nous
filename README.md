@@ -40,6 +40,42 @@ Nous resolves the fragmentation into one customer graph your agents can query.
 - **Always in sync.** Keeps your outbound tools and CRM in sync.
 - **A smarter ICP.** Build a sharper ICP model by analyzing what drives wins and losses over time.
 
+## One call, the whole account
+
+Point your agent at an account and Nous returns the whole thing — every contact, signal, and touchpoint — resolved and verified, in a single call. Three endpoints cover most of what an agent needs:
+
+| Endpoint | What it returns |
+|---|---|
+| `get_account(domain)` | the whole account: every contact, touch, and signal |
+| `get_context(domain)` | the right context for a task, token-budgeted for the prompt |
+| `query("...")` | ask the graph in natural language |
+
+A `get_context` call comes back agent-shaped, every fact carrying its own confidence and freshness:
+
+```json
+{
+  "entity": { "id": "ent_acme", "type": "account" },
+  "intent": "account_review",
+  "summary": "Acme Corp, ~500 employees. Sarah Chen (VP RevOps) promoted 3 months ago. 12 SDR roles posted in the last 7 days. Open deal, $45k, economic buyer not yet identified.",
+  "claims": [
+    { "property": "company.headcount", "value": 500, "confidence": 0.9, "freshness": "30d", "epistemic_class": "observed", "last_observed_at": "2026-05-30" },
+    { "property": "signal.hiring", "value": "12 SDR roles in 7 days", "confidence": 0.95, "freshness": "7d", "epistemic_class": "observed", "last_observed_at": "2026-06-10" }
+  ],
+  "stakeholders": [
+    { "entity_id": "ent_sarah", "name": "Sarah Chen", "role": "VP RevOps" }
+  ],
+  "timeline": [
+    { "when": "2026-06-05", "type": "call", "tier": "brief", "summary": "competitor name-dropped" }
+  ],
+  "predictions": [
+    { "kind": "icp_fit", "value": "high", "confidence": 0.82 }
+  ],
+  "meta": { "token_estimate": 1200, "claims_total": 47, "claims_returned": 12, "timeline_events": 9 }
+}
+```
+
+Your agent reads this, not six raw tool dumps it has to stitch together and guess over.
+
 ## Features
 
 | Feature | What it does |
