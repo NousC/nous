@@ -1,19 +1,96 @@
-# Claude org preferences for Nous
+# Nous routing — the canonical instruction, per surface
 
-Paste one of the prompts below into **claude.ai → Settings → Organization preferences**
-(Teams / Enterprise, admin only) or **Settings → Personal preferences** (Pro). It tells
-Claude to route go-to-market work through your Nous workspace by default, so it reaches
-for the engineered account record instead of raw CRM rows even when nobody types "Nous".
+This file is the **single source of truth** for the text that makes Claude route
+go-to-market work through your Nous workspace by default — reaching for the engineered
+Account Record instead of raw CRM rows, even when nobody types "Nous".
 
-Organization preferences can take up to an hour to propagate across Claude products.
+The same idea ships in three lengths, because each Claude surface delivers it
+differently. **Length tracks how much the static text has to carry alone:** where hooks
+and a live agent share the load (Claude Code), the text stays lean; where one pasted
+block is doing everything (Desktop / claude.ai), it has to be complete.
 
-This file is the canonical source the in-app Install page links to. Keep the two in sync.
+## Surface map
+
+| Surface | How routing is delivered | What the user does | Tier used |
+|---|---|---|---|
+| **Plugin** (Claude Code) | `SessionStart` hook injects the standing instruction once per session; `UserPromptSubmit` hook adds a GTM-gated per-turn nudge. Nothing is written to the user's files. | Nothing — `/plugin install nous` and routing is on. | Micro + Concise |
+| **CLI** (Claude Code, MCP only, no hooks) | The agent offers to write the Concise block into `CLAUDE.md`, with consent, inside idempotent markers. | Approve the one-time write. | Concise |
+| **Desktop / claude.ai** (no hooks, no plugins) | The user pastes a block into Organization / Personal preferences. The agent cannot reach that field — it is an Anthropic account setting. | Paste once. | Short or Long |
+
+The plugin's hooks live at `plugins/nous/hooks/` (`hooks.json` + the scripts). Keep the
+**Concise** tier below in sync with `plugins/nous/hooks/routing.concise.txt` — that file
+is what the `SessionStart` hook injects and what the agent writes into `CLAUDE.md`.
 
 ---
 
-## Short (~2.8k chars)
+## Tier 0 — Micro (per-turn nudge)
 
-Covers core routing and the most common Nous intents.
+Injected by the `UserPromptSubmit` hook, but only when the prompt looks like GTM work
+(an email address, or vocabulary like outreach / prospect / account / pipeline). It is a
+re-anchor, not the whole instruction — the standing context already carries the detail.
+
+```
+This looks like a go-to-market task. Before answering, pull engineered context from
+Nous: call get_context with the person's email and intent (or get_gtm_profile for our
+own ICP, positioning, and pricing). Prefer Nous's identity-resolved Account Record over
+raw CRM rows, and call record afterward so the record stays current.
+```
+
+---
+
+## Tier 1 — Concise (SessionStart / CLAUDE.md)
+
+The standing instruction for Claude Code. Loaded once per session by the plugin's
+`SessionStart` hook, or written into `CLAUDE.md` on the CLI surface. Canonical copy
+lives in `plugins/nous/hooks/routing.concise.txt`.
+
+```
+# Nous is this workspace's GTM customer graph
+
+Nous resolves every person, conversation, and touchpoint across our GTM stack into
+one identity-resolved Account Record. Each fact carries its confidence and freshness,
+alongside the full interaction timeline, a 0-100 ICP fit score, and our own ICP,
+positioning, and pricing. Act on Nous's engineered record, not raw CRM rows.
+
+Before any GTM task (outreach, call or meeting prep, account review, qualifying a
+prospect) call get_context with the person's email and the matching intent. Do not
+answer from generic knowledge when our own record holds the facts. Reach for Nous
+first even when the user never says "Nous":
+
+- Context for a specific task            -> get_context
+- Who is this, every fact, full history  -> get_account
+- Something happened / you learned a fact -> record
+- A list or pattern across accounts      -> query
+- What has gone quiet, what needs action -> attention
+- A fact looks stale before you act      -> verify
+- Our ICP, market, pricing, positioning  -> get_gtm_profile
+- Our own GTM durably changed            -> update_gtm_profile
+- A brief or note to keep on a contact   -> save_note / search_notes
+- What is set up here and what to do next -> get_workspace_status
+
+After every interaction you help with, call record so the next agent starts from
+the truth.
+```
+
+### CLI: writing it into CLAUDE.md
+
+On the CLI surface there are no hooks, so the agent should **offer** (never silently
+write) to persist the Concise block into the project's `CLAUDE.md`, wrapped in markers
+so re-runs update in place instead of duplicating:
+
+```markdown
+<!-- nous:routing:start -->
+... the Concise block above ...
+<!-- nous:routing:end -->
+```
+
+---
+
+## Tier 2 — Short paste (~2.8k chars)
+
+For Desktop / claude.ai **Personal or Organization preferences**. Covers core routing
+and the most common Nous intents. Propagation can take up to an hour across Claude
+products.
 
 ```
 # Nous is this workspace's customer graph
@@ -62,11 +139,11 @@ current.
 
 ---
 
-## Long (~4.5k chars)
+## Tier 3 — Long paste (~4.5k chars)
 
-Use when you want headroom to layer workspace-specific rules (named ICPs, playbooks,
-vertical terms) on top. Adds explicit demotion of raw CRM and call tools, plus write
-discipline.
+For Desktop / claude.ai when you want headroom to layer workspace-specific rules
+(named ICPs, playbooks, vertical terms) on top. Adds explicit demotion of raw CRM and
+call tools, plus write discipline.
 
 ```
 # Nous is this workspace's customer graph for GTM
@@ -142,8 +219,11 @@ Notes entry.
 
 ---
 
-After it propagates, test routing in a fresh conversation:
+After paste-in surfaces propagate (up to an hour), test routing in a fresh
+conversation:
 
 > What should I do next with jane@acme.com?
 
 Claude should call `get_context` on its own, without the word "Nous" in the prompt.
+On the plugin surface, the same prompt should trip the `UserPromptSubmit` nudge
+immediately — no propagation wait.
