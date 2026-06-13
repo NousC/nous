@@ -445,6 +445,29 @@ export async function findLeadByEmail(
   return (data?.[0] as unknown as Lead) ?? null;
 }
 
+// Find a lead row for an already-resolved contact by its entity id. The leads
+// view's `id` IS the entity id (contact.id == entity.id), so this matches a lead
+// regardless of whether it has an email — the fix for LinkedIn-native replies,
+// where the lead was imported with only a linkedin_url and identity resolution
+// has already linked the reply to the same entity. An entity in several lists
+// returns the most recent membership.
+export async function findLeadById(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  id: string,
+): Promise<Lead | null> {
+  if (!isUUID(id)) return null;
+  const { data, error } = await supabase
+    .from('leads')
+    .select(LEAD_COLUMNS)
+    .eq('workspace_id', workspaceId)
+    .eq('id', id)
+    .order('created_at', { ascending: false })
+    .limit(1);
+  if (error) throw error;
+  return (data?.[0] as unknown as Lead) ?? null;
+}
+
 export interface LeadPatch {
   status?: LeadStatus;
   reply_outcome?: ReplyOutcome | null;

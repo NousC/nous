@@ -14,7 +14,7 @@
 //
 // See docs/adaptive-lead-scoring.md.
 
-import { getSupabaseClient, findLeadByEmail, updateLead, addSuppression, listActivities, logWorkerRun, LEARNABLE_REPLY_SIGNALS, SUPPRESSING_REPLY_SIGNALS } from '@nous/core';
+import { getSupabaseClient, findLeadById, findLeadByEmail, updateLead, addSuppression, listActivities, logWorkerRun, LEARNABLE_REPLY_SIGNALS, SUPPRESSING_REPLY_SIGNALS } from '@nous/core';
 import { classifyReplySignal } from '../signals/replySentiment.mjs';
 import { logSysEvent } from '../utils/systemLog.mjs';
 
@@ -57,13 +57,17 @@ export async function processLeadReplies() {
   let graduated = 0;
 
   for (const act of activities) {
+    if (!act.contact_id) continue;
     const email = act.contacts?.email;
-    if (!email || !act.contact_id) continue;
 
-    // Match to a lead. Skip if there is none, or it is already resolved.
+    // Match the reply to a lead. The contact_id IS the entity id and the leads
+    // view shares it, so match by id first — this works for LinkedIn-native
+    // replies whose lead has no email. Fall back to email for any edge where the
+    // reply resolved to a different entity than the imported lead.
     let lead;
     try {
-      lead = await findLeadByEmail(supabase, act.workspace_id, email);
+      lead = await findLeadById(supabase, act.workspace_id, act.contact_id);
+      if (!lead && email) lead = await findLeadByEmail(supabase, act.workspace_id, email);
     } catch {
       continue;
     }
@@ -97,7 +101,7 @@ export async function processLeadReplies() {
         status: 'replied',
         contact_id: act.contact_id,
       });
-      if (SUPPRESSING_REPLY_SIGNALS.includes(signal)) {
+      if (SUPPRESSING_REPLY_SIGNALS.includes(signal) && email) {
         await addSuppression(supabase, act.workspace_id, email, `${signal} via reply`);
       }
       graduated++;
