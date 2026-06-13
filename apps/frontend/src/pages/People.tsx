@@ -21,7 +21,7 @@ const PEOPLE_COL_DEFAULTS: Record<string, number> = {
 };
 const PEOPLE_COL_KEYS = ["name","company","domain","li","stage","icp","deal","segment","health","lastActivity"];
 
-type DetailTab = "activity" | "emails" | "linkedin" | "slack" | "calls" | "notes" | "company" | "memory";
+type DetailTab = "activity" | "emails" | "linkedin" | "slack" | "calls" | "notes" | "signals" | "company" | "memory";
 
 // ─── PeopleDetail — tabbed contact record ────────────────────────────────────
 
@@ -90,7 +90,10 @@ function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token:
   // Documents (meeting briefs, transcripts, notes) live in the notes layer with a
   // doc_type; plain atomic facts are the rest. Documents → Notes tab, facts → Facts.
   const documents = mems.filter((m: any) => m.metadata?.doc_type);
-  const facts     = mems.filter((m: any) => !m.metadata?.doc_type);
+  // Signals (from signal-scan) are notes with category "Signal" — route them to
+  // their own tab and keep them out of Facts.
+  const signals   = mems.filter((m: any) => m.category === "Signal");
+  const facts     = mems.filter((m: any) => !m.metadata?.doc_type && m.category !== "Signal");
 
   const TABS: { id: DetailTab; label: string; count?: number }[] = [
     { id:"activity",  label:"Activity",  count: acts.length    },
@@ -99,6 +102,7 @@ function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token:
     { id:"slack",     label:"Slack",     count: slack.length   },
     { id:"calls",     label:"Calls",     count: calls.length   },
     { id:"notes",     label:"Notes",     count: documents.length },
+    { id:"signals",   label:"Signals",   count: signals.length },
     { id:"company",   label:"Company"                          },
     { id:"memory",    label:"Facts",     count: facts.length   },
   ];
@@ -139,7 +143,7 @@ function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token:
         <div className="flex flex-1 min-h-0 overflow-hidden">
           {/* Main content */}
           <div className="flex-1 overflow-y-auto px-8 py-4">
-            {(tab !== "company" && tab !== "memory" && tab !== "notes") && (
+            {(tab !== "company" && tab !== "memory" && tab !== "notes" && tab !== "signals") && (
               tabItems.length === 0
                 ? <p className="text-[13px] text-muted-foreground/70 py-12 text-center">Nothing here yet</p>
                 : <div className="divide-y divide-border/60">
@@ -205,6 +209,29 @@ function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token:
                         <p className="text-[13px] text-foreground/80 leading-relaxed">{m.content}</p>
                       </div>
                     ))}
+                  </div>
+            )}
+            {tab === "signals" && (
+              signals.length === 0
+                ? <p className="text-[13px] text-muted-foreground/70 py-12 text-center">No signals yet — run signal-scan on this account</p>
+                : <div className="divide-y divide-border/60">
+                    {signals.map((m: any) => {
+                      const cls   = m.metadata?.signal_class || m.category;
+                      const score = m.metadata?.score;
+                      const angle = m.metadata?.angle;
+                      const col   = score == null ? "#6b7280" : score >= 8 ? "#15803d" : score >= 5 ? "#b45309" : "#6b7280";
+                      return (
+                        <div key={m.id} className="py-3">
+                          <div className="flex items-baseline gap-2 mb-1">
+                            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 capitalize">{String(cls).toLowerCase()}</span>
+                            {score != null && <span className="text-[12px] font-semibold tabular-nums" style={{ color: col }}>{score}/10</span>}
+                            <span className="text-[12px] text-muted-foreground/70 ml-auto">{relTime(m.created_at)}</span>
+                          </div>
+                          <p className="text-[13px] text-foreground/80 leading-relaxed">{m.content}</p>
+                          {angle && <p className="text-[12px] text-muted-foreground italic mt-1">Angle: {angle}</p>}
+                        </div>
+                      );
+                    })}
                   </div>
             )}
           </div>
