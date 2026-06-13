@@ -1,9 +1,11 @@
-// The Mind — reply classifier + lead graduation (Adaptive Lead Scoring, 4a.3).
+// The Mind — lead graduation (Adaptive Lead Scoring, 4a.3).
 //
 // Scans recently-logged inbound reply activities. When a reply's sender matches
-// an unresolved lead, the reply is classified into an outcome, recorded on the
-// lead, and the lead is linked to the contact the reply already created
-// (graduation: lead → person).
+// an unresolved lead, the reply's canonical signal — already computed at ingest
+// (a provider's native disposition or the single classifier) — is recorded on
+// the lead, and the lead is linked to the contact the reply already created
+// (graduation: lead → person). Only falls back to classifying for replies that
+// predate classifier consolidation.
 //
 // Runs as a worker cron, decoupled from webhook ingestion — it never blocks a
 // webhook and touches no ingestion code. A classification failure simply
@@ -12,47 +14,19 @@
 //
 // See docs/adaptive-lead-scoring.md.
 
-import Anthropic, { setUser } from 'useleak';
-import { getSupabaseClient, findLeadByEmail, updateLead, addSuppression, listActivities, logWorkerRun } from '@nous/core';
+import { getSupabaseClient, findLeadByEmail, updateLead, addSuppression, listActivities, logWorkerRun, LEARNABLE_REPLY_SIGNALS, SUPPRESSING_REPLY_SIGNALS } from '@nous/core';
+import { classifyReplySignal } from '../signals/replySentiment.mjs';
 import { logSysEvent } from '../utils/systemLog.mjs';
-
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 // Activity types that represent an inbound reply worth learning from.
 const REPLY_ACTIVITY_TYPES = [
   'email_reply', 'email_received', 'outbound_positive_reply', 'linkedin_message',
 ];
 
-// Outcomes the learning loop can use. 'auto' (out-of-office / bounce) is noise.
-const LEARNABLE = ['interested', 'objection', 'wrong_fit', 'unsubscribe'];
-
 const BATCH = 100;
 // Each pass looks back this far. Generous overlap — resolved leads are skipped,
 // so a missed or failed run is recovered on the next pass with no duplication.
 const LOOKBACK_HOURS = 6;
-
-// Classify a reply into a learnable outcome, or 'auto' for noise to discard.
-async function classifyReply(text) {
-  const prompt =
-    `A cold outreach email received this reply:\n\n"""${text.slice(0, 1500)}"""\n\n` +
-    `Classify it as exactly one of:\n` +
-    `- interested — wants to talk, asks a question, positive\n` +
-    `- objection — pushback ("not now", "no budget") but still engaged\n` +
-    `- wrong_fit — not the right person or company, or a referral elsewhere\n` +
-    `- unsubscribe — asks to stop, be removed, or opt out\n` +
-    `- auto — an out-of-office, auto-reply, or bounce notice (not a real reply)\n\n` +
-    `Respond as JSON: {"outcome": "<one of the above>"}`;
-
-  const msg = await anthropic.messages.create({
-    feature: 'reply-classify',
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 60,
-    messages: [{ role: 'user', content: prompt }],
-  });
-  const raw = msg.content[0].text.trim();
-  const json = JSON.parse(raw.match(/\{[\s\S]*\}/)?.[0] || raw);
-  return json.outcome;
-}
 
 export async function processLeadReplies() {
   const supabase = getSupabaseClient();
@@ -95,34 +69,36 @@ export async function processLeadReplies() {
     }
     if (!lead || lead.reply_outcome) continue;
 
-    // Classify the reply text.
-    const text =
-      act.summary || act.raw_data?.text || act.raw_data?.body || act.description || '';
-    if (!text.trim()) continue;
-
-    let outcome;
-    try {
-      setUser({ id: String(act.workspace_id) });
-      outcome = await classifyReply(text);
-    } catch (e) {
-      console.warn('[LEAD_REPLIES] classify failed for lead', lead.id, ':', e.message);
-      continue;
+    // Reuse the signal ingest already computed — a provider's native disposition
+    // or the canonical classifier — so the same reply is never classified twice.
+    // Fall back to a classify only for replies that predate consolidation.
+    let signal = act.raw_data?.provider_signal || act.raw_data?.reply_signal || null;
+    if (!signal) {
+      const text =
+        act.summary || act.raw_data?.text || act.raw_data?.body || act.description || '';
+      if (!text.trim()) continue;
+      try {
+        signal = await classifyReplySignal(text);
+      } catch (e) {
+        console.warn('[LEAD_REPLIES] classify failed for lead', lead.id, ':', e.message);
+        continue;
+      }
     }
-    // Noise (auto-reply / bounce) — leave the lead unresolved, do not pollute
+    // Noise (auto_reply / neutral) — leave the lead unresolved, don't pollute
     // the evidence set.
-    if (!LEARNABLE.includes(outcome)) continue;
+    if (!signal || !LEARNABLE_REPLY_SIGNALS.includes(signal)) continue;
 
-    // Graduate: record the outcome on the lead and link it to the contact the
+    // Graduate: record the signal on the lead and link it to the contact the
     // reply already created.
     try {
       await updateLead(supabase, act.workspace_id, lead.id, {
-        reply_outcome: outcome,
+        reply_outcome: signal,
         replied_at: act.occurred_at || new Date().toISOString(),
         status: 'replied',
         contact_id: act.contact_id,
       });
-      if (outcome === 'unsubscribe') {
-        await addSuppression(supabase, act.workspace_id, email, 'unsubscribed via reply');
+      if (SUPPRESSING_REPLY_SIGNALS.includes(signal)) {
+        await addSuppression(supabase, act.workspace_id, email, `${signal} via reply`);
       }
       graduated++;
 
@@ -130,11 +106,11 @@ export async function processLeadReplies() {
         workspaceId: act.workspace_id,
         source: 'mind',
         eventType: 'lead_graduated',
-        summary: `Lead reply classified: ${outcome}`,
+        summary: `Lead reply classified: ${signal}`,
         contactId: act.contact_id,
         // Attribute the reply back to the list it came from, so per-list /
         // per-campaign reply reporting filters cleanly (category: 'reply').
-        metadata: { outcome, lead_id: lead.id, lead_list_id: lead.lead_list_id || null, category: 'reply' },
+        metadata: { signal, lead_id: lead.id, lead_list_id: lead.lead_list_id || null, category: 'reply' },
       }).catch(() => {});
     } catch (e) {
       console.warn('[LEAD_REPLIES] update failed for lead', lead.id, ':', e.message);

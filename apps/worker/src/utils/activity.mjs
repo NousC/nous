@@ -1,13 +1,14 @@
 // Wrapper around @nous/core logActivity that auto-fires signal extraction.
 // All worker webhook handlers import logActivity from here, not from @nous/core directly.
 
-import { logActivity as _logActivity, addSuppression, recordVerificationObservation } from '@nous/core';
+import { logActivity as _logActivity, addSuppression, recordVerificationObservation, replySignalToSentiment } from '@nous/core';
 import { extractAfterActivity } from '../signals/index.mjs';
-import { classifyReplySentiment } from '../signals/replySentiment.mjs';
+import { classifyReplySignal } from '../signals/replySentiment.mjs';
 
-// Inbound, content-rich replies we score for sentiment. The score is stashed on
-// rawData.sentiment so it's persisted on the observation AND travels with the
-// CRM push event, where the create-gate uses it to promote positive replies.
+// Inbound, content-rich replies we classify. The canonical signal + the derived
+// 3-way sentiment are stashed on rawData so they persist on the observation AND
+// travel with the CRM push event, where the create-gate uses the sentiment to
+// promote positive replies.
 const REPLY_TYPES = new Set(['email_received', 'email_reply', 'linkedin_message', 'linkedin_replied']);
 
 // A hard bounce or a provider unsubscribe both arrive as 'email_bounced' (see
@@ -46,17 +47,24 @@ async function handleBounceOrUnsub(supabase, params) {
 }
 
 export async function logActivity(supabase, params) {
-  // Classify reply sentiment once, here — the single choke point every worker
-  // webhook handler routes through. Skips outbound LinkedIn messages and any
-  // caller that already supplied a sentiment.
+  // Classify the reply once, here — the single choke point every worker webhook
+  // handler routes through. Skips outbound messages and anything a provider
+  // already labelled (rawData.sentiment set by a handler's native-disposition
+  // preemption). Writes BOTH the canonical reply_signal and the 3-way sentiment.
   if (
     REPLY_TYPES.has(params.type) &&
     params.summary &&
     params.rawData?.sentiment == null &&
     params.rawData?.is_outbound !== true
   ) {
-    const sentiment = await classifyReplySentiment(params.summary);
-    if (sentiment) params.rawData = { ...(params.rawData || {}), sentiment };
+    const signal = await classifyReplySignal(params.summary);
+    if (signal) {
+      params.rawData = {
+        ...(params.rawData || {}),
+        reply_signal: signal,
+        sentiment: replySignalToSentiment(signal),
+      };
+    }
   }
 
   const result = await _logActivity(supabase, params);
