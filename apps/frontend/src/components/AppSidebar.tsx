@@ -45,7 +45,7 @@ const setupItems: NavItem[] = [
 const mainNavItems: NavItem[] = [
   { title: "Ops",      url: "/ops",          icon: Activity },
   { title: "Accounts", url: "/accounts",     icon: Users    },
-  { title: "Context",  url: "/intelligence", icon: Brain    },
+  { title: "Playbook", url: "/intelligence", icon: Brain    },
 ];
 
 // Surfaces rendered inline under Context. Different gates: Lists (lead database)
