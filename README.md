@@ -21,8 +21,6 @@
 
 **The GTM Context API for agents.** Unify your go-to-market tools into one customer graph and give any agent the whole account in a single call, every person, conversation, and signal, in one record. Open source, and available as a [hosted service](https://opennous.cloud).
 
-_Pst — join our stargazers :)_
-
 ---
 
 ## Why Nous?
@@ -133,9 +131,56 @@ Nous is open source under AGPL-3.0. Self-host runs the open primitive in full, u
 
 ## Self-host
 
-Run the whole stack — API, worker, MCP server, frontend, Redis, and Caddy (automatic HTTPS) — with Docker Compose, on your own infrastructure. You bring a [Supabase](https://supabase.com) project and an Anthropic API key.
+Run the whole stack — API, worker, MCP server, frontend, Redis, and Caddy (automatic HTTPS) — with Docker Compose on your own infrastructure. You bring a [Supabase](https://supabase.com) project (Postgres + auth) and an Anthropic API key.
 
-→ **[Follow the self-host guide](https://docs.opennous.cloud/installation/docker-compose)** for the full walkthrough.
+**Prerequisites**
+
+- A Linux server with Docker + Docker Compose
+- A [Supabase](https://supabase.com) project (free tier is fine)
+- An [Anthropic API key](https://console.anthropic.com)
+- Three DNS records — `app`, `api`, `mcp` — pointing at your server
+
+```bash
+# 1. Clone
+git clone https://github.com/NousC/nous.git && cd nous
+
+# 2. Configure
+cp nous.env.example nous.env
+#    Fill in APP_DOMAIN / API_DOMAIN / MCP_DOMAIN, your Supabase URL + keys,
+#    and ANTHROPIC_API_KEY. Generate the encryption key:
+openssl rand -hex 32      # paste the output into ENCRYPTION_KEY=
+#    SELF_HOSTED=true is already set — it runs the open primitive, unmetered.
+
+# 3. Create the database
+#    Open supabase/schema.sql in your Supabase SQL editor and run it once.
+
+# 4. Launch (Caddy provisions TLS automatically once your DNS resolves)
+docker compose --env-file nous.env up -d --build
+```
+
+Open `https://app.yourdomain.com` and create the first account — it becomes the **owner**. To close public registration afterward, set `DISABLE_SIGNUPS=true` in `nous.env` and re-run `./update.sh`. Update any time with `./update.sh` (it pulls the latest, rebuilds, and flags new DB migrations).
+
+**Point your agent at your instance.** On self-host the MCP connect command takes your **own API URL** — pass it as an env var so the agent talks to your server, not the cloud:
+
+```bash
+claude mcp add nous -e NOUS_API_URL=https://api.yourdomain.com -- npx -y @opennous/mcp
+```
+
+Then sign in against your instance — it mints a workspace key and saves it (plus the URL) to `~/.nous/config.json`, which the MCP reads automatically:
+
+```bash
+npx @opennous/cli login --url https://api.yourdomain.com
+```
+
+→ Full walkthrough in the **[self-host guide](https://docs.opennous.cloud/installation/docker-compose)**.
+
+For local development against your Supabase project without Docker:
+
+```bash
+git clone https://github.com/NousC/nous.git && cd nous
+cp .env.example .env        # fill in Supabase + Anthropic keys
+pnpm install && pnpm dev
+```
 
 ## Tech stack
 
