@@ -123,7 +123,7 @@ Now tell your agent **“Set me up — onboard my workspace and build my playboo
 
 ## Open source vs Cloud
 
-Nous is open source under AGPL-3.0. Self-host runs the open primitive in full, unmetered. **Nous Cloud** adds the team layer on top of the same graph — the part go-to-market teams need, hosted and managed.
+Nous is open source under the AGPL-3.0 license. Nous Cloud at [opennous.cloud](https://opennous.cloud) adds the team layer on top of the same graph:
 
 <div align="center">
   <img src=".github/assets/open-source-vs-cloud.svg" alt="Nous Open Source vs Cloud" width="760" />
