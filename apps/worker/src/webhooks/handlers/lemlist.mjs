@@ -24,7 +24,7 @@
 // specific events we already handle, so we skip those too.
 
 import crypto from 'crypto';
-import { getSupabaseClient, upsertCampaignMessage } from '@nous/core';
+import { getSupabaseClient, upsertCampaignMessage, replySignalToSentiment } from '@nous/core';
 import { decrypt } from '../../utils/encryption.mjs';
 import { logActivity } from '../../utils/activity.mjs';
 import { resolveContact } from '../../utils/resolveContact.mjs';
@@ -39,7 +39,8 @@ const EVENT_TYPE_MAP = {
   emailsReplied:      'email_received',
   emailsBounced:      'email_bounced',
   emailsFailed:       'email_bounced',
-  emailsInterested:   'email_received',     // strong intent — treat as a reply
+  emailsInterested:    'email_received',    // strong intent — treat as a reply
+  emailsNotInterested: 'email_received',    // negative intent — was dropped before
   emailsUnsubscribed: 'email_bounced',
   // LinkedIn (outbound only — Unipile covers inbound)
   linkedinSent:             'linkedin_message_sent',
@@ -51,6 +52,14 @@ const EVENT_TYPE_MAP = {
   linkedinVoiceNoteDone:    'linkedin_message_sent',
   // Lifecycle
   campaignComplete: 'campaign_completed',
+};
+
+// Lemlist's native disposition events → our canonical reply signal. Preempts the
+// LLM classifier (we trust Lemlist's call). Absent → null, classifier decides.
+const PROVIDER_SIGNAL = {
+  emailsInterested:    'positive',
+  emailsNotInterested: 'negative',
+  emailsUnsubscribed:  'unsubscribe',
 };
 
 // Events we know about but deliberately don't act on, so they don't get logged
@@ -68,7 +77,6 @@ const SKIPPED_EVENTS = new Set([
   'linkedinLikeLastPostNoPost', 'linkedinLikeLastPostFailed',
   'linkedinWithdrawInvitationDone', 'linkedinWithdrawInvitationFailed',
   'linkedinInterested', 'linkedinNotInterested',
-  'emailsNotInterested',
   // Channels we don't have UI for yet
   'whatsappMessageSent', 'whatsappMessageDelivered', 'whatsappMessageOpened',
   'whatsappReplied', 'whatsappMessageFailed',
@@ -151,6 +159,8 @@ export async function reprocessLemlist(supabase, workspaceId, body) {
 
   const isReply = activityType === 'email_received';
   const isSent  = activityType === 'email_sent';
+  // Prefer Lemlist's native disposition over our own classifier when present.
+  const provSignal = PROVIDER_SIGNAL[eventType] ?? null;
 
   const { contact } = await resolveContact(supabase, workspaceId, {
     email:      leadEmail,
@@ -182,6 +192,8 @@ export async function reprocessLemlist(supabase, workspaceId, body) {
     rawData:     {
       event_type: eventType, campaign_id: campaignId, campaign_name: campaignName,
       step: sequenceStep, sequence_id: sequenceId, variant, subject,
+      // Native disposition preempts the LLM classifier.
+      ...(provSignal ? { provider_signal: provSignal, sentiment: replySignalToSentiment(provSignal) } : {}),
       ...(isSent ? { is_outbound: true } : {}),
     },
   });
