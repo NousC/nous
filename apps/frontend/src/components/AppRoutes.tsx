@@ -177,7 +177,8 @@ export function AppRoutes() {
             <Route path="/crm"           element={<Navigate to="/crm-sync" replace />} />
             <Route path="/lists"         element={<CloudOnly><Suspense fallback={<MinimalLoader />}><Lists /></Suspense></CloudOnly>} />
             <Route path="/lists/clean"   element={<CloudOnly><Suspense fallback={<MinimalLoader />}><CleanList /></Suspense></CloudOnly>} />
-            <Route path="/intelligence"  element={<Suspense fallback={<MinimalLoader />}><Intelligence /></Suspense>} />
+            <Route path="/playbook"      element={<Suspense fallback={<MinimalLoader />}><Intelligence /></Suspense>} />
+            <Route path="/intelligence"  element={<Navigate to="/playbook" replace />} />
             <Route path="/settings/*" element={<Navigate to="/settings" replace />} />
 
             <Route path="/inbox" element={<Suspense fallback={<TableLoader />}><Inbox /></Suspense>} />

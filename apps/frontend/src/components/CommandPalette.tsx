@@ -17,7 +17,7 @@ const NAV_ITEMS = [
   { id: "people",       label: "People",       sublabel: "Contacts & profiles", path: "/people" },
   { id: "companies",    label: "Companies",    sublabel: "Company records",     path: "/companies" },
   { id: "integrations", label: "Integrations", sublabel: "Connected services",  path: "/integrations" },
-  { id: "intelligence", label: "Playbook", sublabel: "Your ICP model, learned from outcomes", path: "/intelligence" },
+  { id: "playbook", label: "Playbook", sublabel: "Your ICP model, learned from outcomes", path: "/playbook" },
   { id: "lists",        label: "Lists",        sublabel: "Lead lists",          path: "/lists" },
   { id: "settings",     label: "Settings",     sublabel: "Workspace & billing", path: "/settings" },
   { id: "keys",         label: "API Keys",     sublabel: "Workspace API keys",  path: "/keys" },
