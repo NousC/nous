@@ -135,7 +135,24 @@ contactsApiRouter.get('/:id', verifySupabaseAuth, async (req, res) => {
     // Notes on this contact-entity (entity_id == contact.id in v2).
     const memories = await listNotes(supabase, contact.workspace_id, { entityId: id, limit: 30 });
 
-    return res.json({ contact, activities, company, memories });
+    // Buying signals — signal.* state claims written by signal-scan / record_signal.
+    // One current claim per class; the same claims feed the ICP scorecard as features.
+    const { data: sigRows } = await supabase.from('claims')
+      .select('property, value, confidence, computed_at')
+      .eq('entity_id', id).like('property', 'signal.%')
+      .is('invalid_at', null)
+      .order('computed_at', { ascending: false });
+    const signals = (sigRows || []).map(s => ({
+      signal_class: (s.property || '').replace(/^signal\./, ''),
+      detected:   s.value?.detected ?? null,
+      implies:    s.value?.implies ?? null,
+      score:      s.value?.score ?? null,
+      approach:   s.value?.approach ?? null,
+      angle:      s.value?.angle ?? null,
+      updated_at: s.computed_at,
+    }));
+
+    return res.json({ contact, activities, company, memories, signals });
   } catch (err) {
     return res.status(500).json({ error: 'internal_error', ...(process.env.NODE_ENV !== 'production' && { detail: String(err.message) }) });
   }
