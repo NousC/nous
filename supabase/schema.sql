@@ -2122,3 +2122,65 @@ LANGUAGE sql STABLE AS $$
     ), '[]'::jsonb)
   );
 $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Functions previously defined only in migrations (folded in 2026-06-14 so a
+-- fresh schema.sql-only self-host install has them). See migrations
+-- 2026_05_19_billing_v2.sql and 2026_05_25_decay_pipeline_stages_v2.sql.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE OR REPLACE FUNCTION team_ops_used(p_team_id uuid, p_since timestamptz)
+RETURNS bigint
+LANGUAGE sql STABLE
+AS $$
+  SELECT COALESCE(SUM(wsl.billable_ops), 0)::bigint
+  FROM workspace_system_log wsl
+  JOIN workspaces w ON w.id = wsl.workspace_id
+  WHERE w.team_id = p_team_id
+    AND wsl.billable_ops > 0
+    AND wsl.occurred_at >= p_since;
+$$;
+
+CREATE OR REPLACE FUNCTION decay_pipeline_stages()
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+  INSERT INTO observations (workspace_id, entity_id, kind, property, value, source, method, observed_at)
+  SELECT c.workspace_id, c.entity_id, 'state', 'pipeline_stage', '"interested"'::jsonb,
+         'system', 'inference', now()
+  FROM claims c
+  LEFT JOIN claims src ON src.workspace_id = c.workspace_id AND src.entity_id = c.entity_id
+   AND src.property = 'pipeline_stage_source' AND src.invalid_at IS NULL
+  WHERE c.property = 'pipeline_stage' AND c.invalid_at IS NULL
+    AND (c.value #>> '{}') = 'evaluating' AND (src.value #>> '{}') IS DISTINCT FROM 'manual'
+    AND NOT EXISTS (SELECT 1 FROM observations o WHERE o.entity_id = c.entity_id
+        AND o.property IN ('interaction.meeting_held','interaction.pricing_page_visit','interaction.proposal_sent',
+          'interaction.proposal_viewed','interaction.outbound_positive_reply','interaction.deal_created','interaction.trial_started')
+        AND o.observed_at >= now() - interval '60 days');
+
+  INSERT INTO observations (workspace_id, entity_id, kind, property, value, source, method, observed_at)
+  SELECT c.workspace_id, c.entity_id, 'state', 'pipeline_stage', '"aware"'::jsonb,
+         'system', 'inference', now()
+  FROM claims c
+  LEFT JOIN claims src ON src.workspace_id = c.workspace_id AND src.entity_id = c.entity_id
+   AND src.property = 'pipeline_stage_source' AND src.invalid_at IS NULL
+  WHERE c.property = 'pipeline_stage' AND c.invalid_at IS NULL
+    AND (c.value #>> '{}') = 'interested' AND (src.value #>> '{}') IS DISTINCT FROM 'manual'
+    AND NOT EXISTS (SELECT 1 FROM observations o WHERE o.entity_id = c.entity_id
+        AND o.property IN ('interaction.email_reply','interaction.linkedin_message','interaction.linkedin_connected',
+          'interaction.content_download','interaction.community_joined','interaction.event_attended','interaction.website_revisit')
+        AND o.observed_at >= now() - interval '30 days');
+
+  INSERT INTO observations (workspace_id, entity_id, kind, property, value, source, method, observed_at)
+  SELECT c.workspace_id, c.entity_id, 'state', 'pipeline_stage', '"identified"'::jsonb,
+         'system', 'inference', now()
+  FROM claims c
+  LEFT JOIN claims src ON src.workspace_id = c.workspace_id AND src.entity_id = c.entity_id
+   AND src.property = 'pipeline_stage_source' AND src.invalid_at IS NULL
+  WHERE c.property = 'pipeline_stage' AND c.invalid_at IS NULL
+    AND (c.value #>> '{}') = 'aware' AND (src.value #>> '{}') IS DISTINCT FROM 'manual'
+    AND NOT EXISTS (SELECT 1 FROM observations o WHERE o.entity_id = c.entity_id
+        AND o.property IN ('interaction.website_visit','interaction.email_opened','interaction.linkedin_view',
+          'interaction.social_engagement','interaction.ad_impression','interaction.newsletter_signup')
+        AND o.observed_at >= now() - interval '30 days');
+END;
+$$;
