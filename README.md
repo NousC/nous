@@ -19,18 +19,18 @@
 
 # Nous
 
-**The GTM Context API for agents.** Unify your go-to-market tools into one customer graph and give any agent the whole account in a single call, every person, conversation, and signal, in one record. Open source, and available as a [hosted service](https://opennous.cloud).
+**The GTM Context API for agents.** Unify your GTM tools into a single customer graph with every person, conversation and touchpoint in one record, ready for any Agent. Open source, and available as a [hosted service](https://opennous.cloud).
 
 ---
 
 ## Why Nous?
 
-- **One call, the whole account.** Your agent gets the entire identity-resolved account in a single call, instead of stitching six tools together and guessing over raw dumps.
-- **LLM-ready context.** Structured, token-budgeted, agent-shaped. Every fact carries its own source, confidence, and freshness.
-- **We handle the hard stuff.** Identity resolution across Apollo, HubSpot, Gmail, and LinkedIn into one canonical record per person.
-- **Agent ready.** Connect Nous to any agent or MCP client with a single command.
-- **25+ integrations.** Your CRM, outbound, email, and LinkedIn, unified into one graph.
-- **Open source.** Self-host the whole primitive under AGPL, or skip the setup with Nous Cloud.
+- **One call, the whole account:** Your agent gets the entire identity-resolved account in a single call, instead of stitching six tools together and guessing over raw dumps.
+- **LLM-ready context:** Structured, token-budgeted, agent-shaped. Every fact carries its own source, confidence, and freshness.
+- **We handle the hard stuff:** Identity resolution across Apollo, HubSpot, Gmail, and LinkedIn into one canonical record per person.
+- **Agent ready:** Connect Nous to any agent or MCP client with a single command.
+- **25+ integrations:** Your CRM, outbound, email, and LinkedIn, unified into one graph.
+- **Open source:** Self-host the whole primitive under AGPL, or skip the setup with Nous Cloud.
 
 ## Core endpoints
 
