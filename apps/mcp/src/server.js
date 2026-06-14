@@ -27,19 +27,21 @@
  *   record_closed_deals  — build the ICP model from real closed-won/lost deals (contrastive lift)
  *   connect_integration  — connect a key-based integration (Apollo, Prospeo, HubSpot, …)
  *   configure_crm_sync   — set CRM sync rules (auto-sync, create policy, hygiene cadence)
+ *   sync_crm_now         — run an immediate incremental/full CRM pull (don't wait for the daily cron)
  *   set_trigger          — create an outbound event trigger (webhook); list_triggers reads them
  *   list_triggers        — list the workspace's event triggers + available events
  *   get_routing_preferences — Claude Code routing prefs to default GTM to Nous (write to CLAUDE.md)
  *   lead_list_operations — the operations trail of a lead list (imports/enrich/push/replies), filterable
- *   check_leads          — pre-spend coverage check: which candidates you already own / should re-enrich
- *   lead_coverage        — attribute coverage estimate ("how many agency founders do we have, by freshness")
+ *   coverage             — pre-spend coverage: exact per-lead check (identifiers) or attribute estimate (title/keyword)
+ *   enrich_leads         — find missing emails for a lead list (two-step: dry-run cost preview, then confirm)
+ *   verify_leads         — validate email deliverability for a lead list (two-step preview, then confirm)
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { get, post } from "./client.js";
 
-export const SERVER_VERSION = "0.30.0";
+export const SERVER_VERSION = "0.31.0";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -431,7 +433,6 @@ export function createServer() {
   // TOOL: get_gtm_profile  —  GET /v2/workspace/facts
   // The user's OWN GTM profile: ICP, market, product, pricing, competitors.
   // Use this for any question about the user's business — NOT get_account.
-  // Registered also under the legacy name get_workspace_facts for back-compat.
   // ===========================================================================
   const gtmProfileDescription =
     "Get the user's OWN GTM profile — their ICP, target market, product, pricing, " +
@@ -475,8 +476,6 @@ export function createServer() {
     return { content: [{ type: "text", text: lines.join("\n").trim() }] };
   };
   server.tool("get_gtm_profile", gtmProfileDescription, gtmProfileSchema, gtmProfileHandler);
-  // Legacy alias — keeps existing integrations calling get_workspace_facts working.
-  server.tool("get_workspace_facts", gtmProfileDescription, gtmProfileSchema, gtmProfileHandler);
 
   // ===========================================================================
   // TOOL: update_gtm_profile  —  POST /v2/workspace/facts
@@ -590,25 +589,15 @@ export function createServer() {
   // ===========================================================================
   server.tool(
     "get_workspace_status",
-    "See the whole setup state of this workspace in one call, and what to do next. Nous is operated " +
-    "by you, the agent: call this at the start of a session. It returns a ranked NEXT STEPS list — " +
-    "walk the user through it top-down. The onboarding sequence, in order: " +
-    "(1) profile (set_workspace_profile); " +
-    "(2) connect core channels — Gmail/email, LinkedIn, and a meeting note-taker (Fireflies/Fathom/" +
-    "Calendly); (3) connect enrichment/outbound (Prospeo/Apollo/Instantly); (4) set up webhooks for " +
-    "the connected tools so their events flow in; (5) ONLY AFTER channels are connected (LinkedIn + " +
-    "Gmail at minimum, ideally a note-taker), import first records (CSV, ideally from the CRM) on the " +
-    "Accounts page — connecting channels first is what lets the import backfill real activity instead " +
-    "of a bare score — then backfill enrichment; (6) RESEARCH the company from its website and build the " +
-    "GTM playbook — fill EVERY context section (Market, Product, Pricing, Competitors, Positioning, GTM " +
-    "Motion, ICP) with update_gtm_profile, CONFIRM the draft with the user before building, ask for " +
-    "closed-won/lost domains (record_closed_deals), then build_scoring_model. " +
-    "KNOW THE CONSTRAINTS: Gmail uses Google OAuth and LinkedIn has NO public API (Nous connects it " +
-    "natively via Unipile) — you CANNOT connect those yourself; tell the user to set them up on the " +
-    "Integrations page. Key-based tools (Prospeo, Apollo, Instantly, HubSpot token) you CAN connect " +
-    "with connect_integration. CSV import and CRM-page actions are done by the user in the app — guide " +
-    "them. Respect PLAN: never push a feature the plan doesn't include (e.g. CRM sync on free). " +
-    "Recommend, don't dump — surface the next 1-2 steps, not all of them at once.",
+    "See the whole setup state of this workspace in one call, plus a ranked NEXT STEPS list (each step " +
+    "carries its own why/how). Nous is operated by you, the agent — call this at the START of a session " +
+    "and walk the user top-down through the steps it returns; the server sequences them by current " +
+    "state, so trust that order. Two constraints when acting on them: (1) Gmail (Google OAuth) and " +
+    "LinkedIn (no public API — Nous uses Unipile) CANNOT be connected by you — point the user to the " +
+    "Integrations page; key-based tools (Prospeo, Apollo, Instantly, HubSpot token) you CAN connect via " +
+    "connect_integration, and CSV import is a user action in the app. (2) Respect the plan — never push " +
+    "a feature it doesn't include (e.g. CRM sync on free). Recommend the next 1-2 steps, don't dump the " +
+    "whole list.",
     {},
     async () => {
       const s = await get("/v2/workspace/status");
@@ -1005,97 +994,91 @@ export function createServer() {
   );
 
   // ===========================================================================
-  // TOOL: check_leads  —  POST /v2/dedup
-  // The pre-spend coverage check. Run this BEFORE building/buying a lead list in
-  // Apollo, Sales Navigator, DeepSearch, Clay, etc. Paste the candidate emails /
-  // LinkedIn URLs / company domains (all visible for free in the tool's preview)
-  // and find out what you already own — so you never re-buy a record you have,
-  // and you re-enrich stale ones instead of paying to acquire them again.
+  // TOOL: coverage  —  POST /v2/dedup (exact) | GET /v2/people/coverage (estimate)
+  // "What do I already have?" before spending on a list elsewhere. One tool, two
+  // modes: pass identifiers for an EXACT per-lead net-new/re-enrich/reuse check
+  // (the pre-spend gate), or a title/keyword for a rough attribute ESTIMATE.
+  // (Replaces the former check_leads + lead_coverage tools.)
   // ===========================================================================
   server.tool(
-    "check_leads",
-    "Pre-spend coverage check — call this BEFORE building or buying a lead list elsewhere (Apollo, " +
-    "Sales Navigator, DeepSearch, Clay). Paste the candidate emails, LinkedIn URLs, or company " +
-    "domains (free in any tool's preview) and learn what you already have, so you don't pay twice. " +
-    "Returns counts: net_new (acquire + enrich these), needs_enrichment (you already OWN these but " +
-    "they're stale / not enriched in 90 days — re-enrich instead of re-buying), reusable (you have a " +
-    "fresh verified email — reuse, spend nothing), plus engaged/recent/bounced/unsubscribed/known to " +
-    "skip. Each result carries entity_id, email_status, enriched_at, and stale so you can act per-lead.",
+    "coverage",
+    "Check what you ALREADY have before spending on a list elsewhere (Apollo, Sales Navigator, Clay). " +
+    "Two modes:\n" +
+    "  • EXACT — pass candidate identifiers (emails / linkedin_urls / domains, free in any tool's " +
+    "preview). Returns per-lead buckets: net_new (acquire + enrich), needs_enrichment (you OWN these " +
+    "but stale >90d — re-enrich, don't re-buy), reusable (fresh verified email on file — reuse, spend " +
+    "nothing), plus engaged/recent/known/bounced to skip. Each result carries entity_id, email_status, " +
+    "enriched_at, stale.\n" +
+    "  • ESTIMATE — pass a title and/or keyword instead. Returns how many people you already have " +
+    "matching (e.g. title='founder', keyword='agency'), split by freshness: never-enriched, stale >90d, " +
+    "fresh-verified. Rough by design (title precise; keyword matches title/company/department).\n" +
+    "Pass identifiers for the exact pre-spend check, OR title/keyword for the planning estimate — not both.",
     {
-      emails: z.array(z.string()).optional().describe("Candidate email addresses (up to 50,000)."),
-      linkedin_urls: z.array(z.string()).optional().describe("Candidate LinkedIn profile URLs (up to 50,000)."),
-      domains: z.array(z.string()).optional().describe("Company domains — 'do I already have anyone here?' (up to 50,000)."),
+      emails: z.array(z.string()).optional().describe("EXACT mode — candidate email addresses (up to 50,000)."),
+      linkedin_urls: z.array(z.string()).optional().describe("EXACT mode — candidate LinkedIn profile URLs (up to 50,000)."),
+      domains: z.array(z.string()).optional().describe("EXACT mode — company domains, 'do I already have anyone here?' (up to 50,000)."),
+      title: z.string().optional().describe("ESTIMATE mode — role match, e.g. 'founder', 'VP Sales' (matches job_title)."),
+      keyword: z.string().optional().describe("ESTIMATE mode — extra match across title/company/department, e.g. 'agency'."),
+      stale_days: z.number().optional().describe("ESTIMATE mode — days after which enrichment counts as stale (default 90)."),
     },
-    async ({ emails, linkedin_urls, domains }) => {
-      const body = {};
-      if (emails?.length) body.emails = emails;
-      if (linkedin_urls?.length) body.linkedin_urls = linkedin_urls;
-      if (domains?.length) body.domains = domains;
-      if (!Object.keys(body).length) {
-        return { content: [{ type: "text", text: "Pass at least one of: emails, linkedin_urls, domains." }] };
+    async ({ emails, linkedin_urls, domains, title, keyword, stale_days }) => {
+      const hasIds  = !!(emails?.length || linkedin_urls?.length || domains?.length);
+      const hasAttr = !!(title || keyword);
+      if (hasIds && hasAttr) {
+        return { content: [{ type: "text", text:
+          "Pass identifiers (emails/linkedin_urls/domains) for the exact check, OR title/keyword for the estimate — not both." }] };
       }
-      const r = await post("/v2/dedup", body);
-      const s = r.summary || {};
-      const lines = [
-        `COVERAGE (${s.total ?? 0} checked)`,
-        `  net_new          ${s.net_new ?? 0}   → acquire + enrich`,
-        `  needs_enrichment ${s.needs_enrichment ?? 0}   → you OWN these but stale (>90d) → re-enrich, don't re-buy`,
-        `  reusable         ${s.reusable ?? 0}   → fresh verified email on file → reuse, spend nothing`,
-        `  engaged          ${s.engaged ?? 0}   → in an active conversation, don't cold-send`,
-        `  recent           ${s.recent ?? 0}   → contacted <30d, defer`,
-        `  known            ${s.known ?? 0}   → company already in the workspace`,
-        `  bounced/unsub    ${(s.bounced ?? 0) + (s.unsubscribed ?? 0) + (s.suppressed ?? 0)}   → skip`,
-      ];
-      // Surface a few stale entities the caller should re-enrich (with their last date).
-      const stale = (r.results || []).filter(x => x.entity_id && x.stale).slice(0, 15);
-      if (stale.length) {
-        lines.push("", "RE-ENRICH (sample):");
-        for (const x of stale) {
-          lines.push(`  ${x.value}  [${x.enriched_at ? `last enriched ${relAge(x.enriched_at)}` : "never enriched"}]  ${x.entity_id}`);
-        }
-      }
-      return { content: [{ type: "text", text: lines.join("\n") }] };
-    }
-  );
 
-  // ===========================================================================
-  // TOOL: lead_coverage  —  GET /v2/people/coverage
-  // The attribute-based planning check: "how many <agency founders> do we already
-  // have, and how fresh?" — answered WITHOUT pasting identifiers. Use it before
-  // building a list elsewhere to see how much you already cover.
-  // ===========================================================================
-  server.tool(
-    "lead_coverage",
-    "Estimate how many people you ALREADY have matching a role/keyword, bucketed by enrichment " +
-    "freshness — the planning question before building a list (no identifiers to paste). E.g. " +
-    "title='founder', keyword='agency' → how many agency founders are already in your workspace, " +
-    "how many were never enriched or are stale (>90d, so re-enrich), and how many have a fresh " +
-    "verified email. Rough by design (title is precise; keyword matches title/company/department). " +
-    "For an exact net-new check against specific candidates, use check_leads with their identifiers.",
-    {
-      title: z.string().optional().describe("Role match, e.g. 'founder', 'VP Sales' (matches job_title)."),
-      keyword: z.string().optional().describe("Extra match across title/company/department, e.g. 'agency'."),
-      stale_days: z.number().optional().describe("Days after which enrichment counts as stale (default 90)."),
-    },
-    async ({ title, keyword, stale_days }) => {
-      if (!title && !keyword) {
-        return { content: [{ type: "text", text: "Pass a title and/or keyword, e.g. title='founder', keyword='agency'." }] };
-      }
-      const r = await get("/v2/people/coverage", { title, keyword, stale_days });
-      const lines = [
-        `COVERAGE — ${[title && `title~"${title}"`, keyword && `keyword~"${keyword}"`].filter(Boolean).join(" + ")}`,
-        `  ${r.total ?? 0} already in your workspace`,
-        `    ${r.needs_enrichment ?? 0} need (re-)enrichment  (${r.never_enriched ?? 0} never enriched · ${r.stale ?? 0} stale >90d)`,
-        `    ${r.fresh_verified ?? 0} have a fresh verified email`,
-      ];
-      const sample = r.sample || [];
-      if (sample.length) {
-        lines.push("", "SAMPLE (oldest first):");
-        for (const s of sample.slice(0, 12)) {
-          lines.push(`  ${[s.job_title, s.company].filter(Boolean).join(" @ ") || s.entity_id}  [${s.enriched_at ? `enriched ${relAge(s.enriched_at)}` : "never enriched"}]`);
+      // EXACT mode — per-identifier coverage against /v2/dedup.
+      if (hasIds) {
+        const body = {};
+        if (emails?.length) body.emails = emails;
+        if (linkedin_urls?.length) body.linkedin_urls = linkedin_urls;
+        if (domains?.length) body.domains = domains;
+        const r = await post("/v2/dedup", body);
+        const s = r.summary || {};
+        const lines = [
+          `COVERAGE (${s.total ?? 0} checked)`,
+          `  net_new          ${s.net_new ?? 0}   → acquire + enrich`,
+          `  needs_enrichment ${s.needs_enrichment ?? 0}   → you OWN these but stale (>90d) → re-enrich, don't re-buy`,
+          `  reusable         ${s.reusable ?? 0}   → fresh verified email on file → reuse, spend nothing`,
+          `  engaged          ${s.engaged ?? 0}   → in an active conversation, don't cold-send`,
+          `  recent           ${s.recent ?? 0}   → contacted <30d, defer`,
+          `  known            ${s.known ?? 0}   → company already in the workspace`,
+          `  bounced/unsub    ${(s.bounced ?? 0) + (s.unsubscribed ?? 0) + (s.suppressed ?? 0)}   → skip`,
+        ];
+        // Surface a few stale entities the caller should re-enrich (with their last date).
+        const stale = (r.results || []).filter(x => x.entity_id && x.stale).slice(0, 15);
+        if (stale.length) {
+          lines.push("", "RE-ENRICH (sample):");
+          for (const x of stale) {
+            lines.push(`  ${x.value}  [${x.enriched_at ? `last enriched ${relAge(x.enriched_at)}` : "never enriched"}]  ${x.entity_id}`);
+          }
         }
+        return { content: [{ type: "text", text: lines.join("\n") }] };
       }
-      return { content: [{ type: "text", text: lines.join("\n") }] };
+
+      // ESTIMATE mode — attribute coverage against /v2/people/coverage.
+      if (hasAttr) {
+        const r = await get("/v2/people/coverage", { title, keyword, stale_days });
+        const lines = [
+          `COVERAGE — ${[title && `title~"${title}"`, keyword && `keyword~"${keyword}"`].filter(Boolean).join(" + ")}`,
+          `  ${r.total ?? 0} already in your workspace`,
+          `    ${r.needs_enrichment ?? 0} need (re-)enrichment  (${r.never_enriched ?? 0} never enriched · ${r.stale ?? 0} stale >90d)`,
+          `    ${r.fresh_verified ?? 0} have a fresh verified email`,
+        ];
+        const sample = r.sample || [];
+        if (sample.length) {
+          lines.push("", "SAMPLE (oldest first):");
+          for (const s of sample.slice(0, 12)) {
+            lines.push(`  ${[s.job_title, s.company].filter(Boolean).join(" @ ") || s.entity_id}  [${s.enriched_at ? `enriched ${relAge(s.enriched_at)}` : "never enriched"}]`);
+          }
+        }
+        return { content: [{ type: "text", text: lines.join("\n") }] };
+      }
+
+      return { content: [{ type: "text", text:
+        "Pass at least one of: emails / linkedin_urls / domains (exact check), or title / keyword (estimate)." }] };
     }
   );
 
@@ -1124,13 +1107,12 @@ export function createServer() {
 
   server.tool(
     "enrich_leads",
-    "Find missing emails for leads in a lead list, on the workspace's own Prospeo/Apollo key. TWO STEPS, " +
-    "always: first call WITHOUT confirm to get a dry-run cost preview (chargeable vs already-on-file, the " +
-    "provider, and the $ estimate) — REPORT THAT TO THE USER and get their go-ahead — then call again with " +
-    "confirm:true to run it as a background job. Select leads with `filter` instead of listing ids: " +
-    "{emailStatus:'none'} = every lead missing an email (the usual case); {domain:'has', emailStatus:'none'} = " +
-    "has a company domain but no email. Defaults to {emailStatus:'none'} if neither filter nor ids is given. " +
-    "Call lead_list_operations with no id first to find the list's id.",
+    "Find missing emails for leads in a lead list, on the workspace's own Prospeo/Apollo key. ALWAYS two " +
+    "steps: call WITHOUT confirm for a dry-run cost preview (chargeable count, provider, $ estimate) — " +
+    "report it and get the user's go-ahead — then call again with confirm:true to run as a background job. " +
+    "Pick leads with `filter` (e.g. {emailStatus:'none'} = every lead missing an email, the usual case) or " +
+    "explicit `ids`; defaults to {emailStatus:'none'}. Call lead_list_operations with no id first to get the " +
+    "list's id.",
     {
       lead_list_id: z.string().describe("The lead list's UUID."),
       filter: z.object(LEAD_FILTER_SHAPE).optional().describe("Pick leads by attribute. Omit (with no ids) to default to all leads missing an email."),
@@ -1167,11 +1149,11 @@ export function createServer() {
   server.tool(
     "verify_leads",
     "Validate email deliverability for leads in a lead list, on the workspace's own MillionVerifier / " +
-    "NeverBounce key. TWO STEPS, always: first call WITHOUT confirm for a dry-run cost preview (chargeable " +
-    "vs recently-verified, which verifiers are connected, and the $ estimate) — REPORT THAT TO THE USER — " +
-    "then call again with confirm:true to run it as a background job. Defaults to verifying every UNVERIFIED " +
-    "email (has an address, no verdict yet); narrow with `filter` or pass `ids`. If no verifier is connected " +
-    "it will say so — tell the user to add a MillionVerifier or NeverBounce key in Integrations.",
+    "NeverBounce key. ALWAYS two steps: call WITHOUT confirm for a dry-run cost preview (chargeable count, " +
+    "connected verifiers, $ estimate) — report it to the user — then call again with confirm:true to run as " +
+    "a background job. Defaults to every UNVERIFIED email (has an address, no verdict yet); narrow with " +
+    "`filter` or pass `ids`. If no verifier is connected it says so — tell the user to add a MillionVerifier " +
+    "or NeverBounce key in Integrations.",
     {
       lead_list_id: z.string().describe("The lead list's UUID."),
       filter: z.object(LEAD_FILTER_SHAPE).optional().describe("Pick leads by attribute. Omit (with no ids) to default to all unverified emails."),

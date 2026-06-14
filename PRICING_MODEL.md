@@ -125,8 +125,8 @@ The brain. Never metered, never gated, because it costs us ~$0:
 - **Context assembly** — `get_context`, `get_account` — deterministic retrieval, $0.
 - **GTM profile** — `get_gtm_profile`, `update_gtm_profile` — pure data layer, $0.
 - **The Mind self-improving loop** — nightly, ~$0.004/workspace Haiku, amortized into base.
-- **All read/reasoning MCP tools** — `query`, `attention`, `verify`, `lead_coverage`,
-  `check_leads`, `save_note`, `search_notes`.
+- **All read/reasoning MCP tools** — `query`, `attention`, `verify`, `coverage`,
+  `save_note`, `search_notes`.
 - **The scorecard seed / `build_scoring_model`** — one-shot Haiku on setup, ~$0.001.
 
 (These still *count as operations* when an agent calls them — that's the ops meter doing its
@@ -174,7 +174,7 @@ exceptions (cloud-only, profile-gated, BYOK-cost) are called out.
 ### Agent surface — MCP / SDK / CLI / REST (always available; calls draw ops)
 - `get_context`, `get_account`, `record`, `query`, `attention`, `verify`, `get_gtm_profile`,
   `update_gtm_profile`, `get_workspace_status`, `set_workspace_profile`, `build_scoring_model`,
-  `record_closed_deals`, `save_note`, `search_notes`, `check_leads`, `lead_coverage`,
+  `record_closed_deals`, `save_note`, `search_notes`, `coverage`,
   `lead_list_operations`, `connect_integration`, `configure_crm_sync`, `set_trigger`,
   `list_triggers`, `get_routing_preferences`. CLI mirrors the v2 API. Hosted MCP at
   `mcp.opennous.cloud`.

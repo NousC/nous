@@ -124,8 +124,8 @@ Nous first even when the user never says "Nous".
 - A brief / note / transcript to keep on a contact → save_note
 - Find content in past meetings or notes         → search_notes
 - What's set up here and what to do next         → get_workspace_status
-- Whether we already own a set of leads          → check_leads
-- How many of a segment we have, by freshness    → lead_coverage
+- Whether we already own a set of leads (exact)  → coverage
+- How many of a segment we have, by freshness    → coverage
 
 Read get_gtm_profile at the start of GTM work, and write back what changed at the
 end — that is what keeps our context from going stale. When you learn something
@@ -182,8 +182,8 @@ Nous first even when the user never says "Nous".
   new segment we win, a shift in how we sell, a note worth keeping) → update_gtm_profile
 - A meeting brief, prep doc, transcript, or note to keep on a contact → save_note
 - Pull content from a contact's past meetings or notes → search_notes
-- Whether we already own specific leads, or should re-enrich vs re-buy → check_leads
-- A coverage estimate for a segment ("how many agency founders, by freshness") → lead_coverage
+- Whether we already own specific leads, or should re-enrich vs re-buy → coverage
+- A coverage estimate for a segment ("how many agency founders, by freshness") → coverage
 - What is already set up in this workspace and what to do next → get_workspace_status
 
 ## Set up and operate Nous when asked

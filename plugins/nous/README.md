@@ -36,7 +36,7 @@ Core MCP tools, all backed by the v2 Context API:
 | `verify` | Re-check one claim before acting — the calibration check |
 | `get_gtm_profile` / `update_gtm_profile` | Read and evolve our own ICP, market, pricing, and positioning |
 
-…plus `save_note` / `search_notes`, `get_workspace_status`, `check_leads`, `lead_coverage`, and the setup tools (`set_workspace_profile`, `build_scoring_model`, `connect_integration`, `configure_crm_sync`, `set_trigger` / `list_triggers`) for operating the workspace.
+…plus `save_note` / `search_notes`, `get_workspace_status`, `coverage`, and the setup tools (`set_workspace_profile`, `build_scoring_model`, `connect_integration`, `configure_crm_sync`, `set_trigger` / `list_triggers`) for operating the workspace.
 
 Identifiers are universal — pass an email, domain, LinkedIn URL, entity UUID, or a name; ambiguous names return candidates the agent picks from.
 

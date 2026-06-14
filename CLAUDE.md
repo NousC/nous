@@ -11,7 +11,7 @@ Nous is the customer graph for GTM agents. It resolves every person, conversatio
 ```
 apps/
   api/       — Node.js/Express REST API (the /v2 Context API is the public surface)
-  mcp/       — MCP server (@opennous/mcp, 20 tools — stdio bin + hosted HTTP variant)
+  mcp/       — MCP server (@opennous/mcp, 24 tools — stdio bin + hosted HTTP variant)
   frontend/  — Vite + React + shadcn/ui (People, Companies, GTM Context, Lead Lists pages)
   worker/    — Background workers (CalendarPoller, signal ingestion, webhooks)
 packages/
@@ -58,7 +58,7 @@ All DB access goes through `packages/core/src/db/`. Never write raw Supabase que
 
 ## MCP tools (apps/mcp)
 
-20 tools — registered in `apps/mcp/src/server.js` (the canonical `createServer()` factory; `index.js` is the stdio bin, `http.js` the hosted variant). The header comment in `server.js` is the authoritative catalog. The tools are thin clients of the `/v2` Context API. The agent observes; Nous derives — there is no "update" verb on the substrate.
+24 tools — registered in `apps/mcp/src/server.js` (the canonical `createServer()` factory; `index.js` is the stdio bin, `http.js` the hosted variant). The header comment in `server.js` is the authoritative catalog. The tools are thin clients of the `/v2` Context API. The agent observes; Nous derives — there is no "update" verb on the substrate.
 
 Read:
 - `get_context` — engineered, intent-shaped context for a task (draft_email, follow_up, meeting_prep, …): ranked facts with confidence + freshness, timeline, stakeholders, predictions, and the ICP fit score
@@ -66,13 +66,12 @@ Read:
 - `query` — retrieve and summarise activity across many people (group by entity, subtract sets, value rollups)
 - `attention` — what needs attention now (accounts gone quiet, facts decayed)
 - `verify` — re-check a single fact before acting on it
-- `get_gtm_profile` — the user's OWN GTM profile (ICP, market, product, pricing, competitors, positioning). Also registered under the legacy alias `get_workspace_facts`
+- `get_gtm_profile` — the user's OWN GTM profile (ICP, market, product, pricing, competitors, positioning)
 - `search_notes` — semantic search over saved notes & documents on contacts
 - `get_workspace_status` — what's set up in this workspace + a ranked `next_steps` list (call first in a session)
 - `list_triggers` — the workspace's event triggers + the catalog of available event names
 - `lead_list_operations` — the operations trail of a lead list (imports / enrich / push / replies), filterable
-- `check_leads` — pre-spend coverage check: which candidate identifiers you already own / should re-enrich
-- `lead_coverage` — attribute coverage estimate ("how many agency founders do we have, by freshness")
+- `coverage` — pre-spend coverage: an exact per-lead check (pass identifiers) or an attribute estimate (pass title/keyword, "how many agency founders do we have, by freshness")
 
 Write:
 - `record` — record what happened or what you learned (events and state observations); the single write verb
@@ -100,7 +99,7 @@ The public surface is the `/v2` Context API (key-authed via `verifyApiKey`). The
 
 Workspace setup/operate routes (back the operate + status tools): `GET /v2/workspace/status`, `POST /v2/workspace/onboarding`, `POST /v2/workspace/scoring-model`, `POST /v2/workspace/integrations`, `POST /v2/workspace/crm-sync`, `GET|POST /v2/workspace/triggers`.
 
-Cloud-only routes also mounted under `/v2` include `/v2/people`, `/v2/leads`, `/v2/signals`, and `/v2/dedup` (the last backs `check_leads` / `lead_coverage`). The browser app's own routes live under `/api/*` and are session-authed, not part of the agent-facing surface.
+Cloud-only routes also mounted under `/v2` include `/v2/people`, `/v2/leads`, `/v2/signals`, and `/v2/dedup` (the last two back the `coverage` tool — `/v2/dedup` for the exact identifier check, `/v2/people/coverage` for the attribute estimate). The browser app's own routes live under `/api/*` and are session-authed, not part of the agent-facing surface.
 
 ## Plans & feature gating
 
