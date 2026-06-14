@@ -108,6 +108,10 @@ workspaceStatusV2Router.get('/status', async (req, res) => {
     const plan = await safe(async () => (await resolveTeamAndPlan(req)).plan, null);
     const crmSyncAvailable  = !isSelfHosted() && !!plan && hasFeature(plan.id, 'crmSync');
     const leadListsAvailable = !isSelfHosted() && !!plan && hasFeature(plan.id, 'leadLists');
+    // ICP scoring is OPEN on self-host (unlike CRM sync / lead lists); on cloud it's
+    // plan-gated. Mirrors requireFeature('icpScoring'). Surfaced so the agent never
+    // tells a self-hoster the scoring model is "Cloud-only".
+    const icpScoringAvailable = isSelfHosted() || (!!plan && hasFeature(plan.id, 'icpScoring'));
 
     // ── Onboarding: the workspace's basic identity ──
     const profileMissing = [];
@@ -311,6 +315,7 @@ workspaceStatusV2Router.get('/status', async (req, res) => {
         name: plan?.name || plan?.id || 'free',
         crm_sync: crmSyncAvailable,
         lead_lists: leadListsAvailable,
+        icp_scoring: icpScoringAvailable,
       },
       self_hosted: selfHosted,
       // On self-host, these channels are wired via nous.env (instance-level), not

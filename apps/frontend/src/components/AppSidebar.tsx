@@ -118,7 +118,7 @@ export function AppSidebar() {
   }, [session?.access_token]);
   // Lists (lead database) is part of the Cloud team layer — cloud-only (Pro+), not
   // on self-host. CRM Sync is cloud-only too (Growth+). Gates match access.mjs
-  // (crmSync/leadLists/icpScoring cloud-only) + plans.mjs. ('scale' = Partner plan.)
+  // (crmSync/leadLists cloud-only; icpScoring is open on self-host) + plans.mjs. ('scale' = Partner plan.)
   const selfHosted = (userData as { self_hosted?: boolean })?.self_hosted === true;
   const showLeadLists =
     !selfHosted && (plan === "pro" || plan === "growth" || plan === "scale");
