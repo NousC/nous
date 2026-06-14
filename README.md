@@ -36,64 +36,96 @@
 
 | Endpoint | What it returns |
 |---|---|
-| `get_context(domain)` | the right context for a task, token-budgeted for the prompt |
-| `get_account(domain)` | the whole account: every contact, touch, and signal |
-| `query("...")` | ask the graph in natural language |
+| `get_context(focus, intent)` | the whole account context for a task, token-budgeted and agent-shaped |
+| `get_account(id)` | the full record for one person or company, by email or id |
+| `query(scope)` | filter activity across people and accounts |
 
 ## Quick start
 
-Connect Nous to your agent over MCP:
+Connect Nous to your agent over MCP — self-host passes its own API URL (on Nous Cloud, drop the `-e` flag):
 
 ```bash
-claude mcp add nous -- npx -y @opennous/mcp
+claude mcp add nous -e NOUS_API_URL=https://api.yourdomain.com -- npx -y @opennous/mcp
 ```
 
-Your agent now has `get_context`, `get_account`, and `query`. Ask it for an account and it pulls the whole thing in one call.
+Your agent now has `get_context`, `get_account`, and `query`. The examples below show the REST API and its JSON; over MCP your agent gets the same data as a token-budgeted summary.
 
 ### `get_context`
 
-The right context for a task, token-budgeted and agent-shaped. Every fact carries its own confidence and freshness:
+The whole account context for a task, token-budgeted and agent-shaped. `focus` takes a domain, email, LinkedIn URL, or id; every fact carries its confidence and freshness:
 
 ```bash
-get_context(domain="acme.com", intent="account_review")
+curl -X POST https://api.opennous.cloud/v2/context \
+  -H "Authorization: Bearer $NOUS_API_KEY" \
+  -d '{"focus":"acme.com","intent":"account_review"}'
 ```
 
 ```json
 {
-  "entity": { "id": "ent_acme", "type": "account" },
-  "summary": "Acme Corp, ~500 employees. Sarah Chen (VP RevOps) promoted 3 months ago. 12 SDR roles posted in the last 7 days. Open deal, $45k, economic buyer not yet identified.",
+  "entity": { "id": "ent_acme", "type": "company" },
+  "summary": "Acme Corp, ~500 employees. Sarah Chen promoted to VP RevOps 3mo ago, just deployed Salesforce. 12 SDR roles posted in 7 days. Open deal $45k, no economic buyer.",
   "claims": [
-    { "property": "company.headcount", "value": 500, "confidence": 0.9, "freshness": "30d", "last_observed_at": "2026-05-30" },
-    { "property": "signal.hiring", "value": "12 SDR roles in 7 days", "confidence": 0.95, "freshness": "7d", "last_observed_at": "2026-06-10" }
+    { "property": "signal.hiring", "value": "12 SDR roles in 7 days", "confidence": 0.95, "freshness": "fresh", "epistemic_class": "observed", "last_observed_at": "2026-06-10" },
+    { "property": "signal.stack", "value": "Salesforce deployed 45d ago", "confidence": 0.88, "freshness": "aging", "epistemic_class": "observed", "last_observed_at": "2026-04-30" }
   ],
   "stakeholders": [
-    { "name": "Sarah Chen", "role": "VP RevOps" }
+    { "entity_id": "ent_sarah", "name": "Sarah Chen", "role": "VP RevOps" }
   ],
   "timeline": [
-    { "when": "2026-06-05", "type": "call", "summary": "competitor name-dropped" }
+    { "when": "2026-06-05T14:00:00Z", "type": "call", "tier": "brief", "summary": "competitor name-dropped" }
   ],
   "predictions": [ { "kind": "icp_fit", "value": "high", "confidence": 0.82 } ],
-  "meta": { "token_estimate": 1200, "claims_total": 47, "claims_returned": 12 }
+  "icp": { "score": 82 },
+  "meta": { "token_estimate": 1200, "claims_returned": 12, "claims_total": 47, "timeline_events": 9 }
 }
 ```
 
 ### `get_account`
 
-The whole account, every contact and signal, in one object.
+The full record for one person or company, by email or entity id. `claims` is keyed by property, each with confidence, freshness, and how many times it's been observed.
 
 ```bash
-get_account(domain="acme.com")
+curl https://api.opennous.cloud/v2/accounts/sarah@acme.com \
+  -H "Authorization: Bearer $NOUS_API_KEY"
+```
+
+```json
+{
+  "entity_id": "ent_sarah",
+  "type": "person",
+  "claims": {
+    "title": { "value": "VP RevOps", "confidence": 0.94, "freshness": "fresh", "epistemic_class": "observed", "observation_count": 3, "last_observed_at": "2026-05-30" }
+  },
+  "recent_observations": [
+    { "kind": "event", "property": "interaction.call", "source": "fireflies", "observed_at": "2026-06-05" }
+  ],
+  "icp": { "score": 82 }
+}
 ```
 
 ### `query`
 
-Ask the graph in natural language.
+Filter activity across people and accounts with a structured `scope`. Add a `question` for semantic ranking, and set `return: "entities"` to get one row per account:
 
 ```bash
-query("which accounts went quiet after a positive reply?")
+curl -X POST https://api.opennous.cloud/v2/query \
+  -H "Authorization: Bearer $NOUS_API_KEY" \
+  -d '{"scope":{"property":"interaction.email","since_days":30},"return":"entities","question":"accounts that replied positively then went quiet"}'
 ```
 
-Returns the matching accounts, resolved.
+```json
+{
+  "return": "entities",
+  "matched": 128,
+  "returned": 25,
+  "items": [
+    { "entity_id": "ent_acme", "entity_name": "Acme Corp", "matches": 9,
+      "most_recent_at": "2026-05-28", "most_recent_type": "email_replied", "most_recent_source": "gmail" }
+  ],
+  "rollups": { "by_type": {}, "by_source": {} },
+  "meta": { "token_estimate": 900 }
+}
+```
 
 ## Power your agent
 
