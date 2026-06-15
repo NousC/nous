@@ -80,11 +80,20 @@ export async function seedScorecardFromMemory(supabase, workspaceId, { force = f
   const msg = await anthropic.messages.create({
     feature: 'scorecard-seed-translate',
     model: 'claude-haiku-4-5-20251001',
-    max_tokens: 900,
+    max_tokens: 2048,
     messages: [{ role: 'user', content: prompt }],
   });
-  const raw = msg.content[0].text.trim();
-  const parsed = JSON.parse(raw.match(/\[[\s\S]*\]/)?.[0] || raw);
+  // Defensive parse: strip any markdown fence, pull the JSON array, and never let
+  // a malformed/truncated LLM response throw — degrade to translation_failed so
+  // the route returns a clean 502 instead of a 500.
+  const raw = msg.content[0].text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+  let parsed;
+  try {
+    parsed = JSON.parse(raw.match(/\[[\s\S]*\]/)?.[0] || raw);
+  } catch (e) {
+    console.error('[scorecardSeed] non-JSON scorecard response (stop_reason:', msg.stop_reason + '):', e.message);
+    return { status: 'translation_failed', signals: [] };
+  }
 
   const signals = (Array.isArray(parsed) ? parsed : [])
     .slice(0, 12)

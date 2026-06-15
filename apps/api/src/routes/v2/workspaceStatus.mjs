@@ -121,10 +121,14 @@ workspaceStatusV2Router.get('/status', async (req, res) => {
     const onboardingDone = !!(workspace?.website && workspace?.business_type);
 
     // ── GTM playbook ──
-    const playbookFacts = (notes || []).filter((n) => n.source === 'playbook');
+    // "Built" = the in-app wizard ran (source 'playbook') OR the agent wrote real
+    // GTM context (source 'agent'). Agent-operated onboarding is first-class — it
+    // must count. A lone onboarding-seeded ICP line (source 'onboarding') does NOT,
+    // so a bare new workspace still gets the setup prompt: hence the >= 2 threshold.
+    const playbookFacts = (notes || []).filter((n) => n.source === 'playbook' || n.source === 'agent');
     const icpNotes      = (notes || []).filter((n) => n.category === 'ICP');
     const hasModel      = signalCount > 0;
-    const playbookDone  = playbookFacts.length > 0 || hasModel;
+    const playbookDone  = playbookFacts.length >= 2 || hasModel;
     const staleFacts    = playbookFacts.filter((n) => {
       const a = ageDays(n.reaffirmed_at || n.created_at);
       return a != null && a >= 90;

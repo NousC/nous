@@ -559,12 +559,14 @@ export default function Intelligence() {
   const negative = active.filter(s => s.weight < 0).sort((a, b) => a.weight - b.weight);
   const hasModel = active.length > 0;
 
-  // Has the user actually run the guided 5-step Playbook? The wizard writes its
-  // facts with source 'playbook' — onboarding only seeds a single ICP line
-  // (source 'onboarding'), which is NOT a completed playbook. So a lone ICP fact
-  // must not unlock the page: until the user finishes the Playbook (or builds a
-  // model by hand), we keep them on the cold-start setup screen.
-  const playbookDone = icpFacts.some(f => f.source === "playbook");
+  // Has the playbook actually been built? Either the in-app wizard ran (facts
+  // with source 'playbook') OR the agent wrote real GTM context across the
+  // sections (source 'agent') — agent-operated onboarding is first-class and must
+  // unlock the page. A lone onboarding-seeded ICP line (source 'onboarding') does
+  // NOT count, so a bare new workspace stays on the cold-start screen: hence the
+  // >= 2 threshold rather than "any built fact".
+  const builtFacts = icpFacts.filter(f => f.source === "playbook" || f.source === "agent");
+  const playbookDone = builtFacts.length >= 2;
   const needsSetup = !playbookDone && !hasModel;
 
   const gap = substrate?.calibration.gap ?? null;
@@ -1012,9 +1014,8 @@ export default function Intelligence() {
               on Accounts / People). "How it evolved" opens the run-history drawer. */}
           {!needsSetup && hasModel && (
             <div className="rounded-xl border border-border bg-background overflow-hidden">
-              <div className="flex items-center justify-between px-4 py-2.5 bg-muted/50 border-b border-border">
+              <div className="flex items-center px-4 py-2.5 bg-muted/50 border-b border-border">
                 <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">What predicts a win</span>
-                <button onClick={() => setModelOpen(true)} className="text-[11px] font-semibold text-muted-foreground/70 hover:text-foreground transition-colors">How it evolved →</button>
               </div>
               <div className="px-4 py-4 grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-2">
                 <div>
