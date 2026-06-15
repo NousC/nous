@@ -1014,9 +1014,8 @@ export default function Intelligence() {
               on Accounts / People). "How it evolved" opens the run-history drawer. */}
           {!needsSetup && hasModel && (
             <div className="rounded-xl border border-border bg-background overflow-hidden">
-              <div className="flex items-center justify-between px-4 py-2.5 bg-muted/50 border-b border-border">
+              <div className="flex items-center px-4 py-2.5 bg-muted/50 border-b border-border">
                 <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">What predicts a win</span>
-                <button onClick={() => setModelOpen(true)} className="text-[11px] font-semibold text-muted-foreground/70 hover:text-foreground transition-colors">How it evolved →</button>
               </div>
               <div className="px-4 py-4 grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-2">
                 <div>
