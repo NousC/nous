@@ -83,6 +83,30 @@ export async function reprocessCalCom(supabase, workspaceId, body) {
     },
   });
 
+  // A reschedule creates a NEW booking (new uid) at the new time while the old
+  // one survives as a stale "Booked:" row. Cal.com hands us the original start
+  // (rescheduleStartTime); drop a cancellation marker on that old slot so the
+  // read layer supersedes it — leaving only the live booking. The "Rescheduled:"
+  // prefix tells the read layer this marker is bookkeeping, not a real cancel.
+  if (trigger === 'BOOKING_RESCHEDULED') {
+    const oldStartRaw = payload.rescheduleStartTime || payload.rescheduleStart || null;
+    const oldStart    = oldStartRaw ? new Date(oldStartRaw).toISOString() : null;
+    const oldUid      = payload.rescheduleUid || null;
+    if (oldStart && oldStart !== occurredAt) {
+      await logActivity(supabase, {
+        workspaceId,
+        contactId:   contact.id,
+        companyId:   contact.company_id || null,
+        type:        'meeting_cancelled',
+        source:      'cal_com',
+        externalId:  `cal_com_resched_${oldUid || bookingUid || email}_${oldStart.slice(0, 16)}`,
+        occurredAt:  oldStart,
+        description: `Rescheduled: ${title}`,
+        rawData:     { meeting_name: title, old_start: oldStart, new_start: startTime, reschedule_uid: oldUid, trigger },
+      });
+    }
+  }
+
   await logSysEvent(supabase, {
     workspaceId, source: 'cal_com', eventType: 'webhook_received',
     summary:    isCanceled ? `Cancelled: ${title} (${email})` : `Booked: ${title} (${email})`,

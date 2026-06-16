@@ -406,24 +406,54 @@ function meetingSlotKey(o: { entity_id?: string | null; observed_at?: string | n
   return `${o.entity_id ?? ''}|${t}`;
 }
 
-// Collapse duplicate meeting observations across sources, preserving input order
-// and leaving every non-meeting observation untouched. Pass observations that
-// already carry id/property/source/observed_at/entity_id.
+const meetingLabel = (o: { value?: unknown }): string => {
+  const v = o.value as { description?: string; summary?: string } | null | undefined;
+  return String(v?.summary || v?.description || '');
+};
+
+// Normalise a contact's meeting observations for display. Three jobs, all at
+// read-time (observations stay append-only):
+//   1. Supersede dead slots — a slot (entity + start-minute) is OFF if it has a
+//      meeting_cancelled (a real cancel OR the marker a reschedule drops on the
+//      OLD start) or a scheduled row whose label carries "(Declined)/(Cancelled)".
+//      A scheduled meeting in an OFF slot is dropped — it's no longer live.
+//   2. Collapse cross-source dupes — one real meeting seen by two connectors
+//      (Cal.com webhook + Calendar poller) keeps the most authoritative source.
+//   3. Hide reschedule markers — the "Rescheduled: …" cancellation exists only to
+//      kill the old slot; the live booking already shows, so don't render it.
+// Non-meeting observations pass through untouched, in their original order.
 export function collapseMeetingDupes<
-  T extends { id?: string | null; property?: string | null; source?: string | null; observed_at?: string | null; entity_id?: string | null },
+  T extends { id?: string | null; property?: string | null; source?: string | null; observed_at?: string | null; entity_id?: string | null; value?: unknown },
 >(observations: T[]): T[] {
+  const off = new Set<string>();   // slots that are no longer a live booking
+  for (const o of observations) {
+    const prop = o.property ?? '';
+    if (prop === 'interaction.meeting_cancelled') { off.add(meetingSlotKey(o)); continue; }
+    if (prop === 'interaction.meeting_scheduled' && /\((declined|cancell?ed)\)/i.test(meetingLabel(o))) {
+      off.add(meetingSlotKey(o));
+    }
+  }
+
+  // Among still-live scheduled meetings, keep the best source per slot.
   const winner = new Map<string, { id: string; rank: number }>();
   for (const o of observations) {
-    if (!MEETING_PROPS.has(o.property ?? '') || !o.id) continue;
+    if (o.property !== 'interaction.meeting_scheduled' || !o.id) continue;
     const key = meetingSlotKey(o);
+    if (off.has(key)) continue;
     const rank = sourceRank(o.source);
     const cur = winner.get(key);
     if (!cur || rank < cur.rank) winner.set(key, { id: o.id, rank });
   }
-  if (!winner.size) return observations;
   const keep = new Set([...winner.values()].map(w => w.id));
-  return observations.filter(o =>
-    !MEETING_PROPS.has(o.property ?? '') || !o.id || keep.has(o.id));
+
+  return observations.filter(o => {
+    const prop = o.property ?? '';
+    // a reschedule marker only exists to supersede the old slot — never shown
+    if (prop === 'interaction.meeting_cancelled' && /^rescheduled/i.test(meetingLabel(o))) return false;
+    // a scheduled meeting survives only as the chosen live row for its slot
+    if (prop === 'interaction.meeting_scheduled') return o.id ? keep.has(o.id) : true;
+    return true;   // genuine cancellations, held meetings, everything else
+  });
 }
 
 // ── CRM push side-channel ────────────────────────────────────────────────────
