@@ -103,16 +103,21 @@ export async function getAttention(
     const v = o.value as { description?: string; summary?: string } | null;
     return String(v?.summary || v?.description || '');
   };
+  // Slot = entity + start-minute. Bucketing to the minute makes the match robust
+  // to timestamp-format differences between connectors, so a Cal.com booking and
+  // its Google Calendar mirror (or a cancellation) land on the same slot.
+  const slotKey = (o: any): string =>
+    `${o.entity_id}|${o.observed_at ? Math.floor(new Date(o.observed_at).getTime() / 60_000) : 0}`;
   for (const o of (meetingRaw as any[]) ?? []) {
-    const slot = `${o.entity_id}|${o.observed_at}`;
+    const slot = slotKey(o);
     if (o.property === 'interaction.meeting_cancelled') { offSlots.add(slot); continue; }
     if (/\((declined|cancell?ed)\)/i.test(labelOf(o))) offSlots.add(slot);
   }
   const upcoming: AttentionItem[] = [];
-  const seenSlots = new Set<string>();   // collapse re-imports of the same meeting
+  const seenSlots = new Set<string>();   // collapse re-imports + cross-source dupes of the same meeting
   for (const o of (meetingRaw as any[]) ?? []) {
     if (o.property !== 'interaction.meeting_scheduled') continue;
-    const slot = `${o.entity_id}|${o.observed_at}`;
+    const slot = slotKey(o);
     if (offSlots.has(slot) || seenSlots.has(slot)) continue;
     seenSlots.add(slot);
     const daysUntil = Math.round((+new Date(o.observed_at) - now) / DAY);

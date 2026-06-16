@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Observation } from './observations.js';
 import { getObservations } from './observations.js';
+import { collapseMeetingDupes } from './activities.js';
 import { fireClaimTransitionTriggers } from './triggers.js';
 
 // Claims are the derived layer — the current best belief about
@@ -251,7 +252,8 @@ export async function getAccountRecord(
     entity_id: entity.id,
     type: entity.type,
     claims: Object.fromEntries(claims.map(c => [c.property, c])),
-    recent_observations: recent,
+    // collapse one meeting reported by two connectors into a single row
+    recent_observations: collapseMeetingDupes(recent),
   };
 }
 

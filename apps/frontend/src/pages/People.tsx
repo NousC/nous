@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { ArrowLeft, Linkedin, Trash2, RefreshCw, Search, Download, Upload, FileText } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
-import { relTime } from "@/components/mind/shared";
+import { relTime, eventTime } from "@/components/mind/shared";
 import { PeopleImportModal } from "@/components/contacts/PeopleImportModal";
 import { ContactInfo, healthColor, stageColor, ActivityIcon, mapContact } from "@/components/mind/entities";
 import { useColumnWidths, ColResizer } from "@/components/mind/resizableColumns";
@@ -156,7 +156,7 @@ function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token:
                             <span className="text-[13px] font-medium text-foreground flex-1 truncate">
                               {title}
                             </span>
-                            <span className="text-[12px] text-muted-foreground/70 tabular-nums flex-shrink-0">{relTime(a.created_at || a.occurred_at)}</span>
+                            <span className="text-[12px] text-muted-foreground/70 tabular-nums flex-shrink-0">{eventTime(a.created_at || a.occurred_at, a.activity_type)}</span>
                           </div>
                           {body && (
                             <p className="text-[13px] text-muted-foreground leading-relaxed pl-[26px]">{body}</p>

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
-import { getSupabaseClient, listNotes, saveNote, logActivity } from '@nous/core';
+import { getSupabaseClient, listNotes, saveNote, logActivity, collapseMeetingDupes } from '@nous/core';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
 import { ensureUserAndTeam } from '../../lib/auth.mjs';
 import { requireEnrichmentQuota } from '../../lib/access.mjs';
@@ -78,10 +78,13 @@ contactsApiRouter.get('/:id', verifySupabaseAuth, async (req, res) => {
     // Activities are kind:'event' observations in the v2 substrate.
     // entity_id == contact id (the v1->v2 migration convention). Same
     // response shape as before — the frontend timeline is untouched.
-    const { data: obsRows } = await supabase.from('observations')
-      .select('id, property, value, source, observed_at, raw')
+    const { data: obsRaw } = await supabase.from('observations')
+      .select('id, property, value, source, observed_at, raw, entity_id')
       .eq('entity_id', id).eq('kind', 'event')
       .order('observed_at', { ascending: false }).limit(200);
+    // One meeting can be seen by two connectors (Cal.com webhook + Calendar
+    // poller) — collapse to a single row so the timeline shows it once.
+    const obsRows = collapseMeetingDupes(obsRaw || []);
 
     // Human title for known event types. Falls back to the raw type for
     // anything we don't recognize so unknown events still render readably.
