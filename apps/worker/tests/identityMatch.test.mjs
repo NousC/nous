@@ -64,3 +64,29 @@ test('missing incoming domain is safe', () => {
   assert.equal(corroboratesIdentity({ company: 'NORTHWIND' }, null), false);
   assert.equal(corroboratesIdentity({ company: 'NORTHWIND' }, ''), false);
 });
+
+import { companyDomainFromEmail, isFreeEmailDomain } from '@nous/core';
+
+test('companyDomainFromEmail suppresses free/personal mailboxes', () => {
+  assert.equal(companyDomainFromEmail('bennetglinder@gmail.com'), null);
+  assert.equal(companyDomainFromEmail('aakash@gmx.de'), null);
+  assert.equal(companyDomainFromEmail('a@outlook.com'), null);
+});
+
+test('companyDomainFromEmail keeps real company domains', () => {
+  assert.equal(companyDomainFromEmail('jane@acme.io'), 'acme.io');
+  assert.equal(companyDomainFromEmail('Jane@ACME.IO'), 'acme.io');
+  assert.equal(companyDomainFromEmail('x@mail.acme.co.uk'), 'mail.acme.co.uk');
+});
+
+test('companyDomainFromEmail handles malformed input', () => {
+  assert.equal(companyDomainFromEmail(null), null);
+  assert.equal(companyDomainFromEmail('garbage'), null);
+  assert.equal(companyDomainFromEmail(''), null);
+});
+
+test('isFreeEmailDomain', () => {
+  assert.equal(isFreeEmailDomain('gmail.com'), true);
+  assert.equal(isFreeEmailDomain('WWW.Gmail.com'), true);
+  assert.equal(isFreeEmailDomain('acme.io'), false);
+});

@@ -9,6 +9,7 @@ import {
   listNotes, listActivities,
   resolveEntity, getOrCreateEntity, identifiersFromContactData,
   recordEnrichmentObservations,
+  companyDomainFromEmail, isFreeEmailDomain,
 } from '@nous/core';
 import { decrypt } from '../utils/encryption.js';
 
@@ -153,9 +154,10 @@ export async function resolveContact(supabase, workspaceId, data, { createIfMiss
   }
 
   const name = full_name || [first_name, last_name].filter(Boolean).join(' ') || null;
-  const normalizedDomain = company_domain?.replace(/^www\./, '').toLowerCase().trim()
-    || (email ? email.split('@')[1]?.toLowerCase() : null)
-    || null;
+  const explicitDomain = company_domain?.replace(/^www\./, '').toLowerCase().trim() || null;
+  // Personal mailboxes (gmail.com, …) are not employers — keep them out of `domain`.
+  const normalizedDomain = (explicitDomain && !isFreeEmailDomain(explicitDomain) ? explicitDomain : null)
+    || companyDomainFromEmail(email);
 
   let companyId = null;
   if (company_name || normalizedDomain) {
@@ -220,8 +222,10 @@ async function mergeContact(supabase, existing, incoming) {
   fill('phone',         incoming.phone);
   fill('linkedin_url',  incoming.linkedin_url);
   fill('company',       incoming.company_name);
-  fill('domain',        incoming.company_domain?.replace(/^www\./, '').toLowerCase().trim()
-                          || (incoming.email ? incoming.email.split('@')[1]?.toLowerCase() : null));
+  fill('domain',        (() => {
+                          const ed = incoming.company_domain?.replace(/^www\./, '').toLowerCase().trim() || null;
+                          return (ed && !isFreeEmailDomain(ed) ? ed : null) || companyDomainFromEmail(incoming.email);
+                        })());
   fill('hubspot_id',    incoming.hubspot_id);
   fill('pipedrive_id',  incoming.pipedrive_id);
   fill('apollo_id',     incoming.apollo_id);
@@ -604,7 +608,9 @@ export async function upsertCompany(supabase, workspaceId, data) {
   const { name, domain, industry, employee_count, location, tech_stack,
           hubspot_company_id, apollo_account_id, apollo_raw, revenue_range } = data;
 
-  const normalizedDomain = domain?.replace(/^www\./, '').toLowerCase().trim() || null;
+  let normalizedDomain = domain?.replace(/^www\./, '').toLowerCase().trim() || null;
+  // A personal-mailbox domain is never an employer — never key a company on it.
+  if (normalizedDomain && isFreeEmailDomain(normalizedDomain)) normalizedDomain = null;
 
   let existing = null;
   if (normalizedDomain) {

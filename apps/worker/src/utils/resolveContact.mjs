@@ -8,6 +8,8 @@ import {
   getOrCreateEntity,
   identifiersFromContactData,
   saveNote,
+  companyDomainFromEmail,
+  isFreeEmailDomain,
 } from '@nous/core';
 import { enrichContact } from './enrichContact.mjs';
 import { corroboratesIdentity, emailDomain } from './identityMatch.mjs';
@@ -15,7 +17,10 @@ import { corroboratesIdentity, emailDomain } from './identityMatch.mjs';
 // ── Company upsert ────────────────────────────────────────────────────────────
 
 export async function upsertCompany(supabase, workspaceId, { name, domain }) {
-  const normalizedDomain = domain?.replace(/^www\./, '').toLowerCase().trim() || null;
+  let normalizedDomain = domain?.replace(/^www\./, '').toLowerCase().trim() || null;
+  // Never create or key a company on a personal-mailbox domain (gmail.com, …).
+  // A free domain isn't an employer — drop it and fall back to name-only.
+  if (normalizedDomain && isFreeEmailDomain(normalizedDomain)) normalizedDomain = null;
   if (!name && !normalizedDomain) return null;
 
   let existing = null;
@@ -67,9 +72,11 @@ async function mergeContact(supabase, existing, incoming) {
   fill('pipedrive_id', incoming.pipedrive_id);
   fill('apollo_id',    incoming.apollo_id);
 
-  const incomingDomain = incoming.company_domain?.replace(/^www\./, '').toLowerCase().trim()
-    || (incoming.email ? incoming.email.split('@')[1]?.toLowerCase() : null)
-    || null;
+  const explicitDomain = incoming.company_domain?.replace(/^www\./, '').toLowerCase().trim() || null;
+  // Prefer an explicit company domain; otherwise derive from the email — but a
+  // free mailbox (gmail.com, …) is never an employer, so it stays out of `domain`.
+  const incomingDomain = (explicitDomain && !isFreeEmailDomain(explicitDomain) ? explicitDomain : null)
+    || companyDomainFromEmail(incoming.email);
   fill('domain', incomingDomain);
 
   // Opportunistically link company_id if missing and we have company data
@@ -207,8 +214,9 @@ export async function resolveContact(supabase, workspaceId, data, { createIfMiss
   }
 
   const name = full_name || [first_name, last_name].filter(Boolean).join(' ') || null;
-  const normalizedDomain = company_domain?.replace(/^www\./, '').toLowerCase().trim()
-    || (email ? email.split('@')[1]?.toLowerCase() : null) || null;
+  const explicitCreateDomain = company_domain?.replace(/^www\./, '').toLowerCase().trim() || null;
+  const normalizedDomain = (explicitCreateDomain && !isFreeEmailDomain(explicitCreateDomain) ? explicitCreateDomain : null)
+    || companyDomainFromEmail(email);
 
   let companyId = null;
   if (company_name || normalizedDomain) {
