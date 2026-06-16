@@ -130,6 +130,42 @@ async function fetchLinkedInProfile(accountId, memberId) {
   }
 }
 
+// Build a member_id (ACoAA… URN) → public vanity URL map from the Unipile
+// sources that reliably expose a real handle: chat attendees (profile_url) and
+// connection relations (public_profile_url / public_identifier). These are the
+// same fields the contact-history enricher and connection sync already trust —
+// far more dependable than the /users/{id} profile fetch, which is used only as
+// a last-resort fallback. Member-URN values are filtered out, never stored.
+async function buildHandleMap(accountId) {
+  const map = new Map();
+  const add = (memberId, url) => {
+    if (memberId && url && !map.has(memberId) && isVanityLinkedInUrl(url)) {
+      map.set(memberId, normaliseLinkedInUrl(url));
+    }
+  };
+  try {
+    const attendees = await fetchAllPages(`${BASE()}/chat_attendees`, accountId);
+    for (const a of attendees) {
+      add(a.provider_id, a.profile_url
+        || (a.public_identifier ? `https://www.linkedin.com/in/${a.public_identifier}` : null));
+    }
+  } catch (e) {
+    console.error('[UNIPILE] chat_attendees fetch failed:', e.message);
+  }
+  try {
+    const relations = await fetchAllPages(`${BASE()}/users/relations`, accountId);
+    for (const r of relations) {
+      const url = r.public_profile_url
+        || (r.public_identifier ? `https://www.linkedin.com/in/${r.public_identifier}` : null);
+      add(r.member_id, url);
+      add(r.provider_id, url);
+    }
+  } catch (e) {
+    console.error('[UNIPILE] relations fetch failed:', e.message);
+  }
+  return map;
+}
+
 // Paginate through all items from a Unipile list endpoint
 async function fetchAllPages(url, accountId) {
   const items = [];
@@ -352,6 +388,8 @@ async function syncConnections(supabase, workspaceId, accountId) {
 // Pull LinkedIn conversations from Unipile → update last_touch for matched contacts
 async function syncConversations(supabase, workspaceId, accountId) {
   const chats = await fetchAllPages(`${BASE()}/chats`, accountId);
+  // One fetch of the confirmed-reliable handle sources, reused for every chat.
+  const handleMap = await buildHandleMap(accountId);
   let matched = 0;
 
   for (const chat of chats) {
@@ -395,11 +433,18 @@ async function syncConversations(supabase, workspaceId, accountId) {
     // DM-sourced contacts arrive with only a member URN — no public vanity
     // handle, which is the only form post-scrapers accept. Resolve it once from
     // Unipile and store a real linkedin_url so the contact becomes scrapeable.
-    // This also self-heals existing DM contacts on the next sync.
+    // Prefer the confirmed sources (chat attendees / relations, via handleMap);
+    // fall back to a /users/{id} profile fetch only if they miss. Self-heals
+    // existing DM contacts on the next sync.
     if (memberId && !isVanityLinkedInUrl(cd?.linkedin_url)) {
-      const profile = await fetchLinkedInProfile(accountId, memberId);
-      if (profile.public_identifier && !isMemberUrnSlug(profile.public_identifier)) {
-        const vanityUrl = `https://www.linkedin.com/in/${profile.public_identifier}`;
+      let vanityUrl = handleMap.get(memberId) || null;
+      if (!vanityUrl) {
+        const profile = await fetchLinkedInProfile(accountId, memberId);
+        if (profile.public_identifier && !isMemberUrnSlug(profile.public_identifier)) {
+          vanityUrl = `https://www.linkedin.com/in/${profile.public_identifier}`;
+        }
+      }
+      if (vanityUrl) {
         contactUpdates.linkedin_url = vanityUrl;
         liUpdate.url = vanityUrl;
         liUpdate.member_id = liUpdate.member_id || memberId;
