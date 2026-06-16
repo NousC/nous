@@ -1,5 +1,21 @@
 import { randomUUID } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { embed } from '../embed.js';
+
+// Build the text we embed for a note claim. MUST match the embeddings worker's
+// rowText() (apps/worker/src/workers/embeddings.mjs) so sync + backfill produce
+// comparable vectors: human title/category + content, with a larger budget for
+// documents (briefs/transcripts) than plain notes.
+function noteEmbedText(value: {
+  category?: string;
+  content?: string;
+  metadata?: Record<string, unknown>;
+}): string {
+  const meta = value.metadata ?? {};
+  const head = (meta.title as string) || value.category || 'note';
+  const cap = meta.doc_type ? 8000 : 2000;
+  return `${head}\n${value.content ?? ''}`.slice(0, cap);
+}
 
 // Notes — the human-asserted memory layer, now claim-shaped.
 //
@@ -167,7 +183,27 @@ export async function saveNote(
     .select(COLUMNS)
     .single();
   if (error) throw error;
-  return data ? noteFromClaim(data as unknown as Record<string, unknown>) : null;
+  const saved = data ? noteFromClaim(data as unknown as Record<string, unknown>) : null;
+
+  // Embed synchronously (best-effort) so the note is findable by semantic search
+  // (search_notes / get_context) in the SAME session — instead of waiting up to
+  // ~2min for the embedding worker's sweep. Falls back silently if there's no
+  // OPENAI_API_KEY or the call fails; the worker backfills it on its next pass.
+  if (saved) {
+    try {
+      const vec = await embed(noteEmbedText(value));
+      if (vec) {
+        await supabase
+          .from('claims')
+          .update({ embedding: JSON.stringify(vec) })
+          .eq('id', saved.id)
+          .eq('workspace_id', workspaceId);
+      }
+    } catch {
+      // non-fatal — the embeddings worker will pick this row up later
+    }
+  }
+  return saved;
 }
 
 /**
