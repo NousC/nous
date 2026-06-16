@@ -28,3 +28,13 @@ export function normaliseLinkedInUrl(raw: string | null | undefined): string | n
     return null;
   }
 }
+
+// A LinkedIn "member URN" URL (/in/ACoAA…) wraps LinkedIn's internal, opaque
+// member id. It resolves in a logged-in browser but is NOT a stable public
+// vanity handle and is NOT scrapeable by post-search actors. Never treat it as
+// a usable linkedin_url identifier.
+export function isMemberUrnLinkedInUrl(raw: string | null | undefined): boolean {
+  if (!raw) return false;
+  const slug = String(raw).match(/\/in\/([^/?#]+)/i)?.[1];
+  return !!slug && /^acoaa/i.test(slug);
+}

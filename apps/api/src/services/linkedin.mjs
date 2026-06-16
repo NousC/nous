@@ -121,9 +121,12 @@ async function fetchLinkedInProfile(accountId, memberId) {
     // First-degree connections often expose their real email/phone in the profile.
     const email = (d.contact_info?.emails || []).find(e => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e || '')) || null;
     const phone = d.contact_info?.phones?.[0] || null;
-    return { photo_url, job_title, company, email, phone, headline: d.headline || null };
+    // public_identifier is the vanity slug (e.g. "aakash-sethi") — the only URL
+    // form post-scrapers accept. DM-sourced contacts arrive without it.
+    const publicId = d.public_identifier || d.publicIdentifier || null;
+    return { photo_url, job_title, company, email, phone, headline: d.headline || null, public_identifier: publicId };
   } catch {
-    return { photo_url: null, job_title: null, company: null, email: null, phone: null, headline: null };
+    return { photo_url: null, job_title: null, company: null, email: null, phone: null, headline: null, public_identifier: null };
   }
 }
 
@@ -163,6 +166,25 @@ function normaliseLinkedInUrl(raw) {
   } catch {
     return null;
   }
+}
+
+// The /in/ slug of a LinkedIn URL, or null.
+function linkedInSlug(url) {
+  return (url || '').match(/\/in\/([^/?#]+)/i)?.[1] || null;
+}
+
+// LinkedIn "member URN" slugs (ACoAA…) are internal, opaque IDs — NOT public
+// vanity handles. They render as /in/ACoAA… links that resolve in a logged-in
+// browser but are not stable public identifiers and are NOT scrapeable by
+// post-search actors. We never store one as a contact's linkedin_url.
+function isMemberUrnSlug(slug) {
+  return !!slug && /^acoaa/i.test(slug);
+}
+
+// True when a URL is a real, scrapeable vanity profile (not a member URN).
+function isVanityLinkedInUrl(url) {
+  const slug = linkedInSlug(url);
+  return !!slug && !isMemberUrnSlug(slug);
 }
 
 // Find a Nous contact by LinkedIn URL, member ID, or full name
@@ -256,7 +278,8 @@ async function syncConnections(supabase, workspaceId, accountId) {
       .single();
 
     const contactUpdates = {};
-    if (profileUrl && !contactSnap?.linkedin_url)
+    // Only store a real vanity URL as linkedin_url — never a member-URN form.
+    if (isVanityLinkedInUrl(profileUrl) && !isVanityLinkedInUrl(contactSnap?.linkedin_url))
       contactUpdates.linkedin_url = normaliseLinkedInUrl(profileUrl);
     // One profile fetch fills any of photo / title / company / email / phone still empty.
     if (!contactSnap?.photo_url || !contactSnap?.job_title || !contactSnap?.company
@@ -355,16 +378,36 @@ async function syncConversations(supabase, workspaceId, accountId) {
       // rpc may not exist — silently skip
     }
 
-    // Store chat_id in channels.linkedin for fast outbound message lookup
-    const { data: cd } = await supabase.from('contacts').select('channels').eq('id', contactId).single();
+    // Store chat_id in channels.linkedin for fast outbound message lookup.
+    const { data: cd } = await supabase
+      .from('contacts')
+      .select('channels, linkedin_url, linkedin_member_id')
+      .eq('id', contactId)
+      .single();
     const ch = cd?.channels || {};
     const li = ch.linkedin || {};
-    await supabase.from('contacts').update({
-      channels: {
-        ...ch,
-        linkedin: { ...li, chat_id: chat.id, synced_at: new Date().toISOString() },
-      },
-    }).eq('id', contactId);
+    const liUpdate = { ...li, chat_id: chat.id, synced_at: new Date().toISOString() };
+    const contactUpdates = {};
+
+    // Persist the member URN so future syncs / backfills can resolve the handle.
+    if (memberId && !cd?.linkedin_member_id) contactUpdates.linkedin_member_id = memberId;
+
+    // DM-sourced contacts arrive with only a member URN — no public vanity
+    // handle, which is the only form post-scrapers accept. Resolve it once from
+    // Unipile and store a real linkedin_url so the contact becomes scrapeable.
+    // This also self-heals existing DM contacts on the next sync.
+    if (memberId && !isVanityLinkedInUrl(cd?.linkedin_url)) {
+      const profile = await fetchLinkedInProfile(accountId, memberId);
+      if (profile.public_identifier && !isMemberUrnSlug(profile.public_identifier)) {
+        const vanityUrl = `https://www.linkedin.com/in/${profile.public_identifier}`;
+        contactUpdates.linkedin_url = vanityUrl;
+        liUpdate.url = vanityUrl;
+        liUpdate.member_id = liUpdate.member_id || memberId;
+      }
+    }
+
+    contactUpdates.channels = { ...ch, linkedin: liUpdate };
+    await supabase.from('contacts').update(contactUpdates).eq('id', contactId);
 
     matched++;
   }

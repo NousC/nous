@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { normaliseLinkedInUrl, isUUID } from '../utils/identity.js';
+import { normaliseLinkedInUrl, isUUID, isMemberUrnLinkedInUrl } from '../utils/identity.js';
 
 // LinkedIn URL variants we'll accept as equivalent on lookup. Covers the
 // historical inconsistency where the write path stored URLs raw (with/without
@@ -62,7 +62,10 @@ export function identifiersFromContactData(data: {
 }): Identifier[] {
   const out: Identifier[] = [];
   if (data.email)              out.push({ kind: 'email',              value: data.email });
-  if (data.linkedin_url)       out.push({ kind: 'linkedin_url',       value: data.linkedin_url });
+  // Member-URN URLs (/in/ACoAA…) are not real public handles — keep them out of
+  // the identifier set so they never resolve or surface as a scrapeable URL.
+  if (data.linkedin_url && !isMemberUrnLinkedInUrl(data.linkedin_url))
+                               out.push({ kind: 'linkedin_url',       value: data.linkedin_url });
   if (data.linkedin_member_id) out.push({ kind: 'linkedin_member_id', value: data.linkedin_member_id });
   if (data.hubspot_id)         out.push({ kind: 'hubspot',            value: data.hubspot_id });
   if (data.pipedrive_id)       out.push({ kind: 'pipedrive',          value: data.pipedrive_id });
