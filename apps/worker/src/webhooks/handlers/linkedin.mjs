@@ -10,7 +10,7 @@ import {
 import { logActivity } from '../../utils/activity.mjs';
 import { enqueueForRetry } from '../../utils/webhookInbox.mjs';
 import { applyLinkedInProfile } from '../../utils/enrichContact.mjs';
-import { fetchLinkedInProfile } from '../../utils/linkedinProfile.mjs';
+import { fetchLinkedInProfile, parseHeadline } from '../../utils/linkedinProfile.mjs';
 import { discoverEmailForContact } from '../../utils/discoverEmail.mjs';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -276,9 +276,28 @@ async function getUnipileAccountId(supabase, workspaceId) {
 // a contact created by another path (full sync, invite-poll) still gets enriched.
 // Skips the Unipile fetch once a title exists and skips discovery once an email
 // exists, so repeated webhooks never re-hit Unipile. Fire-and-forget.
-async function enrichNewLinkedInContact(supabase, workspaceId, contact, { memberId } = {}) {
+async function enrichNewLinkedInContact(supabase, workspaceId, contact, { memberId, inlineHeadline } = {}) {
   try {
     if (contact.job_title && contact.email) return;   // nothing left to fill
+
+    // (2) Free inline enrichment first. Unipile webhooks carry the person's
+    // headline as attendee_specifics.occupation — parse title/company from it
+    // BEFORE paying for a profile fetch. parseHeadline is a pure regex; the LLM
+    // fallback inside applyLinkedInProfile only fires when the regex misses (the
+    // same cost the profile path would incur). If this fills the title and we
+    // already have an email, we skip the Unipile fetch entirely.
+    if (!contact.job_title && inlineHeadline) {
+      // Try the free regex first; pass its result so applyLinkedInProfile's LLM
+      // fallback only fires when "Role @ Company" isn't present in the headline.
+      const parsed = parseHeadline(inlineHeadline);
+      await applyLinkedInProfile(supabase, contact, {
+        jobTitle: parsed.jobTitle, company: parsed.company, headline: inlineHeadline,
+      });
+      const { data: refreshed } = await supabase.from('contacts')
+        .select('job_title, company, email, company_id, photo_url').eq('id', contact.id).maybeSingle();
+      if (refreshed) contact = { ...contact, ...refreshed };
+      if (contact.job_title && contact.email) return;   // inline was enough
+    }
 
     // One Unipile profile fetch fills title/company/photo AND often the real email
     // (contact_info.emails on first-degree connections). Fetch if we're missing
@@ -349,6 +368,10 @@ export async function handleLinkedIn(req, res, workspaceId) {
     const linkedinUrl = body.user_profile_url || null;
     const fullName    = body.user_full_name   || null;
     const identifier  = body.user_public_identifier || body.user_provider_id || null;
+    // Some new_relation payloads include the connection's headline inline — use it
+    // for free title/company enrichment, same as the message path.
+    const inlineHeadline = body.user_headline || body.user_occupation
+      || body.user_attendee_specifics?.occupation || null;
     if (!linkedinUrl && !fullName) return res.json({ ok: true, skipped: 'no identity' });
 
     const { contact, created } = await resolveLinkedInContact(supabase, workspaceId, { linkedinUrl, fullName, memberId: identifier });
@@ -358,7 +381,7 @@ export async function handleLinkedIn(req, res, workspaceId) {
     // forget: a detached promise gets cut off when the handler responds, so the
     // Unipile fetch + scoring never finished and the contact stayed blank. Webhooks
     // tolerate a few seconds. Runs on every accept (self-guards across creation paths).
-    await enrichNewLinkedInContact(supabase, workspaceId, contact, { memberId: identifier });
+    await enrichNewLinkedInContact(supabase, workspaceId, contact, { memberId: identifier, inlineHeadline });
 
     // Deduplicate — Unipile re-fires new_relation on re-auth
     const alreadyConnected = await countActivities(supabase, {
@@ -405,17 +428,23 @@ export async function handleLinkedIn(req, res, workspaceId) {
     const isSender = !!(body.is_sender ?? (myUserId && sender.attendee_provider_id === myUserId));
 
     // Unipile puts the recipient in attendees[] for outbound messages
-    let linkedinUrl, fullName, memberId;
+    let linkedinUrl, fullName, memberId, inlineHeadline = null;
+    // attendee_specifics.occupation carries the OTHER party's LinkedIn headline —
+    // free enrichment for title/company without a profile fetch. Skip company
+    // pages (is_company) so we never parse a brand page's tagline as a job title.
+    const headlineFrom = (sp) => (sp && !sp.is_company ? sp.occupation || null : null);
     if (isSender) {
       const other = attendees.find(a => !a.is_self && a.provider_id !== myUserId)
                  || attendees.find(a => !a.is_self);
       linkedinUrl = other?.profile_url        || other?.attendee_profile_url || null;
       fullName    = other?.name               || other?.attendee_name        || null;
       memberId    = other?.provider_id        || other?.attendee_provider_id || null;
+      inlineHeadline = headlineFrom(other?.attendee_specifics);
     } else {
       linkedinUrl = sender.attendee_profile_url || sender.profile_url || null;
       fullName    = sender.attendee_name        || sender.name        || null;
       memberId    = sender.attendee_provider_id || sender.provider_id || null;
+      inlineHeadline = headlineFrom(sender.attendee_specifics);
     }
 
     if (!linkedinUrl && !fullName && !memberId) {
@@ -518,7 +547,7 @@ export async function handleLinkedIn(req, res, workspaceId) {
     // Capture title/company + score ICP + discover email. AWAITED (see accept
     // branch) so the detached promise isn't cut off when the handler responds.
     // Self-guarding, so it's safe on every message and across creation paths.
-    await enrichNewLinkedInContact(supabase, workspaceId, contact, { memberId });
+    await enrichNewLinkedInContact(supabase, workspaceId, contact, { memberId, inlineHeadline });
 
     const chatId = body.chat_id || body.provider_chat_id || null;
     if (created) {
