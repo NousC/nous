@@ -94,21 +94,34 @@ export async function getAttention(
     .lte('observed_at', horizonISO)
     .order('observed_at', { ascending: true })   // soonest first
     .limit(500);
-  const cancelledKeys = new Set<string>();
+  // Pre-pass: collect slots that are OFF — either a separate meeting_cancelled
+  // event, or a meeting_scheduled whose label carries the RSVP (the calendar
+  // poller stamps "(Declined)"/"(Cancelled)" into the description, so a declined
+  // call still lands as meeting_scheduled). Slot = entity + start time.
+  const offSlots = new Set<string>();
+  const labelOf = (o: any): string => {
+    const v = o.value as { description?: string; summary?: string } | null;
+    return String(v?.summary || v?.description || '');
+  };
   for (const o of (meetingRaw as any[]) ?? []) {
-    if (o.property === 'interaction.meeting_cancelled') cancelledKeys.add(`${o.entity_id}|${o.observed_at}`);
+    const slot = `${o.entity_id}|${o.observed_at}`;
+    if (o.property === 'interaction.meeting_cancelled') { offSlots.add(slot); continue; }
+    if (/\((declined|cancell?ed)\)/i.test(labelOf(o))) offSlots.add(slot);
   }
   const upcoming: AttentionItem[] = [];
+  const seenSlots = new Set<string>();   // collapse re-imports of the same meeting
   for (const o of (meetingRaw as any[]) ?? []) {
     if (o.property !== 'interaction.meeting_scheduled') continue;
-    if (cancelledKeys.has(`${o.entity_id}|${o.observed_at}`)) continue;
-    const v = o.value as { description?: string; summary?: string } | null;
+    const slot = `${o.entity_id}|${o.observed_at}`;
+    if (offSlots.has(slot) || seenSlots.has(slot)) continue;
+    seenSlots.add(slot);
     const daysUntil = Math.round((+new Date(o.observed_at) - now) / DAY);
     upcoming.push({
       kind: 'upcoming_meeting', entity_id: o.entity_id, entity_name: null,
       age_days: daysUntil, when: o.observed_at,
-      // strip the "Booked:" prefix — the time + "upcoming" already says it's on the calendar
-      what: (v?.summary || v?.description || 'meeting scheduled').replace(/^Booked:\s*/i, ''),
+      // strip the "Booked:" prefix and trailing status label — the time +
+      // "upcoming" already say it's a scheduled call.
+      what: labelOf(o).replace(/^Booked:\s*/i, '').replace(/\s*\((Scheduled|Held)\)\s*$/i, '').trim() || 'meeting scheduled',
       suggested_action: 'Prep before the call — pull a meeting brief',
     });
   }
