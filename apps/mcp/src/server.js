@@ -41,7 +41,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { get, post } from "./client.js";
 
-export const SERVER_VERSION = "0.31.0";
+export const SERVER_VERSION = "0.34.0";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -54,6 +54,28 @@ function relAge(ts) {
   const m = Math.floor(d / 30);
   if (m < 12)  return `${m}mo ago`;
   return `${Math.floor(m / 12)}y ago`;
+}
+
+// Absolute calendar date + clock time, in the user's local zone (this server runs
+// on their machine over stdio, so toLocaleString is already local). For meetings,
+// "Tue, Jun 16, 3:00 PM" beats relAge's fuzzy "today" — and relAge can't represent
+// the future at all, so every scheduled call would otherwise read "today".
+function fmtWhen(ts) {
+  if (!ts) return "—";
+  return new Date(ts).toLocaleString("en-US", {
+    weekday: "short", month: "short", day: "numeric",
+    hour: "numeric", minute: "2-digit", timeZoneName: "short",
+  });
+}
+
+// When to show an absolute datetime vs a relative age. Meetings/calls always get
+// the exact time (you need to know it's 3pm, not "today"); so does anything
+// future-dated (a scheduled event), which relAge would collapse to "today".
+function whenLabel(type, ts) {
+  const t = String(type || "");
+  const isMeeting = t.includes("meeting") || t.includes("call");
+  const isFuture = ts && new Date(ts).getTime() > Date.now();
+  return (isMeeting || isFuture) ? fmtWhen(ts) : relAge(ts);
 }
 
 const fmtType = (p) => (p || "").replace(/^interaction\./, "").replace(/_/g, " ");
@@ -168,7 +190,7 @@ export function createServer() {
         lines.push("TIMELINE:");
         for (const t of ctx.timeline) {
           if (t.tier === "count") lines.push(`  ${t.count}× ${fmtType(t.type)}`);
-          else lines.push(`  ${relAge(t.when)}  ${fmtType(t.type)}${t.summary ? `: ${t.summary}` : ""}`);
+          else lines.push(`  ${whenLabel(t.type, t.when)}  ${fmtType(t.type)}${t.summary ? `: ${t.summary}` : ""}`);
         }
         lines.push("");
       }
@@ -231,7 +253,7 @@ export function createServer() {
       if (obs.length) {
         lines.push(`TIMELINE (${obs.length}):`);
         for (const o of obs.slice(0, 30)) {
-          lines.push(`  ${relAge(o.observed_at)}  ${fmtType(o.property)}`);
+          lines.push(`  ${whenLabel(o.property, o.observed_at)}  ${fmtType(o.property)}`);
         }
       }
       return { content: [{ type: "text", text: lines.join("\n").trim() }] };
@@ -328,14 +350,21 @@ export function createServer() {
     "  2. `without` subtracts entities — 'sent in 5d MINUS replied in 5d' = 'no-reply leads'. " +
     "'activity in 30d MINUS activity in 5d' = 'cooled leads'.\n" +
     "  3. rollups.by_value appears when scope.kind='state' — counts entities by current value " +
-    "(use scope.property='stage' for funnel reports).",
+    "(use scope.property='stage' for funnel reports).\n" +
+    "  4. Scheduled meetings/calls are events with property 'interaction.meeting_scheduled' and a " +
+    "future-dated `when`. For 'what's booked today/this week', set property:'interaction.meeting_scheduled' " +
+    "with from/to bounding the day or week (since_days only looks backward and can't reach them), and " +
+    "order:'asc' to list soonest-first. Meeting rows render the absolute date and time.",
     {
       scope: z.object({
         kind: z.enum(["event", "state"]).optional(),
-        property: z.string().optional().describe("property prefix — 'interaction.email' covers email_sent and email_replied"),
+        property: z.string().optional().describe("property prefix — 'interaction.email' covers email_sent and email_replied; 'interaction.meeting_scheduled' for booked meetings"),
         source: z.string().optional().describe("e.g. 'gmail', 'linkedin', 'slack'"),
         entity_id: z.string().optional().describe("scope to one person/company"),
-        since_days: z.number().optional().describe("only activity within the last N days"),
+        since_days: z.number().optional().describe("only activity within the last N days (backward only)"),
+        from: z.string().optional().describe("ISO timestamp — only activity at/after this (absolute lower bound; use for date windows like 'today')"),
+        to: z.string().optional().describe("ISO timestamp — only activity at/before this (absolute upper bound). Combine from+to for a window; future-dated for upcoming meetings"),
+        order: z.enum(["asc", "desc"]).optional().describe("observed_at order (default desc, newest first). Use 'asc' for an upcoming-meeting schedule (soonest first)"),
         limit: z.number().optional().describe("max items (default 50, cap 200)"),
       }).describe("Corpus filter"),
       without: z.object({
@@ -367,11 +396,11 @@ export function createServer() {
       for (const it of r.items ?? []) {
         if (r.return === "entities") {
           lines.push(`  ${it.entity_name ?? it.entity_id}  ` +
-                     `(${it.matches} match${it.matches !== 1 ? "es" : ""}, last ${relAge(it.most_recent_at)})` +
+                     `(${it.matches} match${it.matches !== 1 ? "es" : ""}, last ${whenLabel(it.most_recent_type, it.most_recent_at)})` +
                      (it.most_recent_value != null ? `  → ${fmtVal(it.most_recent_value)}` : "") +
                      (it.most_recent_summary ? `\n      ${it.most_recent_summary}` : ""));
         } else {
-          lines.push(`  ${relAge(it.when)}  ${it.entity_name ?? it.entity_id}  ` +
+          lines.push(`  ${whenLabel(it.type, it.when)}  ${it.entity_name ?? it.entity_id}  ` +
                      `${fmtType(it.type)}${it.summary ? `: ${it.summary}` : ""}`);
         }
       }
@@ -385,9 +414,12 @@ export function createServer() {
   // ===========================================================================
   server.tool(
     "attention",
-    "What needs your attention across the workspace right now — accounts that have gone quiet and " +
-    "key facts that have decayed. Returns ranked items, each with what happened and a suggested " +
-    "action. Call this to decide who to work next.",
+    "What needs your attention across the workspace right now — upcoming meetings and calls in the " +
+    "next 7 days (each with its date and time, soonest first), accounts that have gone quiet, and key " +
+    "facts that have decayed. Returns ranked items (time-critical meetings lead), each with what's " +
+    "happening and a suggested action. Call this to decide what to work next, or to answer 'what's " +
+    "coming up' / 'what's on my calendar this week'. For a precise single-day list, use query with " +
+    "property:'interaction.meeting_scheduled' and from/to.",
     {
       limit: z.number().min(1).max(100).optional().describe("Max items (default 25)"),
     },
@@ -396,8 +428,11 @@ export function createServer() {
       if (!r.items?.length) {
         return { content: [{ type: "text", text: "Nothing needs attention right now." }] };
       }
-      const lines = r.items.map(it =>
-        `  ${it.entity_name ?? it.entity_id} — ${it.what}\n      → ${it.suggested_action}`);
+      // Upcoming meetings carry a `when` — render the absolute local date+time.
+      const lines = r.items.map(it => {
+        const when = it.when ? `${fmtWhen(it.when)} — ` : "";
+        return `  ${when}${it.entity_name ?? it.entity_id} — ${it.what}\n      → ${it.suggested_action}`;
+      });
       return { content: [{ type: "text", text: `Needs attention (${r.items.length}):\n${lines.join("\n")}` }] };
     }
   );
@@ -829,7 +864,7 @@ export function createServer() {
   // ===========================================================================
   server.tool(
     "configure_crm_sync",
-    "Configure how Nous keeps a connected CRM in sync — the same settings as the CRM Sync page. The " +
+    "(Nous Cloud only) Configure how Nous keeps a connected CRM in sync — the same settings as the CRM Sync page. The " +
     "CRM must already be connected (HubSpot/Pipedrive/Attio). Set any of: auto-sync (daily pull), " +
     "push of touchpoints, the create policy (when a new record is auto-created and the ICP-fit " +
     "threshold), and the hygiene cadence. Only send the fields you want to change. If it reports the " +
@@ -872,7 +907,7 @@ export function createServer() {
   // ===========================================================================
   server.tool(
     "sync_crm_now",
-    "Pull the latest from a connected CRM (HubSpot/Pipedrive/Attio) RIGHT NOW, instead of waiting for " +
+    "(Nous Cloud only) Pull the latest from a connected CRM (HubSpot/Pipedrive/Attio) RIGHT NOW, instead of waiting for " +
     "the daily auto-sync. Use it just after configure_crm_sync to seed the data, or whenever the user " +
     "wants an immediate refresh. Incremental by default (only what changed since the last pull); pass " +
     "full:true to re-fetch everything. The CRM must already be connected and sync configured — if not, " +
@@ -952,7 +987,7 @@ export function createServer() {
   // ===========================================================================
   server.tool(
     "lead_list_operations",
-    "Inspect the operations trail of a lead list — imports, enrichment runs, pushes to campaigns, " +
+    "(Nous Cloud only) Inspect the operations trail of a lead list — imports, enrichment runs, pushes to campaigns, " +
     "and classified replies — to report on what happened and attribute outcomes to a list's source. " +
     "Call with NO lead_list_id to list the workspace's lead lists (id, name, count, source), then " +
     "call again with an id. Filter with `event` (import | enrich | export | reply) and `days`. " +
@@ -1002,7 +1037,7 @@ export function createServer() {
   // ===========================================================================
   server.tool(
     "coverage",
-    "Check what you ALREADY have before spending on a list elsewhere (Apollo, Sales Navigator, Clay). " +
+    "(Nous Cloud only) Check what you ALREADY have before spending on a list elsewhere (Apollo, Sales Navigator, Clay). " +
     "Two modes:\n" +
     "  • EXACT — pass candidate identifiers (emails / linkedin_urls / domains, free in any tool's " +
     "preview). Returns per-lead buckets: net_new (acquire + enrich), needs_enrichment (you OWN these " +
@@ -1107,7 +1142,7 @@ export function createServer() {
 
   server.tool(
     "enrich_leads",
-    "Find missing emails for leads in a lead list, on the workspace's own Prospeo/Apollo key. ALWAYS two " +
+    "(Nous Cloud only) Find missing emails for leads in a lead list, on the workspace's own Prospeo/Apollo key. ALWAYS two " +
     "steps: call WITHOUT confirm for a dry-run cost preview (chargeable count, provider, $ estimate) — " +
     "report it and get the user's go-ahead — then call again with confirm:true to run as a background job. " +
     "Pick leads with `filter` (e.g. {emailStatus:'none'} = every lead missing an email, the usual case) or " +
@@ -1148,7 +1183,7 @@ export function createServer() {
 
   server.tool(
     "verify_leads",
-    "Validate email deliverability for leads in a lead list, on the workspace's own MillionVerifier / " +
+    "(Nous Cloud only) Validate email deliverability for leads in a lead list, on the workspace's own MillionVerifier / " +
     "NeverBounce key. ALWAYS two steps: call WITHOUT confirm for a dry-run cost preview (chargeable count, " +
     "connected verifiers, $ estimate) — report it to the user — then call again with confirm:true to run as " +
     "a background job. Defaults to every UNVERIFIED email (has an address, no verdict yet); narrow with " +

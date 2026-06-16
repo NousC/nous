@@ -22,7 +22,10 @@ export interface QueryScope {
   property?: string;        // prefix match — e.g. 'interaction.linkedin'
   source?: string;          // exact — e.g. 'gmail'
   entity_id?: string;       // scope to one entity
-  since_days?: number;      // observed within the last N days
+  since_days?: number;      // observed within the last N days (lower bound vs now)
+  from?: string;            // ISO — observed_at >= from (absolute lower bound)
+  to?: string;              // ISO — observed_at <= to   (absolute upper bound)
+  order?: 'asc' | 'desc';   // observed_at sort (default desc). 'asc' for schedules — soonest first.
   limit?: number;           // max items returned (default 50, hard cap 200)
 }
 
@@ -114,13 +117,19 @@ async function fetchScopeObservations(
     .from('observations')
     .select('id, entity_id, kind, property, value, source, observed_at, raw')
     .eq('workspace_id', workspaceId)
-    .order('observed_at', { ascending: false })
+    // Default newest-first; 'asc' surfaces the soonest upcoming row first, which
+    // is what a schedule ("what's booked today") wants — events can be future-dated.
+    .order('observed_at', { ascending: scope.order === 'asc' })
     .limit(hardLimit);
   if (scope.kind)      q = q.eq('kind', scope.kind);
   if (scope.source)    q = q.eq('source', scope.source);
   if (scope.entity_id) q = q.eq('entity_id', scope.entity_id);
   if (scope.property)  q = q.ilike('property', `${scope.property}%`);
   if (sinceISO)        q = q.gte('observed_at', sinceISO);
+  // Absolute window — needed for forward ranges (scheduled meetings live in the
+  // future, so since_days can't reach them). from/to bound observed_at directly.
+  if (scope.from)      q = q.gte('observed_at', scope.from);
+  if (scope.to)        q = q.lte('observed_at', scope.to);
 
   const { data, error } = await q;
   if (error) throw new Error(`query failed: ${error.message}`);

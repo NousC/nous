@@ -6,17 +6,18 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 // detectors come later (they need observation diffing / a signal taxonomy).
 
 export interface AttentionItem {
-  kind: 'going_dark' | 'decayed_fact';
+  kind: 'going_dark' | 'decayed_fact' | 'upcoming_meeting';
   entity_id: string;
   entity_name: string | null;
   what: string;
   suggested_action: string;
   age_days: number;
+  when?: string;            // ISO start time — set on upcoming_meeting; the MCP layer renders it in local time
 }
 
 export interface AttentionResult {
   items: AttentionItem[];
-  meta: { going_dark: number; decayed_facts: number };
+  meta: { going_dark: number; decayed_facts: number; upcoming_meetings: number };
 }
 
 const DAY = 86_400_000;
@@ -77,8 +78,43 @@ export async function getAttention(
   }
   decayed.sort((a, b) => b.age_days - a.age_days);
 
+  // ── upcoming meetings — scheduled calls from now through the next 7 days ────
+  // These lead the list: a call today is the most actionable thing in the
+  // workspace. Cancellations are append-only events that reuse the meeting's
+  // (entity_id, start time), so we use them to drop calls that are now off.
+  const nowISO = new Date(now).toISOString();
+  const horizonISO = new Date(now + 7 * DAY).toISOString();
+  const { data: meetingRaw } = await supabase
+    .from('observations')
+    .select('entity_id, observed_at, value, property')
+    .eq('workspace_id', workspaceId)
+    .eq('kind', 'event')
+    .in('property', ['interaction.meeting_scheduled', 'interaction.meeting_cancelled'])
+    .gte('observed_at', nowISO)
+    .lte('observed_at', horizonISO)
+    .order('observed_at', { ascending: true })   // soonest first
+    .limit(500);
+  const cancelledKeys = new Set<string>();
+  for (const o of (meetingRaw as any[]) ?? []) {
+    if (o.property === 'interaction.meeting_cancelled') cancelledKeys.add(`${o.entity_id}|${o.observed_at}`);
+  }
+  const upcoming: AttentionItem[] = [];
+  for (const o of (meetingRaw as any[]) ?? []) {
+    if (o.property !== 'interaction.meeting_scheduled') continue;
+    if (cancelledKeys.has(`${o.entity_id}|${o.observed_at}`)) continue;
+    const v = o.value as { description?: string; summary?: string } | null;
+    const daysUntil = Math.round((+new Date(o.observed_at) - now) / DAY);
+    upcoming.push({
+      kind: 'upcoming_meeting', entity_id: o.entity_id, entity_name: null,
+      age_days: daysUntil, when: o.observed_at,
+      // strip the "Booked:" prefix — the time + "upcoming" already says it's on the calendar
+      what: (v?.summary || v?.description || 'meeting scheduled').replace(/^Booked:\s*/i, ''),
+      suggested_action: 'Prep before the call — pull a meeting brief',
+    });
+  }
+
   // ── entity names — one batched claims query ─────────────────────────────────
-  const ids = [...new Set([...goingDark, ...decayed].map(i => i.entity_id))];
+  const ids = [...new Set([...upcoming, ...goingDark, ...decayed].map(i => i.entity_id))];
   if (ids.length) {
     const { data: nameClaims } = await supabase
       .from('claims')
@@ -97,16 +133,28 @@ export async function getAttention(
       if (m.name) return String(m.name);
       return [m.first_name, m.last_name].filter(Boolean).join(' ') || null;
     };
+    for (const it of upcoming)  it.entity_name = nameOf(it.entity_id);
     for (const it of goingDark) it.entity_name = nameOf(it.entity_id);
-    for (const it of decayed)  it.entity_name = nameOf(it.entity_id);
+    for (const it of decayed)   it.entity_name = nameOf(it.entity_id);
   }
 
-  // budget across both detectors
-  const half = Math.ceil(limit / 2);
+  // Budget: upcoming meetings lead (time-critical), then split the rest between
+  // going-dark and decayed facts.
+  const upcomingShown = upcoming.slice(0, limit);
+  const rest = limit - upcomingShown.length;
+  const half = Math.ceil(rest / 2);
   const items = [
+    ...upcomingShown,
     ...goingDark.slice(0, half),
-    ...decayed.slice(0, limit - Math.min(goingDark.length, half)),
+    ...decayed.slice(0, rest - Math.min(goingDark.length, half)),
   ].slice(0, limit);
 
-  return { items, meta: { going_dark: goingDark.length, decayed_facts: decayed.length } };
+  return {
+    items,
+    meta: {
+      going_dark: goingDark.length,
+      decayed_facts: decayed.length,
+      upcoming_meetings: upcoming.length,
+    },
+  };
 }
