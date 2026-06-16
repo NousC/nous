@@ -374,6 +374,58 @@ export async function hasActivityWithExternalId(
   return (data?.length ?? 0) > 0;
 }
 
+// ── cross-source meeting de-duplication (read-time) ──────────────────────────
+// One real meeting can be observed by several connectors — Cal.com/Calendly via
+// webhook ("Booked: …") AND the Google Calendar poller ("… (Scheduled)"). They
+// share the same person (entity) and start time but a different source +
+// external_id, so the DB's (workspace, source, external_id) unique index never
+// collapses them. Observations are append-only, so we collapse at read-time in
+// the timeline / attention / context views: one meeting = entity + start-minute,
+// keep the most authoritative source. The booking connectors win over the
+// calendar mirror; if only the mirror saw it, the mirror is kept.
+
+const MEETING_PROPS = new Set([
+  'interaction.meeting_scheduled',
+  'interaction.meeting_held',
+  'interaction.meeting_cancelled',
+]);
+
+// Lower rank survives a collision. Booking connectors are authoritative; the
+// google_calendar poller is a mirror, so it loses ties. Unknown sources sit in
+// the middle so a real connector still beats the mirror.
+const MEETING_SOURCE_RANK: Record<string, number> = {
+  calendly: 0, cal_com: 0, calcom: 0, instantly: 1, fathom: 2, fireflies: 2,
+  google_calendar: 9, gcal: 9,
+};
+const sourceRank = (s?: string | null) => MEETING_SOURCE_RANK[s ?? ''] ?? 5;
+
+// Bucket the start time to the minute so connectors that format the timestamp
+// differently (Z vs +00:00, millis vs none) still land on the same slot.
+function meetingSlotKey(o: { entity_id?: string | null; observed_at?: string | null }): string {
+  const t = o.observed_at ? Math.floor(new Date(o.observed_at).getTime() / 60_000) : 0;
+  return `${o.entity_id ?? ''}|${t}`;
+}
+
+// Collapse duplicate meeting observations across sources, preserving input order
+// and leaving every non-meeting observation untouched. Pass observations that
+// already carry id/property/source/observed_at/entity_id.
+export function collapseMeetingDupes<
+  T extends { id?: string | null; property?: string | null; source?: string | null; observed_at?: string | null; entity_id?: string | null },
+>(observations: T[]): T[] {
+  const winner = new Map<string, { id: string; rank: number }>();
+  for (const o of observations) {
+    if (!MEETING_PROPS.has(o.property ?? '') || !o.id) continue;
+    const key = meetingSlotKey(o);
+    const rank = sourceRank(o.source);
+    const cur = winner.get(key);
+    if (!cur || rank < cur.rank) winner.set(key, { id: o.id, rank });
+  }
+  if (!winner.size) return observations;
+  const keep = new Set([...winner.values()].map(w => w.id));
+  return observations.filter(o =>
+    !MEETING_PROPS.has(o.property ?? '') || !o.id || keep.has(o.id));
+}
+
 // ── CRM push side-channel ────────────────────────────────────────────────────
 // Resolved lazily so packages/core stays free of any apps/* dependency. The
 // API process registers a handler at startup; other consumers (CLI, tests) are no-ops.

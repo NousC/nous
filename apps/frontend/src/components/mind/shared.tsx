@@ -71,6 +71,20 @@ export function relTime(iso: string | null): string {
   return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
+// Timeline timestamp that keeps the clock time for meetings/calls (and any
+// future-dated event) — "Jun 18, 3:00 PM" instead of relTime's bare "Jun 18".
+// For everything else, falls back to the compact relative string.
+export function eventTime(iso: string | null, type?: string): string {
+  if (!iso) return "—";
+  const t = type || "";
+  const isMeeting = t.includes("meeting") || t.includes("call");
+  const isFuture = new Date(iso).getTime() > Date.now();
+  if (!isMeeting && !isFuture) return relTime(iso);
+  return new Date(iso).toLocaleString("en-US", {
+    month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+  });
+}
+
 // ─── Types shared across popups ───────────────────────────────────────────────
 
 export type SettingsTab = "profile" | "team" | "agora" | "api-keys" | "billing" | "usage" | "admin";

@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getClaims } from './db/claims.js';
 import { getObservations, type Observation } from './db/observations.js';
+import { collapseMeetingDupes } from './db/activities.js';
 
 // The Context API's assembly layer. assembleContext() runs the pipeline —
 // retrieve → rank → connect → compress → tag → budget — and returns an
@@ -189,7 +190,8 @@ export async function assembleContext(
   const events   = inWindow.length >= MIN_TIMELINE_EVENTS
     ? inWindow
     : observations.slice(0, Math.max(inWindow.length, MIN_TIMELINE_EVENTS));
-  const timeline = compressTimeline(events);
+  // Collapse one meeting seen by two connectors (webhook + calendar mirror).
+  const timeline = compressTimeline(collapseMeetingDupes(events));
 
   // connect: stakeholders via the relationship graph
   const stakeholders = recipe.stakeholders === 'none'
