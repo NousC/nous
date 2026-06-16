@@ -149,6 +149,11 @@ function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token:
                     {tabItems.map((a: any) => {
                       const body = a.subtitle || a.raw_data?.text || a.raw_data?.body || null;
                       const title = a.title || a.activity_type?.replace(/_/g," ").toLowerCase();
+                      // A held call carries its full AI summary — that belongs in the Notes
+                      // document, not as a wall of text in the timeline. Keep the activity to a
+                      // one-line gist and link to the full write-up. Everything else clamps to
+                      // 3 lines so the feed stays scannable.
+                      const isCall = a.activity_type === "meeting_held" || a.activity_type === "call_held";
                       return (
                         <div key={a.id} className="py-3">
                           <div className="flex items-center gap-2.5 mb-1.5">
@@ -159,7 +164,15 @@ function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token:
                             <span className="text-[12px] text-muted-foreground/70 tabular-nums flex-shrink-0">{eventTime(a.created_at || a.occurred_at, a.activity_type)}</span>
                           </div>
                           {body && (
-                            <p className="text-[13px] text-muted-foreground leading-relaxed pl-[26px]">{body}</p>
+                            <p className={`text-[13px] text-muted-foreground leading-relaxed pl-[26px] ${isCall ? "line-clamp-1" : "line-clamp-3"}`}>{body}</p>
+                          )}
+                          {isCall && (
+                            <button
+                              onClick={() => setTab("notes")}
+                              className="pl-[26px] mt-1 inline-flex items-center gap-1 text-[12px] text-muted-foreground/70 hover:text-foreground transition-colors"
+                            >
+                              <FileText className="h-3 w-3" /> Meeting notes
+                            </button>
                           )}
                         </div>
                       );
