@@ -44,7 +44,8 @@ async function fetchFirefliesTranscript(meetingId, apiKey) {
       host_email organizer_email
       participants
       meeting_attendees { displayName email name }
-      summary { overview }
+      summary { overview action_items keywords short_summary }
+      sentences { speaker_name text }
     }
   }`;
   const res = await fetch('https://api.fireflies.ai/graphql', {
@@ -60,6 +61,19 @@ async function fetchFirefliesTranscript(meetingId, apiKey) {
   // A not-found / test-event id comes back as a GraphQL error or null transcript.
   if (data?.errors?.length && !data?.data?.transcript) return null;
   return data?.data?.transcript || null;
+}
+
+// Stitch Fireflies sentences into a readable "Speaker: line" transcript. Bounded
+// so a multi-hour call can't blow up the stored document or its embedding.
+function buildTranscriptText(sentences) {
+  if (!Array.isArray(sentences) || !sentences.length) return null;
+  const lines = [];
+  for (const s of sentences) {
+    const txt = String(s?.text || '').trim();
+    if (txt) lines.push(`${s?.speaker_name || 'Speaker'}: ${txt}`);
+  }
+  const out = lines.join('\n').trim();
+  return out ? out.slice(0, 100_000) : null;
 }
 
 // Normalize the various participant shapes Fireflies returns into {name, email},
@@ -99,7 +113,10 @@ export async function reprocessFireflies(supabase, workspaceId, body) {
   // Accept an already-hydrated body (webhook-retry of an enriched payload, or a
   // self-host manual post). Otherwise fetch the transcript from the API.
   let { title, transcript_url, duration, summary: transcriptSummary } = body || {};
-  let meetingDate = body?.date || null;
+  let meetingDate    = body?.date || null;
+  let actionItems    = body?.action_items || null;
+  let keywords       = Array.isArray(body?.keywords) ? body.keywords : [];
+  let transcriptText = body?.transcript_text || null;
   let allParticipants = normalizeParticipants(body?.participants, body?.meeting_attendees);
 
   if (!allParticipants.length) {
@@ -127,11 +144,22 @@ export async function reprocessFireflies(supabase, workspaceId, body) {
     transcript_url    = t.transcript_url || transcript_url;
     duration          = t.duration ?? duration;
     transcriptSummary = t.summary?.overview || transcriptSummary || null;
+    actionItems       = t.summary?.action_items || actionItems || null;
+    keywords          = Array.isArray(t.summary?.keywords) ? t.summary.keywords : keywords;
+    transcriptText    = buildTranscriptText(t.sentences) || transcriptText;
     meetingDate       = t.date || meetingDate;
     allParticipants   = normalizeParticipants(t.participants, t.meeting_attendees, t.host_email, t.organizer_email);
   }
 
-  const meetingSummary = transcriptSummary || await extractMeetingFacts(title, allParticipants);
+  // Digest = AI overview + action items + keywords. This is what the activity
+  // carries and what feeds the fact extractor (it reads the activity summary) —
+  // action items in particular surface next steps, owners, and commitments.
+  const digestParts = [];
+  if (transcriptSummary) digestParts.push(transcriptSummary);
+  if (actionItems)       digestParts.push(`Action items:\n${actionItems}`);
+  if (keywords.length)   digestParts.push(`Keywords: ${keywords.slice(0, 20).join(', ')}`);
+  const digest = digestParts.join('\n\n').trim() || null;
+  const meetingSummary = digest || await extractMeetingFacts(title, allParticipants);
   // Fireflies `date` is an epoch-ms timestamp (or an ISO string on enriched bodies).
   let occurredAt = new Date().toISOString();
   if (meetingDate != null) {
@@ -165,22 +193,34 @@ export async function reprocessFireflies(supabase, workspaceId, body) {
     });
     if (result) {
       logged++;
-      // Keep the full meeting notes as a document on the contact — the activity
-      // only carries a short summary. Gated on `result` (the activity was newly
-      // logged) so webhook retries, which dedup the activity, don't duplicate the
-      // document. Only when there's a real provider summary, not the thin fallback.
-      if (transcriptSummary) {
+      // Two documents on the contact, kept in the Notes tab (out of the timeline):
+      // a readable digest, and the full word-for-word transcript. Gated on `result`
+      // (a newly-logged activity) so webhook retries don't duplicate them.
+      const docMeta = { meeting_id: id, transcript_url: transcript_url || null, duration: duration || null };
+      if (digest) {
         await saveDocument(supabase, workspaceId, {
           entityId: contact.id,
           type:     'meeting_notes',
           title:    `Meeting notes — ${title || 'Untitled'}`,
-          content:  transcriptSummary,
+          content:  digest,
           date:     new Date().toISOString(),
           source:   'fireflies',
-          meta:     { meeting_id: id, transcript_url: transcript_url || null, duration: duration || null },
+          meta:     docMeta,
+        }).catch(() => {});
+      }
+      if (transcriptText) {
+        await saveDocument(supabase, workspaceId, {
+          entityId: contact.id,
+          type:     'transcript',
+          title:    `Transcript — ${title || 'Untitled'}`,
+          content:  transcriptText,
+          date:     new Date().toISOString(),
+          source:   'fireflies',
+          meta:     docMeta,
         }).catch(() => {});
       }
     }
+
   }
 
   await logSysEvent(supabase, {
