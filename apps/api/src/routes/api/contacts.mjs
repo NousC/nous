@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
-import { getSupabaseClient, listNotes, saveNote, logActivity, collapseMeetingDupes } from '@nous/core';
+import { getSupabaseClient, listNotes, saveNote, logActivity, collapseMeetingDupes, assertClaims } from '@nous/core';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
 import { ensureUserAndTeam } from '../../lib/auth.mjs';
 import { requireEnrichmentQuota } from '../../lib/access.mjs';
@@ -276,9 +276,26 @@ contactsApiRouter.patch('/:id', verifySupabaseAuth, async (req, res) => {
       }
     }
 
-    // Re-fetch so the response reflects the reconciled identifiers, not the
-    // pre-reconciliation row returned by the update above.
-    if (identityEdits.length) {
+    // Claim-backed fields (name, job_title, company, notes, …) are resolved from
+    // observations and recompute asynchronously — so a plain edit can lag, then get
+    // OVERWRITTEN by a later enrichment run. A manual edit is ground truth, so we
+    // ASSERT it: assertClaims pins each edited field as an `asserted` claim
+    // (confidence 1.0), which the derivation engine refuses to overwrite
+    // (recomputeClaim bails on epistemic_class='asserted') and which shows
+    // immediately (no recompute wait). Passing null invalidates (clears) the field.
+    // email/linkedin_url are identifiers (handled above), not claims — skip them.
+    const ASSERT_SKIP = new Set(['email', 'linkedin_url']);
+    const assertValues = {};
+    for (const [k, v] of Object.entries(updates)) {
+      if (!ASSERT_SKIP.has(k)) assertValues[k] = v;
+    }
+    if (Object.keys(assertValues).length) {
+      await assertClaims(supabase, existing.workspace_id, id, { values: assertValues, source: 'manual' });
+    }
+
+    // Re-fetch so the response reflects the asserted claims + reconciled
+    // identifiers, not the pre-reconciliation row returned by the update above.
+    if (identityEdits.length || Object.keys(assertValues).length) {
       const { data: fresh } = await supabase.from('contacts').select('*').eq('id', id).single();
       return res.json({ contact: fresh || contact });
     }
