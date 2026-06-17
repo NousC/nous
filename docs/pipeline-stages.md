@@ -86,20 +86,6 @@ Valid values: `identified`, `aware`, `interested`, `evaluating`, `client`.
 
 ---
 
-## Stage in the deal health score
-
-Stage position contributes directly to deal health (Signal 6, max 10 points):
-
-| Stage | Points |
-|-------|--------|
-| `evaluating` | 10 |
-| `interested` | 6 |
-| `aware` | 3 |
-| `identified` | 0 |
-| `client` | N/A (score cleared) |
-
----
-
 ## Stage and the pipeline stage timestamp
 
-`pipeline_stage_updated_at` is set every time the stage changes (either by trigger or by manual override). This timestamp is used by the deal health Signal 5 (stage velocity penalty): if a contact has been sitting in the same stage with no recent qualified activity, points are deducted.
+`pipeline_stage_updated_at` is set every time the stage changes (either by trigger or by manual override), recording how long a contact has been sitting in its current stage.

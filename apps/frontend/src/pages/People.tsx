@@ -4,7 +4,7 @@ import { ArrowLeft, Linkedin, Trash2, RefreshCw, Search, Download, Upload, FileT
 import { useAuth } from "@/contexts/AuthContext";
 import { relTime, eventTime } from "@/components/mind/shared";
 import { PeopleImportModal } from "@/components/contacts/PeopleImportModal";
-import { ContactInfo, healthColor, stageColor, ActivityIcon, DocIcon, mapContact } from "@/components/mind/entities";
+import { ContactInfo, stageColor, ActivityIcon, DocIcon, mapContact } from "@/components/mind/entities";
 import { useColumnWidths, ColResizer } from "@/components/mind/resizableColumns";
 import { PageHeader } from "@/components/ui/page-header";
 
@@ -17,9 +17,9 @@ const PIPELINE_STAGES = ["identified", "aware", "connected", "interested", "eval
 // Persisted per user in localStorage; see useColumnWidths.
 const PEOPLE_COL_DEFAULTS: Record<string, number> = {
   name: 170, company: 115, domain: 100, li: 40, stage: 88,
-  icp: 42, deal: 88, segment: 72, health: 60, lastActivity: 120,
+  icp: 42, deal: 88, segment: 72, lastActivity: 120,
 };
-const PEOPLE_COL_KEYS = ["name","company","domain","li","stage","icp","deal","segment","health","lastActivity"];
+const PEOPLE_COL_KEYS = ["name","company","domain","li","stage","icp","deal","segment","lastActivity"];
 
 type DetailTab = "activity" | "emails" | "linkedin" | "slack" | "calls" | "notes" | "signals" | "company" | "memory";
 
@@ -453,11 +453,10 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
   const handleStage  = (s: string) => { setStage(p => p===s ? "" : s); setPage(0); };
 
   const handleExport = () => {
-    const headers = ["Name","Email","Company","Pipeline Stage","Deal Stage","Segment","Health","ICP","Last Activity","LinkedIn"];
+    const headers = ["Name","Email","Company","Pipeline Stage","Deal Stage","Segment","ICP","Last Activity","LinkedIn"];
     const rows = contacts.map(c => [
       c.name, c.email??"", c.companyName??"", c.pipelineStage,
       c.dealStage??"", c.segmentLabel??"",
-      c.dealHealthScore!=null?String(c.dealHealthScore):"",
       c.icpScore!=null?String(c.icpScore):"",
       c.lastActivityAt??"", c.linkedinUrl??""
     ]);
@@ -577,7 +576,6 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
             <SortBtn  col="icp"  label="ICP"  firstDir="desc" />
             <SortBtn  col="deal" label="Deal" />
             <PlainHdr label="Segment" widthKey="segment" />
-            <PlainHdr label="Health"  widthKey="health" />
             <SortBtnFlex col="lastActivity" label="Last Int." />
             {/* Trailing filler — grows only on wide screens, shrinks to 0 (then the
                 grid scrolls) so it never steals width from a column being resized. */}
@@ -607,9 +605,6 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
               <button onClick={() => setDetail(c)} className="text-[13px] text-muted-foreground pr-2 flex-shrink-0 text-left tabular-nums" style={{width:colW("icp")}}>{c.icpScore != null ? c.icpScore : "—"}</button>
               <button onClick={() => setDetail(c)} className="text-[13px] text-muted-foreground truncate pr-2 flex-shrink-0 text-left" style={{width:colW("deal")}}>{c.dealStage ?? "—"}</button>
               <button onClick={() => setDetail(c)} className="text-[13px] text-muted-foreground truncate pr-2 flex-shrink-0 text-left" style={{width:colW("segment")}}>{c.segmentLabel ?? "—"}</button>
-              <button onClick={() => setDetail(c)} className="text-[13px] tabular-nums pr-2 flex-shrink-0 text-left" style={{width:colW("health"),color:c.dealHealthScore!=null?healthColor(c.dealHealthScore):""}}>
-                {c.dealHealthScore!=null ? `${c.dealHealthScore}` : "—"}
-              </button>
               <button onClick={() => setDetail(c)} className="text-[13px] text-muted-foreground flex-shrink-0 truncate pr-2 text-left" style={{width:colW("lastActivity")}}>{relTime(c.lastActivityAt)}</button>
               <div className="flex-1 min-w-0" />
               <div className="flex-shrink-0 flex items-center justify-end gap-2" style={{width:78}}>

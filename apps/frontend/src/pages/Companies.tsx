@@ -15,7 +15,7 @@ const PAGE_SIZE = 50;
 // user in localStorage; see useColumnWidths.
 const CO_COL_DEFAULTS: Record<string, number> = {
   name: 160, domain: 100, topContacts: 150, industry: 84, location: 104,
-  lastActivity: 78, employees: 56, contacts: 72, stage: 92, icp: 46, health: 64,
+  lastActivity: 78, employees: 56, contacts: 72, stage: 92, icp: 46,
 };
 
 type CoTab = "overview" | "activity" | "facts";
@@ -105,13 +105,13 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
   const [coEditValue, setCoEditValue] = useState("");
   const [coSaving, setCoSaving] = useState(false);
   const [coLocalOverrides, setCoLocalOverrides] = useState<Record<string, string | null>>({});
-  const [coSort, setCoSort] = useState<CoSort>({ col:"dealHealthScore", dir:"desc" });
+  const [coSort, setCoSort] = useState<CoSort>({ col:"icp", dir:"desc" });
   const [page, setPage] = useState(0);
   const { widths, startResize } = useColumnWidths("nous.companies.colWidths.v2", CO_COL_DEFAULTS);
   const colW = (c: string) => widths[c] ?? CO_COL_DEFAULTS[c];
   // Total content width (columns + 28px delete col + px-4 row padding) so the
   // table scrolls horizontally instead of squeezing columns to a fixed width.
-  const CO_COL_KEYS = ["name","domain","topContacts","industry","location","lastActivity","employees","contacts","stage","icp","health"];
+  const CO_COL_KEYS = ["name","domain","topContacts","industry","location","lastActivity","employees","contacts","stage","icp"];
   const ROW_MIN = CO_COL_KEYS.reduce((s,k)=>s+colW(k),0) + 28 + 32;
 
   const deleteCompany = async (cid: string, e: React.MouseEvent) => {
@@ -177,7 +177,7 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
     else if (coSort.col==="contacts")   { av=a.contactCount; bv=b.contactCount; }
     else if (coSort.col==="icp")        { av=a.icpScore??-1; bv=b.icpScore??-1; }
     else if (coSort.col==="stage")      { av=stageRank(a.stage); bv=stageRank(b.stage); }
-    else                                 { av=a.dealHealthScore??-1; bv=b.dealHealthScore??-1; }
+    else                                 { av=0; bv=0; }
     if (av<bv) return coSort.dir==="asc"?-1:1;
     if (av>bv) return coSort.dir==="asc"?1:-1;
     return 0;
@@ -210,11 +210,11 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
   );
 
   const handleExport = () => {
-    const headers = ["Company","Domain","Industry","Location","Employees","Contacts","Stage","ICP","Health"];
+    const headers = ["Company","Domain","Industry","Location","Employees","Contacts","Stage","ICP"];
     const rows = companies.map(co => [
       co.name, co.domain??"", co.industry??"", co.location??"",
       co.employeeCount!=null?String(co.employeeCount):"", String(co.contactCount ?? 0),
-      co.stage??"", co.icpScore!=null?String(co.icpScore):"", co.dealHealthScore!=null?String(co.dealHealthScore):""
+      co.stage??"", co.icpScore!=null?String(co.icpScore):""
     ]);
     const csv = [headers,...rows].map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(",")).join("\n");
     const url = URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
@@ -266,12 +266,8 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
               ) : coTab === "overview" ? (
                 <div className="space-y-6">
                   {/* Account signal strip — the headline read on the account */}
-                  <div className="grid grid-cols-4 gap-3">
+                  <div className="grid grid-cols-3 gap-3">
                     {[
-                      { label:"Deal Health", node:
-                        <span className="text-[18px] font-semibold tabular-nums" style={{color: detail.dealHealthScore!=null?healthColor(detail.dealHealthScore):"inherit"}}>
-                          {detail.dealHealthScore!=null?detail.dealHealthScore:"—"}
-                        </span> },
                       { label:"ICP Fit", node:
                         cd?.icp?.score!=null
                           ? <span className="text-[18px] font-semibold tabular-nums" style={{color:icpColor(cd.icp.score)}}>{cd.icp.score}<span className="text-[12px] font-normal text-muted-foreground/70">/100</span></span>
@@ -415,7 +411,6 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
                 { label:"Location",      key:"location",       val: getCoVal("location", detail.location) },
                 { label:"Revenue Range", key:"revenue_range",  val: getCoVal("revenue_range", detail.revenueRange) },
                 { label:"Tech Stack",    key:"_ro_tech",       val: cd?.company?.tech_stack ? claimValue(cd.company.tech_stack) : null },
-                { label:"Deal Health",   key:"_ro_health",     val: detail.dealHealthScore!=null?`${detail.dealHealthScore}/100`:null },
                 { label:"Contacts",      key:"_ro_contacts",   val: String(cd?.stakeholders.length ?? detail.contactCount) },
                 { label:"Last Activity", key:"_ro_last",       val: detail.lastActivityAt?relTime(detail.lastActivityAt):null },
               ] as { label:string; key:string; val:string|null; type?:string }[]).map(({ label, key, val, type }) => {
@@ -491,7 +486,6 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
             <SortHdr col="contacts"     label="Contacts"  firstDir="desc" />
             <SortHdr col="stage"        label="Stage"     firstDir="desc" />
             <SortHdr col="icp"          label="ICP"       firstDir="desc" />
-            <SortHdr col="dealHealthScore" label="Health" widthKey="health" firstDir="desc" />
             {/* Trailing filler — grows only on wide screens, shrinks to 0 (then the
                 grid scrolls) so it never steals width from a column being resized. */}
             <div className="flex-1 min-w-0" />
@@ -516,9 +510,6 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
               <span className="text-[13px] flex-shrink-0 truncate pr-2" style={{width:colW("stage"),color:co.stage?stageColor(co.stage):""}}>{co.stage??"—"}</span>
               <span className="text-[13px] flex-shrink-0 tabular-nums" style={{width:colW("icp"),color:co.icpScore!=null?icpColor(co.icpScore):""}}>
                 {co.icpScore!=null?co.icpScore:"—"}
-              </span>
-              <span className="text-[13px] flex-shrink-0 tabular-nums" style={{width:colW("health"),color:co.dealHealthScore!=null?healthColor(co.dealHealthScore):""}}>
-                {co.dealHealthScore!=null?`${co.dealHealthScore}`:"—"}
               </span>
               <div className="flex-1 min-w-0" />
               <button onClick={e=>deleteCompany(co.id,e)}

@@ -19,7 +19,6 @@ Grouped by area. Each group has a **start-here** doc; the rest are deep-dives.
   to the right contact/entity.
 - [Pipeline Stages](./pipeline-stages.md) — behavior-driven stage advancement and
   decay.
-- [Deal Health Score](./deal-health-score.md) — the 0–100 close-likelihood signal.
 - [Claude org preferences](./claude-org-preferences.md) — route GTM work through
   your Nous workspace by default.
 

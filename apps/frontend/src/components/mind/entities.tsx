@@ -19,7 +19,6 @@ export interface ContactInfo {
   domain: string | null;
   linkedinUrl: string | null;
   lastActivityAt: string | null;
-  dealHealthScore: number | null;
   dealStage: string | null;
   dealValue: number | null;
   source: string | null;
@@ -41,7 +40,6 @@ export interface Company {
   revenueRange: string | null;
   contactCount: number;
   contacts: ContactInfo[];
-  dealHealthScore: number | null;
   icpScore: number | null;
   stage: string | null;          // furthest pipeline stage across the account's contacts
   lastActivityAt: string | null;
@@ -225,7 +223,6 @@ export function mapContact(c: any): ContactInfo {
     domain: c.domain ?? null,
     linkedinUrl: c.linkedin_url ?? null,
     lastActivityAt: c.last_activity_at ?? null,
-    dealHealthScore: c.deal_health_score ?? null,
     dealStage: c.deal_stage ?? null,
     dealValue: c.deal_value ?? null,
     source: c.source ?? null,
@@ -276,7 +273,6 @@ export function buildCompanies(rawCompanies: any[], contacts: ContactInfo[]): Co
       revenueRange: co.revenue_range ?? null,
       contactCount: coContacts.length,
       contacts: coContacts,
-      dealHealthScore: co.deal_health_score ?? null,
       icpScore: bestContactIcp ?? co.icp_score ?? null,
       stage,
       lastActivityAt,
