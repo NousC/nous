@@ -5,7 +5,7 @@
 
 import {
   getSupabaseClient, countActivities,
-  resolveEntity, getOrCreateEntity, upsertIdentifier,
+  resolveEntity, getOrCreateEntity, upsertIdentifier, isMemberUrnLinkedInUrl,
 } from '@nous/core';
 import { logActivity } from '../../utils/activity.mjs';
 import { enqueueForRetry } from '../../utils/webhookInbox.mjs';
@@ -89,7 +89,40 @@ async function resolveLinkedInContact(supabase, workspaceId, { linkedinUrl, full
     return { contact: { ...byUrl, ...patch }, created: false };
   }
 
+  // Step 2.5: a DM-sourced webhook arrives with a member-URN URL (/in/ACoAA…) — or
+  // only a member_id — which won't string-match a record we already hold under the
+  // person's REAL vanity handle (e.g. an earlier import). Resolve the member-URN to
+  // its vanity handle via Unipile ONCE, then retry the URL match on the real handle.
+  // This is the fix that stops a LinkedIn DM from forking a NEW record off someone we
+  // already have (the Shubham case). Only runs when steps 1-2 missed AND we have a
+  // member_id with no usable vanity URL, so it's at most one fetch on a maybe-new
+  // contact. `healedVanity` is reused below so a genuinely-new record is created with
+  // the clean URL, not the encoded one.
+  let healedVanity = null;
+  if (memberId && (!linkedinUrl || isMemberUrnLinkedInUrl(linkedinUrl))) {
+    const accountId = await getUnipileAccountId(supabase, workspaceId);
+    if (accountId) {
+      const prof = await fetchLinkedInProfile(accountId, memberId).catch(() => null);
+      if (prof?.publicIdentifier) {
+        healedVanity = `https://www.linkedin.com/in/${prof.publicIdentifier}`;
+        const byVanity = await matchContactByLinkedInUrl(supabase, workspaceId, healedVanity);
+        if (byVanity) {
+          await upsertIdentifier(supabase, workspaceId, byVanity.id, 'linkedin_member_id', memberId);
+          await upsertIdentifier(supabase, workspaceId, byVanity.id, 'linkedin_url', healedVanity);
+          const patch = {};
+          if (!byVanity.linkedin_member_id) patch.linkedin_member_id = memberId;
+          if (!byVanity.linkedin_url || isMemberUrnLinkedInUrl(byVanity.linkedin_url)) patch.linkedin_url = healedVanity;
+          if (Object.keys(patch).length)
+            await supabase.from('contacts').update(patch).eq('id', byVanity.id).then(null, () => {});
+          return { contact: { ...byVanity, ...patch }, created: false };
+        }
+      }
+    }
+  }
+
   // Step 3: first + last name match — contacts-only fallback (names aren't v2 identifiers).
+  // Require a UNIQUE name match: with two same-name people, merging onto an arbitrary
+  // one would fuse strangers, so we'd rather create + let dedup/review handle it.
   if (fullName) {
     const parts = fullName.trim().split(/\s+/);
     const first = parts[0];
@@ -102,7 +135,7 @@ async function resolveLinkedInContact(supabase, workspaceId, { linkedinUrl, full
         .ilike('first_name', first)
         .ilike('last_name', last)
         .order('created_at', { ascending: true });
-      const byName = nameMatches?.find(c => c.linkedin_url) || nameMatches?.[0] || null;
+      const byName = nameMatches?.length === 1 ? nameMatches[0] : null;
       if (byName) {
         const patch = {};
         if (!byName.linkedin_url && linkedinUrl)     patch.linkedin_url = linkedinUrl;
@@ -119,9 +152,13 @@ async function resolveLinkedInContact(supabase, workspaceId, { linkedinUrl, full
   // Step 4: create — requires at least a LinkedIn URL or a full name.
   if (!linkedinUrl && !fullName) return { contact: null, created: false };
 
+  // Prefer the healed vanity URL (from Step 2.5) over a raw member-URN, so a new
+  // record is created scrapeable/enrichable and will string-match next time —
+  // preventing the same person from forking yet another duplicate later.
+  const finalUrl = healedVanity || linkedinUrl || null;
   const identifiers = [];
-  if (memberId)    identifiers.push({ kind: 'linkedin_member_id', value: memberId });
-  if (linkedinUrl) identifiers.push({ kind: 'linkedin_url',       value: linkedinUrl });
+  if (memberId) identifiers.push({ kind: 'linkedin_member_id', value: memberId });
+  if (finalUrl && !isMemberUrnLinkedInUrl(finalUrl)) identifiers.push({ kind: 'linkedin_url', value: finalUrl });
 
   let entityId;
   if (identifiers.length) {
@@ -141,7 +178,7 @@ async function resolveLinkedInContact(supabase, workspaceId, { linkedinUrl, full
       workspace_id:       workspaceId,
       first_name:         nameParts[0] || null,
       last_name:          nameParts.slice(1).join(' ') || null,
-      linkedin_url:       linkedinUrl  || null,
+      linkedin_url:       finalUrl,
       linkedin_member_id: memberId     || null,
       pipeline_stage:     'identified',
       source:             'linkedin',
