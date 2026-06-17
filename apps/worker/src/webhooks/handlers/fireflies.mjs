@@ -197,30 +197,23 @@ export async function reprocessFireflies(supabase, workspaceId, body) {
     });
     if (result) {
       logged++;
-      // Two documents on the contact, kept in the Notes tab (out of the timeline):
-      // a readable digest, and the full word-for-word transcript. Gated on `result`
-      // (a newly-logged activity) so webhook retries don't duplicate them.
-      const docMeta = { meeting_id: id, transcript_url: transcript_url || null, duration: duration || null };
-      if (digest) {
+      // ONE "Meeting notes" document per call: the digest (summary + action items
+      // + keywords) on top, the full word-for-word transcript below. Kept in the
+      // Notes tab, out of the timeline. Gated on `result` so webhook retries don't
+      // duplicate it.
+      const notesContent = [
+        digest,
+        transcriptText ? `———— Transcript ————\n\n${transcriptText}` : null,
+      ].filter(Boolean).join('\n\n') || null;
+      if (notesContent) {
         await saveDocument(supabase, workspaceId, {
           entityId: contact.id,
           type:     'meeting_notes',
           title:    `Meeting notes — ${title || 'Untitled'}`,
-          content:  digest,
+          content:  notesContent,
           date:     new Date().toISOString(),
           source:   'fireflies',
-          meta:     docMeta,
-        }).catch(() => {});
-      }
-      if (transcriptText) {
-        await saveDocument(supabase, workspaceId, {
-          entityId: contact.id,
-          type:     'transcript',
-          title:    `Transcript — ${title || 'Untitled'}`,
-          content:  transcriptText,
-          date:     new Date().toISOString(),
-          source:   'fireflies',
-          meta:     docMeta,
+          meta:     { meeting_id: id, transcript_url: transcript_url || null, duration: duration || null },
         }).catch(() => {});
       }
     }
