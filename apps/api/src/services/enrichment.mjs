@@ -9,7 +9,7 @@ import {
   listNotes, listActivities,
   resolveEntity, getOrCreateEntity, identifiersFromContactData,
   recordEnrichmentObservations,
-  companyDomainFromEmail, isFreeEmailDomain, isMemberUrnLinkedInUrl,
+  companyDomainFromEmail, isFreeEmailDomain, isMemberUrnLinkedInUrl, upsertIdentifier,
 } from '@nous/core';
 import { decrypt } from '../utils/encryption.js';
 
@@ -480,24 +480,36 @@ async function enrichContactViaProspeo(supabase, contact, prospeoKey) {
 
     const currentJob = person.job_history?.find(j => j.current) || person.job_history?.[0];
 
+    // ENRICH, don't OVERWRITE: only fill fields we don't already have. Provider
+    // data can be stale or a secondary role (e.g. a "Fractional Coach" gig over a
+    // person's real "Founder @ their-own-company"), so an existing value — manual,
+    // LinkedIn, or import — is treated as more authoritative and kept. Asserted
+    // claims are already protected in recomputeClaim; this also stops a non-asserted
+    // existing value from losing to the newer provider observation on recency.
     const updates = {
       enrichment_status:  'complete',
       enriched_at:        new Date().toISOString(),
       enrichment_source:  'prospeo',
       apollo_raw:         person,
       apollo_id:          person.person_id || contact.apollo_id,
-      linkedin_url:       person.linkedin_url  || contact.linkedin_url,
-      job_title:          person.current_job_title || contact.job_title,
-      seniority:          normalizeSeniority(currentJob?.seniority),
-      department:         normalizeDepartment(currentJob?.departments?.[0]),
-      phone:              person.mobile?.mobile || contact.phone,
-      city:               person.location?.city    || contact.city    || null,
-      country:            person.location?.country || contact.country || null,
+      // never downgrade a real linkedin_url to a provider's; keep what we have
+      linkedin_url:       contact.linkedin_url || person.linkedin_url,
+      city:               contact.city    || person.location?.city    || null,
+      country:            contact.country || person.location?.country || null,
     };
+    if (contact.phone == null && person.mobile?.mobile) updates.phone = person.mobile.mobile;
+    // Adopt a title only when we have none — and bring its seniority/department with it.
+    if (!contact.job_title && person.current_job_title) {
+      updates.job_title  = person.current_job_title;
+      updates.seniority  = normalizeSeniority(currentJob?.seniority);
+      updates.department = normalizeDepartment(currentJob?.departments?.[0]);
+    }
 
     const co = body.company;
     console.log('[ENRICH_PROSPEO] Company data from Prospeo:', co ? `name=${co.name} domain=${co.domain} industry=${co.industry} employees=${co.employee_count} location=${JSON.stringify(co.location)}` : 'none');
-    if (co?.name || co?.website || co?.domain) {
+    // Only adopt the provider's company when we don't already have one — don't
+    // relink a person off their real employer onto a secondary/stale one.
+    if (!contact.company && (co?.name || co?.website || co?.domain)) {
       const rawDomain = co.domain
         || co.website?.replace(/^https?:\/\//, '').replace(/\/.*$/, '') || null;
 
@@ -515,11 +527,8 @@ async function enrichContactViaProspeo(supabase, contact, prospeoKey) {
       console.log('[ENRICH_PROSPEO] upsertCompany result:', company ? `id=${company.id} name=${company.name}` : 'null/failed');
       if (company) {
         updates.company_id = company.id;
-        updates.company = co.name || contact.company;
+        updates.company = co.name;
         if (rawDomain && !contact.domain) updates.domain = rawDomain;
-
-        // Skip immediate background enrichCompany — person response already contains company fields.
-        // A separate manual enrich on the company page can fetch deeper data if needed.
       }
     }
 
@@ -529,13 +538,12 @@ async function enrichContactViaProspeo(supabase, contact, prospeoKey) {
     for (const f of ENRICH_STRIP) delete viewUpdate[f];
     if (Object.keys(viewUpdate).length) await supabase.from('contacts').update(viewUpdate).eq('id', contact.id);
 
-    // Persist the found email as the entity's email identifier — works whether or
-    // not the entity is a "contact" (cold leads aren't in the contacts view, so
-    // the contacts.update above is a no-op for them).
-    if (foundEmail && !realEmail) {
-      await supabase.from('entity_identifiers')
-        .insert({ workspace_id: contact.workspace_id, entity_id: contact.id, kind: 'email', value: foundEmail.toLowerCase().trim(), status: 'active' })
-        .then(() => {}, () => {}); // ignore unique conflict (email already on another entity)
+    // ADD the found email as an identifier — ALWAYS, even when we already have one.
+    // A person legitimately has several addresses; never discard a (verified) one.
+    // This does NOT change the primary/displayed email — it's an additive alternate.
+    // (upsertIdentifier won't steal an email already active on another entity.)
+    if (foundEmail) {
+      await upsertIdentifier(supabase, contact.workspace_id, contact.id, 'email', foundEmail);
     }
 
     await logActivity(supabase, {

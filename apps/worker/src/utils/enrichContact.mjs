@@ -340,21 +340,25 @@ async function enrichViaProspeo(supabase, contact, prospeoKey) {
     if (!person) throw new Error('No person in Prospeo response');
 
     const currentJob = person.job_history?.find(j => j.current) || person.job_history?.[0];
+    // ENRICH, don't OVERWRITE — only fill fields we don't already have (provider
+    // data can be stale or a secondary role). Mirrors the API enrichment path.
     const updates = {
       enrichment_status: 'complete', enriched_at: new Date().toISOString(), enrichment_source: 'prospeo',
       apollo_raw:  person,
-      apollo_id:   person.person_id      || contact.apollo_id,
-      linkedin_url: person.linkedin_url  || contact.linkedin_url,
-      job_title:   person.current_job_title || contact.job_title,
-      seniority:   normalizeSeniority(currentJob?.seniority),
-      department:  normalizeDepartment(currentJob?.departments?.[0]),
-      phone:       person.mobile?.mobile || contact.phone,
-      city:        person.location?.city    || null,
-      country:     person.location?.country || null,
+      apollo_id:   person.person_id     || contact.apollo_id,
+      linkedin_url: contact.linkedin_url || person.linkedin_url,
+      city:        contact.city    || person.location?.city    || null,
+      country:     contact.country || person.location?.country || null,
     };
+    if (contact.phone == null && person.mobile?.mobile) updates.phone = person.mobile.mobile;
+    if (!contact.job_title && person.current_job_title) {
+      updates.job_title  = person.current_job_title;
+      updates.seniority  = normalizeSeniority(currentJob?.seniority);
+      updates.department = normalizeDepartment(currentJob?.departments?.[0]);
+    }
 
     const co = body.company;
-    if (co?.name || co?.website || co?.domain) {
+    if (!contact.company && (co?.name || co?.website || co?.domain)) {
       const rawDomain = co.domain || co.website?.replace(/^https?:\/\//, '').replace(/\/.*$/, '') || null;
       const company = await upsertCompany(supabase, workspaceId, { name: co.name, domain: rawDomain });
       if (company) { updates.company_id = company.id; updates.company = co.name; }
