@@ -9,9 +9,17 @@ import {
   listNotes, listActivities,
   resolveEntity, getOrCreateEntity, identifiersFromContactData,
   recordEnrichmentObservations,
-  companyDomainFromEmail, isFreeEmailDomain,
+  companyDomainFromEmail, isFreeEmailDomain, isMemberUrnLinkedInUrl,
 } from '@nous/core';
 import { decrypt } from '../utils/encryption.js';
+
+// A LinkedIn "member URN" URL (/in/ACoAA…) is an encoded member id, not a
+// resolvable public profile — external email-finders (Prospeo especially) choke
+// on it and return nothing. Treat it as "no usable URL" so we fall back to
+// name+domain matching instead of burning a lookup on a dead URL.
+function usableLinkedInUrl(url) {
+  return url && !isMemberUrnLinkedInUrl(url) ? url : null;
+}
 
 // Attribute fields written as observations with the TRUE enrichment source, and
 // therefore stripped from the contacts-view update so the view trigger doesn't
@@ -259,7 +267,11 @@ async function mergeContact(supabase, existing, incoming) {
 // Priority: Apollo BYOK (if toggled on) → Prospeo BYOK → Nous's built-in Prospeo key
 
 export async function enrichContact(supabase, contact, { apolloKey = undefined } = {}) {
-  if (!contact.email && !contact.linkedin_url) return;
+  // Enrichable if we have an email, a USABLE LinkedIn URL, or a name + real
+  // company domain (the Apollo name+domain path). A member-URN URL alone is not
+  // usable, so it no longer counts as a reason to proceed.
+  const hasNameDomain = !!(contact.first_name && contact.last_name && contact.domain);
+  if (!contact.email && !usableLinkedInUrl(contact.linkedin_url) && !hasNameDomain) return;
 
   const apolloK = apolloKey !== undefined
     ? apolloKey
@@ -277,14 +289,30 @@ async function enrichContactViaApollo(supabase, contact, apolloKey) {
   await supabase.from('contacts').update({ enrichment_status: 'queued' }).eq('id', contact.id);
 
   try {
+    // Apollo people/match takes any of email / linkedin_url / name + domain.
+    // Pass everything we have so a lead with NO email but a real company domain
+    // still matches on name+domain (Apollo is strong at this). A member-URN URL
+    // is dropped so it never poisons the match.
+    const match = { reveal_personal_emails: false, reveal_phone_number: false };
+    const liUrl = usableLinkedInUrl(contact.linkedin_url);
+    if (contact.email)      match.email             = contact.email;
+    if (liUrl)              match.linkedin_url       = liUrl;
+    if (contact.first_name) match.first_name         = contact.first_name;
+    if (contact.last_name)  match.last_name          = contact.last_name;
+    if (contact.domain)     match.domain             = contact.domain;
+    if (contact.company)    match.organization_name  = contact.company;
+
+    const canMatch = match.email || match.linkedin_url
+      || (match.first_name && match.last_name && (match.domain || match.organization_name));
+    if (!canMatch) {
+      await supabase.from('contacts').update({ enrichment_status: 'not_found' }).eq('id', contact.id);
+      return;
+    }
+
     const res = await fetch('https://api.apollo.io/v1/people/match', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Api-Key': apolloKey },
-      body: JSON.stringify({
-        email: contact.email,
-        reveal_personal_emails: false,
-        reveal_phone_number: false,
-      }),
+      body: JSON.stringify(match),
     });
 
     if (!res.ok) throw new Error(`Apollo ${res.status}: ${await res.text().catch(() => '')}`);
@@ -391,22 +419,24 @@ async function enrichContactViaProspeo(supabase, contact, prospeoKey) {
   const FAKE_EMAIL_DOMAINS = /\.(import|csv|fake|test|example|placeholder|noemail)$/i;
   const realEmail = contact.email && !FAKE_EMAIL_DOMAINS.test(contact.email.split('@')[1] || '')
     ? contact.email : null;
+  // Prospeo can't resolve a member-URN URL — only feed it a real public handle.
+  const liUrl = usableLinkedInUrl(contact.linkedin_url);
 
-  if (!realEmail && !contact.linkedin_url) {
-    console.warn('[ENRICH_PROSPEO] No real email or LinkedIn URL — skipping');
+  if (!realEmail && !liUrl) {
+    console.warn('[ENRICH_PROSPEO] No real email or usable LinkedIn URL — skipping');
     await supabase.from('contacts').update({ enrichment_status: 'not_found' }).eq('id', contact.id);
     return;
   }
 
-  console.log('[ENRICH_PROSPEO] Starting for', realEmail || contact.linkedin_url);
+  console.log('[ENRICH_PROSPEO] Starting for', realEmail || liUrl);
   await supabase.from('contacts').update({ enrichment_status: 'queued' }).eq('id', contact.id);
 
   try {
     const requestData = {};
-    if (realEmail)             requestData.email        = realEmail;
-    if (contact.first_name)    requestData.first_name   = contact.first_name;
-    if (contact.last_name)     requestData.last_name    = contact.last_name;
-    if (contact.linkedin_url)  requestData.linkedin_url = contact.linkedin_url;
+    if (realEmail)          requestData.email        = realEmail;
+    if (contact.first_name) requestData.first_name   = contact.first_name;
+    if (contact.last_name)  requestData.last_name    = contact.last_name;
+    if (liUrl)              requestData.linkedin_url = liUrl;
 
     console.log('[ENRICH_PROSPEO] Calling API for:', JSON.stringify(requestData));
     const res = await fetch(`${PROSPEO_BASE}/enrich-person`, {

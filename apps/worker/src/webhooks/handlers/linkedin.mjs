@@ -312,6 +312,7 @@ async function enrichNewLinkedInContact(supabase, workspaceId, contact, { member
           jobTitle: fields.jobTitle, company: fields.company,
           companyDomain: fields.companyDomain, photoUrl: fields.photoUrl,
           email: fields.email, phone: fields.phone, headline: fields.headline,
+          publicIdentifier: fields.publicIdentifier,
         });
         if (fields.email) contact = { ...contact, email: fields.email }; // so we don't re-discover
         await logSysEvent(supabase, workspaceId, 'linkedin', 'enrichment_run',

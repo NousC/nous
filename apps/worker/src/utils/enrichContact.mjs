@@ -3,10 +3,16 @@
 // scoreICP runs after every successful enrichment.
 
 import Anthropic, { setUser } from 'useleak';
-import { listNotes, recordEnrichmentObservations, recordObservation } from '@nous/core';
+import { listNotes, recordEnrichmentObservations, recordObservation, isMemberUrnLinkedInUrl } from '@nous/core';
 import { logActivity } from './activity.mjs';
 import { upsertCompany } from './resolveContact.mjs';
 import { decrypt } from './encryption.mjs';
+
+// A member-URN URL (/in/ACoAA…) is an encoded id, not a resolvable public
+// profile — external finders choke on it. Treat as "no usable URL".
+function usableLinkedInUrl(url) {
+  return url && !isMemberUrnLinkedInUrl(url) ? url : null;
+}
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -136,7 +142,7 @@ async function extractRoleFromHeadline(workspaceId, headline) {
 // ICP. job_title alone clears scoreICP's gate, so a LinkedIn-only contact becomes
 // scoreable without ever spending on email enrichment. Only fills empty fields —
 // never overwrites data a paid provider or the user already set.
-export async function applyLinkedInProfile(supabase, contact, { jobTitle, company, companyDomain, photoUrl, email, phone, headline } = {}) {
+export async function applyLinkedInProfile(supabase, contact, { jobTitle, company, companyDomain, photoUrl, email, phone, headline, publicIdentifier } = {}) {
   if (!contact?.id || !contact?.workspace_id) return;
   const workspaceId = contact.workspace_id;
   const updates = {};
@@ -163,6 +169,18 @@ export async function applyLinkedInProfile(supabase, contact, { jobTitle, compan
   }
   if (photoUrl && !contact.photo_url) updates.photo_url = photoUrl;
   if (phone && !contact.phone) updates.phone = phone;
+
+  // Heal a member-URN linkedin_url (/in/ACoAA…) to the real public vanity URL when
+  // Unipile gives us the handle. This is what makes the contact enrichable —
+  // Prospeo/Apollo can resolve a real /in/<slug>, never the encoded form — and it
+  // keeps member_id as the matching anchor while the URL becomes the scrapeable one.
+  if (publicIdentifier && (!contact.linkedin_url || isMemberUrnLinkedInUrl(contact.linkedin_url))) {
+    const vanity = `https://www.linkedin.com/in/${publicIdentifier}`;
+    updates.linkedin_url = vanity;
+    await supabase.from('entity_identifiers')
+      .upsert({ workspace_id: workspaceId, entity_id: contact.id, kind: 'linkedin_url', value: vanity },
+        { onConflict: 'workspace_id,kind,value', ignoreDuplicates: true }).then(null, () => {});
+  }
 
   // Email from the LinkedIn profile (contact_info.emails) — register it as an
   // identity so resolution keys on it, then fill the column. Done separately from
@@ -204,10 +222,26 @@ async function enrichViaApollo(supabase, contact, apolloKey) {
   const workspaceId = contact.workspace_id;
   await supabase.from('contacts').update({ enrichment_status: 'queued' }).eq('id', contact.id);
   try {
+    // Pass email / usable linkedin_url / name + domain — so a lead with no email
+    // but a real company domain still matches on name+domain.
+    const match = { reveal_personal_emails: false, reveal_phone_number: false };
+    const liUrl = usableLinkedInUrl(contact.linkedin_url);
+    if (contact.email)      match.email            = contact.email;
+    if (liUrl)              match.linkedin_url      = liUrl;
+    if (contact.first_name) match.first_name        = contact.first_name;
+    if (contact.last_name)  match.last_name         = contact.last_name;
+    if (contact.domain)     match.domain            = contact.domain;
+    if (contact.company)    match.organization_name = contact.company;
+    const canMatch = match.email || match.linkedin_url
+      || (match.first_name && match.last_name && (match.domain || match.organization_name));
+    if (!canMatch) {
+      await supabase.from('contacts').update({ enrichment_status: 'not_found' }).eq('id', contact.id);
+      return;
+    }
     const res = await fetch('https://api.apollo.io/v1/people/match', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Api-Key': apolloKey },
-      body: JSON.stringify({ email: contact.email, reveal_personal_emails: false, reveal_phone_number: false }),
+      body: JSON.stringify(match),
     });
     if (!res.ok) throw new Error(`Apollo ${res.status}: ${await res.text().catch(() => '')}`);
     const body = await res.json();
@@ -269,7 +303,8 @@ async function enrichViaProspeo(supabase, contact, prospeoKey) {
   }
   const workspaceId = contact.workspace_id;
   const realEmail = contact.email && !FAKE_DOMAINS.test(contact.email.split('@')[1] || '') ? contact.email : null;
-  if (!realEmail && !contact.linkedin_url) {
+  const liUrl = usableLinkedInUrl(contact.linkedin_url);
+  if (!realEmail && !liUrl) {
     await supabase.from('contacts').update({ enrichment_status: 'not_found' }).eq('id', contact.id);
     return;
   }
@@ -277,10 +312,10 @@ async function enrichViaProspeo(supabase, contact, prospeoKey) {
   await supabase.from('contacts').update({ enrichment_status: 'queued' }).eq('id', contact.id);
   try {
     const reqData = {};
-    if (realEmail)            reqData.email        = realEmail;
-    if (contact.first_name)   reqData.first_name   = contact.first_name;
-    if (contact.last_name)    reqData.last_name    = contact.last_name;
-    if (contact.linkedin_url) reqData.linkedin_url = contact.linkedin_url;
+    if (realEmail)          reqData.email        = realEmail;
+    if (contact.first_name) reqData.first_name   = contact.first_name;
+    if (contact.last_name)  reqData.last_name    = contact.last_name;
+    if (liUrl)              reqData.linkedin_url = liUrl;
 
     const res = await fetch('https://api.prospeo.io/enrich-person', {
       method: 'POST',
@@ -350,7 +385,8 @@ async function enrichViaProspeo(supabase, contact, prospeoKey) {
 
 export async function enrichContact(supabase, contact) {
   if (!contact?.id || !contact?.workspace_id) return;
-  if (!contact.email && !contact.linkedin_url) return;
+  const hasNameDomain = !!(contact.first_name && contact.last_name && contact.domain);
+  if (!contact.email && !usableLinkedInUrl(contact.linkedin_url) && !hasNameDomain) return;
 
   const apolloKey = await getProviderKey(supabase, contact.workspace_id, 'apollo', true);
   if (apolloKey) return enrichViaApollo(supabase, contact, apolloKey);

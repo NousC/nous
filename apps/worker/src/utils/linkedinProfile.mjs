@@ -47,8 +47,13 @@ export async function fetchLinkedInProfile(accountId, memberId) {
     // the reliable source, no Gmail name-matching needed. Take the first valid one.
     const email = (d.contact_info?.emails || []).find(e => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e || '')) || null;
     const location = d.location || null;
+    // The real public vanity handle (e.g. "bennet-glinder"). This is what makes a
+    // contact scrapeable/enrichable — unlike the member-URN we usually start with.
+    // Guard against Unipile echoing the URN back as the identifier.
+    const rawId = d.public_identifier || null;
+    const publicIdentifier = rawId && !/^acoaa/i.test(rawId) ? rawId : null;
 
-    return { headline, jobTitle, company, companyDomain, photoUrl, phone, email, location };
+    return { headline, jobTitle, company, companyDomain, photoUrl, phone, email, location, publicIdentifier };
   } catch (e) {
     console.warn('[LINKEDIN_PROFILE] fetch failed (non-fatal):', e.message);
     return null;
