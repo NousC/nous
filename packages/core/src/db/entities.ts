@@ -133,6 +133,52 @@ export async function attachIdentifiers(
 }
 
 /**
+ * Ensure (workspace, kind, value) is an ACTIVE identifier on `entityId`.
+ *
+ * IMPORTANT: the uniqueness on entity_identifiers is a PARTIAL index
+ * (`UNIQUE (workspace_id, kind, value) WHERE status='active'`), which PostgREST
+ * `.upsert({ onConflict: 'workspace_id,kind,value' })` cannot target — it errors,
+ * and callers historically swallowed that error, so post-hoc identifiers (a
+ * profile email, a healed LinkedIn URL, an edited field) silently never landed.
+ * This does the correct reactivate-or-insert by hand instead of an upsert.
+ *
+ * Returns true if the identifier is active on this entity afterward; false if it
+ * couldn't be attached because another entity already holds it active (a real
+ * identity collision we must not steal).
+ */
+export async function upsertIdentifier(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  entityId: string,
+  kind: string,
+  value: string | null | undefined,
+): Promise<boolean> {
+  if (!value) return false;
+  const v = normaliseIdentifier(kind, value);
+  if (!v) return false;
+
+  // Already on THIS entity (any status)? → ensure it's active.
+  const { data: mine } = await supabase
+    .from('entity_identifiers')
+    .select('id, status')
+    .eq('workspace_id', workspaceId).eq('entity_id', entityId)
+    .eq('kind', kind).eq('value', v)
+    .maybeSingle();
+  if (mine) {
+    if ((mine as { status?: string }).status !== 'active') {
+      await supabase.from('entity_identifiers').update({ status: 'active' }).eq('id', (mine as { id: string }).id);
+    }
+    return true;
+  }
+
+  // Plain insert — works with the partial index. A 23505 means (ws,kind,value)
+  // is already ACTIVE on another entity (identity collision): leave it alone.
+  const { error } = await supabase.from('entity_identifiers')
+    .insert({ workspace_id: workspaceId, entity_id: entityId, kind, value: v, status: 'active' });
+  return !error;
+}
+
+/**
  * Resolve an entity by any of its identifiers; create one if none match.
  * The entry point for ingestion — every observation needs an entity.
  */

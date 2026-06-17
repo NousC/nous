@@ -13,7 +13,7 @@
 // Provider handlers normalize their payload into the `meeting` shape and call
 // resolveMeetingContacts(); all the matching/learning lives here, once.
 
-import { saveNote } from '@nous/core';
+import { saveNote, upsertIdentifier } from '@nous/core';
 import { resolveContact } from './resolveContact.mjs';
 
 const CO_ATTENDANCE_WINDOW_MS = 2 * 60 * 60 * 1000; // ±2h around the meeting start
@@ -127,10 +127,7 @@ export async function resolveMeetingContacts(supabase, workspaceId, meeting) {
       .select('entity_id').eq('workspace_id', workspaceId)
       .eq('kind', 'email').eq('value', newEmail).maybeSingle();
     if (!claimed) {
-      await supabase.from('entity_identifiers').upsert(
-        { workspace_id: workspaceId, entity_id: target.id, kind: 'email', value: newEmail },
-        { onConflict: 'workspace_id,kind,value', ignoreDuplicates: true },
-      ).then(null, () => {});
+      await upsertIdentifier(supabase, workspaceId, target.id, 'email', newEmail);
       await saveNote(supabase, workspaceId, {
         entityId: target.id, category: 'Data Quality',
         content: `Linked alternate email ${newEmail} via meeting co-attendance (${source}): they joined a meeting that matched this person's booking using an address we hadn't seen. Auto-linked — unlink if this isn't them.`,

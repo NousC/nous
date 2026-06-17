@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
-import { getSupabaseClient, listNotes, saveNote, logActivity, collapseMeetingDupes, assertClaims } from '@nous/core';
+import { getSupabaseClient, listNotes, saveNote, logActivity, collapseMeetingDupes, assertClaims, upsertIdentifier } from '@nous/core';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
 import { ensureUserAndTeam } from '../../lib/auth.mjs';
 import { requireEnrichmentQuota } from '../../lib/access.mjs';
@@ -266,13 +266,11 @@ contactsApiRouter.patch('/:id', verifySupabaseAuth, async (req, res) => {
         .eq('workspace_id', existing.workspace_id).eq('entity_id', id).eq('kind', kind).eq('status', 'active');
       if (value) retire = retire.neq('value', value);
       await retire;
-      // Ensure the edited value exists and is active (the view-update trigger may
-      // have inserted it already; reactivate it if it was previously retired).
+      // Ensure the edited value exists and is active. upsertIdentifier does a
+      // reactivate-or-insert that works against the partial active index (a plain
+      // .upsert on workspace_id,kind,value can't target it and silently fails).
       if (value) {
-        await supabase.from('entity_identifiers').upsert(
-          { workspace_id: existing.workspace_id, entity_id: id, kind, value, status: 'active' },
-          { onConflict: 'workspace_id,kind,value' },
-        );
+        await upsertIdentifier(supabase, existing.workspace_id, id, kind, value);
       }
     }
 

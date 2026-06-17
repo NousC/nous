@@ -3,7 +3,7 @@
 // scoreICP runs after every successful enrichment.
 
 import Anthropic, { setUser } from 'useleak';
-import { listNotes, recordEnrichmentObservations, recordObservation, isMemberUrnLinkedInUrl } from '@nous/core';
+import { listNotes, recordEnrichmentObservations, recordObservation, isMemberUrnLinkedInUrl, upsertIdentifier } from '@nous/core';
 import { logActivity } from './activity.mjs';
 import { upsertCompany } from './resolveContact.mjs';
 import { decrypt } from './encryption.mjs';
@@ -177,9 +177,13 @@ export async function applyLinkedInProfile(supabase, contact, { jobTitle, compan
   if (publicIdentifier && (!contact.linkedin_url || isMemberUrnLinkedInUrl(contact.linkedin_url))) {
     const vanity = `https://www.linkedin.com/in/${publicIdentifier}`;
     updates.linkedin_url = vanity;
-    await supabase.from('entity_identifiers')
-      .upsert({ workspace_id: workspaceId, entity_id: contact.id, kind: 'linkedin_url', value: vanity },
-        { onConflict: 'workspace_id,kind,value', ignoreDuplicates: true }).then(null, () => {});
+    // Retire the stale member-URN active URL so the view surfaces the healed one,
+    // then attach the vanity URL (reactivate-or-insert; the plain .upsert can't
+    // target the partial active index).
+    await supabase.from('entity_identifiers').update({ status: 'retired' })
+      .eq('workspace_id', workspaceId).eq('entity_id', contact.id).eq('kind', 'linkedin_url')
+      .eq('status', 'active').neq('value', vanity).then(null, () => {});
+    await upsertIdentifier(supabase, workspaceId, contact.id, 'linkedin_url', vanity);
   }
 
   // Email from the LinkedIn profile (contact_info.emails) — register it as an
@@ -187,14 +191,14 @@ export async function applyLinkedInProfile(supabase, contact, { jobTitle, compan
   // the enrichment-observation set because email is an identifier, not just a claim.
   const cleanEmail = email && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) ? email.toLowerCase().trim() : null;
   if (cleanEmail && !contact.email) {
-    await supabase.from('entity_identifiers')
-      .upsert({ workspace_id: workspaceId, entity_id: contact.id, kind: 'email', value: cleanEmail },
-        { onConflict: 'workspace_id,kind,value', ignoreDuplicates: true }).then(null, () => {});
+    // Attach the email as an active identifier — this is what the contacts view
+    // shows (it reads email from entity_identifiers, not the claim). upsertIdentifier
+    // works against the partial active index; the old swallowed .upsert never landed.
+    await upsertIdentifier(supabase, workspaceId, contact.id, 'email', cleanEmail);
     await recordObservation(supabase, {
       workspaceId, entityId: contact.id, kind: 'state', property: 'email',
       value: cleanEmail, source: 'linkedin', method: 'api', externalId: `li_email_${cleanEmail}`,
     }).catch(() => {});
-    await supabase.from('contacts').update({ email: cleanEmail }).eq('id', contact.id).then(null, () => {});
   }
 
   if (!Object.keys(updates).length) {

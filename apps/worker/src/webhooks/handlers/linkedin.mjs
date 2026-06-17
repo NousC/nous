@@ -5,7 +5,7 @@
 
 import {
   getSupabaseClient, countActivities,
-  resolveEntity, getOrCreateEntity,
+  resolveEntity, getOrCreateEntity, upsertIdentifier,
 } from '@nous/core';
 import { logActivity } from '../../utils/activity.mjs';
 import { enqueueForRetry } from '../../utils/webhookInbox.mjs';
@@ -83,11 +83,9 @@ async function resolveLinkedInContact(supabase, workspaceId, { linkedinUrl, full
     if (Object.keys(patch).length)
       await supabase.from('contacts').update(patch).eq('id', byUrl.id).then(null, () => {});
     // Register what we know in entity_identifiers so step 1 hits next time.
-    const inserts = [];
-    if (memberId)    inserts.push({ workspace_id: workspaceId, entity_id: byUrl.id, kind: 'linkedin_member_id', value: memberId });
-    if (linkedinUrl) inserts.push({ workspace_id: workspaceId, entity_id: byUrl.id, kind: 'linkedin_url',       value: linkedinUrl });
-    if (inserts.length)
-      await supabase.from('entity_identifiers').upsert(inserts, { onConflict: 'workspace_id,kind,value', ignoreDuplicates: true }).then(null, () => {});
+    // (reactivate-or-insert; a plain .upsert can't target the partial active index)
+    if (memberId)    await upsertIdentifier(supabase, workspaceId, byUrl.id, 'linkedin_member_id', memberId);
+    if (linkedinUrl) await upsertIdentifier(supabase, workspaceId, byUrl.id, 'linkedin_url', linkedinUrl);
     return { contact: { ...byUrl, ...patch }, created: false };
   }
 
@@ -111,11 +109,8 @@ async function resolveLinkedInContact(supabase, workspaceId, { linkedinUrl, full
         if (!byName.linkedin_member_id && memberId)  patch.linkedin_member_id = memberId;
         if (Object.keys(patch).length)
           await supabase.from('contacts').update(patch).eq('id', byName.id).then(null, () => {});
-        const inserts = [];
-        if (memberId)    inserts.push({ workspace_id: workspaceId, entity_id: byName.id, kind: 'linkedin_member_id', value: memberId });
-        if (linkedinUrl) inserts.push({ workspace_id: workspaceId, entity_id: byName.id, kind: 'linkedin_url',       value: linkedinUrl });
-        if (inserts.length)
-          await supabase.from('entity_identifiers').upsert(inserts, { onConflict: 'workspace_id,kind,value', ignoreDuplicates: true }).then(null, () => {});
+        if (memberId)    await upsertIdentifier(supabase, workspaceId, byName.id, 'linkedin_member_id', memberId);
+        if (linkedinUrl) await upsertIdentifier(supabase, workspaceId, byName.id, 'linkedin_url', linkedinUrl);
         return { contact: { ...byName, ...patch }, created: false };
       }
     }
