@@ -34,11 +34,15 @@ function bookingTitle(value) {
   return value.title || value.meeting_name || value.summary || value.description || null;
 }
 
-// Contacts already tied to a booking near this meeting's start time. When several
-// bookings fall in the window, disambiguate by title overlap; if a title is given
-// but nothing overlaps, trust none (avoid attaching to a different meeting).
+// Contacts already tied to a booking near this meeting's start time. A booking
+// only co-attends if THIS meeting's title actually names that booking's contact
+// (their first or last name appears in the title). That's the precise signal:
+// generic, structurally-identical titles like "Networking Call between Bennet
+// Glinder and <prospect>" all share the same filler words and the host's name, so
+// token overlap would wrongly fuse back-to-back calls (Aakash 16:30 ↔ Muhammad
+// 17:00). Requiring the prospect's own name in the title can't do that.
 async function findCoAttendees(supabase, workspaceId, startTimeIso, title) {
-  if (!startTimeIso) return [];
+  if (!startTimeIso || !title) return [];
   const start = new Date(startTimeIso).getTime();
   if (isNaN(start)) return [];
   const lo = new Date(start - CO_ATTENDANCE_WINDOW_MS).toISOString();
@@ -46,19 +50,27 @@ async function findCoAttendees(supabase, workspaceId, startTimeIso, title) {
 
   const { data } = await supabase
     .from('observations')
-    .select('entity_id, value, observed_at')
+    .select('entity_id, observed_at')
     .eq('workspace_id', workspaceId)
     .eq('property', 'interaction.meeting_scheduled')
     .gte('observed_at', lo).lte('observed_at', hi);
   if (!data?.length) return [];
 
-  let rows = data;
-  if (title) {
-    const titled = data.filter(r => titlesOverlap(title, bookingTitle(r.value)));
-    if (titled.length) rows = titled;
-    else if (data.length > 1) rows = []; // ambiguous window, no title match → trust none
+  const ids = [...new Set(data.map(r => r.entity_id).filter(Boolean))];
+  if (!ids.length) return [];
+  const { data: contacts } = await supabase
+    .from('contacts').select('id, first_name, last_name').in('id', ids);
+
+  const titleLc = String(title).toLowerCase();
+  const matched = [];
+  for (const c of contacts || []) {
+    const fn = (c.first_name || '').toLowerCase().trim();
+    const ln = (c.last_name || '').toLowerCase().trim();
+    if ((fn.length > 2 && titleLc.includes(fn)) || (ln.length > 2 && titleLc.includes(ln))) {
+      matched.push(c.id);
+    }
   }
-  return [...new Set(rows.map(r => r.entity_id).filter(Boolean))];
+  return matched;
 }
 
 /**
@@ -73,18 +85,20 @@ export async function resolveMeetingContacts(supabase, workspaceId, meeting) {
   const resolved = new Map();   // contactId -> contact
   const unresolved = [];        // non-host attendee emails that matched no contact
 
-  // (1) Identity match each attendee.
+  // (1) Identity match each attendee. Never attach a meeting to its own host /
+  // organizer (the workspace user — you don't have a "meeting with yourself"),
+  // and match on a real EMAIL only: a name-only attendee can smear the call onto
+  // an unrelated same-name contact.
   for (const att of attendees) {
     const email = att.email ? att.email.toLowerCase().trim() : null;
-    const full_name = att.name || null;
-    if (!email && !full_name) continue;
+    if (!email || email === hostEmail) continue;
     const { contact } = await resolveContact(
-      supabase, workspaceId, { email, full_name, source }, { createIfMissing: false },
+      supabase, workspaceId, { email, source }, { createIfMissing: false },
     );
     if (contact) {
       if (!resolved.has(contact.id)) resolved.set(contact.id, contact);
-    } else if (email && email !== hostEmail) {
-      unresolved.push({ email, full_name });
+    } else {
+      unresolved.push({ email });
     }
   }
 

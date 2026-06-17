@@ -5,7 +5,7 @@
 import { createHmac } from 'crypto';
 import { getSupabaseClient, saveDocument } from '@nous/core';
 import { logActivity } from '../../utils/activity.mjs';
-import { resolveContact } from '../../utils/resolveContact.mjs';
+import { resolveMeetingContacts } from '../../utils/resolveMeeting.mjs';
 import { enqueueForRetry } from '../../utils/webhookInbox.mjs';
 import { logSysEvent } from '../../utils/systemLog.mjs';
 
@@ -38,17 +38,23 @@ export async function reprocessFathom(supabase, workspaceId, payload) {
   const invitees = (payload.calendar_invitees || []).filter(i => i.email?.includes('@'));
   if (!invitees.length) return { logged: 0, skipped: 'no_invitees' };
 
+  // Attach to EXTERNAL invitees only — never the host/your own team (Fathom flags
+  // internal attendees with is_external:false; unknown is kept). The shared layer
+  // then enforces email-only matching, host exclusion, and co-attendance.
+  const attendees = invitees
+    .filter(i => i.is_external !== false)
+    .map(i => ({ email: i.email, name: i.name || null }));
+
+  const contacts = await resolveMeetingContacts(supabase, workspaceId, {
+    startTime:      occurredAt,
+    title,
+    attendees,
+    organizerEmail: null,
+    source:         'fathom',
+  });
+
   let logged = 0;
-  for (const invitee of invitees) {
-    const { contact } = await resolveContact(supabase, workspaceId, {
-      email:      invitee.email.toLowerCase().trim(),
-      first_name: invitee.name?.split(' ')[0] || null,
-      last_name:  invitee.name?.split(' ').slice(1).join(' ') || null,
-      source:     'fathom',
-    }, { createIfMissing: false });
-
-    if (!contact) continue;
-
+  for (const contact of contacts) {
     const externalId = `fathom_${payload.id || title}_${occurredAt.slice(0, 10)}_${contact.id}`;
 
     const result = await logActivity(supabase, {
