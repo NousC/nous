@@ -249,6 +249,39 @@ contactsApiRouter.patch('/:id', verifySupabaseAuth, async (req, res) => {
 
     const { data: contact, error } = await supabase.from('contacts').update(updates).eq('id', id).select().single();
     if (error) { if (error.code === '23505') return res.status(409).json({ error: 'contact_already_exists' }); throw error; }
+
+    // Identity fields (email, linkedin_url) live in `entity_identifiers`, where the
+    // contacts view surfaces ONE active row per kind (LIMIT 1, no ordering). A plain
+    // update inserts the new value but leaves the OLD identifier active too — so the
+    // view can keep showing the stale one, which is why a manual edit appears to
+    // "revert". Make the edited value the SINGLE active identifier of its kind so the
+    // change sticks deterministically. Reversible: others are deactivated, not deleted.
+    const identityEdits = [];
+    if (email !== undefined)       identityEdits.push({ kind: 'email',        value: updates.email || null });
+    if (linkedinUrl !== undefined) identityEdits.push({ kind: 'linkedin_url', value: updates.linkedin_url || null });
+    for (const { kind, value } of identityEdits) {
+      // Retire every other active identifier of this kind on this entity.
+      // ('retired' is the only non-active status the CHECK constraint allows.)
+      let retire = supabase.from('entity_identifiers').update({ status: 'retired' })
+        .eq('workspace_id', existing.workspace_id).eq('entity_id', id).eq('kind', kind).eq('status', 'active');
+      if (value) retire = retire.neq('value', value);
+      await retire;
+      // Ensure the edited value exists and is active (the view-update trigger may
+      // have inserted it already; reactivate it if it was previously retired).
+      if (value) {
+        await supabase.from('entity_identifiers').upsert(
+          { workspace_id: existing.workspace_id, entity_id: id, kind, value, status: 'active' },
+          { onConflict: 'workspace_id,kind,value' },
+        );
+      }
+    }
+
+    // Re-fetch so the response reflects the reconciled identifiers, not the
+    // pre-reconciliation row returned by the update above.
+    if (identityEdits.length) {
+      const { data: fresh } = await supabase.from('contacts').select('*').eq('id', id).single();
+      return res.json({ contact: fresh || contact });
+    }
     return res.json({ contact });
   } catch (err) {
     return res.status(500).json({ error: 'internal_error', ...(process.env.NODE_ENV !== 'production' && { detail: String(err.message) }) });
