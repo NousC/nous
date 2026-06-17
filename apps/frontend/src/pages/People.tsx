@@ -4,7 +4,7 @@ import { ArrowLeft, Linkedin, Trash2, RefreshCw, Search, Download, Upload, FileT
 import { useAuth } from "@/contexts/AuthContext";
 import { relTime, eventTime } from "@/components/mind/shared";
 import { PeopleImportModal } from "@/components/contacts/PeopleImportModal";
-import { ContactInfo, healthColor, stageColor, ActivityIcon, mapContact } from "@/components/mind/entities";
+import { ContactInfo, healthColor, stageColor, ActivityIcon, DocIcon, mapContact } from "@/components/mind/entities";
 import { useColumnWidths, ColResizer } from "@/components/mind/resizableColumns";
 import { PageHeader } from "@/components/ui/page-header";
 
@@ -195,7 +195,7 @@ function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token:
                       const long = text.length > 220;
                       return (
                         <div key={m.id} className="py-3 flex items-start gap-2.5">
-                          <FileText className="h-4 w-4 text-muted-foreground/60 flex-shrink-0 mt-0.5" />
+                          <DocIcon source={m.source} />
                           <div className="flex-1 min-w-0">
                             <div className="flex items-baseline gap-2">
                               <span className="text-[13px] font-medium text-foreground/85 truncate">{m.metadata?.title || m.category}</span>

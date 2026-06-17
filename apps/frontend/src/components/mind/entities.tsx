@@ -188,6 +188,25 @@ export function IntegrationLogo({ url, name, size=28 }: { url?: string; name: st
   );
 }
 
+// ─── DocIcon ──────────────────────────────────────────────────────────────────
+// Icon for a document/note in the Notes tab. A doc pulled from a provider
+// (a Fireflies transcript, a Fathom recap) shows that provider's logo; anything
+// the user or an agent wrote (briefs, hand notes) falls back to the file icon.
+
+const PLAIN_DOC_SOURCES = new Set(["", "agent", "manual", "user", "nous", "system", "signal_extraction"]);
+
+export function DocIcon({ source }: { source?: string | null }) {
+  const key = (source || "").toLowerCase().replace(/[^a-z0-9._]/g, "");
+  const logo = PLAIN_DOC_SOURCES.has(key)
+    ? null
+    : (LOGO_FALLBACK[key] || LOGO_FALLBACK[key.split(".")[0]]);
+  if (logo) {
+    return <img src={logo} alt="" className="w-4 h-4 rounded-sm object-contain flex-shrink-0 mt-0.5"
+      onError={e => { (e.target as HTMLImageElement).style.display = "none"; }} />;
+  }
+  return <FileText className="h-4 w-4 text-muted-foreground/60 flex-shrink-0 mt-0.5" />;
+}
+
 // ─── Data mapping ─────────────────────────────────────────────────────────────
 // Mirrors the raw-API → view-model mapping that Mind.tsx does in loadData().
 
