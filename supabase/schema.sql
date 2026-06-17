@@ -1204,8 +1204,8 @@ CREATE VIEW contacts AS
    id,
    workspace_id,
    created_at,
-   (SELECT value FROM entity_identifiers WHERE entity_id = e.id AND kind = 'email' AND status = 'active' LIMIT 1) AS email,
-   (SELECT value FROM entity_identifiers WHERE entity_id = e.id AND kind = 'linkedin_url' AND status = 'active' LIMIT 1) AS linkedin_url,
+   (SELECT value FROM entity_identifiers WHERE entity_id = e.id AND kind = 'email' AND status = 'active' ORDER BY first_seen_at LIMIT 1) AS email,
+   (SELECT value FROM entity_identifiers WHERE entity_id = e.id AND kind = 'linkedin_url' AND status = 'active' ORDER BY first_seen_at LIMIT 1) AS linkedin_url,
    (SELECT value FROM entity_identifiers WHERE entity_id = e.id AND kind = 'linkedin_member_id' AND status = 'active' LIMIT 1) AS linkedin_member_id,
    (SELECT value FROM entity_identifiers WHERE entity_id = e.id AND kind = 'hubspot' AND status = 'active' LIMIT 1) AS hubspot_id,
    (SELECT value FROM entity_identifiers WHERE entity_id = e.id AND kind = 'pipedrive' AND status = 'active' LIMIT 1) AS pipedrive_id,
@@ -1237,7 +1237,11 @@ CREATE VIEW contacts AS
    (SELECT value #>> '{}'::text[] FROM claims WHERE entity_id = e.id AND property = 'status' AND invalid_at IS NULL LIMIT 1) AS status,
    (SELECT value #>> '{}'::text[] FROM claims WHERE entity_id = e.id AND property = 'lead_source' AND invalid_at IS NULL LIMIT 1) AS lead_source,
    ((SELECT value #>> '{}'::text[] FROM claims WHERE entity_id = e.id AND property = 'first_seen_at' AND invalid_at IS NULL LIMIT 1))::timestamptz AS first_seen_at,
-   (SELECT max(observed_at) FROM observations WHERE entity_id = e.id AND kind = 'event' AND observed_at <= now()) AS last_activity_at,
+   -- last_activity_at = last REAL interaction (message in/out, meeting, call, deal),
+   -- NOT system events like enrichment — enriching a record must not look like the
+   -- person just interacted with you.
+   (SELECT max(observed_at) FROM observations WHERE entity_id = e.id AND kind = 'event' AND observed_at <= now()
+      AND property <> ALL (ARRAY['interaction.enrichment_run','interaction.enrichment_completed','interaction.score_updated','interaction.stage_changed','interaction.contact_created','interaction.contact_updated'])) AS last_activity_at,
    ((SELECT value #>> '{}'::text[] FROM claims WHERE entity_id = e.id AND property = 'last_interaction_at' AND invalid_at IS NULL LIMIT 1))::timestamptz AS last_interaction_at,
    ((SELECT value #>> '{}'::text[] FROM claims WHERE entity_id = e.id AND property = 'last_document_at' AND invalid_at IS NULL LIMIT 1))::timestamptz AS last_document_at,
    ((SELECT value #>> '{}'::text[] FROM claims WHERE entity_id = e.id AND property = 'deal_health_score' AND invalid_at IS NULL LIMIT 1))::integer AS deal_health_score,
