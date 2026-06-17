@@ -10,7 +10,7 @@
 
 import { getSupabaseClient, saveDocument } from '@nous/core';
 import { logActivity } from '../../utils/activity.mjs';
-import { resolveContact } from '../../utils/resolveContact.mjs';
+import { resolveMeetingContacts } from '../../utils/resolveMeeting.mjs';
 import { enqueueForRetry } from '../../utils/webhookInbox.mjs';
 import { logSysEvent } from '../../utils/systemLog.mjs';
 import { decrypt } from '../../utils/encryption.mjs';
@@ -117,6 +117,7 @@ export async function reprocessFireflies(supabase, workspaceId, body) {
   let actionItems    = body?.action_items || null;
   let keywords       = Array.isArray(body?.keywords) ? body.keywords : [];
   let transcriptText = body?.transcript_text || null;
+  let hostEmail      = body?.organizer_email || body?.host_email || null;
   let allParticipants = normalizeParticipants(body?.participants, body?.meeting_attendees);
 
   if (!allParticipants.length) {
@@ -148,6 +149,7 @@ export async function reprocessFireflies(supabase, workspaceId, body) {
     keywords          = Array.isArray(t.summary?.keywords) ? t.summary.keywords : keywords;
     transcriptText    = buildTranscriptText(t.sentences) || transcriptText;
     meetingDate       = t.date || meetingDate;
+    hostEmail         = t.host_email || t.organizer_email || hostEmail;
     allParticipants   = normalizeParticipants(t.participants, t.meeting_attendees, t.host_email, t.organizer_email);
   }
 
@@ -167,18 +169,20 @@ export async function reprocessFireflies(supabase, workspaceId, body) {
     if (!isNaN(d.getTime())) occurredAt = d.toISOString();
   }
 
+  // Resolve who this meeting belongs to via the shared layer: attendee identity
+  // match PLUS co-attendance (match to an existing booking by time/title). The
+  // latter attaches the transcript to the right person even when they joined from
+  // an email we don't have on file — and learns that alternate email for next time.
+  const contacts = await resolveMeetingContacts(supabase, workspaceId, {
+    startTime:      occurredAt,
+    title,
+    attendees:      allParticipants,
+    organizerEmail: hostEmail,
+    source:         'fireflies',
+  });
+
   let logged = 0;
-  for (const participant of allParticipants) {
-    const email     = participant.email || null;
-    const full_name = participant.name || null;
-    if (!email && !full_name) continue;
-
-    const { contact } = await resolveContact(supabase, workspaceId, {
-      email, full_name, source: 'fireflies',
-    }, { createIfMissing: false });
-
-    if (!contact) continue;
-
+  for (const contact of contacts) {
     const result = await logActivity(supabase, {
       workspaceId,
       contactId:   contact.id,
