@@ -220,8 +220,9 @@ export async function testProviderCredentials(provider, credentials) {
     }
     if (p === 'fathom') {
       if (!token) return { verified: false, message: 'No credentials provided' };
+      // Fathom's external API authenticates with X-Api-Key, NOT Authorization: Bearer.
       const r = await fetch('https://api.fathom.ai/external/v1/meetings?limit=1', {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { 'X-Api-Key': token },
       });
       if (r.ok) return { verified: true, message: 'Connected to Fathom' };
       return { verified: false, message: `Fathom returned ${r.status} — check your API key` };
@@ -891,8 +892,9 @@ async function testNamedProvider(name, apiKey) {
   }
 
   if (name === 'fathom') {
+    // Fathom's external API authenticates with X-Api-Key, NOT Authorization: Bearer.
     const r = await fetch('https://api.fathom.ai/external/v1/meetings?limit=1', {
-      headers: { Authorization: `Bearer ${apiKey}` },
+      headers: { 'X-Api-Key': apiKey },
     });
     if (r.ok) return { verified: true, message: 'Connected to Fathom' };
     return { verified: false, message: `Fathom returned ${r.status} — check your API key` };
