@@ -178,13 +178,46 @@ async function pollWorkspace(supabase, conn) {
       const type = (isPast && rsvp === 'accepted') ? 'meeting_held' : 'meeting_scheduled';
       const label = rsvp === 'declined' ? '(Declined)' : isPast ? '(Held)' : '(Scheduled)';
 
+      // A Google event keeps the same id when rescheduled, only the start moves.
+      // The stable per-event external_id would then just 23505-skip, freezing the
+      // row at the OLD time. So for a future meeting, detect a moved start: if we
+      // already logged this event for this contact at a different start, drop a
+      // "Rescheduled:" marker on the old slot (the read layer hides it and the
+      // stale booking) and log the new time under a start-keyed id.
+      const stableExtId = `gcal_${event.id}_${contact.id}`;
+      const startKey = occurredAt.slice(0, 16);
+      let externalId = stableExtId;
+      if (type === 'meeting_scheduled') {
+        const { data: existing } = await supabase
+          .from('observations')
+          .select('observed_at')
+          .eq('workspace_id', conn.workspace_id)
+          .eq('source', 'google_calendar')
+          .eq('external_id', stableExtId)
+          .maybeSingle();
+        const existingKey = existing ? new Date(existing.observed_at).toISOString().slice(0, 16) : null;
+        if (existingKey && existingKey !== startKey) {
+          await logActivity(supabase, {
+            workspaceId: conn.workspace_id,
+            contactId:   contact.id,
+            companyId:   contact.company_id || null,
+            type:        'meeting_cancelled',
+            source:      'google_calendar',
+            externalId:  `gcal_resched_${event.id}_${contact.id}_${existingKey}`,
+            occurredAt:  existing.observed_at,
+            description: `Rescheduled: ${title}`,
+          });
+          externalId = `${stableExtId}_${startKey}`;   // new row at the new time
+        }
+      }
+
       const result = await logActivity(supabase, {
         workspaceId: conn.workspace_id,
         contactId:   contact.id,
         companyId:   contact.company_id || null,
         type,
         source:      'google_calendar',
-        externalId:  `gcal_${event.id}_${contact.id}`,
+        externalId,
         occurredAt,
         description: `${title} ${label}`,
       });
