@@ -60,7 +60,10 @@ export async function reprocessFathom(supabase, workspaceId, payload) {
       externalId,
       occurredAt,
       description: `Meeting: ${title}`,
-      summary:    summary ? summary.slice(0, 500) : null,
+      // Full recap — it feeds the fact extractor (extractAfterActivity reads the
+      // activity summary) so it must not be pre-truncated; the timeline clamps the
+      // display and the full recap is also kept as a meeting_notes document.
+      summary:    summary || null,
       rawData:    { title, url: meetingUrl, invitees: invitees.map(i => i.email) },
     });
     if (result) {
