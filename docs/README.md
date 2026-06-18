@@ -15,12 +15,10 @@ Grouped by area. Each group has a **start-here** doc; the rest are deep-dives.
   build-from-closed-deals.
 
 ## Platform mechanics
-- **[How Nous resolves identity](./how-nous-resolves-identity.md)** — start here.
-  The approach in plain language with examples: one person many identifiers, how a
-  match is made, meetings via the calendar, enrich-don't-erase, and the bias
-  against false merges.
-- [Identity Resolution](./identity-resolution.md) — engineering deep-dive on the
-  resolver internals.
+- **[Identity Resolution](./identity-resolution.md)** — how Nous folds every
+  signal into one record per person: one person many identifiers, how a match is
+  made, meetings via the calendar, enrich-don't-erase, and the bias against false
+  merges.
 - [Enrichment Waterfall](./enrichment-waterfall.md) — how a thin lead gets its
   firmographics and email: the identifier waterfall, provider precedence
   (Apollo → Prospeo), member-URN handling, URL healing, and provenance.

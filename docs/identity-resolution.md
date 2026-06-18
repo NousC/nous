@@ -1,149 +1,55 @@
 # Identity Resolution
 
-Every inbound signal — a webhook, a CSV row, a calendar event, a LinkedIn message — must be matched to an existing contact or a new one must be created. This document describes exactly how that works.
+Your prospects and customers show up everywhere. A reply in Gmail, a HubSpot row, a LinkedIn message, a Fireflies transcript, an Apollo export, a calendar invite. The same person often appears in several of these under a different email, a different name spelling, or a different profile link. Identity resolution is how Nous folds all of that into one account record for each real person, so your team and your agents act on one trustworthy view instead of scattered fragments.
 
----
+This page explains the approach. It uses a few examples to make it concrete. It does not list every rule.
 
-## Core waterfall (`resolveContact`)
+## One person, many identifiers
 
-**Source:** `apps/api/src/services/enrichment.mjs:81`
+Nous treats the person as the thing that matters. Their email addresses, LinkedIn profile, phone number, and the IDs your tools assign (HubSpot, Apollo, Stripe) all attach to that one person. A person can carry several of each. Two emails and a work and personal address are normal, and Nous keeps them together on a single record rather than splitting them into lookalikes.
 
-All resolution runs through a single shared function. It stops at the first successful match.
+Every fact on the record carries its source, its confidence, and how fresh it is. That way you can see where a job title or company came from and how much to trust it.
 
-### Step 1 — External integration ID
+## How a match is made
 
-Checks `hubspot_id`, `pipedrive_id`, `apollo_id`, `rb2b_id`, `attio_id` in order. Each is an exact equality match against the contacts table. This is the fastest path and is used whenever a CRM or tool provides its own stable identifier.
+When a new signal arrives, Nous looks for the person it belongs to using the strongest available evidence first.
 
-### Step 2 — Email (ground truth)
+1. Stable identifiers win. A LinkedIn member id, a known email, or a CRM record id maps straight to the right person. These rarely change, so they are the most reliable anchors.
+2. When the strong signals miss, Nous corroborates before it links. A shared name alone is never enough, because two different people can share a name. Nous looks for a second signal such as a matching company, a matching email domain, or a known profile before it attaches anything.
+3. When nothing confident matches, Nous creates a new record rather than guessing. A duplicate can be cleaned up later. Merging two different people is far harder to undo, so Nous leans toward caution.
 
-If an email is present, it is lowercased and trimmed, then matched against `contacts.email`. Email is considered authoritative: if it matches, no further steps run.
+## Meetings connect people through the calendar
 
-### Step 3 — LinkedIn URL
+A meeting is an event, not just an email and a name. When a Fireflies transcript arrives, Nous can match it to the booking on your calendar by time and title, then attach the meeting to the person who was actually in that invite. This means a call reaches the right record even when the attendee joined with an address you had never seen. When that happens, Nous quietly learns the new address and adds it to the person, so the next signal from that email already knows who they are.
 
-Matched via exact equality on `contacts.linkedin_url`. The URL is not normalized at this step — normalization happens on write (via `normaliseLinkedInUrl()`).
+## LinkedIn handles resolve to the real profile
 
-### Step 3.5 — Name self-heal
+LinkedIn sometimes hands us an encoded member link rather than a person's public handle. Before deciding a LinkedIn message is from someone new, Nous resolves that encoded link to the person's real profile and checks again. So a message from someone you already imported lands on their existing record instead of starting a second one.
 
-Only triggers when the incoming payload has **both an email and a parseable full name**, and when no match was found in steps 1–3.
+## Enrichment adds, it never erases
 
-Queries for contacts where:
-- `email IS NULL`
-- `first_name ILIKE <first>`
-- `last_name ILIKE <last>`
+When Nous enriches a record from a provider like Prospeo or Apollo, it fills the gaps and leaves your good data alone. Anything you set by hand stays exactly as you set it. Provider data is treated as helpful, not as the final word, because it can be out of date or describe a side role rather than someone's main one.
 
-If exactly **one** match is returned, the newly discovered email is written back to that contact and the merge proceeds. If two or more match, the step is skipped entirely — ambiguity is treated as no-match to avoid false positives.
+A few things follow from this.
 
-This is the "self-heal" path: a contact entered manually (or via LinkedIn) without an email gets their email populated the first time Gmail, Calendly, or another email-bearing source sees them.
+1. New email addresses are added as alternates. Nous never throws away a verified address and never silently swaps your primary one.
+2. A person can hold more than one role. Nous shows the primary on the record and keeps the others in the background for your agents to draw on.
+3. A personal mailbox such as a gmail address is never recorded as a company. The address stays on the person, and the company field is reserved for a real employer.
 
-### Step 4 — Create or reject
+## Built to avoid the costly mistake
 
-If no match found:
-- `createIfMissing=false` → return `{ contact: null, created: false }`. The incoming signal is dropped.
-- `createIfMissing=true` → a new contact is inserted. Requires at least an `email` or `linkedin_url`; if neither is present, creation is rejected with a warning.
+The expensive failure in any customer graph is fusing two real people into one. Nous is tuned to avoid that. It links only when the evidence is strong, it flags the uncertain cases for a human instead of forcing a guess, and the links it does make can be reversed. When Nous is unsure, it keeps people apart and tells you, rather than quietly blending two histories.
 
-On creation, `company_name` and `company_domain` are used to upsert the company record and link `company_id`.
+## A few examples
 
----
+These illustrate the approach. They are a sample, not the full set.
 
-## Two caller tiers
+Someone you have in HubSpot under their work email replies from a personal Gmail. Nous recognizes the reply belongs to the same person through the surrounding context and keeps both addresses on the one record.
 
-| Tier | `createIfMissing` | Sources |
-|------|-------------------|---------|
-| Level 1 — Creates | `true` | Instantly (outbound), RB2B (website visitor ID), LinkedIn inbound, CRM bootstrap |
-| Level 2/3 — Updates only | `false` | Gmail, Fireflies, Fathom, Calendly, Google Calendar |
+You connect with a prospect on LinkedIn who already exists from an earlier import. Nous resolves the LinkedIn link to their real profile, sees the match, and adds the conversation to the record you already had.
 
-Level 2/3 sources are "enrichers": they add signal to contacts that already exist, but they never introduce new contacts into the system.
+A founder shows up in enrichment as a coach at a second company. Nous keeps the founder role and company you already trust as the primary, and stores the second role in the background instead of overwriting the first.
 
----
+## What you get
 
-## Field-level merge (`mergeContact`)
-
-When a contact is matched (steps 1–3.5), incoming fields are merged using a **fill-only** strategy: a field is only written if the incoming value is non-null and the existing field is null or empty. Existing data is never overwritten.
-
-Fields merged: `first_name`, `last_name`, `job_title`, `phone`, `linkedin_url`, `company`, `domain`, `hubspot_id`, `pipedrive_id`, `apollo_id`, `rb2b_id`, `attio_id`.
-
-Company linking is attempted in the background (fire-and-forget) when the existing contact has no `company_id` but the incoming data has a company name or domain.
-
----
-
-## LinkedIn / Unipile resolution (`matchContact`)
-
-**Source:** `apps/api/src/services/linkedin.mjs:145`
-
-LinkedIn-specific matching runs alongside the core waterfall for all Unipile-sourced events (connection syncs, conversation syncs, inbound webhook messages). It uses a 3-step sub-waterfall:
-
-1. **Normalized LinkedIn URL** — `ilike contacts.linkedin_url LIKE '<normalized_url>%'`. Handles trailing slash variants.
-2. **Unipile member ID (`ACoAA...` format)** — checks `contacts.linkedin_member_id` directly, then falls back to `contacts.channels->>linkedin->>member_id` (for contacts populated via the history backfill).
-3. **Full name fallback** — `first_name ILIKE` + `last_name ILIKE` with `maybeSingle()`. Only fires if both first and last name are available. If more than one contact matches, it returns null (ambiguous).
-
-LinkedIn activity deduplication: for each `(contact_id, activity_type, source='linkedin')` combination, only one event per calendar day is logged.
-
----
-
-## CSV / bulk import
-
-**Source:** `apps/api/src/routes/api/contacts.mjs:243`
-
-The import endpoint accepts up to **2,000 rows** per request. Each row must have a valid email address or a `linkedin_url` — rows with neither are counted as `skipped`.
-
-### Deduplication
-
-The import does NOT use `resolveContact`. Instead it runs two bulk set lookups before touching the database:
-
-- Email rows: fetches all existing contacts in the workspace with matching emails → builds a `Set` of known emails.
-- LinkedIn-only rows: fetches existing contacts with matching `linkedin_url` values → builds a `Set`.
-
-Rows not in either set are **inserted** (batch `INSERT`). Rows already in a set are **updated** (field-by-field, same fill-only logic as `mergeContact`).
-
-### Fields accepted from CSV
-
-`first_name`, `last_name`, `company`, `job_title`, `linkedin_url`, `phone`, `domain`, `notes`, `seniority`, `department`, `deal_stage`, `pipeline_stage`, `source`.
-
-`pipeline_stage` from a CSV row is written directly — no trigger validation at import time, so values outside the valid set will fail the DB constraint.
-
-### Post-import enrichment
-
-After inserts and updates complete, all contact IDs (new + updated) are passed to `enrichContactHistory()` as an async background job. This backfills Gmail history, LinkedIn message history, and meeting notes for every imported contact.
-
----
-
-## Google Calendar polling
-
-**Source:** `apps/api/src/routes/api/oauthGoogle.mjs` (calendar scope)
-
-The calendar poller runs on a 10-minute cron, looking back 7 days and forward 30 days. For each calendar event, attendees are resolved against existing contacts using the core `resolveContact` waterfall (`createIfMissing=false`). Meetings with matched contacts are logged as `meeting_scheduled` or `meeting_held` activities.
-
----
-
-## Fake email detection
-
-During Prospeo enrichment, emails matching placeholder domains are treated as absent:
-
-```
-/\.(import|csv|fake|test|example|placeholder|noemail)$/i
-```
-
-This prevents enrichment calls for contacts imported with synthetic emails like `name@airtable.import`.
-
----
-
-## Summary: what resolves what
-
-| Source | Method | Creates new contacts? |
-|--------|--------|----------------------|
-| Instantly webhook | Core waterfall | Yes |
-| RB2B visitor signal | Core waterfall | Yes |
-| LinkedIn inbound webhook | Unipile `matchContact` | No (logs to matched contact) |
-| LinkedIn connection sync | Unipile `matchContact` | No |
-| LinkedIn conversation sync | Unipile `matchContact` | No |
-| CSV import | Bulk email/LinkedIn set lookup | Yes |
-| Gmail history backfill | Core waterfall (`createIfMissing=false`) | No |
-| Google Calendar | Core waterfall (`createIfMissing=false`) | No |
-| Fireflies / Fathom / Calendly | Core waterfall (`createIfMissing=false`) | No |
-| CRM bootstrap (HubSpot) | Core waterfall | Yes |
-
----
-
-## Lead-list matching (planned)
-
-There is a `leads` table — the cold outreach universe, kept separate from `contacts` (scoring covered in `icp-and-gtm-context.md`). When it ships, inbound resolution also checks `leads`: a reply from someone on a lead list updates that lead and graduates them into `contacts` through the waterfall above. A reply that matches no lead is handled exactly as today. The waterfall itself does not change — lead-list matching runs alongside it.
+The result is one clean record per person that gathers every touch across Gmail, LinkedIn, HubSpot, Apollo, Fireflies, and your calendar. Your team reads one history. Your agents act on one set of facts. And the record gets sharper over time as more signals arrive.
