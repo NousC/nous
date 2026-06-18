@@ -17,7 +17,7 @@ const PIPELINE_STAGES = ["identified", "aware", "connected", "interested", "eval
 // Persisted per user in localStorage; see useColumnWidths.
 const PEOPLE_COL_DEFAULTS: Record<string, number> = {
   name: 170, company: 115, source: 96, domain: 100, li: 40, stage: 88,
-  icp: 42, lastActivity: 120,
+  icp: 42, lastActivity: 130,
 };
 const PEOPLE_COL_KEYS = ["name","company","domain","li","stage","icp","lastActivity","source"];
 
@@ -592,7 +592,7 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
             <PlainHdr label="LI"      widthKey="li" />
             <PlainHdr label="Stage"   widthKey="stage" />
             <SortBtn  col="icp"  label="ICP"  firstDir="desc" />
-            <SortBtnFlex col="lastActivity" label="Last Int." />
+            <SortBtnFlex col="lastActivity" label="Last Interaction" />
             <PlainHdr label="Source"  widthKey="source" />
             {/* Trailing filler — grows only on wide screens, shrinks to 0 (then the
                 grid scrolls) so it never steals width from a column being resized. */}

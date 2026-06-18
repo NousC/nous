@@ -15,7 +15,7 @@ const PAGE_SIZE = 50;
 // user in localStorage; see useColumnWidths.
 const CO_COL_DEFAULTS: Record<string, number> = {
   name: 160, domain: 100, topContacts: 150, icp: 46, industry: 84, location: 104,
-  lastActivity: 78, contacts: 72, stage: 92,
+  lastActivity: 116, contacts: 72, stage: 92,
 };
 
 type CoTab = "overview" | "activity" | "facts";
@@ -167,7 +167,10 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
     (co.industry??"").toLowerCase().includes(q.toLowerCase())
   );
   const stageRank = (s: string|null) => (s ? STAGE_ORDER.indexOf(s) : -1);
-  const sortedList = coSort.col === null ? filtered : [...filtered].sort((a,b) => {
+  // Default order (no explicit sort applied) = most recent interaction first.
+  const sortedList = coSort.col === null
+    ? [...filtered].sort((a,b) => (b.lastActivityAt??"").localeCompare(a.lastActivityAt??""))
+    : [...filtered].sort((a,b) => {
     let av: any, bv: any;
     if (coSort.col==="name")            { av=a.name; bv=b.name; }
     else if (coSort.col==="lastActivity"){ av=a.lastActivityAt??""; bv=b.lastActivityAt??""; }
@@ -482,7 +485,7 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
             <SortHdr col="icp"          label="ICP"       firstDir="desc" />
             <SortHdr col="industry"     label="Industry" />
             <SortHdr col="location"     label="Location" />
-            <SortHdr col="lastActivity" label="Last Act." firstDir="desc" />
+            <SortHdr col="lastActivity" label="Last Interaction" firstDir="desc" />
             <SortHdr col="contacts"     label="Contacts"  firstDir="desc" />
             {/* Trailing filler — grows only on wide screens, shrinks to 0 (then the
                 grid scrolls) so it never steals width from a column being resized. */}
