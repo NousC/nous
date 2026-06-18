@@ -425,6 +425,30 @@ export async function countLeadsByIcp(
   return { icp: icpRes.count ?? 0, non_icp: nonRes.count ?? 0 };
 }
 
+// Connect → message → reply funnel counts for a list (drives the LinkedIn
+// Connections header stat: "Connected 100 · Messaged 90 · Replied 5"). Cumulative:
+// `messaged` includes those who later replied; `connected` is the whole list (in
+// the connections list everyone is at least a connection).
+export async function countLeadFunnel(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  leadListId: string,
+): Promise<{ connected: number; messaged: number; replied: number }> {
+  if (!isUUID(leadListId)) return { connected: 0, messaged: 0, replied: 0 };
+  const base = () =>
+    supabase
+      .from('leads')
+      .select('*', { count: 'exact', head: true })
+      .eq('workspace_id', workspaceId)
+      .eq('lead_list_id', leadListId);
+  const [totalRes, msgRes, replyRes] = await Promise.all([
+    base(),
+    base().in('status', ['messaged', 'sent', 'replied']),
+    base().eq('status', 'replied'),
+  ]);
+  return { connected: totalRes.count ?? 0, messaged: msgRes.count ?? 0, replied: replyRes.count ?? 0 };
+}
+
 // Resolve an inbound reply to a lead. Returns the most recent matching lead in
 // the workspace, or null. Used by the graduation flow.
 export async function findLeadByEmail(

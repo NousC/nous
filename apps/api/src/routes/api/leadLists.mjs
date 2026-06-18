@@ -11,6 +11,7 @@ import {
   insertLeads,
   listLeads,
   countLeadsByIcp,
+  countLeadFunnel,
   deleteLeads,
   deleteLeadList,
   updateLead,
@@ -46,6 +47,12 @@ const ENGAGEMENT_ALLOWLIST = new Set(
     .split(',').map(s => s.trim()).filter(Boolean),
 );
 
+// The native, system-managed "LinkedIn Connections" list — the connect → message
+// → reply funnel, filled live from the LinkedIn webhooks (no scrape cost). Same
+// eligibility + non-deletable treatment as the engagers list.
+const CONNECTIONS_SOURCE = 'linkedin_connections';
+const CONNECTIONS_LIST_NAME = 'LinkedIn Connections';
+
 // Pro/Growth/Partner plans (linkedinEngagement feature) or explicit allowlist → eligible.
 function engagementEligible(req, workspaceId) {
   if (ENGAGEMENT_ALLOWLIST.has(workspaceId)) return true;
@@ -61,14 +68,22 @@ leadListsRouter.get('/', async (req, res) => {
     if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
     const supabase = getSupabaseClient();
     let lead_lists = await listLeadLists(supabase, workspaceId);
-    if (engagementEligible(req, workspaceId) && !lead_lists.some(l => l.source === ENGAGEMENT_SOURCE)) {
-      const created = await createLeadList(supabase, workspaceId, { name: ENGAGEMENT_LIST_NAME, source: ENGAGEMENT_SOURCE });
-      lead_lists = [{ ...created, lead_count: 0 }, ...lead_lists];
+    if (engagementEligible(req, workspaceId)) {
+      if (!lead_lists.some(l => l.source === ENGAGEMENT_SOURCE)) {
+        const created = await createLeadList(supabase, workspaceId, { name: ENGAGEMENT_LIST_NAME, source: ENGAGEMENT_SOURCE });
+        lead_lists = [{ ...created, lead_count: 0 }, ...lead_lists];
+      }
+      if (!lead_lists.some(l => l.source === CONNECTIONS_SOURCE)) {
+        const created = await createLeadList(supabase, workspaceId, { name: CONNECTIONS_LIST_NAME, source: CONNECTIONS_SOURCE });
+        lead_lists = [{ ...created, lead_count: 0 }, ...lead_lists];
+      }
     }
-    // Native engagers list is always pinned leftmost (it's the locked default).
+    // Native LinkedIn lists are pinned leftmost (locked defaults): Engagers, then
+    // Connections, then every user list.
     lead_lists = [
       ...lead_lists.filter(l => l.source === ENGAGEMENT_SOURCE),
-      ...lead_lists.filter(l => l.source !== ENGAGEMENT_SOURCE),
+      ...lead_lists.filter(l => l.source === CONNECTIONS_SOURCE),
+      ...lead_lists.filter(l => l.source !== ENGAGEMENT_SOURCE && l.source !== CONNECTIONS_SOURCE),
     ];
     return res.json({ lead_lists });
   } catch (err) {
@@ -132,8 +147,8 @@ leadListsRouter.delete('/:id', async (req, res) => {
     const supabase = getSupabaseClient();
     // The native LinkedIn Engagers list is system-managed and not deletable.
     const list = await getLeadList(supabase, workspaceId, req.params.id);
-    if (list?.source === ENGAGEMENT_SOURCE) {
-      return res.status(403).json({ error: 'system_list', message: 'The LinkedIn Engagers list is managed automatically and can\'t be deleted.' });
+    if (list?.source === ENGAGEMENT_SOURCE || list?.source === CONNECTIONS_SOURCE) {
+      return res.status(403).json({ error: 'system_list', message: 'This LinkedIn list is managed automatically and can\'t be deleted.' });
     }
     const deleted = await deleteLeadList(supabase, workspaceId, req.params.id);
     if (!deleted) return res.status(404).json({ error: 'not_found' });
@@ -172,7 +187,12 @@ leadListsRouter.get('/:id/leads', async (req, res) => {
     const icpCounts = counts === '1'
       ? await countLeadsByIcp(supabase, workspaceId, req.params.id)
       : undefined;
-    return res.json({ leads, counts: icpCounts });
+    // Connect → message → reply funnel counts (LinkedIn Connections header stat),
+    // only when asked (first page), same saving as the ICP counts.
+    const funnel = req.query.funnel === '1'
+      ? await countLeadFunnel(supabase, workspaceId, req.params.id)
+      : undefined;
+    return res.json({ leads, counts: icpCounts, funnel });
   } catch (err) {
     console.error('[GET /api/lead-lists/:id/leads]', err);
     return res.status(500).json({ error: 'internal_error' });

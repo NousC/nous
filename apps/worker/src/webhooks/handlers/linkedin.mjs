@@ -6,6 +6,7 @@
 import {
   getSupabaseClient, countActivities,
   resolveEntity, getOrCreateEntity, upsertIdentifier, isMemberUrnLinkedInUrl,
+  listLeadLists, createLeadList, insertLeads,
 } from '@nous/core';
 import { logActivity } from '../../utils/activity.mjs';
 import { enqueueForRetry } from '../../utils/webhookInbox.mjs';
@@ -29,6 +30,44 @@ async function logSysEvent(supabase, workspaceId, source, eventType, summary, co
       occurred_at:  new Date().toISOString(),
     });
   } catch { /* non-critical — never block the webhook response */ }
+}
+
+// ── Native "LinkedIn Connections" list — the connect → message → reply funnel ──
+// Seeded live from these webhooks (no separate roster sync): every accepted
+// connection and every message we send lands the person in the list and records
+// a funnel observation that drives their lead status. Mirrors the engagers list.
+const LI_CONNECTIONS_SOURCE = 'linkedin_connections';
+const LI_CONNECTIONS_NAME = 'LinkedIn Connections';
+
+async function ensureConnectionsList(supabase, workspaceId) {
+  const lists = await listLeadLists(supabase, workspaceId);
+  const existing = lists.find(l => l.source === LI_CONNECTIONS_SOURCE);
+  return existing || await createLeadList(supabase, workspaceId, { name: LI_CONNECTIONS_NAME, source: LI_CONNECTIONS_SOURCE });
+}
+
+// Add a resolved LinkedIn contact to the Connections list (per-list dedup makes
+// re-fires harmless) and record a funnel observation. Fully additive + best-effort
+// so it never blocks the webhook. `property` drives the lead's status in the view:
+//   interaction.linkedin_connected → 'connected'
+//   interaction.linkedin_message_sent → 'messaged'
+//   interaction.linkedin_reply → 'replied'
+async function recordConnectionFunnel(supabase, workspaceId, contact, { name, linkedinUrl, memberId, property, value, externalId, occurredAt }) {
+  if (linkedinUrl) {
+    try {
+      const list = await ensureConnectionsList(supabase, workspaceId);
+      await insertLeads(supabase, workspaceId, list.id, [{
+        name: name || null, linkedin_url: linkedinUrl, linkedin_member_id: memberId || null,
+        contact_id: contact.id, source: 'LinkedIn',
+      }], { importDuplicates: false });
+    } catch (e) { console.warn('[LINKEDIN_WEBHOOK] connections list add failed', e.message); }
+  }
+  if (property) {
+    await supabase.from('observations').insert({
+      workspace_id: workspaceId, entity_id: contact.id, kind: 'event',
+      property, value: value || {}, source: 'linkedin', method: 'webhook',
+      observed_at: occurredAt || new Date().toISOString(), external_id: externalId || null,
+    }).then(() => {}, () => {}); // idempotent: a dup external_id conflicts harmlessly
+  }
 }
 
 // Flexible LinkedIn URL match — handles www/no-www, trailing slash, query params.
@@ -444,6 +483,14 @@ export async function handleLinkedIn(req, res, workspaceId) {
     const nextChannels = { ...ch, linkedin: { ...li, state: 'connected', connected_at: new Date().toISOString() } };
     await supabase.from('contacts').update({ channels: nextChannels }).eq('id', contact.id);
 
+    // Seed the native LinkedIn Connections list + mark them 'connected' in the funnel.
+    await recordConnectionFunnel(supabase, workspaceId, contact, {
+      name: fullName, linkedinUrl, memberId: identifier,
+      property: 'interaction.linkedin_connected', value: { linkedin_url: linkedinUrl },
+      externalId: `li_conn_obs_${identifier || linkedinUrl?.match(/\/in\/([^/?#]+)/)?.[1] || linkedinUrl}`,
+      occurredAt: body.timestamp ? new Date(body.timestamp).toISOString() : new Date().toISOString(),
+    });
+
     logSysEvent(supabase, workspaceId, 'linkedin', 'webhook_received',
       `New LinkedIn connection${fullName ? `: ${fullName}` : ''}`,
       contact.id, { type: 'connection', linkedin_url: linkedinUrl }
@@ -508,6 +555,17 @@ export async function handleLinkedIn(req, res, workspaceId) {
       rawData:     { ...body, is_outbound: isSender },
       description: messageText.slice(0, 500) || (isSender ? 'LinkedIn message (sent)' : 'LinkedIn message (received)'),
       summary:     isSender ? `You: ${messageText.slice(0, 200)}` : messageText.slice(0, 200),
+    });
+
+    // Connections funnel: an outbound DM = 'messaged' (first contact); an inbound
+    // message = 'replied'. Seeds the list too, so people we DM show up even if the
+    // new_relation accept was never received.
+    await recordConnectionFunnel(supabase, workspaceId, contact, {
+      name: fullName, linkedinUrl, memberId,
+      property: isSender ? 'interaction.linkedin_message_sent' : 'interaction.linkedin_reply',
+      value: { chat_id: body.chat_id || body.provider_chat_id || null, outbound: isSender },
+      externalId: msgId ? `li_${isSender ? 'msgsent' : 'reply'}_${msgId}` : null,
+      occurredAt,
     });
 
     // channels.linkedin update — fire-and-forget

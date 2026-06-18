@@ -177,6 +177,8 @@ const STATUS_TAG: Record<string, string> = {
   interested:  "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-400",
   replied:     "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-400",
   sent:        "bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-400",
+  messaged:    "bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-400",
+  connected:   "bg-sky-100 text-sky-700 dark:bg-sky-950/50 dark:text-sky-400",
   pending:     "bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300",
   objection:   "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-400",
   wrong_fit:   "bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300",
@@ -355,6 +357,8 @@ export default function Lists() {
   // Sort + ICP counts (server-side).
   const [sort, setSort] = useState<"recent" | "icp_score_desc" | "icp_score_asc">("recent");
   const [counts, setCounts] = useState<{ icp: number; non_icp: number } | null>(null);
+  // Connect → message → reply funnel counts for the native LinkedIn Connections list.
+  const [funnel, setFunnel] = useState<{ connected: number; messaged: number; replied: number } | null>(null);
   // Per-column width overrides (drag-to-resize), keyed by column key, persisted.
   const [colW, setColW] = useState<Record<string, number>>(() => {
     try { return JSON.parse(localStorage.getItem("lists.colW") || "{}"); } catch { return {}; }
@@ -504,6 +508,23 @@ export default function Lists() {
     if (activeId) loadLeads(activeId, page, icpFilter, sort);
     else setLeads([]);
   }, [activeId, page, icpFilter, sort, statusFilter, replyFilter, loadLeads]);
+
+  // Connect → message → reply funnel counts — fetched only for the native
+  // LinkedIn Connections list (its header stat), so it never adds count queries
+  // to other lists' page loads.
+  useEffect(() => {
+    const isConn = lists.find(l => l.id === activeId)?.source === "linkedin_connections";
+    if (!activeId || !workspaceId || !isConn) { setFunnel(null); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${apiUrl}/api/lead-lists/${activeId}/leads?workspaceId=${workspaceId}&limit=1&funnel=1`, { headers: authHeaders });
+        const d = res.ok ? await res.json() : {};
+        if (!cancelled && d.funnel) setFunnel(d.funnel);
+      } catch { /* silent */ }
+    })();
+    return () => { cancelled = true; };
+  }, [activeId, workspaceId, lists]);
 
   // Switching lists resets filters, sort, selection, counts. The page is kept on
   // the very first activeId (restored from the URL); later switches reset it.
@@ -895,7 +916,7 @@ export default function Lists() {
     { key: "__email_status", label: "Email status", w: 100 },
     { key: "__signal", label: "Signal", w: 110 },
     { key: "__channel", label: "Channel", w: 84 },
-    { key: "__added", label: activeList?.source === "linkedin_engagement" ? "Engaged" : "Added", w: 96 },
+    { key: "__added", label: activeList?.source === "linkedin_engagement" ? "Engaged" : activeList?.source === "linkedin_connections" ? "Connected" : "Added", w: 96 },
   ];
   // Apply the saved per-list column order. Name (the frozen first column) is
   // always pinned leftmost; movable columns sort by the saved order, and any
@@ -1314,19 +1335,21 @@ export default function Lists() {
         <div className="flex items-end gap-1 mb-4 overflow-x-auto rounded-lg bg-muted/60 px-1.5 pt-1.5">
           {lists.map(l => {
             const engagers = l.source === "linkedin_engagement";
+            const connections = l.source === "linkedin_connections";
+            const native = engagers || connections;
             return (
             <div key={l.id} className="relative flex items-stretch">
               <button
                 onClick={() => { setActiveId(l.id); resetImport(); setEditCell(null); }}
                 onContextMenu={e => { e.preventDefault(); requestDeleteList(l); }}
-                title={engagers ? "Auto-managed — right-click or click the gear to manage" : "Right-click to delete this list"}
+                title={engagers ? "Auto-managed — right-click or click the gear to manage" : connections ? "Auto-managed — fills from your LinkedIn connections" : "Right-click to delete this list"}
                 className={`flex items-center gap-1.5 px-3 py-1.5 text-[13px] rounded-t-lg border border-b-0 whitespace-nowrap transition-colors ${
                   l.id === activeId
                     ? "bg-background border-border text-foreground font-medium shadow-[0_-1px_2px_rgba(0,0,0,0.03)]"
                     : "bg-transparent border-transparent text-muted-foreground hover:text-foreground hover:bg-background/50"
                 }`}
               >
-                {engagers && <Lock className="h-3 w-3 opacity-50" />}
+                {native && <Lock className="h-3 w-3 opacity-50" />}
                 {l.name}
                 <span className="text-[11px] text-muted-foreground/60 tabular-nums">{l.lead_count ?? 0}</span>
                 {engagers && (
@@ -1373,9 +1396,23 @@ export default function Lists() {
         {/* Filters — ICP segmentation on the left, filter builder + status/reply on the right */}
         {activeList && (
           <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
-            {/* LEFT — ICP segmentation chips */}
+            {/* LEFT — the connect→message→reply funnel for the Connections list,
+                otherwise the ICP segmentation chips. */}
             <div className="flex items-center gap-1.5">
-              {hasIcp && ([
+              {activeList?.source === "linkedin_connections" ? (
+                funnel ? ([
+                  { label: "Connected", n: funnel.connected, cls: "text-foreground" },
+                  { label: "Messaged",  n: funnel.messaged,  cls: "text-foreground" },
+                  { label: "Replied",   n: funnel.replied,   cls: "text-green-700 dark:text-green-500" },
+                ]).map((s, i) => (
+                  <span key={s.label} className="flex items-center gap-1.5">
+                    {i > 0 && <span className="text-muted-foreground/40 text-[12px]">→</span>}
+                    <span className={`inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md text-[12px] font-medium border border-border bg-background ${s.cls}`}>
+                      {s.label} <span className="tabular-nums opacity-70">{s.n.toLocaleString()}</span>
+                    </span>
+                  </span>
+                )) : <span className="text-[12px] text-muted-foreground/50">Loading funnel…</span>
+              ) : hasIcp && ([
                 ["all", "All", activeList?.lead_count ?? (counts ? counts.icp + counts.non_icp : null)],
                 ["icp", "ICP", counts?.icp ?? null],
                 ["non", "Non-ICP", counts?.non_icp ?? null],
