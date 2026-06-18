@@ -6,18 +6,18 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 // detectors come later (they need observation diffing / a signal taxonomy).
 
 export interface AttentionItem {
-  kind: 'going_dark' | 'decayed_fact' | 'upcoming_meeting';
+  kind: 'going_dark' | 'decayed_fact' | 'upcoming_meeting' | 'open_commitment';
   entity_id: string;
   entity_name: string | null;
   what: string;
   suggested_action: string;
   age_days: number;
-  when?: string;            // ISO start time — set on upcoming_meeting; the MCP layer renders it in local time
+  when?: string;            // ISO — start time (upcoming_meeting) or due date (open_commitment); MCP renders local
 }
 
 export interface AttentionResult {
   items: AttentionItem[];
-  meta: { going_dark: number; decayed_facts: number; upcoming_meetings: number };
+  meta: { going_dark: number; decayed_facts: number; upcoming_meetings: number; open_commitments: number };
 }
 
 const DAY = 86_400_000;
@@ -131,8 +131,33 @@ export async function getAttention(
     });
   }
 
+  // ── open commitments — YOUR action items not yet done ───────────────────────
+  // Extracted from meetings/emails as action_item.* claims. Surface only the
+  // founder's own open commitments (owner_kind:'user') so the agent can nudge
+  // "you owe X to this account"; what the prospect owes you isn't your to-do.
+  const { data: aiRows } = await supabase
+    .from('claims')
+    .select('entity_id, value, computed_at')
+    .eq('workspace_id', workspaceId)
+    .like('property', 'action_item.%')
+    .is('invalid_at', null)
+    .limit(300);
+  const commitments: AttentionItem[] = [];
+  for (const r of (aiRows as any[]) ?? []) {
+    const v = r.value ?? {};
+    if (v.owner_kind !== 'user' || (v.status ?? 'open') !== 'open' || !v.title) continue;
+    commitments.push({
+      kind: 'open_commitment', entity_id: r.entity_id, entity_name: null,
+      age_days: Math.round((now - +new Date(r.computed_at)) / DAY),
+      what: `You owe: ${v.title}`,
+      suggested_action: 'Follow up or mark it done',
+      ...(v.due_at ? { when: v.due_at } : {}),
+    });
+  }
+  commitments.sort((a, b) => b.age_days - a.age_days);   // oldest-owed first
+
   // ── entity names — one batched claims query ─────────────────────────────────
-  const ids = [...new Set([...upcoming, ...goingDark, ...decayed].map(i => i.entity_id))];
+  const ids = [...new Set([...upcoming, ...commitments, ...goingDark, ...decayed].map(i => i.entity_id))];
   if (ids.length) {
     const { data: nameClaims } = await supabase
       .from('claims')
@@ -151,18 +176,19 @@ export async function getAttention(
       if (m.name) return String(m.name);
       return [m.first_name, m.last_name].filter(Boolean).join(' ') || null;
     };
-    for (const it of upcoming)  it.entity_name = nameOf(it.entity_id);
-    for (const it of goingDark) it.entity_name = nameOf(it.entity_id);
-    for (const it of decayed)   it.entity_name = nameOf(it.entity_id);
+    for (const it of upcoming)    it.entity_name = nameOf(it.entity_id);
+    for (const it of commitments) it.entity_name = nameOf(it.entity_id);
+    for (const it of goingDark)   it.entity_name = nameOf(it.entity_id);
+    for (const it of decayed)     it.entity_name = nameOf(it.entity_id);
   }
 
-  // Budget: upcoming meetings lead (time-critical), then split the rest between
-  // going-dark and decayed facts.
-  const upcomingShown = upcoming.slice(0, limit);
-  const rest = limit - upcomingShown.length;
+  // Budget: upcoming meetings + your open commitments lead (both time/action-
+  // critical), then split the rest between going-dark and decayed facts.
+  const leadShown = [...upcoming, ...commitments].slice(0, limit);
+  const rest = limit - leadShown.length;
   const half = Math.ceil(rest / 2);
   const items = [
-    ...upcomingShown,
+    ...leadShown,
     ...goingDark.slice(0, half),
     ...decayed.slice(0, rest - Math.min(goingDark.length, half)),
   ].slice(0, limit);
@@ -173,6 +199,7 @@ export async function getAttention(
       going_dark: goingDark.length,
       decayed_facts: decayed.length,
       upcoming_meetings: upcoming.length,
+      open_commitments: commitments.length,
     },
   };
 }
