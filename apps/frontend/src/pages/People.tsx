@@ -16,10 +16,21 @@ const PIPELINE_STAGES = ["identified", "aware", "connected", "interested", "eval
 // column and the action "Enrich" cell is fixed, so neither is listed here.
 // Persisted per user in localStorage; see useColumnWidths.
 const PEOPLE_COL_DEFAULTS: Record<string, number> = {
-  name: 170, company: 115, domain: 100, li: 40, stage: 88,
+  name: 170, company: 115, source: 96, domain: 100, li: 40, stage: 88,
   icp: 42, lastActivity: 120,
 };
-const PEOPLE_COL_KEYS = ["name","company","domain","li","stage","icp","lastActivity"];
+const PEOPLE_COL_KEYS = ["name","company","source","domain","li","stage","icp","lastActivity"];
+
+// Pretty labels for the first-contact source — the channel a person first came in
+// through (LinkedIn / Instantly / Gmail / …). Falls back to a capitalized form.
+const SOURCE_LABELS: Record<string, string> = {
+  linkedin: "LinkedIn", instantly: "Instantly", smartlead: "Smartlead", gmail: "Gmail",
+  heyreach: "HeyReach", lemlist: "Lemlist", emailbison: "EmailBison", cal_com: "Cal.com",
+  calendly: "Calendly", import: "Import", airtable_import: "Airtable", manual: "Manual",
+  apollo: "Apollo", prospeo: "Prospeo", csv: "CSV", rb2b: "RB2B", slack: "Slack",
+};
+const sourceLabel = (s?: string | null) =>
+  !s ? "—" : (SOURCE_LABELS[s] ?? (s.charAt(0).toUpperCase() + s.slice(1).replace(/_/g, " ")));
 
 type DetailTab = "activity" | "emails" | "linkedin" | "slack" | "calls" | "notes" | "signals" | "company" | "memory";
 
@@ -367,6 +378,7 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
 
   const [q, setQ] = useState("");
   const [stage, setStage] = useState("");
+  const [source, setSource] = useState("");
   const [page, setPage] = useState(0);
   const [sortCol, setSortCol] = useState<"lastActivity"|"icp"|null>(null);
   const [sortDir, setSortDir] = useState<"asc"|"desc">("asc");
@@ -425,10 +437,13 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
     else { setSortCol(null); setPage(0); }
   };
 
+  // Distinct first-contact sources present in the loaded set — powers the filter.
+  const sourceOptions = [...new Set(contacts.map(c => c.source).filter(Boolean) as string[])].sort();
   const filtered = contacts.filter(c => {
     const qs = q.toLowerCase();
     return (!q || c.name.toLowerCase().includes(qs) || (c.email??"").toLowerCase().includes(qs) || (c.companyName??"").toLowerCase().includes(qs))
-      && (!stage || c.pipelineStage === stage);
+      && (!stage || c.pipelineStage === stage)
+      && (!source || c.source === source);
   });
   const sorted = [...filtered].sort((a,b) => {
     if (sortCol === "lastActivity") {
@@ -447,6 +462,7 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
 
   const handleSearch = (v: string) => { setQ(v); setPage(0); };
   const handleStage  = (s: string) => { setStage(p => p===s ? "" : s); setPage(0); };
+  const handleSource = (s: string) => { setSource(s); setPage(0); };
 
   const handleExport = () => {
     const headers = ["Name","Email","Company","Pipeline Stage","Deal Stage","Segment","ICP","Last Activity","LinkedIn"];
@@ -544,6 +560,12 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
             </div>
           </div>
           <div className="flex items-center gap-1.5 flex-shrink-0">
+            <select value={source} onChange={e => handleSource(e.target.value)}
+              title="Filter by where each person was first contacted"
+              className="h-8 rounded-md border border-border bg-background text-[12px] text-foreground px-2 outline-none focus:border-foreground/40">
+              <option value="">All sources</option>
+              {sourceOptions.map(s => <option key={s} value={s}>{sourceLabel(s)}</option>)}
+            </select>
             {stages.map(s => (
               <button key={s} onClick={() => handleStage(s)}
                 className={`text-[12px] px-2.5 py-1 rounded-md border transition-colors capitalize ${stage===s ? "text-foreground border-foreground bg-muted/50 font-medium" : "text-muted-foreground border-border hover:border-foreground/40"}`}>
@@ -566,6 +588,7 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
               <ColResizer onMouseDown={e=>startResize("name", e)} />
             </div>
             <PlainHdr label="Company" widthKey="company" />
+            <PlainHdr label="Source"  widthKey="source" />
             <PlainHdr label="Domain"  widthKey="domain" />
             <PlainHdr label="LI"      widthKey="li" />
             <PlainHdr label="Stage"   widthKey="stage" />
@@ -585,6 +608,7 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
                 {c.title && <div className="text-[12px] text-muted-foreground/70 truncate">{c.title}</div>}
               </button>
               <button onClick={() => setDetail(c)} className="text-[13px] text-muted-foreground truncate pr-2 flex-shrink-0 text-left" style={{width:colW("company")}}>{c.companyName ?? "—"}</button>
+              <span className="text-[13px] text-muted-foreground/70 truncate pr-2 flex-shrink-0" style={{width:colW("source")}}>{sourceLabel(c.source)}</span>
               <span className="text-[13px] text-muted-foreground/70 truncate pr-2 flex-shrink-0" style={{width:colW("domain")}}>{c.domain ?? "—"}</span>
               <div className="flex-shrink-0" style={{width:colW("li")}}>
                 {c.linkedinUrl
