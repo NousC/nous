@@ -11,6 +11,7 @@
 import { getSupabaseClient, saveDocument } from '@nous/core';
 import { logActivity } from '../../utils/activity.mjs';
 import { resolveMeetingContacts } from '../../utils/resolveMeeting.mjs';
+import { parseActionItems, recordActionItems } from '../../utils/actionItems.mjs';
 import { enqueueForRetry } from '../../utils/webhookInbox.mjs';
 import { logSysEvent } from '../../utils/systemLog.mjs';
 import { decrypt } from '../../utils/encryption.mjs';
@@ -218,6 +219,20 @@ export async function reprocessFireflies(supabase, workspaceId, body) {
       }
     }
 
+  }
+
+  // Structured action items → state observations on the meeting's primary account,
+  // so the agent can answer "what are my action items" without re-reading notes.
+  // Backend-only: action_item.* claims don't render in the contact UI.
+  if (actionItems && contacts.length) {
+    const primary = contacts[0];
+    const parsed = parseActionItems(actionItems);
+    if (parsed.length) {
+      await recordActionItems(supabase, {
+        workspaceId, entityId: primary.id, contact: primary,
+        items: parsed, source: 'fireflies', sourceId: id, occurredAt,
+      }).catch(() => {});
+    }
   }
 
   await logSysEvent(supabase, {

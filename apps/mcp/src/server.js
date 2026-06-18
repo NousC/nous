@@ -41,7 +41,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { get, post } from "./client.js";
 
-export const SERVER_VERSION = "0.34.0";
+export const SERVER_VERSION = "0.35.0";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -111,6 +111,7 @@ Nous first even when the user never says "Nous":
 - Something happened or you learned a fact      -> record
 - Activity or a list across many accounts       -> query
 - What needs attention, what has gone quiet     -> attention
+- Your action items / what you owe an account    -> get_action_items
 - A fact looks stale before you act on it       -> verify
 - Our ICP, market, pricing, positioning         -> get_gtm_profile
 - Our own GTM shifted                           -> update_gtm_profile
@@ -434,6 +435,51 @@ export function createServer() {
         return `  ${when}${it.entity_name ?? it.entity_id} — ${it.what}\n      → ${it.suggested_action}`;
       });
       return { content: [{ type: "text", text: `Needs attention (${r.items.length}):\n${lines.join("\n")}` }] };
+    }
+  );
+
+  // ===========================================================================
+  // TOOL: get_action_items  —  GET /v2/action-items
+  // Commitments extracted from meetings/emails — what you owe each account.
+  // ===========================================================================
+  server.tool(
+    "get_action_items",
+    "Your open action items and commitments, pulled from meeting notes and emails — what you owe " +
+    "which account (and what they owe you), so you don't have to dig through transcripts. Use for " +
+    "'what are my action items', 'what do I owe <account>', 'what's outstanding this week'. Defaults " +
+    "to YOUR open items across all accounts, grouped by account.",
+    {
+      owner:  z.enum(["me", "prospect", "all"]).optional().describe("Whose commitments — me (default), the prospect, or all"),
+      status: z.enum(["open", "done", "all"]).optional().describe("open (default), done, or all"),
+      focus:  z.string().optional().describe("Scope to one account — an email or entity UUID"),
+      due:    z.enum(["today", "week", "all"]).optional().describe("Only items due today / this week (items that carry a due date) — default all"),
+    },
+    async ({ owner, status, focus, due }) => {
+      const params = {};
+      if (owner)  params.owner  = owner;
+      if (status) params.status = status;
+      if (focus)  params.focus  = focus;
+      if (due)    params.due    = due;
+      const r = await get("/v2/action-items", params);
+      const items = r.items ?? [];
+      if (!items.length) return { content: [{ type: "text", text: "No matching action items." }] };
+
+      const byAccount = new Map();
+      for (const it of items) {
+        const key = it.account || it.account_email || it.entity_id || "—";
+        if (!byAccount.has(key)) byAccount.set(key, []);
+        byAccount.get(key).push(it);
+      }
+      const lines = [`${items.length} action item${items.length !== 1 ? "s" : ""}:`];
+      for (const [account, list] of byAccount) {
+        lines.push(`\n${account}:`);
+        for (const it of list) {
+          const who  = it.owner_kind === "prospect" ? "[them]" : "[you]";
+          const when = it.due_at ? `  (due ${fmtWhen(it.due_at)})` : "";
+          lines.push(`  ${who} ${it.title}${when}`);
+        }
+      }
+      return { content: [{ type: "text", text: lines.join("\n") }] };
     }
   );
 
