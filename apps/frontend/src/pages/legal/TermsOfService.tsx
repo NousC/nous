@@ -55,7 +55,7 @@ export default function TermsOfService() {
           </Section>
 
           <Section t={t} title="4. Subscription and Payment">
-            <p style={S.body(t)}>The Service is offered through subscription plans billed by tracked entities and AI credits per month. Features and pricing are described on our pricing page and may be updated from time to time.</p>
+            <p style={S.body(t)}>The Service is offered through subscription plans billed by operations and records per month. Features and pricing are described on our pricing page and may be updated from time to time.</p>
             <p style={S.body(t)}>Subscriptions are billed in advance on a monthly or annual basis. By subscribing, you authorize us to charge your payment method for the applicable fees.</p>
             <p style={S.body(t)}>Subscription fees are non-refundable except as required by applicable law.</p>
           </Section>

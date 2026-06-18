@@ -2,7 +2,7 @@
   "$schema": "https://code.claude.com/schemas/claude-plugin.json",
   "name": "nous",
   "version": "0.2.0",
-  "description": "Nous — GTM data infrastructure for agents. One MCP call returns the full identity-resolved Account Record, and bundled hooks route GTM work through it automatically.",
+  "description": "Nous — the context graph for agentic GTM. One MCP call returns the full identity-resolved account, and bundled hooks route GTM work through it automatically.",
   "author": {
     "name": "Nous",
     "url": "https://opennous.cloud"
