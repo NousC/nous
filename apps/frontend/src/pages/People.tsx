@@ -19,7 +19,7 @@ const PEOPLE_COL_DEFAULTS: Record<string, number> = {
   name: 170, company: 115, source: 96, domain: 100, li: 40, stage: 88,
   icp: 42, lastActivity: 120,
 };
-const PEOPLE_COL_KEYS = ["name","company","source","domain","li","stage","icp","lastActivity"];
+const PEOPLE_COL_KEYS = ["name","company","domain","li","stage","icp","lastActivity","source"];
 
 // Pretty labels for the first-contact source — the channel a person first came in
 // through (LinkedIn / Instantly / Gmail / …). Falls back to a capitalized form.
@@ -588,12 +588,12 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
               <ColResizer onMouseDown={e=>startResize("name", e)} />
             </div>
             <PlainHdr label="Company" widthKey="company" />
-            <PlainHdr label="Source"  widthKey="source" />
             <PlainHdr label="Domain"  widthKey="domain" />
             <PlainHdr label="LI"      widthKey="li" />
             <PlainHdr label="Stage"   widthKey="stage" />
             <SortBtn  col="icp"  label="ICP"  firstDir="desc" />
             <SortBtnFlex col="lastActivity" label="Last Int." />
+            <PlainHdr label="Source"  widthKey="source" />
             {/* Trailing filler — grows only on wide screens, shrinks to 0 (then the
                 grid scrolls) so it never steals width from a column being resized. */}
             <div className="flex-1 min-w-0" />
@@ -608,7 +608,6 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
                 {c.title && <div className="text-[12px] text-muted-foreground/70 truncate">{c.title}</div>}
               </button>
               <button onClick={() => setDetail(c)} className="text-[13px] text-muted-foreground truncate pr-2 flex-shrink-0 text-left" style={{width:colW("company")}}>{c.companyName ?? "—"}</button>
-              <span className="text-[13px] text-muted-foreground/70 truncate pr-2 flex-shrink-0" style={{width:colW("source")}}>{sourceLabel(c.source)}</span>
               <span className="text-[13px] text-muted-foreground/70 truncate pr-2 flex-shrink-0" style={{width:colW("domain")}}>{c.domain ?? "—"}</span>
               <div className="flex-shrink-0" style={{width:colW("li")}}>
                 {c.linkedinUrl
@@ -622,6 +621,7 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
               <button onClick={() => setDetail(c)} className="text-[13px] pr-2 flex-shrink-0 text-left capitalize" style={{width:colW("stage"),color:stageColor(c.pipelineStage)}}>{c.pipelineStage}</button>
               <button onClick={() => setDetail(c)} className="text-[13px] text-muted-foreground pr-2 flex-shrink-0 text-left tabular-nums" style={{width:colW("icp")}}>{c.icpScore != null ? c.icpScore : "—"}</button>
               <button onClick={() => setDetail(c)} className="text-[13px] text-muted-foreground flex-shrink-0 truncate pr-2 text-left" style={{width:colW("lastActivity")}}>{relTime(c.lastActivityAt)}</button>
+              <span className="text-[13px] text-muted-foreground/70 truncate pr-2 flex-shrink-0" style={{width:colW("source")}}>{sourceLabel(c.source)}</span>
               <div className="flex-1 min-w-0" />
               <div className="flex-shrink-0 flex items-center justify-end gap-2" style={{width:78}}>
                 {enriched.has(c.id) ? (

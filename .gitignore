@@ -39,3 +39,7 @@ __pycache__/
 
 # Private founder/strategy docs — never publish
 internal/
+
+# local env backups (never commit — contain secrets)
+.env.cloud.bak
+*.bak

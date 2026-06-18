@@ -111,7 +111,7 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
   const colW = (c: string) => widths[c] ?? CO_COL_DEFAULTS[c];
   // Total content width (columns + 28px delete col + px-4 row padding) so the
   // table scrolls horizontally instead of squeezing columns to a fixed width.
-  const CO_COL_KEYS = ["name","domain","topContacts","icp","industry","location","lastActivity","contacts","stage"];
+  const CO_COL_KEYS = ["name","domain","stage","topContacts","icp","industry","location","lastActivity","contacts"];
   const ROW_MIN = CO_COL_KEYS.reduce((s,k)=>s+colW(k),0) + 28 + 32;
 
   const deleteCompany = async (cid: string, e: React.MouseEvent) => {
@@ -477,13 +477,13 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
           <div className="flex items-center px-4 py-2.5 bg-muted/50 border-b border-border sticky top-0 z-20">
             <SortHdr col="name"         label="Company" sticky />
             <PlainHdr label="Domain"    widthKey="domain" />
+            <SortHdr col="stage"        label="Stage"     firstDir="desc" />
             <PlainHdr label="Top Contacts" widthKey="topContacts" />
             <SortHdr col="icp"          label="ICP"       firstDir="desc" />
             <SortHdr col="industry"     label="Industry" />
             <SortHdr col="location"     label="Location" />
             <SortHdr col="lastActivity" label="Last Act." firstDir="desc" />
             <SortHdr col="contacts"     label="Contacts"  firstDir="desc" />
-            <SortHdr col="stage"        label="Stage"     firstDir="desc" />
             {/* Trailing filler — grows only on wide screens, shrinks to 0 (then the
                 grid scrolls) so it never steals width from a column being resized. */}
             <div className="flex-1 min-w-0" />
@@ -499,6 +499,7 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
                 <span className="text-[13px] font-medium text-foreground truncate">{co.name}</span>
               </button>
               <span className="text-[13px] text-muted-foreground flex-shrink-0 truncate pr-2" style={{width:colW("domain")}}>{co.domain??"—"}</span>
+              <span className="text-[13px] flex-shrink-0 truncate pr-2" style={{width:colW("stage"),color:co.stage?stageColor(co.stage):""}}>{co.stage??"—"}</span>
               <button onClick={()=>setDetail(co)} className="text-[13px] text-muted-foreground flex-shrink-0 truncate pr-2 text-left" style={{width:colW("topContacts")}}>{topContacts||"—"}</button>
               <span className="text-[13px] flex-shrink-0 tabular-nums" style={{width:colW("icp"),color:co.icpScore!=null?icpColor(co.icpScore):""}}>
                 {co.icpScore!=null?co.icpScore:"—"}
@@ -507,7 +508,6 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
               <span className="text-[13px] text-muted-foreground flex-shrink-0 truncate pr-2" style={{width:colW("location")}}>{co.location??"—"}</span>
               <span className="text-[13px] text-muted-foreground flex-shrink-0 pr-2 truncate" style={{width:colW("lastActivity")}}>{relTime(co.lastActivityAt)}</span>
               <span className="text-[13px] text-foreground/80 flex-shrink-0 tabular-nums" style={{width:colW("contacts")}}>{co.contactCount}</span>
-              <span className="text-[13px] flex-shrink-0 truncate pr-2" style={{width:colW("stage"),color:co.stage?stageColor(co.stage):""}}>{co.stage??"—"}</span>
               <div className="flex-1 min-w-0" />
               <button onClick={e=>deleteCompany(co.id,e)}
                 className="opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 flex justify-end text-muted-foreground/50 hover:text-red-500" style={{width:28}}>
