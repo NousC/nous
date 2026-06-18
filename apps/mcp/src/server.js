@@ -128,7 +128,7 @@ export function createServer() {
     name: "nous",
     version: SERVER_VERSION,
     description:
-      "Nous — the context layer for GTM agents. Nous is operated by the agent, not by a human " +
+      "Nous — the Context Graph for AI Agents. Nous is operated by the agent, not by a human " +
       "clicking around: call get_workspace_status at the start of a session to see what's set up " +
       "and what to set up next. Call get_context before drafting outreach or preparing for a " +
       "meeting. Call record after every interaction, or whenever you learn something.",
