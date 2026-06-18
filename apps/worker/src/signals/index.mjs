@@ -4,7 +4,7 @@
 // Graph edges (REPORTS_TO, BUDGET_HOLDER_AT, etc.) extracted from each fact → workspace_graph_edges.
 
 import Anthropic, { setUser } from 'useleak';
-import { listNotes, saveNote, updateNote, searchClaims, listActivities } from '@nous/core';
+import { listNotes, saveNote, updateNote, searchClaims, listActivities, recordObservation } from '@nous/core';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -312,18 +312,95 @@ If nothing meaningful: []` }],
   }
 }
 
+// ── Email action items ───────────────────────────────────────────────────────
+// Mine commitments/asks out of an email and record them as action_item.* state
+// observations (Phase 1's store; see reference-nous-action-items). Runs on BOTH
+// directions — an outbound "I'll send the deck" is the user's own commitment, so
+// this can't sit behind the inbound-only guard that the facts extractor uses.
+// owner is decided from the email's direction + who is committing/being asked.
+const EMAIL_TYPES = new Set(['email_reply', 'email_received']);
+
+async function extractEmailActionItems({ supabase, activityId, contactId, workspaceId, source, summary, isOutbound }) {
+  if (!summary || summary.length < 40) return;
+  const { data: c } = await supabase.from('contacts').select('first_name, last_name').eq('id', contactId).maybeSingle();
+  const name = [c?.first_name, c?.last_name].filter(Boolean).join(' ') || 'the contact';
+  const direction = isOutbound === true
+    ? `This email was SENT BY the user (the founder / account owner) TO ${name}.`
+    : `This email was RECEIVED FROM ${name} (the prospect), addressed to the user.`;
+
+  const msg = await anthropic.messages.create({
+    feature: 'email-action-items',
+    model:   'claude-haiku-4-5-20251001',
+    max_tokens: 400,
+    messages: [{ role: 'user', content:
+`Extract concrete action items / commitments from this email. ${direction}
+
+Tag each item's owner:
+- "user" — the founder owes it (the user promised to do something, OR ${name} asked the user to do something)
+- "prospect" — ${name} owes it (they promised, OR the user asked them to do it)
+
+Only a CONCRETE commitment or explicit ask with a clear deliverable (send X, schedule Y, review Z, follow up by <date>). Skip greetings, FYIs, vague statements. Be strict — if nothing is clearly actionable, return [].
+
+Email:
+"""${summary.slice(0, 6000)}"""
+
+Output ONLY valid JSON, max 4 items:
+[{"title":"<imperative, names the deliverable>","owner_kind":"user|prospect","due_phrase":"<timing if stated, else null>"}]` }],
+  });
+
+  let items = [];
+  try {
+    const t = msg.content?.[0]?.text ?? '[]';
+    const s = t.indexOf('['), e = t.lastIndexOf(']');
+    if (s !== -1 && e !== -1) items = JSON.parse(t.slice(s, e + 1));
+  } catch { return; }
+
+  let n = 0;
+  for (let i = 0; i < items.length && i < 4; i++) {
+    const it = items[i];
+    if (!it?.title || typeof it.title !== 'string') continue;
+    const rec = await recordObservation(supabase, {
+      workspaceId, entityId: contactId, kind: 'state',
+      property: `action_item.email_${activityId}_${i}`,
+      value: {
+        title:       it.title.trim(),
+        owner_kind:  it.owner_kind === 'prospect' ? 'prospect' : 'user',
+        status:      'open',
+        due_phrase:  it.due_phrase || null,
+        source_type: 'email',
+        source_id:   activityId,
+      },
+      source:     source || 'email',
+      method:     'extraction',
+      externalId: `action_item_email_${activityId}_${i}`,
+    }).catch(() => null);
+    if (rec) n++;
+  }
+  if (n) console.log(`[ACTION_ITEMS] ${n} from email — contact ${contactId}`);
+}
+
 // ── Public export — call this after every logActivity ────────────────────────
 
 export async function extractAfterActivity(supabase, activityResult, { contactId, workspaceId, type, source, summary, isOutbound }) {
   if (!activityResult?.id) return;
   if (!SIGNAL_WORTHY_TYPES.has(type)) return;
+  if (!summary || summary.length < 20) return;
+  if (SIGNAL_NOISE.some(p => p.test(summary))) return;
+
+  // Action items mine BOTH directions (the user's own "I'll send X" counts), so
+  // they run before the inbound-only guard below.
+  if (EMAIL_TYPES.has(type)) {
+    setImmediate(() =>
+      extractEmailActionItems({ supabase, activityId: activityResult.id, contactId, workspaceId, source, summary, isOutbound })
+        .catch(err => console.warn('[ACTION_ITEM_HOOK_ERROR]', err.message))
+    );
+  }
+
   // Never extract "facts about the contact" from a message the USER sent — that
   // would attribute our own questions/offers to them (e.g. "interested in X"
   // when we were the one asking about X). Only the contact's own words (inbound
   // messages, meeting transcripts) describe the contact.
   if (isOutbound === true) return;
-  if (!summary || summary.length < 20) return;
-  if (SIGNAL_NOISE.some(p => p.test(summary))) return;
 
   setImmediate(() =>
     extractActivitySignals({
