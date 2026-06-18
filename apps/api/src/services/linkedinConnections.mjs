@@ -62,12 +62,20 @@ export async function syncLinkedInConnections(supabase, workspaceId) {
     } while (cursor && rows.length < MAX_RELATIONS);
   }
 
-  console.log('[sync] relations fetched', rows.length, 'sample', JSON.stringify(rows[0] || null));
+  console.log('[sync] relations fetched', rows.length);
   if (!rows.length) return { synced: 0, added: 0, marked: 0, accounts: accountIds.length };
 
-  // 2. Insert list membership — per-list dedup skips anyone already in the list.
-  const ins = await insertLeads(supabase, workspaceId, list.id, rows, { importDuplicates: false });
-  console.log('[sync] insertLeads', JSON.stringify(ins));
+  // 2. Insert membership in BATCHES. The leads-view INSERT trigger resolves
+  //    identity per row, so a single ~1000-row insert blows the Postgres
+  //    statement timeout (57014). Each batch is its own statement, well under
+  //    the limit, and commits independently — so a re-run resumes (per-list
+  //    dedup skips what's already in).
+  let added = 0;
+  for (let i = 0; i < rows.length; i += 100) {
+    const ins = await insertLeads(supabase, workspaceId, list.id, rows.slice(i, i + 100), { importDuplicates: false });
+    added += ins.inserted ?? 0;
+  }
+  console.log('[sync] insertLeads added', added);
 
   // 3. Mark every list member 'connected': bulk-write interaction.linkedin_connected
   //    for any entity that doesn't already have one (idempotent; the view's status
@@ -94,9 +102,9 @@ export async function syncLinkedInConnections(supabase, workspaceId) {
     source: 'linkedin', method: 'backfill', observed_at: now,
     external_id: `li_conn_backfill_${id}`,
   }));
-  for (let i = 0; i < obs.length; i += 500) {
-    await supabase.from('observations').insert(obs.slice(i, i + 500)).then(() => {}, () => {});
+  for (let i = 0; i < obs.length; i += 200) {
+    await supabase.from('observations').insert(obs.slice(i, i + 200)).then(() => {}, () => {});
   }
 
-  return { synced: rows.length, added: ins.inserted ?? 0, marked: obs.length, accounts: accountIds.length };
+  return { synced: rows.length, added, marked: obs.length, accounts: accountIds.length };
 }
