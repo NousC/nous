@@ -16,6 +16,30 @@ async function ensureConnectionsList(supabase, workspaceId) {
     || await createLeadList(supabase, workspaceId, { name: CONNECTIONS_LIST_NAME, source: CONNECTIONS_SOURCE });
 }
 
+// Bulk-write a funnel observation for the given entities that don't already have
+// one (idempotent via external_id). Returns how many it wrote. Drives the lead's
+// status in the leads view (connected / messaged / replied).
+async function markFunnel(supabase, workspaceId, ids, property, prefix) {
+  if (!ids.length) return 0;
+  const have = new Set();
+  for (let i = 0; i < ids.length; i += 200) {
+    const { data } = await supabase.from('observations').select('entity_id')
+      .eq('workspace_id', workspaceId).eq('property', property)
+      .in('entity_id', ids.slice(i, i + 200));
+    for (const o of (data || [])) have.add(o.entity_id);
+  }
+  const now = new Date().toISOString();
+  const obs = ids.filter(id => !have.has(id)).map(id => ({
+    workspace_id: workspaceId, entity_id: id, kind: 'event',
+    property, value: { backfill: true }, source: 'linkedin', method: 'backfill',
+    observed_at: now, external_id: `${prefix}${id}`,
+  }));
+  for (let i = 0; i < obs.length; i += 200) {
+    await supabase.from('observations').insert(obs.slice(i, i + 200)).then(() => {}, () => {});
+  }
+  return obs.length;
+}
+
 export async function syncLinkedInConnections(supabase, workspaceId) {
   if (!process.env.UNIPILE_API_KEY || !process.env.UNIPILE_DSN) return { error: 'not_configured' };
   const base = `https://${process.env.UNIPILE_DSN}`;
@@ -77,9 +101,7 @@ export async function syncLinkedInConnections(supabase, workspaceId) {
   }
   console.log('[sync] insertLeads added', added);
 
-  // 3. Mark every list member 'connected': bulk-write interaction.linkedin_connected
-  //    for any entity that doesn't already have one (idempotent; the view's status
-  //    keeps a higher stage — messaged/replied — if it exists).
+  // 3. Set the funnel from real history. First mark every list member 'connected'.
   const ids = [];
   for (let from = 0; ; from += 1000) {
     const { data } = await supabase.from('leads').select('id')
@@ -88,23 +110,25 @@ export async function syncLinkedInConnections(supabase, workspaceId) {
     ids.push(...data.map(r => r.id));
     if (data.length < 1000) break;
   }
-  const have = new Set();
-  for (let i = 0; i < ids.length; i += 200) {
-    const { data } = await supabase.from('observations').select('entity_id')
-      .eq('workspace_id', workspaceId).eq('property', 'interaction.linkedin_connected')
-      .in('entity_id', ids.slice(i, i + 200));
-    for (const o of (data || [])) have.add(o.entity_id);
-  }
-  const now = new Date().toISOString();
-  const obs = ids.filter(id => !have.has(id)).map(id => ({
-    workspace_id: workspaceId, entity_id: id, kind: 'event',
-    property: 'interaction.linkedin_connected', value: { backfill: true },
-    source: 'linkedin', method: 'backfill', observed_at: now,
-    external_id: `li_conn_backfill_${id}`,
-  }));
-  for (let i = 0; i < obs.length; i += 200) {
-    await supabase.from('observations').insert(obs.slice(i, i + 200)).then(() => {}, () => {});
-  }
+  const marked = await markFunnel(supabase, workspaceId, ids, 'interaction.linkedin_connected', 'li_conn_backfill_');
 
-  return { synced: rows.length, added, marked: obs.length, accounts: accountIds.length };
+  // Then layer 'messaged' / 'replied' from the per-person LinkedIn counters
+  // (channels.linkedin.messages_sent / messages_received) — the direction-aware
+  // source, since the message observations don't carry direction. Scoped to list
+  // members; the view keeps the highest stage (replied > messaged > connected).
+  const idSet = new Set(ids);
+  const { data: chans } = await supabase.from('claims')
+    .select('entity_id, value').eq('workspace_id', workspaceId).eq('property', 'channels');
+  const sentIds = [], repliedIds = [];
+  for (const c of (chans || [])) {
+    if (!idSet.has(c.entity_id)) continue;
+    const li = c.value?.linkedin || {};
+    if ((li.messages_sent || 0) > 0) sentIds.push(c.entity_id);
+    if ((li.messages_received || 0) > 0) repliedIds.push(c.entity_id);
+  }
+  const messaged = await markFunnel(supabase, workspaceId, sentIds, 'interaction.linkedin_message_sent', 'li_msgsent_backfill_');
+  const replied = await markFunnel(supabase, workspaceId, repliedIds, 'interaction.linkedin_reply', 'li_reply_backfill_');
+  console.log('[sync] funnel marked', { marked, messaged, replied });
+
+  return { synced: rows.length, added, marked, messaged, replied, accounts: accountIds.length };
 }
