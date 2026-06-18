@@ -17,6 +17,9 @@ Grouped by area. Each group has a **start-here** doc; the rest are deep-dives.
 ## Platform mechanics
 - [Identity Resolution](./identity-resolution.md) — matching every inbound signal
   to the right contact/entity.
+- [Enrichment Waterfall](./enrichment-waterfall.md) — how a thin lead gets its
+  firmographics and email: the identifier waterfall, provider precedence
+  (Apollo → Prospeo), member-URN handling, URL healing, and provenance.
 - [Pipeline Stages](./pipeline-stages.md) — behavior-driven stage advancement and
   decay.
 - [Deal Health Score](./deal-health-score.md) — the 0–100 close-likelihood signal.
