@@ -106,13 +106,22 @@ async function request(method, path, { body, query } = {}) {
   });
 
   if (!res.ok) {
-    let errorMessage;
-    try {
-      const err = await res.json();
-      errorMessage = err.error || err.message || res.statusText;
-    } catch {
-      errorMessage = res.statusText;
+    let err = {};
+    try { err = await res.json(); } catch { /* non-JSON body */ }
+    // Cloud-only feature on a self-hosted workspace: turn the raw 403 into a clear,
+    // non-alarming message so the agent stops reaching for it and explains why.
+    if (res.status === 403 && err.error === "cloud_only_feature") {
+      const feat = err.feature === "crmSync" ? "CRM sync"
+        : err.feature === "leadLists" ? "lead lists"
+        : err.feature || "this";
+      throw new Error(
+        `This is a Nous Cloud feature (${feat}) and isn't available on a self-hosted ` +
+        `workspace. CRM sync and lead lists are the cloud-only team layer — everything ` +
+        `else (context, accounts, ICP scoring, notes, integrations) works on self-host. ` +
+        `Don't retry; tell the user this needs Nous Cloud.`
+      );
     }
+    const errorMessage = err.error || err.message || res.statusText;
     throw new Error(`Nous API error (${res.status}): ${errorMessage}`);
   }
 

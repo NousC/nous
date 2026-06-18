@@ -1,4 +1,4 @@
-import { useState, useEffect, type ComponentType } from "react";
+import { useState, useEffect, useRef, type ComponentType, type ChangeEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Sun, Moon, Monitor, LogOut, Plus, Trash2, X,
@@ -13,6 +13,35 @@ import { generateCodename, type SettingsTab } from "@/components/mind/shared";
 import { PageHeader } from "@/components/ui/page-header";
 
 const apiUrl = import.meta.env.VITE_API_URL ?? "";
+
+// Resize/crop an uploaded image to a centered 256x256 square and return a small
+// JPEG data URL. Keeps the stored avatar tiny (~20-40KB) so it fits the users
+// table's profile_picture_url column with no object-storage bucket to configure.
+function fileToAvatarDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("read failed"));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error("decode failed"));
+      img.onload = () => {
+        const size = 256;
+        const canvas = document.createElement("canvas");
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return reject(new Error("no canvas"));
+        const min = Math.min(img.width, img.height);
+        const sx = (img.width - min) / 2;
+        const sy = (img.height - min) / 2;
+        ctx.drawImage(img, sx, sy, min, min, 0, 0, size, size);
+        resolve(canvas.toDataURL("image/jpeg", 0.85));
+      };
+      img.src = reader.result as string;
+    };
+    reader.readAsDataURL(file);
+  });
+}
 
 // Operator-only admin tools. The Admin tab + these routes are gated on
 // userData.user.is_admin, which the API only reports for allowlisted emails
@@ -213,6 +242,35 @@ export default function Settings() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+  const [avatarSaving, setAvatarSaving] = useState(false);
+
+  const saveAvatar = async (value: string | null) => {
+    if (!token) return;
+    setAvatarSaving(true);
+    try {
+      const res = await fetch(`${apiUrl}/api/users/me`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ profile_picture_url: value }),
+      });
+      if (res.ok) { toast.success(value ? "Profile picture updated" : "Profile picture removed"); refreshUserData(); }
+      else { const e = await res.json().catch(() => ({})); toast.error(e.error || "Couldn't save picture"); }
+    } finally { setAvatarSaving(false); }
+  };
+
+  const onAvatarPick = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // let the same file be re-picked later
+    if (!file) return;
+    if (!file.type.startsWith("image/")) { toast.error("Please choose an image file"); return; }
+    setAvatarSaving(true);
+    try {
+      const dataUrl = await fileToAvatarDataUrl(file);
+      await saveAvatar(dataUrl);
+    } catch { toast.error("Couldn't process that image"); setAvatarSaving(false); }
+  };
+
   const saveName = async () => {
     if (!token) return;
     setNameSaving(true);
@@ -348,6 +406,39 @@ export default function Settings() {
           <div className="max-w-sm">
             <h3 className="text-[15px] font-semibold text-foreground mb-5">Profile</h3>
             <div className="space-y-5">
+              <div>
+                <div className={fieldLabel}>Profile picture</div>
+                <div className="flex items-center gap-3.5">
+                  <button
+                    type="button"
+                    onClick={() => avatarInputRef.current?.click()}
+                    disabled={avatarSaving}
+                    title="Upload a new picture"
+                    className="group relative h-12 w-12 shrink-0 rounded-full overflow-hidden border border-border bg-muted flex items-center justify-center"
+                  >
+                    {userData?.user?.profile_picture_url
+                      ? <img src={userData.user.profile_picture_url} alt="" className="h-full w-full object-cover" />
+                      : <span className="text-[16px] font-semibold text-muted-foreground/70">{(name || userData?.user?.email || "?").trim().charAt(0).toUpperCase()}</span>}
+                    <span className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                      <Upload className="h-3.5 w-3.5 text-white" />
+                    </span>
+                  </button>
+                  <div className="flex items-center gap-2.5 text-[12px]">
+                    <button onClick={() => avatarInputRef.current?.click()} disabled={avatarSaving} className="font-medium text-muted-foreground/80 hover:text-foreground transition-colors">
+                      {avatarSaving ? "Saving…" : userData?.user?.profile_picture_url ? "Change" : "Upload"}
+                    </button>
+                    {userData?.user?.profile_picture_url && (
+                      <>
+                        <span className="text-muted-foreground/30">·</span>
+                        <button onClick={() => saveAvatar(null)} disabled={avatarSaving} className="text-muted-foreground/50 hover:text-foreground transition-colors">
+                          Remove
+                        </button>
+                      </>
+                    )}
+                  </div>
+                  <input ref={avatarInputRef} type="file" accept="image/*" className="hidden" onChange={onAvatarPick} />
+                </div>
+              </div>
               <div>
                 <div className={fieldLabel}>Email</div>
                 <div className="text-[13px] text-muted-foreground">{userData?.user?.email}</div>

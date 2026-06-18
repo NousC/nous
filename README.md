@@ -19,7 +19,7 @@
 
 # Nous
 
-**The GTM Context API for agents.** Unify your GTM tools into a single customer graph with every person, conversation and touchpoint in one record, ready for any Agent. Open source, and available as a [hosted service](https://opennous.cloud).
+**The GTM Context API for agents.** Unify your GTM tools into a single context graph with every person, conversation and touchpoint in one record, ready for any Agent. Open source, and available as a [hosted service](https://opennous.cloud).
 
 ---
 

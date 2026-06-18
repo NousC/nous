@@ -1,4 +1,4 @@
-# Nous is this workspace's GTM customer graph
+# Nous is this workspace's GTM context graph
 
 Nous resolves every person, conversation, and touchpoint across our GTM stack into
 one identity-resolved Account Record. Each fact carries its confidence and freshness,

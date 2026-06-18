@@ -38,7 +38,7 @@ A few things follow from this.
 
 ## Built to avoid the costly mistake
 
-The expensive failure in any customer graph is fusing two real people into one. Nous is tuned to avoid that. It links only when the evidence is strong, it flags the uncertain cases for a human instead of forcing a guess, and the links it does make can be reversed. When Nous is unsure, it keeps people apart and tells you, rather than quietly blending two histories.
+The expensive failure in any context graph is fusing two real people into one. Nous is tuned to avoid that. It links only when the evidence is strong, it flags the uncertain cases for a human instead of forcing a guess, and the links it does make can be reversed. When Nous is unsure, it keeps people apart and tells you, rather than quietly blending two histories.
 
 ## A few examples
 

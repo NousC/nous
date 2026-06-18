@@ -26,9 +26,11 @@ export async function syncLinkedInConnections(supabase, workspaceId) {
     .select('unipile_account_id')
     .eq('workspace_id', workspaceId);
   const accountIds = [...new Set((accounts || []).map(a => a.unipile_account_id).filter(Boolean))];
+  console.log('[sync] accounts', accountIds.length, accountIds);
   if (!accountIds.length) return { error: 'no_account' };
 
   const list = await ensureConnectionsList(supabase, workspaceId);
+  console.log('[sync] list', list?.id);
 
   // 1. Pull relations from every connected account, paginated by cursor.
   const rows = [];
@@ -60,10 +62,12 @@ export async function syncLinkedInConnections(supabase, workspaceId) {
     } while (cursor && rows.length < MAX_RELATIONS);
   }
 
+  console.log('[sync] relations fetched', rows.length, 'sample', JSON.stringify(rows[0] || null));
   if (!rows.length) return { synced: 0, added: 0, marked: 0, accounts: accountIds.length };
 
   // 2. Insert list membership — per-list dedup skips anyone already in the list.
   const ins = await insertLeads(supabase, workspaceId, list.id, rows, { importDuplicates: false });
+  console.log('[sync] insertLeads', JSON.stringify(ins));
 
   // 3. Mark every list member 'connected': bulk-write interaction.linkedin_connected
   //    for any entity that doesn't already have one (idempotent; the view's status

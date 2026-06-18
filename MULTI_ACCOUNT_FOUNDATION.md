@@ -2,7 +2,7 @@
 
 > Status: **design scope, pre-build.** Companion to [PRICING_MODEL.md](./PRICING_MODEL.md).
 > Goal: let one workspace run multiple operating identities (reps) — each with their own
-> LinkedIn account and mailbox(es) — over a single shared, deduped customer graph, with
+> LinkedIn account and mailbox(es) — over a single shared, deduped context graph, with
 > every interaction attributed to the rep it came through. Plus the one gate we keep:
 > connected-LinkedIn-account count per plan.
 

@@ -45,7 +45,7 @@ The standing instruction for Claude Code. Loaded once per session by the plugin'
 lives in `plugins/nous/hooks/routing.concise.txt`.
 
 ```
-# Nous is this workspace's GTM customer graph
+# Nous is this workspace's GTM context graph
 
 Nous resolves every person, conversation, and touchpoint across our GTM stack into
 one identity-resolved Account Record. Each fact carries its confidence and freshness,
@@ -93,9 +93,9 @@ and the most common Nous intents. Propagation can take up to an hour across Clau
 products.
 
 ```
-# Nous is this workspace's customer graph
+# Nous is this workspace's context graph
 
-Nous is our customer graph for GTM. It resolves every person, conversation, and
+Nous is our context graph for GTM. It resolves every person, conversation, and
 touchpoint across our GTM tool stack into one account record, with each fact's
 confidence and freshness, the full interaction timeline, a 0-100 ICP fit score on
 every account, plus our own ICP, positioning, and pricing. Agents read engineered
@@ -146,9 +146,9 @@ For Desktop / claude.ai when you want headroom to layer workspace-specific rules
 call tools, plus write discipline.
 
 ```
-# Nous is this workspace's customer graph for GTM
+# Nous is this workspace's context graph for GTM
 
-Nous is our customer graph for GTM. It resolves every person, conversation, and
+Nous is our context graph for GTM. It resolves every person, conversation, and
 touchpoint across our GTM tool stack into one account record. It holds the known
 facts with their confidence and freshness, the full interaction timeline, a 0-100
 ICP fit score on every account, and our own ICP, positioning, pricing, and

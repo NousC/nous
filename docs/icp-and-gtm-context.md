@@ -1,4 +1,4 @@
-# The ICP Model & GTM Context — how Nous learns who you sell to
+# Evolving ICP Model
 
 **Status:** reference (shipped). **Owner:** GTM Context / the Mind. The single ICP doc.
 **The page:** `apps/frontend/src/pages/Intelligence.tsx` (route `/intelligence`, "Context").
