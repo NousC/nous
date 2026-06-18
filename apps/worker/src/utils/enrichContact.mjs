@@ -365,6 +365,16 @@ async function enrichViaProspeo(supabase, contact, prospeoKey) {
     }
 
     await recordEnrichmentObservations(supabase, workspaceId, contact.id, 'prospeo', updates);
+    // Multi-position: full role history as a background `positions` fact (not shown
+    // in record details, which renders only the primary). Preserves secondary roles
+    // for agents/backend. Mirrors the API path.
+    if (Array.isArray(person.job_history) && person.job_history.length) {
+      await recordObservation(supabase, {
+        workspaceId, entityId: contact.id, kind: 'state',
+        property: 'positions', value: person.job_history,
+        source: 'prospeo', method: 'enrichment', externalId: `prospeo_positions_${contact.id}`,
+      }).catch(() => {});
+    }
     const viewUpdate = { ...updates };
     for (const f of ENRICH_STRIP) delete viewUpdate[f];
     if (Object.keys(viewUpdate).length) await supabase.from('contacts').update(viewUpdate).eq('id', contact.id);

@@ -8,7 +8,7 @@ import {
   logActivity, listSignals, scoreLead,
   listNotes,
   resolveEntity, getOrCreateEntity, identifiersFromContactData,
-  recordEnrichmentObservations,
+  recordEnrichmentObservations, recordObservation,
   companyDomainFromEmail, isFreeEmailDomain, isMemberUrnLinkedInUrl, upsertIdentifier,
 } from '@nous/core';
 import { decrypt } from '../utils/encryption.js';
@@ -534,6 +534,19 @@ async function enrichContactViaProspeo(supabase, contact, prospeoKey) {
 
     if (foundEmailStatus) updates.reachability_status = foundEmailStatus;
     await recordEnrichmentObservations(supabase, contact.workspace_id, contact.id, 'prospeo', updates);
+
+    // Multi-position: store the FULL role history as a background `positions` fact.
+    // The record-details UI only renders the single primary job_title/company (kept
+    // by fill-empty above), so this never changes what's shown — but it preserves
+    // secondary roles (e.g. Founder @ own-company AND a Fractional gig) for agents
+    // and the backend. Deduped per contact so re-enrichment refreshes it in place.
+    if (Array.isArray(person.job_history) && person.job_history.length) {
+      await recordObservation(supabase, {
+        workspaceId: contact.workspace_id, entityId: contact.id, kind: 'state',
+        property: 'positions', value: person.job_history,
+        source: 'prospeo', method: 'enrichment', externalId: `prospeo_positions_${contact.id}`,
+      }).catch(() => {});
+    }
     const viewUpdate = { ...updates };
     for (const f of ENRICH_STRIP) delete viewUpdate[f];
     if (Object.keys(viewUpdate).length) await supabase.from('contacts').update(viewUpdate).eq('id', contact.id);
