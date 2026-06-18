@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { getSupabaseClient } from '@nous/core';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
+import { syncLinkedInConnections } from '../../services/linkedinConnections.mjs';
 
 export const linkedinRouter = Router();
 
@@ -151,6 +152,23 @@ linkedinRouter.get('/connect', verifySupabaseAuth, async (req, res) => {
     const data = await response.json();
     if (!data.url) return res.status(500).json({ error: 'failed_to_create_auth_link' });
     return res.json({ url: data.url });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Backfill the native "LinkedIn Connections" list from the user's existing
+// 1st-degree connections (Unipile relations). The webhooks only fill it going
+// forward; this seeds the back-catalog. Safe to re-run.
+linkedinRouter.post('/connections/sync', verifySupabaseAuth, async (req, res) => {
+  try {
+    const supabase = getSupabaseClient();
+    const workspaceId = req.body?.workspaceId || req.query.workspaceId;
+    if (!workspaceId || !UUID.test(workspaceId)) return res.status(400).json({ error: 'invalid_workspace_id' });
+    const result = await syncLinkedInConnections(supabase, workspaceId);
+    if (result.error === 'not_configured') return res.status(503).json({ error: 'linkedin_not_configured' });
+    if (result.error === 'no_account') return res.status(409).json({ error: 'no_linkedin_account' });
+    return res.json(result);
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }

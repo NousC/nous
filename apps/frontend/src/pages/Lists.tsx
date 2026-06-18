@@ -359,6 +359,7 @@ export default function Lists() {
   const [counts, setCounts] = useState<{ icp: number; non_icp: number } | null>(null);
   // Connect → message → reply funnel counts for the native LinkedIn Connections list.
   const [funnel, setFunnel] = useState<{ connected: number; messaged: number; replied: number } | null>(null);
+  const [syncingConn, setSyncingConn] = useState(false);
   // Per-column width overrides (drag-to-resize), keyed by column key, persisted.
   const [colW, setColW] = useState<Record<string, number>>(() => {
     try { return JSON.parse(localStorage.getItem("lists.colW") || "{}"); } catch { return {}; }
@@ -485,6 +486,28 @@ export default function Lists() {
     const fbParam = fbFilters.map(f => `&${f.field}=${encodeURIComponent(f.value)}`).join("");
     return `${icpParam}${outParam}${fbParam}`;
   }, [icpFilter, statusFilter, replyFilter, fbFilters]);
+
+  // Backfill the LinkedIn Connections list from the user's existing connections
+  // (Unipile relations). One-time/on-demand; the webhooks keep it current after.
+  const syncConnections = async () => {
+    if (!activeId || syncingConn) return;
+    setSyncingConn(true);
+    try {
+      const res = await fetch(`${apiUrl}/api/linkedin/connections/sync`, {
+        method: "POST", headers: { ...authHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ workspaceId }),
+      });
+      if (res.status === 409) { toast("Connect your LinkedIn account in Integrations first."); return; }
+      if (res.status === 503) { toast("LinkedIn isn't configured on this workspace."); return; }
+      if (!res.ok) { toast("Couldn't sync connections — try again."); return; }
+      const d = await res.json();
+      toast.success(`Synced ${Number(d.synced ?? 0).toLocaleString()} connections from LinkedIn.`);
+      clearLeadsCache();
+      await loadLists();
+      await loadLeads(activeId, 0, "all", "recent");
+    } catch { toast("Couldn't sync connections — try again."); }
+    finally { setSyncingConn(false); }
+  };
 
   // Every lead matching the current filters across all pages — paged in 1000s.
   // Backs "select all matching" and whole-list exports; the variable cost is one
@@ -1400,7 +1423,8 @@ export default function Lists() {
                 otherwise the ICP segmentation chips. */}
             <div className="flex items-center gap-1.5">
               {activeList?.source === "linkedin_connections" ? (
-                funnel ? ([
+                <>
+                {funnel ? ([
                   { label: "Connected", n: funnel.connected, cls: "text-foreground" },
                   { label: "Messaged",  n: funnel.messaged,  cls: "text-foreground" },
                   { label: "Replied",   n: funnel.replied,   cls: "text-green-700 dark:text-green-500" },
@@ -1411,7 +1435,13 @@ export default function Lists() {
                       {s.label} <span className="tabular-nums opacity-70">{s.n.toLocaleString()}</span>
                     </span>
                   </span>
-                )) : <span className="text-[12px] text-muted-foreground/50">Loading funnel…</span>
+                )) : <span className="text-[12px] text-muted-foreground/50">Loading funnel…</span>}
+                <button onClick={syncConnections} disabled={syncingConn}
+                  title="Pull your existing LinkedIn connections into this list"
+                  className="inline-flex items-center gap-1.5 h-7 px-2.5 ml-1 rounded-md text-[12px] font-medium border border-border text-foreground/80 hover:bg-muted/50 transition-colors disabled:opacity-40">
+                  <RefreshCw className={`h-3.5 w-3.5 ${syncingConn ? "animate-spin" : ""}`} /> {syncingConn ? "Syncing…" : "Sync from LinkedIn"}
+                </button>
+                </>
               ) : hasIcp && ([
                 ["all", "All", activeList?.lead_count ?? (counts ? counts.icp + counts.non_icp : null)],
                 ["icp", "ICP", counts?.icp ?? null],
