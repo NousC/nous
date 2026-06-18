@@ -17,9 +17,9 @@ const PIPELINE_STAGES = ["identified", "aware", "connected", "interested", "eval
 // Persisted per user in localStorage; see useColumnWidths.
 const PEOPLE_COL_DEFAULTS: Record<string, number> = {
   name: 170, company: 115, domain: 100, li: 40, stage: 88,
-  icp: 42, deal: 88, segment: 72, lastActivity: 120,
+  icp: 42, lastActivity: 120,
 };
-const PEOPLE_COL_KEYS = ["name","company","domain","li","stage","icp","deal","segment","lastActivity"];
+const PEOPLE_COL_KEYS = ["name","company","domain","li","stage","icp","lastActivity"];
 
 type DetailTab = "activity" | "emails" | "linkedin" | "slack" | "calls" | "notes" | "signals" | "company" | "memory";
 
@@ -368,7 +368,7 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
   const [q, setQ] = useState("");
   const [stage, setStage] = useState("");
   const [page, setPage] = useState(0);
-  const [sortCol, setSortCol] = useState<"lastActivity"|"deal"|"icp"|null>(null);
+  const [sortCol, setSortCol] = useState<"lastActivity"|"icp"|null>(null);
   const [sortDir, setSortDir] = useState<"asc"|"desc">("asc");
   const { widths, startResize } = useColumnWidths("nous.people.colWidths", PEOPLE_COL_DEFAULTS);
   const colW = (c: string) => widths[c] ?? PEOPLE_COL_DEFAULTS[c];
@@ -419,7 +419,7 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
 
   // firstDir = the direction the first click applies. Cycle: off → firstDir →
   // opposite → off. ICP passes "desc" so the first click puts the best fits on top.
-  const cycleSort = (col: "lastActivity"|"deal"|"icp", firstDir: "asc"|"desc" = "asc") => {
+  const cycleSort = (col: "lastActivity"|"icp", firstDir: "asc"|"desc" = "asc") => {
     if (sortCol !== col) { setSortCol(col); setSortDir(firstDir); }
     else if (sortDir === firstDir) setSortDir(firstDir === "asc" ? "desc" : "asc");
     else { setSortCol(null); setPage(0); }
@@ -433,10 +433,6 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
   const sorted = [...filtered].sort((a,b) => {
     if (sortCol === "lastActivity") {
       const cmp = (a.lastActivityAt??"").localeCompare(b.lastActivityAt??"");
-      return sortDir === "asc" ? cmp : -cmp;
-    }
-    if (sortCol === "deal") {
-      const cmp = (a.dealStage??"").localeCompare(b.dealStage??"");
       return sortDir === "asc" ? cmp : -cmp;
     }
     if (sortCol === "icp") {
@@ -469,7 +465,7 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
   // Sortable + resizable header cell (fixed-width columns). The relative wrapper
   // anchors the drag handle to the cell's right edge; widthKey ties the width to
   // the persisted store (defaults to the sort column name).
-  const SortBtn = ({ col, label, widthKey, firstDir = "asc" }: { col:"deal"|"icp"; label:string; widthKey?:string; firstDir?:"asc"|"desc" }) => {
+  const SortBtn = ({ col, label, widthKey, firstDir = "asc" }: { col:"icp"; label:string; widthKey?:string; firstDir?:"asc"|"desc" }) => {
     const wk = widthKey ?? col;
     return (
       <div className="relative flex items-center flex-shrink-0 overflow-hidden" style={{width: colW(wk)}}>
@@ -574,8 +570,6 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
             <PlainHdr label="LI"      widthKey="li" />
             <PlainHdr label="Stage"   widthKey="stage" />
             <SortBtn  col="icp"  label="ICP"  firstDir="desc" />
-            <SortBtn  col="deal" label="Deal" />
-            <PlainHdr label="Segment" widthKey="segment" />
             <SortBtnFlex col="lastActivity" label="Last Int." />
             {/* Trailing filler — grows only on wide screens, shrinks to 0 (then the
                 grid scrolls) so it never steals width from a column being resized. */}
@@ -603,8 +597,6 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
               </div>
               <button onClick={() => setDetail(c)} className="text-[13px] pr-2 flex-shrink-0 text-left capitalize" style={{width:colW("stage"),color:stageColor(c.pipelineStage)}}>{c.pipelineStage}</button>
               <button onClick={() => setDetail(c)} className="text-[13px] text-muted-foreground pr-2 flex-shrink-0 text-left tabular-nums" style={{width:colW("icp")}}>{c.icpScore != null ? c.icpScore : "—"}</button>
-              <button onClick={() => setDetail(c)} className="text-[13px] text-muted-foreground truncate pr-2 flex-shrink-0 text-left" style={{width:colW("deal")}}>{c.dealStage ?? "—"}</button>
-              <button onClick={() => setDetail(c)} className="text-[13px] text-muted-foreground truncate pr-2 flex-shrink-0 text-left" style={{width:colW("segment")}}>{c.segmentLabel ?? "—"}</button>
               <button onClick={() => setDetail(c)} className="text-[13px] text-muted-foreground flex-shrink-0 truncate pr-2 text-left" style={{width:colW("lastActivity")}}>{relTime(c.lastActivityAt)}</button>
               <div className="flex-1 min-w-0" />
               <div className="flex-shrink-0 flex items-center justify-end gap-2" style={{width:78}}>
