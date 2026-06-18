@@ -14,7 +14,7 @@ const PAGE_SIZE = 50;
 // is flex-1 and not listed here — it absorbs the leftover space. Persisted per
 // user in localStorage; see useColumnWidths.
 const CO_COL_DEFAULTS: Record<string, number> = {
-  name: 160, domain: 100, topContacts: 150, icp: 46, industry: 84, location: 104,
+  name: 190, domain: 100, topContacts: 150, icp: 46, industry: 84, location: 104,
   lastActivity: 116, contacts: 72, stage: 92,
 };
 
@@ -111,7 +111,7 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
   const colW = (c: string) => widths[c] ?? CO_COL_DEFAULTS[c];
   // Total content width (columns + 28px delete col + px-4 row padding) so the
   // table scrolls horizontally instead of squeezing columns to a fixed width.
-  const CO_COL_KEYS = ["name","domain","stage","topContacts","icp","industry","location","lastActivity","contacts"];
+  const CO_COL_KEYS = ["name","stage","topContacts","icp","industry","location","lastActivity","contacts"];
   const ROW_MIN = CO_COL_KEYS.reduce((s,k)=>s+colW(k),0) + 28 + 32;
 
   const deleteCompany = async (cid: string, e: React.MouseEvent) => {
@@ -479,7 +479,6 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
           {/* Table header — sticky top; Company frozen left */}
           <div className="flex items-center px-4 py-2.5 bg-muted/50 border-b border-border sticky top-0 z-20">
             <SortHdr col="name"         label="Company" sticky />
-            <PlainHdr label="Domain"    widthKey="domain" />
             <SortHdr col="stage"        label="Stage"     firstDir="desc" />
             <PlainHdr label="Top Contacts" widthKey="topContacts" />
             <SortHdr col="icp"          label="ICP"       firstDir="desc" />
@@ -498,10 +497,10 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
             const topContacts = co.contacts.slice(0,3).map(c=>c.name.split(" ")[0]).join(", ");
             return (
             <div key={co.id} className="flex items-center px-4 py-3 border-b border-border/60 last:border-0 hover:bg-muted/50 transition-colors group">
-              <button onClick={() => setDetail(co)} className="flex items-center flex-shrink-0 text-left sticky left-0 z-10 bg-background group-hover:bg-muted/50" style={{width:colW("name")}}>
-                <span className="text-[13px] font-medium text-foreground truncate">{co.name}</span>
+              <button onClick={() => setDetail(co)} className="flex-shrink-0 text-left min-w-0 pr-3 sticky left-0 z-10 bg-background group-hover:bg-muted/50" style={{width:colW("name")}}>
+                <div className="text-[13px] font-medium text-foreground truncate">{co.name}</div>
+                {co.domain && <div className="text-[12px] text-muted-foreground/70 truncate">{co.domain}</div>}
               </button>
-              <span className="text-[13px] text-muted-foreground flex-shrink-0 truncate pr-2" style={{width:colW("domain")}}>{co.domain??"—"}</span>
               <span className="text-[13px] flex-shrink-0 truncate pr-2" style={{width:colW("stage"),color:co.stage?stageColor(co.stage):""}}>{co.stage??"—"}</span>
               <button onClick={()=>setDetail(co)} className="text-[13px] text-muted-foreground flex-shrink-0 truncate pr-2 text-left" style={{width:colW("topContacts")}}>{topContacts||"—"}</button>
               <span className="text-[13px] flex-shrink-0 tabular-nums" style={{width:colW("icp"),color:co.icpScore!=null?icpColor(co.icpScore):""}}>
