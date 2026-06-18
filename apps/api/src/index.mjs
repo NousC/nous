@@ -29,6 +29,7 @@ import { notesV2Router } from './routes/v2/notes.mjs';
 import { signalsV2Router } from './routes/v2/signals.mjs';
 import { peopleV2Router } from './routes/v2/people.mjs';
 import { leadsV2Router } from './routes/v2/leads.mjs';
+import { actionItemsV2Router } from './routes/v2/actionItems.mjs';
 
 // /api — Frontend API (Supabase JWT auth)
 import { apiKeysRouter } from './routes/api/apiKeys.mjs';
@@ -147,6 +148,7 @@ app.use('/v2/notes',           verifyApiKey,     requireOpsBalance, logV2Op, not
 app.use('/v2/signals',         verifyApiKey,     requireOpsBalance, logV2Op, signalsV2Router);
 app.use('/v2/people',          verifyApiKey,     requireOpsBalance, logV2Op, peopleV2Router);
 app.use('/v2/leads',           verifyApiKey,     requireOpsBalance, logV2Op, requireFeature('leadLists'), leadsV2Router);
+app.use('/v2/action-items',    verifyApiKey,     requireOpsBalance, logV2Op, actionItemsV2Router);
 
 // ── /api — Frontend API ───────────────────────────────────────────────────────
 app.use('/me',                        meRouter); // legacy path used by AuthContext
