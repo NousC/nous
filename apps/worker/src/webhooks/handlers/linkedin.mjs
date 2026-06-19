@@ -31,6 +31,44 @@ async function logSysEvent(supabase, workspaceId, source, eventType, summary, co
   } catch { /* non-critical — never block the webhook response */ }
 }
 
+// A LinkedIn message with no text is a voice note / image / attachment. Label it
+// by media type so the timeline reads "Voice memo received" instead of a generic
+// "LinkedIn message (received)" placeholder. Defensive across Unipile shapes —
+// `src` is the webhook body or a Unipile chat-message object.
+function linkedinMediaLabel(src) {
+  if (!src || typeof src !== 'object') return null;
+  const hint = String(src.message_type || src.message?.type || src.attachment_type || '').toLowerCase();
+  const atts = src.attachments || src.message?.attachments || [];
+  const a = Array.isArray(atts) ? atts[0] : null;
+  const t = String(a?.type || a?.attachment_type || hint || '').toLowerCase();
+  const mime = String(a?.mimetype || a?.mime_type || '').toLowerCase();
+  if (a?.voice_note || a?.is_voice_note || /voice|audio/.test(t) || mime.startsWith('audio/')) return 'Voice memo';
+  if (/img|image|photo|picture/.test(t) || mime.startsWith('image/')) return 'Image';
+  if (/video/.test(t) || mime.startsWith('video/')) return 'Video';
+  if (/gif/.test(t)) return 'GIF';
+  if (t === 'linkedin_post' || /share|post/.test(t)) return 'Shared a post';
+  if (a || hint) return 'Attachment';
+  return null;
+}
+
+// Description + summary for a logged LinkedIn message. Real text → the text; no
+// text → a media label ("Voice memo received"); summary is null when there's no
+// text so the timeline shows no empty "You:" body line.
+function linkedinMessageContent(text, isOutbound, src) {
+  const dir = isOutbound ? 'sent' : 'received';
+  if (text) {
+    return {
+      description: text.slice(0, 500),
+      summary: isOutbound ? `You: ${text.slice(0, 200)}` : text.slice(0, 200),
+    };
+  }
+  const media = linkedinMediaLabel(src);
+  return {
+    description: media ? `${media} ${dir}` : (isOutbound ? 'LinkedIn message (sent)' : 'LinkedIn message (received)'),
+    summary: null,
+  };
+}
+
 // Flexible LinkedIn URL match — handles www/no-www, trailing slash, query params.
 async function matchContactByLinkedInUrl(supabase, workspaceId, rawUrl) {
   if (!rawUrl) return null;
@@ -271,6 +309,7 @@ async function backfillLinkedInMessages(supabase, workspaceId, contactId, { link
       const isOutbound  = !!(msg.is_sender);
       const text        = msg.text || msg.body || msg.content || '';
       const occurredAt  = msg.created_at || msg.timestamp || msg.date || msg.sent_at || new Date().toISOString();
+      const content     = linkedinMessageContent(text, isOutbound, msg);
       await logActivity(supabase, {
         workspaceId,
         contactId,
@@ -278,9 +317,9 @@ async function backfillLinkedInMessages(supabase, workspaceId, contactId, { link
         source:      'linkedin',
         externalId:  `li_msg_${msgId}`,
         occurredAt,
-        rawData:     { text, is_outbound: isOutbound },
-        description: text.slice(0, 500) || (isOutbound ? 'LinkedIn message (sent)' : 'LinkedIn message (received)'),
-        summary:     isOutbound ? `You: ${text.slice(0, 200)}` : text.slice(0, 200),
+        rawData:     { ...msg, text, is_outbound: isOutbound },
+        description: content.description,
+        summary:     content.summary,
       });
       logged++;
     }
@@ -495,6 +534,9 @@ export async function handleLinkedIn(req, res, workspaceId) {
     const msgId       = body.message?.id   || body.message_id || body.provider_message_id;
     const occurredAt  = body.timestamp ? new Date(body.timestamp).toISOString() : new Date().toISOString();
 
+    // Real text → the text; a text-less message (voice note, image, …) gets a media
+    // label ("Voice memo received") so the timeline never shows a bare placeholder.
+    const content = linkedinMessageContent(messageText, isSender, body);
     await logActivity(supabase, {
       workspaceId,
       contactId:   contact.id,
@@ -506,8 +548,8 @@ export async function handleLinkedIn(req, res, workspaceId) {
       // is_outbound drives sent-vs-received fact extraction — a message WE sent
       // must never become a "fact" about the contact. body carries is_sender.
       rawData:     { ...body, is_outbound: isSender },
-      description: messageText.slice(0, 500) || (isSender ? 'LinkedIn message (sent)' : 'LinkedIn message (received)'),
-      summary:     isSender ? `You: ${messageText.slice(0, 200)}` : messageText.slice(0, 200),
+      description: content.description,
+      summary:     content.summary,
     });
 
     // channels.linkedin update — fire-and-forget

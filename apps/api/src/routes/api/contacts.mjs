@@ -13,6 +13,56 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const SYSTEM_TYPES = new Set(['stage_changed', 'contact_created', 'contact_updated', 'score_updated', 'enrichment_completed']);
 
+// LinkedIn message-ish activity types (Unipile direct + sequencer webhooks). For
+// these the timeline must show the MESSAGE TEXT, never a generic "linkedin message
+// sent" / "LinkedIn message (received)" label. When a message carries no text it's
+// a voice note / image / attachment, which we label by media type instead.
+const LINKEDIN_MSG_TYPES = new Set([
+  'linkedin_message', 'linkedin_message_received', 'linkedin_message_sent',
+  'linkedin_reply', 'linkedin_replied',
+]);
+
+// The placeholder / humanized-type strings ingestion may have stored as the
+// "description" when there was no real text — these are NOT message content.
+const isGeneratedMsgLabel = (s, type) => {
+  if (!s) return true;
+  if (/^linkedin message \((sent|received)\)$/i.test(s)) return true;
+  if (/^(voice memo|image|video|gif|attachment|shared a post)\b/i.test(s)) return true;
+  // HeyReach stores the humanized activity type (optionally "...: Campaign") as the
+  // description; the real reply text lives in `summary`.
+  const humanized = String(type || '').replace(/_/g, ' ');
+  return humanized ? new RegExp(`^${humanized}\\b`, 'i').test(s) : false;
+};
+
+// A LinkedIn message with no text is a voice note / image / attachment. Derive a
+// media label from the stored raw webhook body. Defensive across Unipile shapes.
+const linkedinMediaLabel = (raw) => {
+  if (!raw || typeof raw !== 'object') return null;
+  const hint = String(raw.message_type || raw.message?.type || raw.attachment_type || '').toLowerCase();
+  const atts = raw.attachments || raw.message?.attachments || [];
+  const a = Array.isArray(atts) ? atts[0] : null;
+  const t = String(a?.type || a?.attachment_type || hint || '').toLowerCase();
+  const mime = String(a?.mimetype || a?.mime_type || '').toLowerCase();
+  if (a?.voice_note || a?.is_voice_note || /voice|audio/.test(t) || mime.startsWith('audio/')) return 'Voice memo';
+  if (/img|image|photo|picture/.test(t) || mime.startsWith('image/')) return 'Image';
+  if (/video/.test(t) || mime.startsWith('video/')) return 'Video';
+  if (/gif/.test(t)) return 'GIF';
+  if (t === 'linkedin_post' || /share|post/.test(t)) return 'Shared a post';
+  if (a || hint) return 'Attachment';
+  return null;
+};
+
+// Best message text for a LinkedIn message activity, ignoring generated labels.
+const linkedinMessageText = (type, value, raw) => {
+  if (value?.description && !isGeneratedMsgLabel(value.description, type)) return value.description;
+  const sum = (value?.summary || '').replace(/^You:\s*/i, '').trim();
+  if (sum && !isGeneratedMsgLabel(value.summary, type)) return sum;
+  const rawText = raw?.message?.text
+    || (typeof raw?.message === 'string' ? raw.message : '')
+    || raw?.text || '';
+  return rawText ? String(rawText) : null;
+};
+
 // GET /api/contacts
 contactsApiRouter.get('/', verifySupabaseAuth, async (req, res) => {
   try {
@@ -88,7 +138,21 @@ contactsApiRouter.get('/:id', verifySupabaseAuth, async (req, res) => {
 
     // Human title for known event types. Falls back to the raw type for
     // anything we don't recognize so unknown events still render readably.
-    const titleFor = (prop, value) => {
+    const titleFor = (prop, value, raw) => {
+      const t = (prop || '').replace(/^interaction\./, '');
+      // Connections — keep the simple, valid label.
+      if (t === 'linkedin_connected' || t === 'linkedin_connection_accepted') return 'Connected on LinkedIn';
+      if (t === 'linkedin_connection_sent') return 'Connection request sent';
+      // Messages — show the text; for a text-less message (voice note, image…) label
+      // it by media type. Never surface the generic "linkedin message sent" label.
+      if (LINKEDIN_MSG_TYPES.has(t)) {
+        const text = linkedinMessageText(t, value, raw);
+        if (text) return text.slice(0, 280);
+        const isOutbound = raw?.is_outbound === true || t === 'linkedin_message_sent';
+        const dir = isOutbound ? 'sent' : 'received';
+        const media = linkedinMediaLabel(raw);
+        return media ? `${media} ${dir}` : (isOutbound ? 'LinkedIn message sent' : 'LinkedIn message received');
+      }
       if (prop === 'interaction.signed_up') {
         const parts = ['Signed up'];
         if (value?.plan) parts.push(`for ${value.plan}`);
@@ -117,11 +181,18 @@ contactsApiRouter.get('/:id', verifySupabaseAuth, async (req, res) => {
     const activities = (obsRows || [])
       .map(o => {
         const type = (o.property || '').replace(/^interaction\./, '');
+        // Body line. For LinkedIn messages only show real text ("You: …" / the reply)
+        // — never the placeholder/label, which already drives the title.
+        let subtitle = o.value?.summary || o.value?.description || null;
+        if (LINKEDIN_MSG_TYPES.has(type)) {
+          const s = o.value?.summary;
+          subtitle = (s && s.replace(/^You:\s*/i, '').trim()) ? s : null;
+        }
         return {
           id:            o.id,
           activity_type: type,
-          title:         titleFor(o.property, o.value),
-          subtitle:      o.value?.summary || o.value?.description || null,
+          title:         titleFor(o.property, o.value, o.raw),
+          subtitle,
           source:        o.source || 'nous',
           created_at:    o.observed_at,
           raw_data:      o.raw || null,
