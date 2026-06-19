@@ -324,14 +324,6 @@ export function AppSidebar() {
           )}
         </button>
       </div>
-
-      {!collapsed && (
-        <div className="px-3.5 pb-3 pt-0.5">
-          <p className="text-[10px] leading-tight text-gray-400 dark:text-white/25">
-            The GTM Context API for agents
-          </p>
-        </div>
-      )}
     </aside>
   );
 }
