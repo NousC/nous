@@ -43,7 +43,6 @@ const Install         = lazyWithErrorBoundary(() => import("@/pages/Install"));
 const Playground      = lazyWithErrorBoundary(() => import("@/pages/Playground"));
 const ApiKeys         = lazyWithErrorBoundary(() => import("@/pages/ApiKeys"));
 const Webhooks        = lazyWithErrorBoundary(() => import("@/pages/Webhooks"));
-const Triggers        = lazyWithErrorBoundary(() => import("@/pages/Triggers"));
 const Ops             = lazyWithErrorBoundary(() => import("@/pages/Ops"));
 const People          = lazyWithErrorBoundary(() => import("@/pages/People"));
 const Companies       = lazyWithErrorBoundary(() => import("@/pages/Companies"));
@@ -157,7 +156,6 @@ export function AppRoutes() {
             <Route path="/keys"       element={<Suspense fallback={<MinimalLoader />}><ApiKeys /></Suspense>} />
             {/* Main nav */}
             <Route path="/webhooks"   element={<Suspense fallback={<MinimalLoader />}><Webhooks /></Suspense>} />
-            <Route path="/triggers"   element={<Suspense fallback={<MinimalLoader />}><Triggers /></Suspense>} />
 
             <Route path="/billing" element={<Suspense fallback={<MinimalLoader />}><UsageBilling /></Suspense>} />
             <Route path="/usage" element={<CloudOnly><Suspense fallback={<MinimalLoader />}><UsageBilling /></Suspense></CloudOnly>} />
