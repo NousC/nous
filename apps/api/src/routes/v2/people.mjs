@@ -37,6 +37,28 @@ export const peopleV2Router = Router();
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_LIMIT = 1000;
 
+// The only query params GET /v2/people honours. Anything else is rejected
+// rather than silently ignored — a filter the API doesn't support must fail
+// loudly, or a workflow believes it filtered when it didn't (e.g. icp_fit and
+// sort=icp_score used to be dropped silently, returning the full unfiltered set).
+const ALLOWED_PARAMS = new Set([
+  'search', 'pipeline_stage', 'source', 'status',
+  'has_email', 'has_linkedin', 'linkedin_url', 'email',
+  'icp_fit', 'min_icp_score',
+  'last_activity_before', 'last_activity_after',
+  'sort', 'limit', 'offset', 'page',
+]);
+
+// Whitelisted sort keys → (column, direction). Unknown sort values 400 rather
+// than silently falling back to the default order.
+const SORTS = {
+  last_activity:     { col: 'last_activity_at', ascending: false },
+  last_activity_asc: { col: 'last_activity_at', ascending: true  },
+  icp_score:         { col: 'icp_score',        ascending: false },
+  icp_score_asc:     { col: 'icp_score',        ascending: true  },
+  recently_added:    { col: 'first_seen_at',    ascending: false },
+};
+
 // Properties that live in entity_identifiers, not in claims. Splitting these
 // out keeps the PATCH/POST surface unsurprising — `email` works.
 const IDENTIFIER_KIND_BY_FIELD = {
@@ -126,12 +148,25 @@ peopleV2Router.get('/', async (req, res) => {
       has_linkedin,
       linkedin_url,
       email,
+      icp_fit,
+      min_icp_score,
       last_activity_before,
       last_activity_after,
       sort,
       limit,
       offset,
+      page,
     } = req.query;
+
+    // Fail loudly on unsupported params instead of returning an unfiltered set.
+    const unknown = Object.keys(req.query).filter(k => !ALLOWED_PARAMS.has(k));
+    if (unknown.length) {
+      return res.status(400).json({
+        error: 'unknown_query_param',
+        detail: `unsupported query param(s): ${unknown.join(', ')}`,
+        supported: Array.from(ALLOWED_PARAMS),
+      });
+    }
 
     let q = supabase.from('contacts').select('*').eq('workspace_id', workspaceId);
     if (pipeline_stage) q = q.eq('pipeline_stage', pipeline_stage);
@@ -141,6 +176,12 @@ peopleV2Router.get('/', async (req, res) => {
     if (has_email === 'false')    q = q.is('email', null);
     if (has_linkedin === 'true')  q = q.not('linkedin_url', 'is', null);
     if (has_linkedin === 'false') q = q.is('linkedin_url', null);
+    if (icp_fit === 'true')  q = q.eq('icp_fit', true);
+    if (icp_fit === 'false') q = q.eq('icp_fit', false);
+    if (min_icp_score != null && String(min_icp_score).trim() !== '') {
+      const n = parseInt(min_icp_score, 10);
+      if (!Number.isNaN(n)) q = q.gte('icp_score', n);
+    }
 
     // Exact-match lookups by identifier — the shape workflow runtimes use
     // when they already have the value. linkedin_url= tries variant forms
@@ -165,17 +206,33 @@ peopleV2Router.get('/', async (req, res) => {
       q = q.or(`email.ilike.${t},first_name.ilike.${t},last_name.ilike.${t},company.ilike.${t},linkedin_url.ilike.${t}`);
     }
 
-    q = sort === 'last_activity_asc'
-      ? q.order('last_activity_at', { ascending: true, nullsFirst: false })
-      : q.order('last_activity_at', { ascending: false, nullsFirst: false });
+    const sortKey = sort != null && String(sort).trim() !== '' ? String(sort) : 'last_activity';
+    const sortSpec = SORTS[sortKey];
+    if (!sortSpec) {
+      return res.status(400).json({
+        error: 'unknown_sort',
+        detail: `unsupported sort '${sortKey}'`,
+        supported: Object.keys(SORTS),
+      });
+    }
+    q = q.order(sortSpec.col, { ascending: sortSpec.ascending, nullsFirst: false });
 
     const lim = Math.min(parseInt(limit, 10) || 100, MAX_LIMIT);
-    const off = parseInt(offset, 10) || 0;
-    q = q.range(off, off + lim - 1);
+    // offset wins if given; otherwise derive it from the documented `page` (1-based).
+    let off = parseInt(offset, 10) || 0;
+    if ((offset == null || String(offset).trim() === '') && page != null) {
+      const p = parseInt(page, 10);
+      if (!Number.isNaN(p) && p > 0) off = (p - 1) * lim;
+    }
+    // Fetch one extra row to compute has_more without a second count query.
+    q = q.range(off, off + lim);
 
     const { data, error } = await q;
     if (error) throw error;
-    return res.json({ people: data ?? [], limit: lim, offset: off });
+    const rows = data ?? [];
+    const has_more = rows.length > lim;
+    const people = has_more ? rows.slice(0, lim) : rows;
+    return res.json({ people, limit: lim, offset: off, has_more });
   } catch (err) {
     console.error('[GET /v2/people]', err);
     return res.status(500).json({ error: 'internal_error' });
