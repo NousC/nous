@@ -6,20 +6,11 @@
 import Anthropic from 'useleak';
 import {
   logActivity, listSignals, scoreLead,
-  listNotes,
+  listNotes, listActivities,
   resolveEntity, getOrCreateEntity, identifiersFromContactData,
-  recordEnrichmentObservations, recordObservation,
-  companyDomainFromEmail, isFreeEmailDomain, isMemberUrnLinkedInUrl, upsertIdentifier,
+  recordEnrichmentObservations,
 } from '@nous/core';
 import { decrypt } from '../utils/encryption.js';
-
-// A LinkedIn "member URN" URL (/in/ACoAA…) is an encoded member id, not a
-// resolvable public profile — external email-finders (Prospeo especially) choke
-// on it and return nothing. Treat it as "no usable URL" so we fall back to
-// name+domain matching instead of burning a lookup on a dead URL.
-function usableLinkedInUrl(url) {
-  return url && !isMemberUrnLinkedInUrl(url) ? url : null;
-}
 
 // Attribute fields written as observations with the TRUE enrichment source, and
 // therefore stripped from the contacts-view update so the view trigger doesn't
@@ -27,6 +18,13 @@ function usableLinkedInUrl(url) {
 // linkedin_url stays on the update for identifier attachment.
 // See docs/crm-hygiene-phase-1b-spec.md Task 0.
 const ENRICH_STRIP = ['job_title', 'seniority', 'department', 'company', 'phone', 'city', 'country'];
+
+// Placeholder emails injected by CSV/Airtable imports (e.g. georgi@airtable.import)
+// are not real addresses — treat them as "no email" so the waterfall still hunts.
+const FAKE_EMAIL_DOMAINS = /\.(import|csv|fake|test|example|placeholder|noemail)$/i;
+function realEmailOf(email) {
+  return email && !FAKE_EMAIL_DOMAINS.test(email.split('@')[1] || '') ? email : null;
+}
 
 async function logSysEvent(supabase, workspaceId, source, eventType, summary, contactId, metadata) {
   try {
@@ -41,6 +39,7 @@ async function logSysEvent(supabase, workspaceId, source, eventType, summary, co
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 const PROSPEO_BASE = 'https://api.prospeo.io';
+const FINDYMAIL_BASE = 'https://app.findymail.com';
 
 function prospeoHeaders() {
   return {
@@ -62,6 +61,13 @@ export async function getProspeoEnrichmentKey(supabase, workspaceId) {
 // Returns the workspace's SignalBase key if connected.
 export async function getSignalBaseKey(supabase, workspaceId) {
   return _getProviderKey(supabase, workspaceId, 'signalbase', { requireEnrichmentToggle: false });
+}
+
+// Returns the workspace's Findymail BYOK key if connected. Always BYOK — Nous
+// funds no built-in Findymail key, so this rung only ever spends the user's
+// own credits (which is why it ranks above the built-in Prospeo fallback).
+export async function getFindymailEnrichmentKey(supabase, workspaceId) {
+  return _getProviderKey(supabase, workspaceId, 'findymail', { requireEnrichmentToggle: false });
 }
 
 // Generic accessor for any workflow provider's decrypted API key (BYOK), used
@@ -162,10 +168,9 @@ export async function resolveContact(supabase, workspaceId, data, { createIfMiss
   }
 
   const name = full_name || [first_name, last_name].filter(Boolean).join(' ') || null;
-  const explicitDomain = company_domain?.replace(/^www\./, '').toLowerCase().trim() || null;
-  // Personal mailboxes (gmail.com, …) are not employers — keep them out of `domain`.
-  const normalizedDomain = (explicitDomain && !isFreeEmailDomain(explicitDomain) ? explicitDomain : null)
-    || companyDomainFromEmail(email);
+  const normalizedDomain = company_domain?.replace(/^www\./, '').toLowerCase().trim()
+    || (email ? email.split('@')[1]?.toLowerCase() : null)
+    || null;
 
   let companyId = null;
   if (company_name || normalizedDomain) {
@@ -230,10 +235,8 @@ async function mergeContact(supabase, existing, incoming) {
   fill('phone',         incoming.phone);
   fill('linkedin_url',  incoming.linkedin_url);
   fill('company',       incoming.company_name);
-  fill('domain',        (() => {
-                          const ed = incoming.company_domain?.replace(/^www\./, '').toLowerCase().trim() || null;
-                          return (ed && !isFreeEmailDomain(ed) ? ed : null) || companyDomainFromEmail(incoming.email);
-                        })());
+  fill('domain',        incoming.company_domain?.replace(/^www\./, '').toLowerCase().trim()
+                          || (incoming.email ? incoming.email.split('@')[1]?.toLowerCase() : null));
   fill('hubspot_id',    incoming.hubspot_id);
   fill('pipedrive_id',  incoming.pipedrive_id);
   fill('apollo_id',     incoming.apollo_id);
@@ -263,23 +266,61 @@ async function mergeContact(supabase, existing, incoming) {
 }
 
 
-// ── Contact enrichment dispatcher ────────────────────────────────────────────
-// Priority: Apollo BYOK (if toggled on) → Prospeo BYOK → Nous's built-in Prospeo key
+// ── Contact enrichment waterfall ─────────────────────────────────────────────
+// Try each configured provider in turn, ordered by the strongest identity key we
+// hold, and STOP on the first hit (cost-first). Fall through on a miss.
+//   • LinkedIn URL present  → Prospeo leads (LinkedIn→email is its strength)
+//   • name + domain present → Apollo leads (people/match on name + domain)
+// A provider runs only if its key exists. Firmographics from a provider that
+// missed the email are still saved as observations, so falling through to the
+// next rung is purely additive — never a double-charge for the same field.
+// Returns true if any rung satisfied the goal (an email when one was missing,
+// otherwise a profile), false if every rung missed or there was no usable key.
 
 export async function enrichContact(supabase, contact, { apolloKey = undefined } = {}) {
-  // Enrichable if we have an email, a USABLE LinkedIn URL, or a name + real
-  // company domain (the Apollo name+domain path). A member-URN URL alone is not
-  // usable, so it no longer counts as a reason to proceed.
-  const hasNameDomain = !!(contact.first_name && contact.last_name && contact.domain);
-  if (!contact.email && !usableLinkedInUrl(contact.linkedin_url) && !hasNameDomain) return;
+  // Gate: need at least one usable identity key. A bare name (no real email, no
+  // LinkedIn URL, no domain) is un-enrichable — skip it and spend nothing.
+  const realEmail = realEmailOf(contact.email);
+  const hasName = Boolean(contact.first_name && contact.last_name);
+  const hasUsableKey = Boolean(realEmail || contact.linkedin_url || (hasName && contact.domain));
+  if (!hasUsableKey) return false;
 
+  // BYOK keys spend the user's own credits; the built-in Prospeo key is Nous's
+  // COGS, so it runs LAST and only when the workspace brought no Prospeo key.
   const apolloK = apolloKey !== undefined
     ? apolloKey
     : await getApolloEnrichmentKey(supabase, contact.workspace_id);
-  if (apolloK) return enrichContactViaApollo(supabase, contact, apolloK);
+  const prospeoByokK = await getProspeoEnrichmentKey(supabase, contact.workspace_id);
+  const findymailK = await getFindymailEnrichmentKey(supabase, contact.workspace_id);
+  const prospeoBuiltinK = process.env.PROSPERO_API_KEY || null;
 
-  const prospeoK = await getProspeoEnrichmentKey(supabase, contact.workspace_id);
-  return enrichContactViaProspeo(supabase, contact, prospeoK || process.env.PROSPERO_API_KEY);
+  const make = {
+    apollo:    apolloK      ? (c) => enrichContactViaApollo(supabase, c, apolloK)       : null,
+    prospeo:   prospeoByokK ? (c) => enrichContactViaProspeo(supabase, c, prospeoByokK) : null,
+    findymail: findymailK   ? (c) => enrichContactViaFindymail(supabase, c, findymailK) : null,
+  };
+
+  // Order BYOK rungs by the strongest key we hold for this row: a LinkedIn URL
+  // plays to Prospeo's strength, so it leads; otherwise Apollo (name+domain)
+  // leads. Findymail sits between as the founder/agency email specialist.
+  const pref = contact.linkedin_url
+    ? ['prospeo', 'findymail', 'apollo']
+    : ['apollo', 'findymail', 'prospeo'];
+
+  const ladder = [];
+  for (const name of pref) if (make[name]) ladder.push(make[name]);
+
+  // Built-in Prospeo (Nous's cost) is the final safety net — appended only when
+  // the workspace has no BYOK Prospeo key, so Prospeo never runs twice.
+  if (!prospeoByokK && prospeoBuiltinK) {
+    ladder.push((c) => enrichContactViaProspeo(supabase, c, prospeoBuiltinK));
+  }
+
+  for (const run of ladder) {
+    const hit = await run(contact);
+    if (hit) return true;
+  }
+  return false;
 }
 
 
@@ -289,36 +330,30 @@ async function enrichContactViaApollo(supabase, contact, apolloKey) {
   await supabase.from('contacts').update({ enrichment_status: 'queued' }).eq('id', contact.id);
 
   try {
-    // Apollo people/match takes any of email / linkedin_url / name + domain.
-    // Pass everything we have so a lead with NO email but a real company domain
-    // still matches on name+domain (Apollo is strong at this). A member-URN URL
-    // is dropped so it never poisons the match.
-    const match = { reveal_personal_emails: false, reveal_phone_number: false };
-    const liUrl = usableLinkedInUrl(contact.linkedin_url);
-    if (contact.email)      match.email             = contact.email;
-    if (liUrl)              match.linkedin_url       = liUrl;
-    if (contact.first_name) match.first_name         = contact.first_name;
-    if (contact.last_name)  match.last_name          = contact.last_name;
-    if (contact.domain)     match.domain             = contact.domain;
-    if (contact.company)    match.organization_name  = contact.company;
-
-    const canMatch = match.email || match.linkedin_url
-      || (match.first_name && match.last_name && (match.domain || match.organization_name));
-    if (!canMatch) {
-      await supabase.from('contacts').update({ enrichment_status: 'not_found' }).eq('id', contact.id);
-      return;
-    }
-
     const res = await fetch('https://api.apollo.io/v1/people/match', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Api-Key': apolloKey },
-      body: JSON.stringify(match),
+      body: JSON.stringify({
+        // Match on whatever identity keys we hold, not email alone, so
+        // name+domain and LinkedIn-only rows resolve too.
+        email:        realEmailOf(contact.email) || undefined,
+        first_name:   contact.first_name  || undefined,
+        last_name:    contact.last_name   || undefined,
+        domain:       contact.domain      || undefined,
+        linkedin_url: contact.linkedin_url || undefined,
+        reveal_personal_emails: false,
+        reveal_phone_number: false,
+      }),
     });
 
     if (!res.ok) throw new Error(`Apollo ${res.status}: ${await res.text().catch(() => '')}`);
     const body = await res.json();
     const person = body.person;
-    if (!person) throw new Error('No person returned');
+    if (!person) {
+      // Soft miss — record it and let the waterfall fall through to the next rung.
+      await supabase.from('contacts').update({ enrichment_status: 'not_found' }).eq('id', contact.id);
+      return false;
+    }
 
     const org = person.organization || {};
     const updates = {
@@ -384,7 +419,24 @@ async function enrichContactViaApollo(supabase, contact, apolloKey) {
       contact.id, { status: 'success', job_title: updates.job_title, company: org.name }
     ).catch(() => {});
 
+    // Capture a real work email if Apollo returned one (skip locked placeholders
+    // like "email_not_unlocked@domain.com"). Persist it as an entity email
+    // identifier so cold leads (not in the contacts view) keep it too — and so
+    // it's resolvable even when a (different) primary already exists, since the
+    // activity summary surfaces it regardless. Primary column untouched.
+    const apolloEmail = person.email && !/not_unlocked|notunlocked/i.test(person.email)
+      ? person.email.toLowerCase().trim() : null;
+    const apolloPrimaryLc = realEmailOf(contact.email) ? contact.email.toLowerCase().trim() : null;
+    if (apolloEmail && apolloEmail !== apolloPrimaryLc) {
+      await supabase.from('entity_identifiers')
+        .insert({ workspace_id: contact.workspace_id, entity_id: contact.id, kind: 'email', value: apolloEmail, status: 'active' })
+        .then(() => {}, () => {}); // ignore unique conflict (email already on another entity)
+    }
+
     await scoreICP(supabase, contact.workspace_id, { ...contact, ...updates });
+
+    // Hit = goal satisfied: an email when one was missing, otherwise a profile.
+    return realEmailOf(contact.email) ? true : Boolean(apolloEmail);
 
   } catch (err) {
     console.error('[ENRICH] Apollo failed for', contact.email, ':', err.message);
@@ -402,6 +454,7 @@ async function enrichContactViaApollo(supabase, contact, apolloKey) {
       `Enrichment error: ${err.message}`,
       contact.id, { status: 'error' }
     ).catch(() => {});
+    return false;
   }
 }
 
@@ -412,31 +465,27 @@ async function enrichContactViaProspeo(supabase, contact, prospeoKey) {
   if (!prospeoKey) {
     console.warn('[ENRICH] No Prospeo key available (connect Prospeo in Integrations or set PROSPERO_API_KEY)');
     await supabase.from('contacts').update({ enrichment_status: 'no_integration' }).eq('id', contact.id);
-    return;
+    return false;
   }
 
   // Strip placeholder emails injected by Airtable/CSV imports (e.g. georgi@airtable.import)
-  const FAKE_EMAIL_DOMAINS = /\.(import|csv|fake|test|example|placeholder|noemail)$/i;
-  const realEmail = contact.email && !FAKE_EMAIL_DOMAINS.test(contact.email.split('@')[1] || '')
-    ? contact.email : null;
-  // Prospeo can't resolve a member-URN URL — only feed it a real public handle.
-  const liUrl = usableLinkedInUrl(contact.linkedin_url);
+  const realEmail = realEmailOf(contact.email);
 
-  if (!realEmail && !liUrl) {
-    console.warn('[ENRICH_PROSPEO] No real email or usable LinkedIn URL — skipping');
+  if (!realEmail && !contact.linkedin_url) {
+    console.warn('[ENRICH_PROSPEO] No real email or LinkedIn URL — skipping');
     await supabase.from('contacts').update({ enrichment_status: 'not_found' }).eq('id', contact.id);
-    return;
+    return false;
   }
 
-  console.log('[ENRICH_PROSPEO] Starting for', realEmail || liUrl);
+  console.log('[ENRICH_PROSPEO] Starting for', realEmail || contact.linkedin_url);
   await supabase.from('contacts').update({ enrichment_status: 'queued' }).eq('id', contact.id);
 
   try {
     const requestData = {};
-    if (realEmail)          requestData.email        = realEmail;
-    if (contact.first_name) requestData.first_name   = contact.first_name;
-    if (contact.last_name)  requestData.last_name    = contact.last_name;
-    if (liUrl)              requestData.linkedin_url = liUrl;
+    if (realEmail)             requestData.email        = realEmail;
+    if (contact.first_name)    requestData.first_name   = contact.first_name;
+    if (contact.last_name)     requestData.last_name    = contact.last_name;
+    if (contact.linkedin_url)  requestData.linkedin_url = contact.linkedin_url;
 
     console.log('[ENRICH_PROSPEO] Calling API for:', JSON.stringify(requestData));
     const res = await fetch(`${PROSPEO_BASE}/enrich-person`, {
@@ -464,7 +513,7 @@ async function enrichContactViaProspeo(supabase, contact, prospeoKey) {
           `No profile found: ${realEmail || contact.linkedin_url || contact.id}`,
           contact.id, { status: 'no_match' }
         ).catch(() => {});
-        return;
+        return false;
       }
       throw new Error(`Prospeo ${body.error_code || res.status}`);
     }
@@ -480,36 +529,24 @@ async function enrichContactViaProspeo(supabase, contact, prospeoKey) {
 
     const currentJob = person.job_history?.find(j => j.current) || person.job_history?.[0];
 
-    // ENRICH, don't OVERWRITE: only fill fields we don't already have. Provider
-    // data can be stale or a secondary role (e.g. a "Fractional Coach" gig over a
-    // person's real "Founder @ their-own-company"), so an existing value — manual,
-    // LinkedIn, or import — is treated as more authoritative and kept. Asserted
-    // claims are already protected in recomputeClaim; this also stops a non-asserted
-    // existing value from losing to the newer provider observation on recency.
     const updates = {
       enrichment_status:  'complete',
       enriched_at:        new Date().toISOString(),
       enrichment_source:  'prospeo',
       apollo_raw:         person,
       apollo_id:          person.person_id || contact.apollo_id,
-      // never downgrade a real linkedin_url to a provider's; keep what we have
-      linkedin_url:       contact.linkedin_url || person.linkedin_url,
-      city:               contact.city    || person.location?.city    || null,
-      country:            contact.country || person.location?.country || null,
+      linkedin_url:       person.linkedin_url  || contact.linkedin_url,
+      job_title:          person.current_job_title || contact.job_title,
+      seniority:          normalizeSeniority(currentJob?.seniority),
+      department:         normalizeDepartment(currentJob?.departments?.[0]),
+      phone:              person.mobile?.mobile || contact.phone,
+      city:               person.location?.city    || contact.city    || null,
+      country:            person.location?.country || contact.country || null,
     };
-    if (contact.phone == null && person.mobile?.mobile) updates.phone = person.mobile.mobile;
-    // Adopt a title only when we have none — and bring its seniority/department with it.
-    if (!contact.job_title && person.current_job_title) {
-      updates.job_title  = person.current_job_title;
-      updates.seniority  = normalizeSeniority(currentJob?.seniority);
-      updates.department = normalizeDepartment(currentJob?.departments?.[0]);
-    }
 
     const co = body.company;
     console.log('[ENRICH_PROSPEO] Company data from Prospeo:', co ? `name=${co.name} domain=${co.domain} industry=${co.industry} employees=${co.employee_count} location=${JSON.stringify(co.location)}` : 'none');
-    // Only adopt the provider's company when we don't already have one — don't
-    // relink a person off their real employer onto a secondary/stale one.
-    if (!contact.company && (co?.name || co?.website || co?.domain)) {
+    if (co?.name || co?.website || co?.domain) {
       const rawDomain = co.domain
         || co.website?.replace(/^https?:\/\//, '').replace(/\/.*$/, '') || null;
 
@@ -527,36 +564,35 @@ async function enrichContactViaProspeo(supabase, contact, prospeoKey) {
       console.log('[ENRICH_PROSPEO] upsertCompany result:', company ? `id=${company.id} name=${company.name}` : 'null/failed');
       if (company) {
         updates.company_id = company.id;
-        updates.company = co.name;
+        updates.company = co.name || contact.company;
         if (rawDomain && !contact.domain) updates.domain = rawDomain;
+
+        // Skip immediate background enrichCompany — person response already contains company fields.
+        // A separate manual enrich on the company page can fetch deeper data if needed.
       }
     }
 
     if (foundEmailStatus) updates.reachability_status = foundEmailStatus;
     await recordEnrichmentObservations(supabase, contact.workspace_id, contact.id, 'prospeo', updates);
-
-    // Multi-position: store the FULL role history as a background `positions` fact.
-    // The record-details UI only renders the single primary job_title/company (kept
-    // by fill-empty above), so this never changes what's shown — but it preserves
-    // secondary roles (e.g. Founder @ own-company AND a Fractional gig) for agents
-    // and the backend. Deduped per contact so re-enrichment refreshes it in place.
-    if (Array.isArray(person.job_history) && person.job_history.length) {
-      await recordObservation(supabase, {
-        workspaceId: contact.workspace_id, entityId: contact.id, kind: 'state',
-        property: 'positions', value: person.job_history,
-        source: 'prospeo', method: 'enrichment', externalId: `prospeo_positions_${contact.id}`,
-      }).catch(() => {});
-    }
     const viewUpdate = { ...updates };
     for (const f of ENRICH_STRIP) delete viewUpdate[f];
     if (Object.keys(viewUpdate).length) await supabase.from('contacts').update(viewUpdate).eq('id', contact.id);
 
-    // ADD the found email as an identifier — ALWAYS, even when we already have one.
-    // A person legitimately has several addresses; never discard a (verified) one.
-    // This does NOT change the primary/displayed email — it's an additive alternate.
-    // (upsertIdentifier won't steal an email already active on another entity.)
-    if (foundEmail) {
-      await upsertIdentifier(supabase, contact.workspace_id, contact.id, 'email', foundEmail);
+    // Persist the found email as an entity email identifier — works whether or
+    // not the entity is a "contact" (cold leads aren't in the contacts view, so
+    // the contacts.update above is a no-op for them). Persist it even when a
+    // primary email already exists, as long as it DIFFERS: enrichment surfaces
+    // the found address in the activity summary regardless, so if we don't also
+    // store it as an identifier, check_leads/get_account can't resolve the very
+    // address Nous just showed (it reads as net_new / 404s). The primary column
+    // is left untouched (enrich-not-overwrite); this is purely an additive
+    // known-identifier so lookups and dedup agree with what was surfaced.
+    const foundEmailLc = foundEmail ? foundEmail.toLowerCase().trim() : null;
+    const primaryEmailLc = realEmail ? realEmail.toLowerCase().trim() : null;
+    if (foundEmailLc && foundEmailLc !== primaryEmailLc) {
+      await supabase.from('entity_identifiers')
+        .insert({ workspace_id: contact.workspace_id, entity_id: contact.id, kind: 'email', value: foundEmailLc, status: 'active' })
+        .then(() => {}, () => {}); // ignore unique conflict (email already on another entity)
     }
 
     await logActivity(supabase, {
@@ -589,6 +625,9 @@ async function enrichContactViaProspeo(supabase, contact, prospeoKey) {
 
     await scoreICP(supabase, contact.workspace_id, { ...contact, ...updates });
 
+    // Hit = goal satisfied: an email when one was missing, otherwise a profile.
+    return realEmail ? true : Boolean(foundEmail);
+
   } catch (err) {
     console.error('[ENRICH] Prospeo failed for', contact.email, ':', err.message);
     await supabase.from('contacts').update({ enrichment_status: 'failed' }).eq('id', contact.id);
@@ -605,6 +644,135 @@ async function enrichContactViaProspeo(supabase, contact, prospeoKey) {
       `Enrichment error: ${err.message}`,
       contact.id, { status: 'error' }
     ).catch(() => {});
+    return false;
+  }
+}
+
+
+// ── Findymail enrichment path ─────────────────────────────────────────────────
+// Pure email-finder for the founder/agency ICP. Resolves from a LinkedIn URL or
+// a name+domain, and Findymail verifies before returning, so a returned address
+// is already deliverable. BYOK only. Same hit/miss contract as the other rungs.
+// NOTE: endpoint shapes follow Findymail's documented API — smoke-test with a
+// real key before shipping, as the payload/response can drift.
+async function enrichContactViaFindymail(supabase, contact, findymailKey) {
+  if (!findymailKey) {
+    await supabase.from('contacts').update({ enrichment_status: 'no_integration' }).eq('id', contact.id);
+    return false;
+  }
+
+  const realEmail = realEmailOf(contact.email);
+  const name = [contact.first_name, contact.last_name].filter(Boolean).join(' ').trim();
+  const canLinkedin = Boolean(contact.linkedin_url);
+  const canNameDomain = Boolean(name && contact.domain);
+  if (!canLinkedin && !canNameDomain) {
+    // No key Findymail can work from — clean miss, let the waterfall move on.
+    await supabase.from('contacts').update({ enrichment_status: 'not_found' }).eq('id', contact.id);
+    return false;
+  }
+
+  await supabase.from('contacts').update({ enrichment_status: 'queued' }).eq('id', contact.id);
+
+  try {
+    const endpoint = canLinkedin
+      ? `${FINDYMAIL_BASE}/api/search/linkedin`
+      : `${FINDYMAIL_BASE}/api/search/name`;
+    const payload = canLinkedin
+      ? { linkedin_url: contact.linkedin_url }
+      : { name, domain: contact.domain };
+
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'Authorization': `Bearer ${findymailKey}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    // 402 = out of Findymail credits. Treat as a miss so the waterfall falls
+    // through to the next rung rather than dying.
+    if (res.status === 402) {
+      console.warn('[ENRICH_FINDYMAIL] out of credits');
+      await supabase.from('contacts').update({ enrichment_status: 'failed' }).eq('id', contact.id);
+      return false;
+    }
+    if (!res.ok) throw new Error(`Findymail ${res.status}: ${await res.text().catch(() => '')}`);
+
+    const body = await res.json();
+    const found = body.contact || null;
+    const foundEmail = found?.email ? found.email.toLowerCase().trim() : null;
+
+    if (!foundEmail) {
+      await supabase.from('contacts').update({ enrichment_status: 'not_found' }).eq('id', contact.id);
+      await logActivity(supabase, {
+        workspaceId: contact.workspace_id, contactId: contact.id,
+        companyId: contact.company_id || null,
+        type: 'enrichment_run', source: 'findymail',
+        externalId: `findymail_nomatch_${contact.id}`,
+        occurredAt: new Date().toISOString(),
+        description: 'Enrichment: no match found',
+        summary: `Findymail searched for ${contact.linkedin_url || `${name} @ ${contact.domain}`} — no email found`,
+      }).catch(() => {});
+      return false;
+    }
+
+    // Findymail returns mainly the email plus light company context. We do NOT
+    // write reachability_status here — Verify owns email status (enrich ≠ verify).
+    const updates = {
+      enrichment_status: 'complete',
+      enriched_at:       new Date().toISOString(),
+      enrichment_source: 'findymail',
+    };
+    if (found.company && !contact.company)           updates.company = found.company;
+    if (found.domain && !contact.domain)             updates.domain = found.domain;
+    if (found.linkedin_url && !contact.linkedin_url) updates.linkedin_url = found.linkedin_url;
+
+    await recordEnrichmentObservations(supabase, contact.workspace_id, contact.id, 'findymail', updates);
+    const viewUpdate = { ...updates };
+    for (const f of ENRICH_STRIP) delete viewUpdate[f];
+    if (Object.keys(viewUpdate).length) await supabase.from('contacts').update(viewUpdate).eq('id', contact.id);
+
+    // Persist the found email as an entity email identifier (works for cold
+    // leads not in the contacts view, exactly as the Prospeo/Apollo rungs do).
+    // Store it even alongside a different primary so the surfaced address stays
+    // resolvable; primary column untouched.
+    const findymailPrimaryLc = realEmail ? realEmail.toLowerCase().trim() : null;
+    if (foundEmail !== findymailPrimaryLc) {
+      await supabase.from('entity_identifiers')
+        .insert({ workspace_id: contact.workspace_id, entity_id: contact.id, kind: 'email', value: foundEmail, status: 'active' })
+        .then(() => {}, () => {}); // ignore unique conflict
+    }
+
+    await logActivity(supabase, {
+      workspaceId: contact.workspace_id, contactId: contact.id,
+      companyId: contact.company_id || null,
+      type: 'enrichment_run', source: 'findymail',
+      externalId: `findymail_enrich_${contact.id}_${Date.now()}`,
+      occurredAt: new Date().toISOString(),
+      description: 'Profile enriched via Findymail',
+      summary: [foundEmail, [contact.job_title, updates.company || contact.company].filter(Boolean).join(' at ') || null].filter(Boolean).join(' · ') || null,
+      rawData: { provider: 'findymail', email: foundEmail, company: updates.company || contact.company || null, domain: updates.domain || contact.domain || null },
+    }).catch(() => {});
+    logSysEvent(supabase, contact.workspace_id, 'findymail', 'enrichment_run',
+      `Enriched: ${[name, updates.company || contact.company].filter(Boolean).join(' · ')}`,
+      contact.id, { status: 'success', company: updates.company || contact.company }
+    ).catch(() => {});
+
+    await scoreICP(supabase, contact.workspace_id, { ...contact, ...updates });
+
+    // Hit = goal satisfied: an email when one was missing, otherwise a profile.
+    return realEmail ? true : Boolean(foundEmail);
+
+  } catch (err) {
+    console.error('[ENRICH] Findymail failed for', contact.email, ':', err.message);
+    await supabase.from('contacts').update({ enrichment_status: 'failed' }).eq('id', contact.id);
+    logSysEvent(supabase, contact.workspace_id, 'findymail', 'enrichment_run',
+      `Enrichment error: ${err.message}`,
+      contact.id, { status: 'error' }
+    ).catch(() => {});
+    return false;
   }
 }
 
@@ -659,9 +827,7 @@ export async function upsertCompany(supabase, workspaceId, data) {
   const { name, domain, industry, employee_count, location, tech_stack,
           hubspot_company_id, apollo_account_id, apollo_raw, revenue_range } = data;
 
-  let normalizedDomain = domain?.replace(/^www\./, '').toLowerCase().trim() || null;
-  // A personal-mailbox domain is never an employer — never key a company on it.
-  if (normalizedDomain && isFreeEmailDomain(normalizedDomain)) normalizedDomain = null;
+  const normalizedDomain = domain?.replace(/^www\./, '').toLowerCase().trim() || null;
 
   let existing = null;
   if (normalizedDomain) {
@@ -832,6 +998,357 @@ export function connectionStatus(lastActivityAt, totalTouchpoints) {
   if (daysSince <= 60 && totalTouchpoints >= 1) return 'warm';
   return 'cold';
 }
+
+// Activity type sets — must mirror webhooks.mjs pipeline stage definitions
+const INTERESTED_TYPES = new Set([
+  'email_reply', 'linkedin_message', 'linkedin_connected', 'website_revisit',
+]);
+const EVALUATING_TYPES = new Set([
+  'meeting_held', 'meeting_scheduled', 'proposal_sent', 'proposal_viewed',
+  'outbound_positive_reply', 'pricing_page_visit', 'deal_created', 'trial_started',
+]);
+const QUALIFIED_TYPES = new Set([...INTERESTED_TYPES, ...EVALUATING_TYPES]);
+const ENGAGED_BACK_TYPES = new Set([
+  'email_reply', 'linkedin_message', 'outbound_positive_reply', 'proposal_viewed', 'meeting_held',
+]);
+
+// Theoretical max when all 13 signals are active — used for completeness calculation
+const FULL_MAX = 155;
+
+export async function updateDealHealthScore(supabase, contactId, workspaceId, triggerActivityType) {
+  // Skip recompute for AWARE-only signals — they don't affect deal health
+  if (triggerActivityType &&
+      !QUALIFIED_TYPES.has(triggerActivityType) &&
+      triggerActivityType !== 'proposal_viewed' &&
+      triggerActivityType !== 'proposal_signed') {
+    return;
+  }
+
+  // Fetch contact fields needed for computation
+  const { data: contact } = await supabase
+    .from('contacts')
+    .select('pipeline_stage, pipeline_stage_updated_at, deal_value, deal_health_computed_at, company_id, seniority')
+    .eq('id', contactId)
+    .single();
+
+  if (!contact) return;
+
+  // Hard rule: client stage → clear score, no computation
+  if (contact.pipeline_stage === 'client') {
+    await supabase.from('contacts')
+      .update({ deal_health_score: null, deal_health_breakdown: null, deal_health_computed_at: new Date().toISOString() })
+      .eq('id', contactId);
+    return;
+  }
+
+  // Debounce: skip if computed within last 30 seconds
+  if (contact.deal_health_computed_at) {
+    const msSince = Date.now() - new Date(contact.deal_health_computed_at).getTime();
+    if (msSince < 30000) return;
+  }
+
+  const nowMs = Date.now();
+  const nowIso = new Date(nowMs).toISOString();
+  const days30Iso = new Date(nowMs - 30 * 86400000).toISOString();
+  const days60Iso = new Date(nowMs - 60 * 86400000).toISOString();
+
+  // Fetch all activities for this contact (v2: from observations).
+  const rows = await listActivities(supabase, { contactId, limit: 2000 });
+
+  // Hard rule: fewer than 2 qualified activities → insufficient data
+  const qualifiedCount = rows.filter(a => QUALIFIED_TYPES.has(a.activity_type)).length;
+  if (qualifiedCount < 2) {
+    await supabase.from('contacts')
+      .update({ deal_health_score: null, deal_health_breakdown: { insufficient_data: true }, deal_health_computed_at: nowIso })
+      .eq('id', contactId);
+    return;
+  }
+
+  // Fetch most recent proposal for this contact
+  const { data: proposals } = await supabase
+    .from('documents')
+    .select('signing_status, created_at')
+    .or(`primary_contact_id.eq.${contactId},generated_from_contact_id.eq.${contactId}`)
+    .order('created_at', { ascending: false })
+    .limit(1);
+
+  const breakdown = {};
+  let rawPositive = 0;
+  let activePenalty = 0;
+  let activeMax = 0;
+
+  // Hard rule: fully signed → 100 (checked after data fetch to keep code linear)
+  const latestProposal = proposals?.[0] || null;
+  if (latestProposal?.signing_status === 'fully_signed') {
+    await supabase.from('contacts')
+      .update({ deal_health_score: 100, deal_health_breakdown: { fully_signed: true }, deal_health_computed_at: nowIso })
+      .eq('id', contactId);
+    return;
+  }
+
+  // ── Signal 1: Proposal lifecycle (max 25, can go negative) ──────────────────
+  let s1 = 0;
+  if (latestProposal) {
+    const proposalAgeDays = (nowMs - new Date(latestProposal.created_at).getTime()) / 86400000;
+    const proposalViewed  = rows.some(a => a.activity_type === 'proposal_viewed');
+
+    if (latestProposal.signing_status === 'partially_signed') {
+      s1 = 18;
+    } else if (proposalViewed) {
+      s1 = 18;
+    } else if (proposalAgeDays < 7) {
+      s1 = 10;
+    } else if (proposalAgeDays < 21) {
+      s1 = 5;
+    } else {
+      s1 = -5; // stalling — sent but unseen for 3+ weeks
+    }
+  }
+  if (s1 >= 0) { rawPositive += s1; activeMax += 25; }
+  else          { activePenalty += s1; }
+  breakdown.s1_proposal = s1;
+
+  // ── Signal 2: They engaged back (max 20) ────────────────────────────────────
+  const engagedBack = rows.some(a => ENGAGED_BACK_TYPES.has(a.activity_type));
+  const s2 = engagedBack ? 20 : 0;
+  rawPositive += s2; activeMax += 20;
+  breakdown.s2_engaged_back = s2;
+
+  // ── Signal 3: Qualified engagement volume last 30 days (max 20) ─────────────
+  const recentQualifiedCount = rows.filter(a => QUALIFIED_TYPES.has(a.activity_type) && a.occurred_at >= days30Iso).length;
+  const s3 = recentQualifiedCount === 0 ? 0 : recentQualifiedCount === 1 ? 8 : recentQualifiedCount === 2 ? 14 : 20;
+  rawPositive += s3; activeMax += 20;
+  breakdown.s3_volume = s3;
+
+  // ── Signal 4: Last meaningful activity recency (max 15) ─────────────────────
+  const lastQualifiedRow = rows.find(a => QUALIFIED_TYPES.has(a.activity_type));
+  let s4 = 0;
+  if (lastQualifiedRow) {
+    const d = (nowMs - new Date(lastQualifiedRow.occurred_at).getTime()) / 86400000;
+    s4 = d < 7 ? 15 : d < 14 ? 10 : d < 30 ? 5 : d < 60 ? 2 : 0;
+  }
+  rawPositive += s4; activeMax += 15;
+  breakdown.s4_recency = s4;
+
+  // ── Signal 5: Stage velocity (penalty only, max = 0) ────────────────────────
+  // Only fires when Signal 4 = 0 (no recent engagement)
+  let s5 = 0;
+  if (s4 === 0 && contact.pipeline_stage_updated_at) {
+    const daysInStage = (nowMs - new Date(contact.pipeline_stage_updated_at).getTime()) / 86400000;
+    s5 = daysInStage > 60 ? -15 : daysInStage > 30 ? -10 : daysInStage > 14 ? -5 : 0;
+  }
+  activePenalty += s5; // max = 0, does NOT add to activeMax
+  breakdown.s5_velocity = s5;
+
+  // ── Signal 6: Pipeline stage position (max 10) ──────────────────────────────
+  const stagePoints = { evaluating: 10, interested: 6, aware: 3, identified: 0 };
+  const s6 = stagePoints[contact.pipeline_stage] ?? 0;
+  rawPositive += s6; activeMax += 10;
+  breakdown.s6_stage = s6;
+
+  // ── Signal 7: Deal value defined (max 5) ────────────────────────────────────
+  const s7 = contact.deal_value !== null && contact.deal_value !== undefined ? 5 : 0;
+  rawPositive += s7; activeMax += 5;
+  breakdown.s7_deal_value = s7;
+
+  // ── Signals 8, 9, 13: Meeting note taker signals ────────────────────────────
+  const meetingsWithTranscripts = rows.filter(a =>
+    a.activity_type === 'meeting_held' &&
+    a.raw_data?.summary &&
+    a.raw_data.summary !== 'Meeting recorded'
+  );
+
+  // Signal 8: Meeting quality (max 15, recency-weighted, half-life 60 days)
+  let s8 = null;
+  if (meetingsWithTranscripts.length > 0) {
+    let weightedSum = 0;
+    let totalWeight = 0;
+    for (const m of meetingsWithTranscripts) {
+      const daysAgo = (nowMs - new Date(m.occurred_at).getTime()) / 86400000;
+      const weight  = Math.exp(-daysAgo / 60);
+      let pts = 0;
+      if (m.raw_data.summary)                    pts += 1;
+      if (m.raw_data.pain_points?.length > 0)    pts += 2;
+      if (m.raw_data.budget_signal)              pts += 3;
+      if (m.raw_data.timeline)                   pts += 2;
+      // max 8 pts per meeting
+      weightedSum += pts * weight;
+      totalWeight += weight;
+    }
+    const avgScore = totalWeight > 0 ? weightedSum / totalWeight : 0;
+    s8 = Math.round((avgScore / 8) * 15);
+    rawPositive += s8; activeMax += 15;
+  }
+  breakdown.s8_meeting_quality = s8;
+
+  // Signal 9: Next steps clarity (max 10) — most recent meeting with transcript
+  let s9 = null;
+  if (meetingsWithTranscripts.length > 0) {
+    const lastMeeting = meetingsWithTranscripts[0]; // desc order, most recent first
+    const items = lastMeeting.raw_data.action_items || [];
+    s9 = items.length >= 2 ? 10 : items.length === 1 ? 5 : 0;
+    rawPositive += s9; activeMax += 10;
+  }
+  breakdown.s9_next_steps = s9;
+
+  // Signal 13: Competitive risk (penalty only, max = 0)
+  // Only counts competitors_mentioned with confidence >= 0.7
+  let s13 = null;
+  const recentTranscriptMeetings = meetingsWithTranscripts.filter(m => m.occurred_at >= days60Iso);
+  if (recentTranscriptMeetings.length > 0) {
+    const competitorNames = new Set();
+    for (const m of recentTranscriptMeetings) {
+      for (const c of (m.raw_data.competitors_mentioned || [])) {
+        if (typeof c === 'object' && c.confidence >= 0.7) competitorNames.add(c.name);
+        else if (typeof c === 'string') competitorNames.add(c); // backwards compat: plain string
+      }
+    }
+    s13 = competitorNames.size >= 2 ? -15 : competitorNames.size === 1 ? -10 : 0;
+    activePenalty += s13; // max = 0, does NOT add to activeMax
+  }
+  breakdown.s13_competitive_risk = s13;
+
+  // ── Signal 10: Website revisit (max 5, conditional on RB2B/visitor-ID) ──────
+  // Only active if contact has ANY website_revisit events (signals RB2B is wired)
+  let s10 = null;
+  if (rows.some(a => a.activity_type === 'website_revisit')) {
+    const hasRecentRevisit = rows.some(a => a.activity_type === 'website_revisit' && a.occurred_at >= days30Iso);
+    s10 = hasRecentRevisit ? 5 : 0;
+    rawPositive += s10; activeMax += 5;
+  }
+  breakdown.s10_revisit = s10;
+
+  // ── Signals 11, 12: Enrichment-conditional signals ──────────────────────────
+  let s11 = null;
+  let s12 = null;
+
+  if (contact.company_id) {
+    // Signal 11: Stakeholder coverage (max 15) — distinct contacts at this
+    // company with a qualified interaction in the last 60 days.
+    const { data: companyContacts } = await supabase
+      .from('contacts')
+      .select('id')
+      .eq('company_id', contact.company_id);
+    const companyContactIds = (companyContacts || []).map(c => c.id);
+    const stakeholderRows = companyContactIds.length
+      ? await listActivities(supabase, {
+          contactIds: companyContactIds,
+          since: days60Iso,
+          types: [...QUALIFIED_TYPES],
+          limit: 500,
+        })
+      : [];
+    const distinctStakeholders = new Set(stakeholderRows.map(r => r.contact_id)).size;
+    s11 = distinctStakeholders >= 3 ? 15 : distinctStakeholders === 2 ? 10 : 5;
+    rawPositive += s11; activeMax += 15;
+    breakdown.s11_stakeholders = s11;
+  }
+
+  if (contact.seniority) {
+    const DM_SENIORITY = new Set(['c_suite', 'vp', 'director']);
+
+    if (DM_SENIORITY.has(contact.seniority) && engagedBack) {
+      // Case A: contact is DM and has responded
+      s12 = 15;
+    } else if (!DM_SENIORITY.has(contact.seniority) && contact.company_id) {
+      // Case B/C: contact is IC/manager — check for engaged senior at same company
+      const { data: seniorContacts } = await supabase
+        .from('contacts')
+        .select('id')
+        .eq('company_id', contact.company_id)
+        .in('seniority', ['c_suite', 'vp'])
+        .neq('id', contactId);
+
+      if (seniorContacts?.length > 0) {
+        const seniorActivity = await listActivities(supabase, {
+          contactIds: seniorContacts.map(c => c.id),
+          since: days60Iso,
+          types: [...QUALIFIED_TYPES],
+          limit: 1,
+        });
+        s12 = seniorActivity.length > 0 ? 15 : 0;
+      } else {
+        s12 = 0; // Case C: IC/manager, no senior contact at company
+      }
+    } else {
+      s12 = 0; // DM exists but hasn't engaged back
+    }
+
+    rawPositive += s12; activeMax += 15;
+  }
+  breakdown.s12_decision_maker = s12 ?? null;
+
+  // ── Final calculation ────────────────────────────────────────────────────────
+  const netRaw    = rawPositive + activePenalty;
+  const score     = activeMax > 0 ? Math.max(0, Math.min(100, Math.round((netRaw / activeMax) * 100))) : null;
+  const completeness = Math.round((activeMax / FULL_MAX) * 100) / 100;
+
+  breakdown.active_max   = activeMax;
+  breakdown.completeness = completeness;
+
+  const updatePayload = {
+    deal_health_score:       score,
+    deal_health_breakdown:   breakdown,
+    deal_health_active_max:  activeMax,
+    deal_health_computed_at: nowIso,
+  };
+  // Skip future-dated rows entirely — they're bad data, not real engagement,
+  // and writing them (clamped or not) bumps the contact to the top of the sort.
+  if (lastQualifiedRow && lastQualifiedRow.occurred_at <= nowIso) {
+    updatePayload.last_activity_at = lastQualifiedRow.occurred_at;
+  }
+
+  await supabase.from('contacts').update(updatePayload).eq('id', contactId);
+
+  // Propagate to company-level score if this contact belongs to a company
+  if (contact.company_id) {
+    await updateCompanyDealHealthScore(supabase, contact.company_id);
+  }
+}
+
+// Returns a stakeholder weight based on seniority/title so senior buyers count more
+function stakeholderWeight(seniority, jobTitle) {
+  const s = (seniority || '').toLowerCase();
+  const t = (jobTitle  || '').toLowerCase();
+  if (s === 'c_suite' || /\b(ceo|cto|cfo|coo|cpo|cmo|founder|owner|president)\b/.test(t)) return 3;
+  if (s === 'vp'      || /\b(vp|vice.?president|director|head of)\b/.test(t))              return 2;
+  return 1;
+}
+
+// Aggregate deal health for a company: seniority-weighted average of active contacts' scores.
+// C-level/Founder → weight 3, VP/Director → weight 2, everyone else → weight 1.
+// A disengaged DM naturally drags the company score down even if a champion looks healthy.
+export async function updateCompanyDealHealthScore(supabase, companyId) {
+  const { data: rows } = await supabase
+    .from('contacts')
+    .select('deal_health_score, seniority, job_title')
+    .eq('company_id', companyId)
+    .neq('pipeline_stage', 'client')
+    .not('deal_health_score', 'is', null);
+
+  if (!rows?.length) {
+    await supabase.from('companies')
+      .update({ deal_health_score: null, deal_health_computed_at: new Date().toISOString() })
+      .eq('id', companyId);
+    return;
+  }
+
+  let weightedSum = 0;
+  let totalWeight = 0;
+  for (const r of rows) {
+    const w = stakeholderWeight(r.seniority, r.job_title);
+    weightedSum += r.deal_health_score * w;
+    totalWeight += w;
+  }
+  const score = Math.round(weightedSum / totalWeight);
+
+  await supabase.from('companies')
+    .update({ deal_health_score: score, deal_health_computed_at: new Date().toISOString() })
+    .eq('id', companyId);
+}
+
+// Keep old name as alias so any missed call sites don't crash at runtime
+export const updateConnectionScore = updateDealHealthScore;
 
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
