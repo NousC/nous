@@ -765,7 +765,7 @@ export default function Intelligence() {
     <div className="h-full overflow-y-auto bg-background">
       <div className="px-8 py-7 max-w-[1240px] mx-auto">
         <PageHeader
-          title="Playbook"
+          title="ICP"
           actions={
             <div className="flex items-center gap-2">
               {!needsSetup && (
@@ -833,14 +833,14 @@ export default function Intelligence() {
             {needsSetup ? (
               /* Cold start — setup is done by the agent, not here. Point them to it. */
               <div className="px-6 py-10 flex flex-col items-center text-center">
-                <h3 className="text-[17px] font-semibold text-foreground">Set up your GTM Playbook</h3>
+                <h3 className="text-[17px] font-semibold text-foreground">Set up your ICP</h3>
                 <p className="text-[13px] text-muted-foreground mt-2 max-w-[460px] leading-relaxed">
                   Your agent builds this with you in Claude. It reads your site, drafts what
                   you sell and who you sell to, and writes your scoring model. This page is
                   where you watch it take shape.
                 </p>
                 <div className="mt-5 w-full max-w-[460px]">
-                  <AgentSetupHint prompt="Set up my GTM playbook" />
+                  <AgentSetupHint prompt="Set up my ICP" />
                 </div>
               </div>
             ) : (
