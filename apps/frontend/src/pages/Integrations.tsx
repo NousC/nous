@@ -22,6 +22,7 @@ const HARDCODED_PROVIDERS: AvailableProvider[] = [
   { id:"smartlead",  name:"smartlead",  display_name:"Smartlead",  logo_url:"/provider-logos/smartlead.png",  category:"outbound"     },
   { id:"apollo",     name:"apollo",     display_name:"Apollo",     logo_url:"/provider-logos/apollo.svg",     category:"enrichment"   },
   { id:"prospeo",    name:"prospeo",    display_name:"Prospeo",    logo_url:"/provider-logos/prospeo.svg",    category:"enrichment"   },
+  { id:"findymail",  name:"findymail",  display_name:"Findymail",  logo_url:"/provider-logos/findymail.svg",  category:"enrichment"   },
   { id:"millionverifier", name:"millionverifier", display_name:"MillionVerifier", logo_url:"/provider-logos/millionverifier.png", category:"verification" },
   { id:"neverbounce",     name:"neverbounce",     display_name:"NeverBounce",     logo_url:"/provider-logos/neverbounce.png",     category:"verification" },
   { id:"fireflies", name:"fireflies", display_name:"Fireflies.ai", logo_url:"/provider-logos/fireflies.svg", category:"meetings"     },

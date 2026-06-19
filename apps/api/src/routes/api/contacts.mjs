@@ -579,7 +579,12 @@ contactsApiRouter.post('/:id/enrich', verifySupabaseAuth, requireEnrichmentQuota
     if (!UUID.test(id)) return res.status(400).json({ error: 'invalid_id' });
     const { data: contact } = await supabase.from('contacts').select('*').eq('id', id).single();
     if (!contact) return res.status(404).json({ error: 'contact_not_found' });
-    if (!contact.email && !contact.linkedin_url) {
+    // Need at least one usable identity key: email, LinkedIn URL, or name+domain.
+    const hasUsableKey = Boolean(
+      contact.email || contact.linkedin_url ||
+      (contact.first_name && contact.last_name && contact.domain),
+    );
+    if (!hasUsableKey) {
       return res.status(422).json({ error: 'contact_has_no_email_or_linkedin' });
     }
 
