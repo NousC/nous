@@ -19,7 +19,7 @@ import {
 } from '@nous/core';
 import { hasFeature } from '../../lib/plans.mjs';
 import { requireEnrichmentQuota, requireRecordsBalance, requireFeature } from '../../lib/access.mjs';
-import { enrichContact, getApolloEnrichmentKey } from '../../services/enrichment.mjs';
+import { enrichContact, getApolloEnrichmentKey, getFindymailEnrichmentKey, getProspeoEnrichmentKey } from '../../services/enrichment.mjs';
 import { getVerifier, verifyLead, listConnectedVerifiers } from '../../services/verification.mjs';
 import { estimateCost } from '../../lib/providerPricing.mjs';
 import { listCampaigns, pushLeads, SEQUENCERS } from '../../services/sequencerPush.mjs';
@@ -436,8 +436,14 @@ leadListsRouter.post('/:id/enrich', requireEnrichmentQuota, async (req, res) => 
     // Classify each lead the SAME way the run loop below does, so a dry-run
     // preview is exact. A lead is chargeable only if it has an identifier to
     // work from AND isn't a recently-enriched reuse.
+    // A lead is enrichable if it has any usable identity key: email, LinkedIn
+    // URL, or a full name + domain (the waterfall routes name+domain to Apollo).
+    const hasUsableKey = (l) => Boolean(
+      l.email || l.linkedin_url ||
+      ((l.name || '').trim().split(/\s+/).length >= 2 && l.domain),
+    );
     const classify = (l) => {
-      if (!l.email && !l.linkedin_url) return 'no_identifier';
+      if (!hasUsableKey(l)) return 'no_identifier';
       const le = lastEnriched.get(l.id);
       if (l.email && l.email_status && le && new Date(le).getTime() >= staleBefore) return 'reused';
       return 'chargeable';
@@ -451,9 +457,17 @@ leadListsRouter.post('/:id/enrich', requireEnrichmentQuota, async (req, res) => 
         const c = classify(l);
         if (c === 'chargeable') chargeable++; else if (c === 'reused') reused++; else noId++;
       }
-      // Quote the cost in real money via whichever enrichment provider the
-      // workspace uses (Apollo if connected+toggled, else Prospeo).
-      const provider = (await getApolloEnrichmentKey(supabase, workspaceId)) ? 'apollo' : 'prospeo';
+      // Quote the cost via the provider that LEADS the enrichment waterfall for
+      // this workspace — BYOK rungs first (Apollo / Findymail / Prospeo), then
+      // the built-in Prospeo fallback. Most leads resolve on the first rung, so
+      // this is the realistic per-lead price; a few may fall through to a later,
+      // similarly-priced rung.
+      const [apolloK, findymailK, prospeoByokK] = await Promise.all([
+        getApolloEnrichmentKey(supabase, workspaceId),
+        getFindymailEnrichmentKey(supabase, workspaceId),
+        getProspeoEnrichmentKey(supabase, workspaceId),
+      ]);
+      const provider = apolloK ? 'apollo' : findymailK ? 'findymail' : prospeoByokK ? 'prospeo' : 'prospeo';
       return res.json({ preview: true, total: ids.length, chargeable, reused, no_identifier: noId,
         provider, cost: estimateCost(provider, chargeable) });
     }

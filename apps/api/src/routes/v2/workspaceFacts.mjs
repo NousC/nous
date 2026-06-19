@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getSupabaseClient, listNotes, saveNote, supersedeNote, getWorkspaceEntityId } from '@nous/core';
+import { getSupabaseClient, listNotes, saveNote, supersedeNote, deleteNote, getWorkspaceEntityId } from '@nous/core';
 
 export const workspaceFactsV2Router = Router();
 
@@ -140,19 +140,50 @@ workspaceFactsV2Router.post('/', async (req, res) => {
       confidence: conf,
     };
 
-    // Replace mode evolves the section's current fact; append always adds new.
+    // Replace mode evolves the section into a single living doc. A section can
+    // hold MORE than one stragglerfact: the subject-slot match (the belief the
+    // agent has been evolving) PLUS legacy facts saved without a subject slot
+    // (onboarding / playbook / manual imports). If we only superseded the
+    // slot match, those legacy facts would pile up beside the evolved belief
+    // forever (the "replace just appends" bug). So in replace mode we collapse
+    // every active fact owned by this section, not just the slot match.
     let targetId = supersedes ? String(supersedes) : null;
-    if (!targetId && !append && slug) {
+    let extraVictims = [];
+    if (!append) {
       const active = await listNotes(supabase, workspaceId, { entityId, limit: 200 });
-      targetId = findSupersedable(active, slug)?.id ?? null;
+      const ownedBySection = active.filter(n =>
+        n.id !== targetId && (
+          // subject-slot match (e.g. 'pricing' / 'playbook.pricing')
+          (slug && (
+            n.subject === slug ||
+            n.subject === `playbook.${slug}` ||
+            (typeof n.subject === 'string' && n.subject.endsWith(`.${slug}`))
+          )) ||
+          // legacy facts with no slot but the same section category
+          n.category === sectionName
+        )
+      );
+      if (!targetId) targetId = ownedBySection.shift()?.id ?? null;
+      // whatever slot match `targetId` didn't claim is invalidated below
+      extraVictims = ownedBySection.filter(n => n.id !== targetId);
     }
 
     const fact = targetId
       ? await supersedeNote(supabase, workspaceId, targetId, params)
       : await saveNote(supabase, workspaceId, params);
 
+    // Collapse the rest of the section's active facts into history so the
+    // section reads as one current belief, not a duplicate pile.
+    for (const v of extraVictims) {
+      await deleteNote(supabase, workspaceId, v.id);
+    }
+
     return res.status(201).json({
-      fact, section: sectionName, mode: append ? 'append' : 'replace', superseded: Boolean(targetId),
+      fact,
+      section: sectionName,
+      mode: append ? 'append' : 'replace',
+      superseded: Boolean(targetId),
+      collapsed: extraVictims.length,
     });
   } catch (err) {
     console.error('[POST /v2/workspace/facts]', err);

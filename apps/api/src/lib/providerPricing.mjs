@@ -9,6 +9,7 @@
 export const PROVIDER_PRICING = {
   prospeo:         { low: 0.010,  high: 0.039,  label: 'Prospeo',         action: 'email found' },
   apollo:          { low: 0.020,  high: 0.025,  label: 'Apollo',          action: 'email revealed' },
+  findymail:       { low: 0.020,  high: 0.049,  label: 'Findymail',       action: 'email found' },
   millionverifier: { low: 0.0004, high: 0.0037, label: 'MillionVerifier', action: 'email verified' },
   neverbounce:     { low: 0.003,  high: 0.008,  label: 'NeverBounce',     action: 'email verified' },
 };

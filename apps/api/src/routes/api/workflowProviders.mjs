@@ -281,9 +281,29 @@ export async function testProviderCredentials(provider, credentials) {
         return { verified: false, message: `IMAP connection failed: ${err.message || err.code || 'unknown'}` };
       }
     }
+    if (p === 'apollo') {
+      if (!token) return { verified: false, message: 'No credentials provided' };
+      const r = await fetch('https://api.apollo.io/v1/auth/health', {
+        headers: { 'X-Api-Key': token, 'Content-Type': 'application/json', Accept: 'application/json' },
+      });
+      if (r.ok) return { verified: true, message: 'Connected to Apollo' };
+      if (r.status === 401 || r.status === 403) return { verified: false, message: 'Invalid Apollo API key' };
+      return { verified: false, message: `Apollo returned ${r.status} — check your API key` };
+    }
+    if (p === 'prospeo') {
+      if (!token) return { verified: false, message: 'No credentials provided' };
+      const r = await fetch('https://api.prospeo.io/account-information', {
+        method: 'POST',
+        headers: { 'X-KEY': token, 'Content-Type': 'application/json' },
+      });
+      if (r.ok) return { verified: true, message: 'Connected to Prospeo' };
+      if (r.status === 401 || r.status === 403) return { verified: false, message: 'Invalid Prospeo API key' };
+      return { verified: false, message: `Prospeo returned ${r.status} — check your API key` };
+    }
     if (!token) return { verified: false, message: 'No credentials provided' };
-    // Generic: just confirm token exists
-    return { verified: true, message: 'Credentials saved' };
+    // No live test endpoint wired up for this provider — save the key, but be
+    // honest that we could NOT confirm it works (don't claim "Connected").
+    return { verified: true, message: 'Saved — could not verify (no connectivity test for this provider)' };
   } catch (err) {
     const msg = err.message || 'Connection failed';
     return { verified: false, message: msg.includes('ECONNREFUSED') ? `Cannot connect to SMTP server — check host and port` : msg };
@@ -511,7 +531,7 @@ workflowProvidersRouter.get('/slack/channels', verifySupabaseAuth, async (req, r
 // Providers connectable via the simplified /:name/test + /:name/connect endpoints
 // (used by the Mind popup quick-connect flow). Anything not in this list still works
 // via the generic /connections endpoint used by Settings → Integrations.
-const NAMED_PROVIDERS = ['apollo', 'instantly', 'lemlist', 'emailbison', 'heyreach', 'smartlead', 'prospeo', 'millionverifier', 'neverbounce', 'hubspot', 'pipedrive', 'attio', 'calendly', 'fireflies', 'fathom', 'cal_com'];
+const NAMED_PROVIDERS = ['apollo', 'instantly', 'lemlist', 'emailbison', 'heyreach', 'smartlead', 'prospeo', 'findymail', 'millionverifier', 'neverbounce', 'hubspot', 'pipedrive', 'attio', 'calendly', 'fireflies', 'fathom', 'cal_com'];
 
 const CAL_COM_API_VERSION = '2026-05-01';
 
@@ -820,6 +840,17 @@ async function testNamedProvider(name, apiKey) {
     });
     if (r.status === 401 || r.status === 403) return { verified: false, message: 'Invalid Prospeo API key' };
     return { verified: true, message: 'Prospeo API key verified' };
+  }
+
+  if (name === 'findymail') {
+    // Remaining-credits endpoint is the lightest connectivity check (no credit
+    // spent). Bearer auth. NOTE: confirm the path against current Findymail docs.
+    const r = await fetch('https://app.findymail.com/api/credits', {
+      headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
+    });
+    if (r.status === 401 || r.status === 403) return { verified: false, message: 'Invalid Findymail API key' };
+    if (!r.ok) return { verified: false, message: `Findymail returned ${r.status} — check your API key` };
+    return { verified: true, message: 'Findymail API key verified' };
   }
 
   if (name === 'millionverifier') {

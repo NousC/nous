@@ -19,6 +19,13 @@ import { decrypt } from '../utils/encryption.js';
 // See docs/crm-hygiene-phase-1b-spec.md Task 0.
 const ENRICH_STRIP = ['job_title', 'seniority', 'department', 'company', 'phone', 'city', 'country'];
 
+// Placeholder emails injected by CSV/Airtable imports (e.g. georgi@airtable.import)
+// are not real addresses — treat them as "no email" so the waterfall still hunts.
+const FAKE_EMAIL_DOMAINS = /\.(import|csv|fake|test|example|placeholder|noemail)$/i;
+function realEmailOf(email) {
+  return email && !FAKE_EMAIL_DOMAINS.test(email.split('@')[1] || '') ? email : null;
+}
+
 async function logSysEvent(supabase, workspaceId, source, eventType, summary, contactId, metadata) {
   try {
     await supabase.from('workspace_system_log').insert({
@@ -32,6 +39,7 @@ async function logSysEvent(supabase, workspaceId, source, eventType, summary, co
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 const PROSPEO_BASE = 'https://api.prospeo.io';
+const FINDYMAIL_BASE = 'https://app.findymail.com';
 
 function prospeoHeaders() {
   return {
@@ -53,6 +61,13 @@ export async function getProspeoEnrichmentKey(supabase, workspaceId) {
 // Returns the workspace's SignalBase key if connected.
 export async function getSignalBaseKey(supabase, workspaceId) {
   return _getProviderKey(supabase, workspaceId, 'signalbase', { requireEnrichmentToggle: false });
+}
+
+// Returns the workspace's Findymail BYOK key if connected. Always BYOK — Nous
+// funds no built-in Findymail key, so this rung only ever spends the user's
+// own credits (which is why it ranks above the built-in Prospeo fallback).
+export async function getFindymailEnrichmentKey(supabase, workspaceId) {
+  return _getProviderKey(supabase, workspaceId, 'findymail', { requireEnrichmentToggle: false });
 }
 
 // Generic accessor for any workflow provider's decrypted API key (BYOK), used
@@ -251,19 +266,61 @@ async function mergeContact(supabase, existing, incoming) {
 }
 
 
-// ── Contact enrichment dispatcher ────────────────────────────────────────────
-// Priority: Apollo BYOK (if toggled on) → Prospeo BYOK → Nous's built-in Prospeo key
+// ── Contact enrichment waterfall ─────────────────────────────────────────────
+// Try each configured provider in turn, ordered by the strongest identity key we
+// hold, and STOP on the first hit (cost-first). Fall through on a miss.
+//   • LinkedIn URL present  → Prospeo leads (LinkedIn→email is its strength)
+//   • name + domain present → Apollo leads (people/match on name + domain)
+// A provider runs only if its key exists. Firmographics from a provider that
+// missed the email are still saved as observations, so falling through to the
+// next rung is purely additive — never a double-charge for the same field.
+// Returns true if any rung satisfied the goal (an email when one was missing,
+// otherwise a profile), false if every rung missed or there was no usable key.
 
 export async function enrichContact(supabase, contact, { apolloKey = undefined } = {}) {
-  if (!contact.email && !contact.linkedin_url) return;
+  // Gate: need at least one usable identity key. A bare name (no real email, no
+  // LinkedIn URL, no domain) is un-enrichable — skip it and spend nothing.
+  const realEmail = realEmailOf(contact.email);
+  const hasName = Boolean(contact.first_name && contact.last_name);
+  const hasUsableKey = Boolean(realEmail || contact.linkedin_url || (hasName && contact.domain));
+  if (!hasUsableKey) return false;
 
+  // BYOK keys spend the user's own credits; the built-in Prospeo key is Nous's
+  // COGS, so it runs LAST and only when the workspace brought no Prospeo key.
   const apolloK = apolloKey !== undefined
     ? apolloKey
     : await getApolloEnrichmentKey(supabase, contact.workspace_id);
-  if (apolloK) return enrichContactViaApollo(supabase, contact, apolloK);
+  const prospeoByokK = await getProspeoEnrichmentKey(supabase, contact.workspace_id);
+  const findymailK = await getFindymailEnrichmentKey(supabase, contact.workspace_id);
+  const prospeoBuiltinK = process.env.PROSPERO_API_KEY || null;
 
-  const prospeoK = await getProspeoEnrichmentKey(supabase, contact.workspace_id);
-  return enrichContactViaProspeo(supabase, contact, prospeoK || process.env.PROSPERO_API_KEY);
+  const make = {
+    apollo:    apolloK      ? (c) => enrichContactViaApollo(supabase, c, apolloK)       : null,
+    prospeo:   prospeoByokK ? (c) => enrichContactViaProspeo(supabase, c, prospeoByokK) : null,
+    findymail: findymailK   ? (c) => enrichContactViaFindymail(supabase, c, findymailK) : null,
+  };
+
+  // Order BYOK rungs by the strongest key we hold for this row: a LinkedIn URL
+  // plays to Prospeo's strength, so it leads; otherwise Apollo (name+domain)
+  // leads. Findymail sits between as the founder/agency email specialist.
+  const pref = contact.linkedin_url
+    ? ['prospeo', 'findymail', 'apollo']
+    : ['apollo', 'findymail', 'prospeo'];
+
+  const ladder = [];
+  for (const name of pref) if (make[name]) ladder.push(make[name]);
+
+  // Built-in Prospeo (Nous's cost) is the final safety net — appended only when
+  // the workspace has no BYOK Prospeo key, so Prospeo never runs twice.
+  if (!prospeoByokK && prospeoBuiltinK) {
+    ladder.push((c) => enrichContactViaProspeo(supabase, c, prospeoBuiltinK));
+  }
+
+  for (const run of ladder) {
+    const hit = await run(contact);
+    if (hit) return true;
+  }
+  return false;
 }
 
 
@@ -277,7 +334,13 @@ async function enrichContactViaApollo(supabase, contact, apolloKey) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Api-Key': apolloKey },
       body: JSON.stringify({
-        email: contact.email,
+        // Match on whatever identity keys we hold, not email alone, so
+        // name+domain and LinkedIn-only rows resolve too.
+        email:        realEmailOf(contact.email) || undefined,
+        first_name:   contact.first_name  || undefined,
+        last_name:    contact.last_name   || undefined,
+        domain:       contact.domain      || undefined,
+        linkedin_url: contact.linkedin_url || undefined,
         reveal_personal_emails: false,
         reveal_phone_number: false,
       }),
@@ -286,7 +349,11 @@ async function enrichContactViaApollo(supabase, contact, apolloKey) {
     if (!res.ok) throw new Error(`Apollo ${res.status}: ${await res.text().catch(() => '')}`);
     const body = await res.json();
     const person = body.person;
-    if (!person) throw new Error('No person returned');
+    if (!person) {
+      // Soft miss — record it and let the waterfall fall through to the next rung.
+      await supabase.from('contacts').update({ enrichment_status: 'not_found' }).eq('id', contact.id);
+      return false;
+    }
 
     const org = person.organization || {};
     const updates = {
@@ -352,7 +419,24 @@ async function enrichContactViaApollo(supabase, contact, apolloKey) {
       contact.id, { status: 'success', job_title: updates.job_title, company: org.name }
     ).catch(() => {});
 
+    // Capture a real work email if Apollo returned one (skip locked placeholders
+    // like "email_not_unlocked@domain.com"). Persist it as an entity email
+    // identifier so cold leads (not in the contacts view) keep it too — and so
+    // it's resolvable even when a (different) primary already exists, since the
+    // activity summary surfaces it regardless. Primary column untouched.
+    const apolloEmail = person.email && !/not_unlocked|notunlocked/i.test(person.email)
+      ? person.email.toLowerCase().trim() : null;
+    const apolloPrimaryLc = realEmailOf(contact.email) ? contact.email.toLowerCase().trim() : null;
+    if (apolloEmail && apolloEmail !== apolloPrimaryLc) {
+      await supabase.from('entity_identifiers')
+        .insert({ workspace_id: contact.workspace_id, entity_id: contact.id, kind: 'email', value: apolloEmail, status: 'active' })
+        .then(() => {}, () => {}); // ignore unique conflict (email already on another entity)
+    }
+
     await scoreICP(supabase, contact.workspace_id, { ...contact, ...updates });
+
+    // Hit = goal satisfied: an email when one was missing, otherwise a profile.
+    return realEmailOf(contact.email) ? true : Boolean(apolloEmail);
 
   } catch (err) {
     console.error('[ENRICH] Apollo failed for', contact.email, ':', err.message);
@@ -370,6 +454,7 @@ async function enrichContactViaApollo(supabase, contact, apolloKey) {
       `Enrichment error: ${err.message}`,
       contact.id, { status: 'error' }
     ).catch(() => {});
+    return false;
   }
 }
 
@@ -380,18 +465,16 @@ async function enrichContactViaProspeo(supabase, contact, prospeoKey) {
   if (!prospeoKey) {
     console.warn('[ENRICH] No Prospeo key available (connect Prospeo in Integrations or set PROSPERO_API_KEY)');
     await supabase.from('contacts').update({ enrichment_status: 'no_integration' }).eq('id', contact.id);
-    return;
+    return false;
   }
 
   // Strip placeholder emails injected by Airtable/CSV imports (e.g. georgi@airtable.import)
-  const FAKE_EMAIL_DOMAINS = /\.(import|csv|fake|test|example|placeholder|noemail)$/i;
-  const realEmail = contact.email && !FAKE_EMAIL_DOMAINS.test(contact.email.split('@')[1] || '')
-    ? contact.email : null;
+  const realEmail = realEmailOf(contact.email);
 
   if (!realEmail && !contact.linkedin_url) {
     console.warn('[ENRICH_PROSPEO] No real email or LinkedIn URL — skipping');
     await supabase.from('contacts').update({ enrichment_status: 'not_found' }).eq('id', contact.id);
-    return;
+    return false;
   }
 
   console.log('[ENRICH_PROSPEO] Starting for', realEmail || contact.linkedin_url);
@@ -430,7 +513,7 @@ async function enrichContactViaProspeo(supabase, contact, prospeoKey) {
           `No profile found: ${realEmail || contact.linkedin_url || contact.id}`,
           contact.id, { status: 'no_match' }
         ).catch(() => {});
-        return;
+        return false;
       }
       throw new Error(`Prospeo ${body.error_code || res.status}`);
     }
@@ -495,12 +578,20 @@ async function enrichContactViaProspeo(supabase, contact, prospeoKey) {
     for (const f of ENRICH_STRIP) delete viewUpdate[f];
     if (Object.keys(viewUpdate).length) await supabase.from('contacts').update(viewUpdate).eq('id', contact.id);
 
-    // Persist the found email as the entity's email identifier — works whether or
+    // Persist the found email as an entity email identifier — works whether or
     // not the entity is a "contact" (cold leads aren't in the contacts view, so
-    // the contacts.update above is a no-op for them).
-    if (foundEmail && !realEmail) {
+    // the contacts.update above is a no-op for them). Persist it even when a
+    // primary email already exists, as long as it DIFFERS: enrichment surfaces
+    // the found address in the activity summary regardless, so if we don't also
+    // store it as an identifier, check_leads/get_account can't resolve the very
+    // address Nous just showed (it reads as net_new / 404s). The primary column
+    // is left untouched (enrich-not-overwrite); this is purely an additive
+    // known-identifier so lookups and dedup agree with what was surfaced.
+    const foundEmailLc = foundEmail ? foundEmail.toLowerCase().trim() : null;
+    const primaryEmailLc = realEmail ? realEmail.toLowerCase().trim() : null;
+    if (foundEmailLc && foundEmailLc !== primaryEmailLc) {
       await supabase.from('entity_identifiers')
-        .insert({ workspace_id: contact.workspace_id, entity_id: contact.id, kind: 'email', value: foundEmail.toLowerCase().trim(), status: 'active' })
+        .insert({ workspace_id: contact.workspace_id, entity_id: contact.id, kind: 'email', value: foundEmailLc, status: 'active' })
         .then(() => {}, () => {}); // ignore unique conflict (email already on another entity)
     }
 
@@ -534,6 +625,9 @@ async function enrichContactViaProspeo(supabase, contact, prospeoKey) {
 
     await scoreICP(supabase, contact.workspace_id, { ...contact, ...updates });
 
+    // Hit = goal satisfied: an email when one was missing, otherwise a profile.
+    return realEmail ? true : Boolean(foundEmail);
+
   } catch (err) {
     console.error('[ENRICH] Prospeo failed for', contact.email, ':', err.message);
     await supabase.from('contacts').update({ enrichment_status: 'failed' }).eq('id', contact.id);
@@ -550,6 +644,135 @@ async function enrichContactViaProspeo(supabase, contact, prospeoKey) {
       `Enrichment error: ${err.message}`,
       contact.id, { status: 'error' }
     ).catch(() => {});
+    return false;
+  }
+}
+
+
+// ── Findymail enrichment path ─────────────────────────────────────────────────
+// Pure email-finder for the founder/agency ICP. Resolves from a LinkedIn URL or
+// a name+domain, and Findymail verifies before returning, so a returned address
+// is already deliverable. BYOK only. Same hit/miss contract as the other rungs.
+// NOTE: endpoint shapes follow Findymail's documented API — smoke-test with a
+// real key before shipping, as the payload/response can drift.
+async function enrichContactViaFindymail(supabase, contact, findymailKey) {
+  if (!findymailKey) {
+    await supabase.from('contacts').update({ enrichment_status: 'no_integration' }).eq('id', contact.id);
+    return false;
+  }
+
+  const realEmail = realEmailOf(contact.email);
+  const name = [contact.first_name, contact.last_name].filter(Boolean).join(' ').trim();
+  const canLinkedin = Boolean(contact.linkedin_url);
+  const canNameDomain = Boolean(name && contact.domain);
+  if (!canLinkedin && !canNameDomain) {
+    // No key Findymail can work from — clean miss, let the waterfall move on.
+    await supabase.from('contacts').update({ enrichment_status: 'not_found' }).eq('id', contact.id);
+    return false;
+  }
+
+  await supabase.from('contacts').update({ enrichment_status: 'queued' }).eq('id', contact.id);
+
+  try {
+    const endpoint = canLinkedin
+      ? `${FINDYMAIL_BASE}/api/search/linkedin`
+      : `${FINDYMAIL_BASE}/api/search/name`;
+    const payload = canLinkedin
+      ? { linkedin_url: contact.linkedin_url }
+      : { name, domain: contact.domain };
+
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'Authorization': `Bearer ${findymailKey}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    // 402 = out of Findymail credits. Treat as a miss so the waterfall falls
+    // through to the next rung rather than dying.
+    if (res.status === 402) {
+      console.warn('[ENRICH_FINDYMAIL] out of credits');
+      await supabase.from('contacts').update({ enrichment_status: 'failed' }).eq('id', contact.id);
+      return false;
+    }
+    if (!res.ok) throw new Error(`Findymail ${res.status}: ${await res.text().catch(() => '')}`);
+
+    const body = await res.json();
+    const found = body.contact || null;
+    const foundEmail = found?.email ? found.email.toLowerCase().trim() : null;
+
+    if (!foundEmail) {
+      await supabase.from('contacts').update({ enrichment_status: 'not_found' }).eq('id', contact.id);
+      await logActivity(supabase, {
+        workspaceId: contact.workspace_id, contactId: contact.id,
+        companyId: contact.company_id || null,
+        type: 'enrichment_run', source: 'findymail',
+        externalId: `findymail_nomatch_${contact.id}`,
+        occurredAt: new Date().toISOString(),
+        description: 'Enrichment: no match found',
+        summary: `Findymail searched for ${contact.linkedin_url || `${name} @ ${contact.domain}`} — no email found`,
+      }).catch(() => {});
+      return false;
+    }
+
+    // Findymail returns mainly the email plus light company context. We do NOT
+    // write reachability_status here — Verify owns email status (enrich ≠ verify).
+    const updates = {
+      enrichment_status: 'complete',
+      enriched_at:       new Date().toISOString(),
+      enrichment_source: 'findymail',
+    };
+    if (found.company && !contact.company)           updates.company = found.company;
+    if (found.domain && !contact.domain)             updates.domain = found.domain;
+    if (found.linkedin_url && !contact.linkedin_url) updates.linkedin_url = found.linkedin_url;
+
+    await recordEnrichmentObservations(supabase, contact.workspace_id, contact.id, 'findymail', updates);
+    const viewUpdate = { ...updates };
+    for (const f of ENRICH_STRIP) delete viewUpdate[f];
+    if (Object.keys(viewUpdate).length) await supabase.from('contacts').update(viewUpdate).eq('id', contact.id);
+
+    // Persist the found email as an entity email identifier (works for cold
+    // leads not in the contacts view, exactly as the Prospeo/Apollo rungs do).
+    // Store it even alongside a different primary so the surfaced address stays
+    // resolvable; primary column untouched.
+    const findymailPrimaryLc = realEmail ? realEmail.toLowerCase().trim() : null;
+    if (foundEmail !== findymailPrimaryLc) {
+      await supabase.from('entity_identifiers')
+        .insert({ workspace_id: contact.workspace_id, entity_id: contact.id, kind: 'email', value: foundEmail, status: 'active' })
+        .then(() => {}, () => {}); // ignore unique conflict
+    }
+
+    await logActivity(supabase, {
+      workspaceId: contact.workspace_id, contactId: contact.id,
+      companyId: contact.company_id || null,
+      type: 'enrichment_run', source: 'findymail',
+      externalId: `findymail_enrich_${contact.id}_${Date.now()}`,
+      occurredAt: new Date().toISOString(),
+      description: 'Profile enriched via Findymail',
+      summary: [foundEmail, [contact.job_title, updates.company || contact.company].filter(Boolean).join(' at ') || null].filter(Boolean).join(' · ') || null,
+      rawData: { provider: 'findymail', email: foundEmail, company: updates.company || contact.company || null, domain: updates.domain || contact.domain || null },
+    }).catch(() => {});
+    logSysEvent(supabase, contact.workspace_id, 'findymail', 'enrichment_run',
+      `Enriched: ${[name, updates.company || contact.company].filter(Boolean).join(' · ')}`,
+      contact.id, { status: 'success', company: updates.company || contact.company }
+    ).catch(() => {});
+
+    await scoreICP(supabase, contact.workspace_id, { ...contact, ...updates });
+
+    // Hit = goal satisfied: an email when one was missing, otherwise a profile.
+    return realEmail ? true : Boolean(foundEmail);
+
+  } catch (err) {
+    console.error('[ENRICH] Findymail failed for', contact.email, ':', err.message);
+    await supabase.from('contacts').update({ enrichment_status: 'failed' }).eq('id', contact.id);
+    logSysEvent(supabase, contact.workspace_id, 'findymail', 'enrichment_run',
+      `Enrichment error: ${err.message}`,
+      contact.id, { status: 'error' }
+    ).catch(() => {});
+    return false;
   }
 }
 
