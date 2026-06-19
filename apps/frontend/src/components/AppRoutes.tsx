@@ -6,7 +6,7 @@ import { OpsLimitBanner } from "@/components/OpsLimitBanner";
 import ComingSoon from "@/pages/ComingSoon";
 import { useAuth } from "@/contexts/AuthContext";
 
-// Cloud-only routes (CRM Sync, Lists) — on a self-hosted instance these features
+// Cloud-only routes (Lists) — on a self-hosted instance these features
 // don't exist, so redirect home instead of rendering the page.
 function CloudOnly({ children }: { children: React.ReactNode }) {
   const { userData } = useAuth();
@@ -49,7 +49,6 @@ const People          = lazyWithErrorBoundary(() => import("@/pages/People"));
 const Companies       = lazyWithErrorBoundary(() => import("@/pages/Companies"));
 const Accounts        = lazyWithErrorBoundary(() => import("@/pages/Accounts"));
 const Integrations    = lazyWithErrorBoundary(() => import("@/pages/Integrations"));
-const CrmSync         = lazyWithErrorBoundary(() => import("@/pages/CrmSync"));
 const UsageBilling    = lazyWithErrorBoundary(() => import("@/pages/UsageBilling"));
 const Inbox           = lazyWithErrorBoundary(() => import("@/pages/Inbox"));
 const Intelligence    = lazyWithErrorBoundary(() => import("@/pages/Intelligence"));
@@ -173,10 +172,11 @@ export function AppRoutes() {
             <Route path="/companies"     element={<Navigate to="/accounts?tab=companies" replace />} />
             <Route path="/companies/:id" element={<Suspense fallback={<MinimalLoader />}><Companies /></Suspense>} />
             <Route path="/integrations"  element={<Suspense fallback={<MinimalLoader />}><Integrations /></Suspense>} />
-            <Route path="/crm-sync"      element={<CloudOnly><Suspense fallback={<MinimalLoader />}><CrmSync /></Suspense></CloudOnly>} />
-            <Route path="/crm"           element={<Navigate to="/crm-sync" replace />} />
             <Route path="/lists"         element={<CloudOnly><Suspense fallback={<MinimalLoader />}><Lists /></Suspense></CloudOnly>} />
             <Route path="/lists/clean"   element={<CloudOnly><Suspense fallback={<MinimalLoader />}><CleanList /></Suspense></CloudOnly>} />
+            {/* Each list on its own page — /lists/:listId. (Static /lists/clean
+                above wins over this param route in React Router v6.) */}
+            <Route path="/lists/:listId" element={<CloudOnly><Suspense fallback={<MinimalLoader />}><Lists /></Suspense></CloudOnly>} />
             <Route path="/playbook"      element={<Suspense fallback={<MinimalLoader />}><Intelligence /></Suspense>} />
             <Route path="/intelligence"  element={<Navigate to="/playbook" replace />} />
             <Route path="/settings/*" element={<Navigate to="/settings" replace />} />

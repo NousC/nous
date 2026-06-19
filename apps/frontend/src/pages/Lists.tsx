@@ -1,5 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useRef } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams, useParams } from "react-router-dom";
 import { Plus, Upload, RefreshCw, FileText, X, ArrowLeft, Download, Lock, Filter, ChevronDown, Linkedin, Coins, Settings2, Calendar } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader } from "@/components/ui/page-header";
@@ -256,9 +256,13 @@ export default function Lists() {
   const workspaceId = userData?.workspace?.id ?? "";
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  // The active list now lives in the path — /lists/:listId, each list its own
+  // page. (Named routeListId so it doesn't shadow the local listId in addBlankRow.)
+  const { listId: routeListId } = useParams<{ listId?: string }>();
   // List + page restored from the URL on first load (so a refresh stays put,
-  // instead of bouncing back to the first/native list).
-  const initialListRef = useRef(searchParams.get("list"));
+  // instead of bouncing back to the first/native list). The legacy ?list= query
+  // is still honored for old bookmarks.
+  const initialListRef = useRef(routeListId ?? searchParams.get("list"));
   const firstActiveRef = useRef(true);
   // Per-(list+page+filters) leads cache — stale-while-revalidate so switching
   // back to a list or page shows instantly and only re-fetches in the background.
@@ -405,6 +409,8 @@ export default function Lists() {
       const next: LeadList[] = d.lead_lists ?? [];
       setLists(next);
       ssSet(SS_LISTS(workspaceId), next);
+      // Let the sidebar's Lists dropdown refresh (create/delete/import/rename).
+      try { window.dispatchEvent(new Event("nous:lists-changed")); } catch { /* ignore */ }
       setActiveId(prev => {
         if (prev && next.some(l => l.id === prev)) return prev;
         const fromUrl = initialListRef.current;
@@ -554,6 +560,7 @@ export default function Lists() {
   useEffect(() => {
     if (!activeId) return;
     setIcpFilter("all"); setStatusFilter(""); setReplyFilter(""); setFbFilters([]); setSort("recent"); setSelected(new Set()); setSelectAllMatching(false); setCounts(null);
+    setEditCell(null); resetImport();
     if (firstActiveRef.current) firstActiveRef.current = false;
     else setPage(0);
   }, [activeId]);
@@ -561,16 +568,35 @@ export default function Lists() {
   // (the matching set changed, so "all matching" no longer means the same thing).
   useEffect(() => { setPage(0); setSelected(new Set()); setSelectAllMatching(false); }, [icpFilter, sort, statusFilter, replyFilter, fbFilters]);
 
-  // Keep the URL in sync with the active list + page so a refresh stays put.
+  // Route param → active list. /lists/:listId selects that list; the bare /lists
+  // index (or a stale/unknown id, e.g. after deleting the active list) falls back
+  // to the first list so a list is always selected.
+  useEffect(() => {
+    if (loading) return;
+    if (routeListId && lists.some(l => l.id === routeListId)) {
+      if (routeListId !== activeId) setActiveId(routeListId);
+      return;
+    }
+    if (lists.length && (!activeId || !lists.some(l => l.id === activeId))) {
+      setActiveId(lists[0].id);
+    }
+  }, [routeListId, lists, loading, activeId]);
+
+  // Active list → URL. Point the path at the active list's own page when it drifts
+  // from the param (default selection, programmatic switch after create/delete),
+  // and keep ?page in the query so a refresh stays put.
   useEffect(() => {
     if (!activeId) return;
-    setSearchParams(prev => {
-      const p = new URLSearchParams(prev);
-      p.set("list", activeId);
-      if (page > 0) p.set("page", String(page + 1)); else p.delete("page");
-      return p;
-    }, { replace: true });
-  }, [activeId, page, setSearchParams]);
+    if (routeListId !== activeId) {
+      navigate(page > 0 ? `/lists/${activeId}?page=${page + 1}` : `/lists/${activeId}`, { replace: true });
+    } else {
+      setSearchParams(prev => {
+        const p = new URLSearchParams(prev);
+        if (page > 0) p.set("page", String(page + 1)); else p.delete("page");
+        return p;
+      }, { replace: true });
+    }
+  }, [activeId, page, routeListId, navigate, setSearchParams]);
 
   const activeList = lists.find(l => l.id === activeId) ?? null;
   // Always include the default custom columns, even on older lists whose stored
@@ -1326,9 +1352,31 @@ export default function Lists() {
     <div className="h-full flex flex-col bg-background">
       <div className="px-8 pt-7 flex-shrink-0">
         <PageHeader
-          title="Lists"
+          title={activeList?.name ?? "Lists"}
           actions={
             <>
+              {creating ? (
+                <span className="flex items-center gap-1.5">
+                  <input
+                    value={newName} onChange={e => setNewName(e.target.value)} autoFocus placeholder="List name"
+                    onKeyDown={e => { if (e.key === "Enter") createList(); if (e.key === "Escape") { setCreating(false); setNewName(""); } }}
+                    className="h-9 w-40 rounded-lg border border-border bg-background px-2.5 text-[13px] outline-none focus:border-muted-foreground"
+                  />
+                  <button onClick={() => createList()} disabled={busy || !newName.trim()}
+                    className="h-9 px-3 rounded-lg bg-foreground text-background text-[13px] font-semibold disabled:opacity-30">Add</button>
+                  <button onClick={() => createList({ thenImport: true })} disabled={busy || !newName.trim()} title="Create the list and import a CSV into it"
+                    className="inline-flex items-center gap-1 h-9 px-3 rounded-lg border border-border text-foreground/80 text-[13px] font-semibold hover:bg-muted/50 transition-colors disabled:opacity-30">
+                    <Upload className="h-3.5 w-3.5" /> Import
+                  </button>
+                  <button onClick={() => { setCreating(false); setNewName(""); }}
+                    className="px-1 text-[13px] text-muted-foreground hover:text-foreground">Cancel</button>
+                </span>
+              ) : (
+                <button onClick={() => setCreating(true)} title="Create a new list"
+                  className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-background border border-border text-foreground/80 text-[13px] font-semibold hover:bg-muted/50 transition-colors">
+                  <Plus className="h-3.5 w-3.5" /> New list
+                </button>
+              )}
               <button
                 onClick={() => navigate("/lists/clean")}
                 className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-background border border-border text-foreground/80 text-[13px] font-semibold hover:bg-muted/50 transition-colors"
@@ -1336,6 +1384,18 @@ export default function Lists() {
               >
                 Clean a list →
               </button>
+              {activeList?.source === "linkedin_engagement" && (
+                <button onClick={openEngagement} title="Manage this auto-updating list"
+                  className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-background border border-border text-foreground/80 text-[13px] font-semibold hover:bg-muted/50 transition-colors">
+                  <Settings2 className="h-3.5 w-3.5" /> Manage
+                </button>
+              )}
+              {activeList && activeList.source !== "linkedin_engagement" && activeList.source !== "linkedin_connections" && (
+                <button onClick={() => requestDeleteList(activeList)} title="Delete this list"
+                  className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-background border border-border text-foreground/70 text-[13px] font-semibold hover:bg-red-50 hover:text-red-600 hover:border-red-300 dark:hover:bg-red-950/40 dark:hover:text-red-400 transition-colors">
+                  Delete
+                </button>
+              )}
               {activeList && (
                 <div className="relative">
                   <button
@@ -1354,60 +1414,8 @@ export default function Lists() {
           }
         />
 
-        {/* Tabs — one per list, rounded-top folder tabs on a gray bar */}
-        <div className="flex items-end gap-1 mb-4 overflow-x-auto rounded-lg bg-muted/60 px-1.5 pt-1.5">
-          {lists.map(l => {
-            const engagers = l.source === "linkedin_engagement";
-            const connections = l.source === "linkedin_connections";
-            const native = engagers || connections;
-            return (
-            <div key={l.id} className="relative flex items-stretch">
-              <button
-                onClick={() => { setActiveId(l.id); resetImport(); setEditCell(null); }}
-                onContextMenu={e => { e.preventDefault(); requestDeleteList(l); }}
-                title={engagers ? "Auto-managed — right-click or click the gear to manage" : connections ? "Auto-managed — fills from your LinkedIn connections" : "Right-click to delete this list"}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-[13px] rounded-t-lg border border-b-0 whitespace-nowrap transition-colors ${
-                  l.id === activeId
-                    ? "bg-background border-border text-foreground font-medium shadow-[0_-1px_2px_rgba(0,0,0,0.03)]"
-                    : "bg-transparent border-transparent text-muted-foreground hover:text-foreground hover:bg-background/50"
-                }`}
-              >
-                {native && <Lock className="h-3 w-3 opacity-50" />}
-                {l.name}
-                <span className="text-[11px] text-muted-foreground/60 tabular-nums">{l.lead_count ?? 0}</span>
-                {engagers && (
-                  <Settings2
-                    onClick={e => { e.stopPropagation(); openEngagement(); }}
-                    className="h-3.5 w-3.5 ml-0.5 opacity-40 hover:opacity-90 transition-opacity"
-                  />
-                )}
-              </button>
-            </div>
-            );
-          })}
-          {creating ? (
-            <span className="flex items-center gap-1.5 px-1.5 pb-1.5">
-              <input
-                value={newName} onChange={e => setNewName(e.target.value)} autoFocus placeholder="List name"
-                onKeyDown={e => { if (e.key === "Enter") createList(); if (e.key === "Escape") { setCreating(false); setNewName(""); } }}
-                className="h-7 w-36 rounded-md border border-border bg-background px-2 text-[13px] outline-none focus:border-muted-foreground"
-              />
-              <button onClick={() => createList()} disabled={busy || !newName.trim()}
-                className="h-7 px-2.5 rounded-md bg-foreground text-background text-[12px] font-medium disabled:opacity-30">Add</button>
-              <button onClick={() => createList({ thenImport: true })} disabled={busy || !newName.trim()} title="Create the list and import a CSV into it"
-                className="inline-flex items-center gap-1 h-7 px-2.5 rounded-md border border-border text-foreground/80 text-[12px] font-medium hover:bg-muted/50 transition-colors disabled:opacity-30">
-                <Upload className="h-3 w-3" /> Import
-              </button>
-              <button onClick={() => { setCreating(false); setNewName(""); }}
-                className="text-[12px] text-muted-foreground hover:text-foreground">Cancel</button>
-            </span>
-          ) : (
-            <button onClick={() => setCreating(true)} title="New list"
-              className="flex items-center justify-center h-7 w-7 mb-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-background/70 transition-colors flex-shrink-0">
-              <Plus className="h-4 w-4" />
-            </button>
-          )}
-        </div>
+        {/* List switching lives in the sidebar Lists dropdown now; creating and
+            managing a list live in the header actions above. */}
 
         {result && (
           <div className="mb-4 text-[13px] text-green-700 dark:text-green-500">
