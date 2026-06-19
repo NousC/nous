@@ -4,6 +4,7 @@
 // Dedup is handled by externalId (gcal_{event.id}).
 
 import { google } from 'googleapis';
+import Anthropic from 'useleak';
 import { getSupabaseClient, listActivities } from '@nous/core';
 import { logActivity } from '../utils/activity.mjs';
 import { refreshGoogleToken } from '../utils/googleOAuth.mjs';
@@ -12,6 +13,121 @@ import { isTokenRevoked, markGoogleConnectionRevoked } from '../utils/connection
 const LOOKBACK_DAYS  = 7;
 const LOOKAHEAD_DAYS = 30;
 const MEETING_RE     = /\b(book|booked|schedul|call|meeting|appointment|calendly|slot|zoom|meet|catch up|sync)\b/i;
+
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+// Scheduler / no-reply senders (Zoom Scheduler, Calendly, Cal.com, …) book a 1:1
+// on your calendar with YOU as the only guest and the counterparty's name only in
+// the event title. Their address must never be treated as a person or saved as a
+// contact email.
+const NOREPLY_RE = /(no-?reply|do-?not-?reply|scheduler|notification|invite|mailer-daemon|calendar-server)/i;
+const SCHEDULER_DOMAIN_RE = /(^|\.)(zoom\.us|calendly\.com|cal\.com|savvycal\.com|acuityscheduling\.com|chilipiper\.com|hubspot\.com|youcanbook\.me)$/i;
+function isNonHumanEmail(email) {
+  const e = (email || '').toLowerCase();
+  const at = e.indexOf('@');
+  if (at < 1) return true;
+  return NOREPLY_RE.test(e.slice(0, at)) || SCHEDULER_DOMAIN_RE.test(e.slice(at + 1));
+}
+
+// Pull the OTHER person's name out of a 1:1 booking's title/description when the
+// event carries no human guest (the Zoom-Scheduler pattern: "… with Mansoor Ali").
+// Best-effort Haiku call; null on no key / no clear name / failure.
+async function extractCounterpartyName({ title, description, ownerName }) {
+  if (!process.env.ANTHROPIC_API_KEY) return null;
+  const t = `${title || ''}\n${(description || '').slice(0, 500)}`.trim();
+  if (!t) return null;
+  const me = ownerName || 'the calendar owner';
+  try {
+    const msg = await anthropic.messages.create({
+      feature: 'meeting-attendee-extract',
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 24,
+      messages: [{ role: 'user', content:
+`A 1:1 meeting on ${me}'s calendar. From the title and details, give the OTHER person's full name — never ${me}. If no specific other person is named, answer NONE.
+
+TITLE: ${title || ''}
+DETAILS: ${(description || '').slice(0, 400)}
+
+Reply with ONLY the other person's full name, or NONE.` }],
+    });
+    const out = (msg.content?.[0]?.text || '').trim();
+    if (!out || /^none$/i.test(out)) return null;
+    // Sanity: a plausible 2-part name, letters/spaces/.'- only.
+    if (!/^[\p{L}][\p{L}.'\- ]{1,58}[\p{L}.]$/u.test(out)) return null;
+    return out;
+  } catch (e) {
+    console.warn('[CAL_POLL] name extract failed:', e.message);
+    return null;
+  }
+}
+
+// Resolve a full name to a contact — unique existing match, else CREATE a new
+// person (a booked meeting is a strong enough signal to earn a record). Returns
+// null when the name is partial or ambiguous (>1 match) so we never guess.
+async function resolveOrCreateByName(supabase, workspaceId, fullName) {
+  const parts = fullName.trim().split(/\s+/);
+  const first = parts[0];
+  const last  = parts.slice(1).join(' ');
+  if (!first || !last) return null;
+  // Last-name PREFIX match so an existing record with a suffix/emoji ("Ali 🥾")
+  // still resolves instead of forking a duplicate. % is escaped to a literal.
+  const lastPrefix = `${last.replace(/[%_]/g, '\\$&')}%`;
+  const { data: matches } = await supabase.from('contacts')
+    .select('id, email, first_name, last_name, company_id')
+    .eq('workspace_id', workspaceId)
+    .ilike('first_name', first)
+    .ilike('last_name', lastPrefix);
+  if (matches && matches.length === 1) return { contact: matches[0], created: false };
+  if (matches && matches.length > 1)  return null;   // ambiguous — don't guess
+  const { data: created, error } = await supabase.from('contacts')
+    .insert({ workspace_id: workspaceId, first_name: first, last_name: last, source: 'calendar', pipeline_stage: 'identified' })
+    .select('id, email, first_name, last_name, company_id')
+    .single();
+  if (error) { console.warn('[CAL_POLL] create-by-name failed:', error.message); return null; }
+  return { contact: created, created: true };
+}
+
+// Log one meeting observation for a contact, with the reschedule handling the
+// attendee path already used (a Google event keeps its id when moved, so a moved
+// start drops a "Rescheduled:" marker on the old slot and logs the new time).
+async function recordMeeting(supabase, workspaceId, event, contact, { rsvp } = {}) {
+  const startTime = event.start?.dateTime || event.start?.date;
+  if (!startTime) return 0;
+  const occurredAt = new Date(startTime).toISOString();
+  const isPast = new Date(startTime) < new Date();
+  const title  = event.summary || 'Calendar meeting';
+  const type   = (isPast && rsvp === 'accepted') ? 'meeting_held' : 'meeting_scheduled';
+  const label  = rsvp === 'declined' ? '(Declined)' : isPast ? '(Held)' : '(Scheduled)';
+
+  const stableExtId = `gcal_${event.id}_${contact.id}`;
+  const startKey = occurredAt.slice(0, 16);
+  let externalId = stableExtId;
+  if (type === 'meeting_scheduled') {
+    const { data: existing } = await supabase.from('observations')
+      .select('observed_at')
+      .eq('workspace_id', workspaceId)
+      .eq('source', 'google_calendar')
+      .eq('external_id', stableExtId)
+      .maybeSingle();
+    const existingKey = existing ? new Date(existing.observed_at).toISOString().slice(0, 16) : null;
+    if (existingKey && existingKey !== startKey) {
+      await logActivity(supabase, {
+        workspaceId, contactId: contact.id, companyId: contact.company_id || null,
+        type: 'meeting_cancelled', source: 'google_calendar',
+        externalId: `gcal_resched_${event.id}_${contact.id}_${existingKey}`,
+        occurredAt: existing.observed_at, description: `Rescheduled: ${title}`,
+      });
+      externalId = `${stableExtId}_${startKey}`;
+    }
+  }
+
+  const result = await logActivity(supabase, {
+    workspaceId, contactId: contact.id, companyId: contact.company_id || null,
+    type, source: 'google_calendar', externalId, occurredAt,
+    description: `${title} ${label}`,
+  });
+  return result ? 1 : 0;
+}
 
 async function getCalendarConnections(supabase) {
   const { data: conns } = await supabase
@@ -65,23 +181,32 @@ async function pollWorkspace(supabase, conn) {
     }
     for (const a of all) {
       const email = a.email?.toLowerCase();
-      if (!email || email === ownerEmail) continue;
+      // Skip the owner and scheduler/no-reply addresses — the latter are transport,
+      // not people, and would otherwise never match (or pollute) a contact.
+      if (!email || email === ownerEmail || isNonHumanEmail(email)) continue;
       if (!externalAttendees.has(email)) externalAttendees.set(email, a.displayName || null);
     }
   }
 
-  if (!externalAttendees.size) return 0;
+  // Owner display name — used to exclude "me" when extracting a counterparty from
+  // a title-only booking ("Mansoor x Bennet" → Mansoor, not Bennet).
+  let ownerName = null;
+  for (const event of events) {
+    const o = (event.attendees || []).find(a => a.email?.toLowerCase() === ownerEmail)
+      || (event.organizer?.email?.toLowerCase() === ownerEmail ? event.organizer : null);
+    if (o?.displayName) { ownerName = o.displayName; break; }
+  }
 
   // ── Pass 1: exact email match ────────────────────────────────────────────────
-  const { data: emailContacts } = await supabase
-    .from('contacts')
-    .select('id, email, first_name, last_name, company_id')
-    .eq('workspace_id', conn.workspace_id)
-    .in('email', [...externalAttendees.keys()]);
-
-  const contactByEmail = new Map(
-    (emailContacts || []).map(c => [c.email.toLowerCase(), c])
-  );
+  const contactByEmail = new Map();
+  if (externalAttendees.size) {
+    const { data: emailContacts } = await supabase
+      .from('contacts')
+      .select('id, email, first_name, last_name, company_id')
+      .eq('workspace_id', conn.workspace_id)
+      .in('email', [...externalAttendees.keys()]);
+    for (const c of emailContacts || []) contactByEmail.set(c.email.toLowerCase(), c);
+  }
 
   // ── Pass 2: name / email-prefix fallback for unmatched attendees ─────────────
   const stillUnmatched = [...externalAttendees.entries()]
@@ -152,77 +277,60 @@ async function pollWorkspace(supabase, conn) {
     }
   }
 
-  if (!contactByEmail.size) return 0;
-
-  // ── Log one activity per event per matched attendee ──────────────────────────
+  // ── Log one activity per event ───────────────────────────────────────────────
   let logged = 0;
   for (const event of events) {
-    const startTime = event.start?.dateTime || event.start?.date;
-    if (!startTime) continue;
-    const occurredAt = new Date(startTime).toISOString();
-    const isPast = new Date(startTime) < new Date();
-    const title = event.summary || 'Calendar meeting';
+    if (!(event.start?.dateTime || event.start?.date)) continue;
 
     const all = [...(event.attendees || [])];
     if (event.organizer?.email && !all.find(a => a.email === event.organizer.email)) {
-      all.push({ email: event.organizer.email, responseStatus: 'accepted' });
+      all.push({ email: event.organizer.email, responseStatus: 'accepted', displayName: event.organizer.displayName });
     }
 
+    // Normal path — log for every attendee we resolved to a contact by email.
+    let matchedAny = false;
     for (const attendee of all) {
       const email = attendee.email?.toLowerCase();
-      if (!email || email === ownerEmail) continue;
+      if (!email || email === ownerEmail || isNonHumanEmail(email)) continue;
       const contact = contactByEmail.get(email);
       if (!contact) continue;
-
-      const rsvp = attendee.responseStatus;
-      const type = (isPast && rsvp === 'accepted') ? 'meeting_held' : 'meeting_scheduled';
-      const label = rsvp === 'declined' ? '(Declined)' : isPast ? '(Held)' : '(Scheduled)';
-
-      // A Google event keeps the same id when rescheduled, only the start moves.
-      // The stable per-event external_id would then just 23505-skip, freezing the
-      // row at the OLD time. So for a future meeting, detect a moved start: if we
-      // already logged this event for this contact at a different start, drop a
-      // "Rescheduled:" marker on the old slot (the read layer hides it and the
-      // stale booking) and log the new time under a start-keyed id.
-      const stableExtId = `gcal_${event.id}_${contact.id}`;
-      const startKey = occurredAt.slice(0, 16);
-      let externalId = stableExtId;
-      if (type === 'meeting_scheduled') {
-        const { data: existing } = await supabase
-          .from('observations')
-          .select('observed_at')
-          .eq('workspace_id', conn.workspace_id)
-          .eq('source', 'google_calendar')
-          .eq('external_id', stableExtId)
-          .maybeSingle();
-        const existingKey = existing ? new Date(existing.observed_at).toISOString().slice(0, 16) : null;
-        if (existingKey && existingKey !== startKey) {
-          await logActivity(supabase, {
-            workspaceId: conn.workspace_id,
-            contactId:   contact.id,
-            companyId:   contact.company_id || null,
-            type:        'meeting_cancelled',
-            source:      'google_calendar',
-            externalId:  `gcal_resched_${event.id}_${contact.id}_${existingKey}`,
-            occurredAt:  existing.observed_at,
-            description: `Rescheduled: ${title}`,
-          });
-          externalId = `${stableExtId}_${startKey}`;   // new row at the new time
-        }
-      }
-
-      const result = await logActivity(supabase, {
-        workspaceId: conn.workspace_id,
-        contactId:   contact.id,
-        companyId:   contact.company_id || null,
-        type,
-        source:      'google_calendar',
-        externalId,
-        occurredAt,
-        description: `${title} ${label}`,
-      });
-      if (result) logged++;
+      matchedAny = true;
+      logged += await recordMeeting(supabase, conn.workspace_id, event, contact, { rsvp: attendee.responseStatus });
     }
+    if (matchedAny) continue;
+
+    // Title fallback — a 1:1 scheduler booking (Zoom Scheduler / Calendly) lands on
+    // your calendar with YOU as the only guest and the counterparty only in the
+    // title ("… with Mansoor Ali"). When no human guest resolved, extract the name
+    // and match-or-create the person so the meeting still gets logged + surfaced.
+    const hasHumanGuest = all.some(a => {
+      const e = a.email?.toLowerCase();
+      return e && e !== ownerEmail && !isNonHumanEmail(e);
+    });
+    if (hasHumanGuest) continue;   // real attendees we just don't have — don't trust the title
+
+    // Cost guard: skip the LLM when we've already logged this event at its current
+    // start. A moved start (reschedule) falls through and re-runs. Hard dedup in
+    // recordMeeting still protects against any double-log if this lets one through.
+    const startKey = new Date(event.start.dateTime || event.start.date).toISOString().slice(0, 16);
+    const { data: prior } = await supabase.from('observations')
+      .select('observed_at')
+      .eq('workspace_id', conn.workspace_id)
+      .eq('source', 'google_calendar')
+      .like('external_id', `gcal_${event.id}_%`)
+      .order('observed_at', { ascending: false })
+      .limit(1);
+    if (prior?.length && new Date(prior[0].observed_at).toISOString().slice(0, 16) === startKey) continue;
+
+    const name = await extractCounterpartyName({ title: event.summary, description: event.description, ownerName });
+    if (!name) continue;
+    const res = await resolveOrCreateByName(supabase, conn.workspace_id, name);
+    if (!res?.contact) {
+      console.log(`[CAL_POLL] Title name "${name}" ambiguous/partial — skipped event "${event.summary}"`);
+      continue;
+    }
+    if (res.created) console.log(`[CAL_POLL] Title-booking created contact "${name}" for "${event.summary}"`);
+    logged += await recordMeeting(supabase, conn.workspace_id, event, res.contact, { rsvp: 'accepted' });
   }
 
   console.log(`[CAL_POLL] workspace=${conn.workspace_id}: ${events.length} events, ${logged} logged`);
