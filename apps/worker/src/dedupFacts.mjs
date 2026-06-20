@@ -1,20 +1,12 @@
 // One-off dedup sweep: collapse near-duplicate facts on a contact, keeping the
 // single most complete/specific one and soft-deleting the thinner restatements.
 //
-// The live extractor's per-fact dedup (decideMerge) prevents most dupes going
-// forward, but earlier passes — especially before dedup was fixed — left
-// overlapping facts (e.g. a thin "hire after $50k MRR" next to a richer
-// "won't hire beyond his co-founder until ~$50k MRR"). This batches a contact's
-// auto-extracted facts through Haiku, groups the ones that express the SAME
-// underlying fact, keeps the best, and invalidates the rest.
+// SAFE BY DEFAULT: dry-run. Pass --apply to soft-delete the redundant ones. Only
+// touches signal_extraction facts. Contact-scoped; defaults to Taimoor. For the
+// whole workspace use sweepWorkspace.mjs.
 //
-// SAFE BY DEFAULT: dry-run. Prints keep/remove groups, writes nothing. Pass
-// --apply to soft-delete (invalid_at) the redundant ones. Only touches
-// signal_extraction facts — never manual notes or documents.
-//
-// Usage (in the worker container, env injected via env_file):
-//   docker compose exec -T worker node apps/worker/src/dedupFacts.mjs <contactId>
-//   docker compose exec -T worker node apps/worker/src/dedupFacts.mjs <contactId> --apply
+// Usage (worker container):
+//   docker compose exec -T worker node apps/worker/src/dedupFacts.mjs [contactId] [--apply]
 
 import './bootEnv.mjs';
 import Anthropic from 'useleak';
@@ -23,10 +15,6 @@ import { getSupabaseClient, listNotes, deleteNote } from '@nous/core';
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 const DEFAULT_CONTACT = '0580d1b1-94f7-4376-b677-cb3a1051610f'; // Muhammad Taimoor Ali
-
-const args = process.argv.slice(2);
-const apply = args.includes('--apply');
-const contactId = args.find(a => !a.startsWith('--')) || DEFAULT_CONTACT;
 
 // Ask Haiku to group facts that restate the SAME underlying fact and pick the
 // richest survivor. Facts are referenced by 1-based number to avoid UUID
@@ -54,42 +42,49 @@ Include a group ONLY if it has real duplicates (a non-empty "remove"). If there 
   } catch { return []; }
 }
 
-async function main() {
-  const supabase = getSupabaseClient();
-  const { data: contact } = await supabase
-    .from('contacts').select('workspace_id, first_name, last_name').eq('id', contactId).maybeSingle();
-  if (!contact) { console.error(`contact ${contactId} not found`); process.exit(1); }
-
-  const name = [contact.first_name, contact.last_name].filter(Boolean).join(' ') || contactId;
-  const notes = await listNotes(supabase, contact.workspace_id, { entityId: contactId, limit: 200 });
+/** Dedup one contact's facts. Returns { total, removed }. Logs keep/remove. */
+export async function dedupContact({ supabase, workspaceId, contactId, apply }) {
+  const notes = await listNotes(supabase, workspaceId, { entityId: contactId, limit: 200 });
   const facts = notes.filter(n => n.source === 'signal_extraction' && !n.metadata?.doc_type);
-
-  if (facts.length < 2) { console.log(`${name}: ${facts.length} fact(s) — nothing to dedup.`); process.exit(0); }
-
-  console.log(`\n${apply ? 'APPLY' : 'DRY-RUN'} — dedup ${facts.length} facts on ${name}\n`);
+  if (facts.length < 2) return { total: facts.length, removed: 0 };
 
   const groups = (await findDuplicateGroups(facts)).filter(g =>
     Number.isInteger(g.keep) && Array.isArray(g.remove) && g.remove.length);
-
-  if (!groups.length) { console.log('  No duplicates found — all facts are distinct.\n'); process.exit(0); }
 
   let removed = 0;
   for (const g of groups) {
     const keep = facts[g.keep - 1];
     const dropped = g.remove.map(n => facts[n - 1]).filter(Boolean).filter(f => f.id !== keep?.id);
     if (!keep || !dropped.length) continue;
-    console.log(`  ✓ keep    ${keep.content}`);
+    console.log(`    ✓ keep    ${keep.content}`);
     for (const d of dropped) {
-      console.log(`  ✗ remove  ${d.content}`);
+      console.log(`    ✗ remove  ${d.content}`);
       removed++;
-      if (apply) await deleteNote(supabase, contact.workspace_id, d.id);
+      if (apply) await deleteNote(supabase, workspaceId, d.id);
     }
-    if (g.why) console.log(`            ↳ ${g.why}`);
-    console.log('');
+    if (g.why) console.log(`              ↳ ${g.why}`);
   }
+  return { total: facts.length, removed };
+}
 
-  console.log(`${apply ? `Invalidated ${removed}` : `Would invalidate ${removed}`} of ${facts.length} facts.`);
+async function main() {
+  const args = process.argv.slice(2);
+  const apply = args.includes('--apply');
+  const contactId = args.find(a => !a.startsWith('--')) || DEFAULT_CONTACT;
+
+  const supabase = getSupabaseClient();
+  const { data: contact } = await supabase
+    .from('contacts').select('workspace_id, first_name, last_name').eq('id', contactId).maybeSingle();
+  if (!contact) { console.error(`contact ${contactId} not found`); process.exit(1); }
+  const name = [contact.first_name, contact.last_name].filter(Boolean).join(' ') || contactId;
+
+  console.log(`\n${apply ? 'APPLY' : 'DRY-RUN'} — dedup ${name}\n`);
+  const { total, removed } = await dedupContact({ supabase, workspaceId: contact.workspace_id, contactId, apply });
+  if (!removed) console.log('  No duplicates found — all facts are distinct.');
+  console.log(`\n${apply ? `Invalidated ${removed}` : `Would invalidate ${removed}`} of ${total} facts.`);
   if (!apply && removed) console.log('Re-run with --apply to commit.\n');
 }
 
-main().catch(err => { console.error(err); process.exit(1); });
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main().catch(err => { console.error(err); process.exit(1); });
+}

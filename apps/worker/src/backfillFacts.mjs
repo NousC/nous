@@ -1,20 +1,14 @@
 // One-off backfill: purge low-value "facts" that the OLD signal extractor saved
-// before the durable/decision-relevant/specific quality bar landed. It walks the
-// signal_extraction `note.*` claims on a contact, asks Haiku to judge each one
-// against the SAME standard the live extractor now enforces, and soft-deletes
-// (invalid_at) the ones that fail — per the v2 rule, claims are never hard-deleted.
+// before the durable/decision-relevant/specific quality bar landed. It judges
+// each signal_extraction `note.*` claim against the SAME standard the live
+// extractor now enforces, and soft-deletes (invalid_at) the ones that fail.
 //
-// SAFE BY DEFAULT: dry-run. It prints KEEP/PURGE for every fact and changes
-// nothing. Pass --apply to actually invalidate the PURGE rows.
+// SAFE BY DEFAULT: dry-run. Pass --apply to invalidate the PURGE rows.
+// Contact-scoped; defaults to Mansoor. For the whole workspace use
+// sweepWorkspace.mjs (which calls backfillContact below).
 //
-// Scoped to ONE contact so you can test on a single record first. Defaults to
-// Mansoor; pass a contact id to target someone else.
-//
-// Usage (from repo root):
-//   node --env-file=.env apps/worker/src/backfillFacts.mjs                 # dry-run, Mansoor
-//   node --env-file=.env apps/worker/src/backfillFacts.mjs --apply         # commit, Mansoor
-//   node --env-file=.env apps/worker/src/backfillFacts.mjs <contactId>     # dry-run, other contact
-//   node --env-file=.env apps/worker/src/backfillFacts.mjs <contactId> --apply
+// Usage (worker container):
+//   docker compose exec -T worker node apps/worker/src/backfillFacts.mjs [contactId] [--apply]
 
 import './bootEnv.mjs';
 import Anthropic from 'useleak';
@@ -23,10 +17,6 @@ import { getSupabaseClient, listNotes, deleteNote } from '@nous/core';
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 const DEFAULT_CONTACT = '0cbde5c4-3ec6-4252-ba09-f3cb24a8b35b'; // Mansoor Ali
-
-const args = process.argv.slice(2);
-const apply = args.includes('--apply');
-const contactId = args.find(a => !a.startsWith('--')) || DEFAULT_CONTACT;
 
 // Mirror of the live extractor's "NEVER record" rules — judge an EXISTING fact
 // by the same bar so the backfill and the writer agree on what a fact is.
@@ -51,36 +41,41 @@ Reply with ONLY one word: KEEP or PURGE` }],
   return (msg.content[0]?.text || '').toUpperCase().includes('PURGE') ? 'PURGE' : 'KEEP';
 }
 
-async function main() {
-  const supabase = getSupabaseClient();
-
-  const { data: contact } = await supabase
-    .from('contacts')
-    .select('workspace_id, first_name, last_name')
-    .eq('id', contactId)
-    .maybeSingle();
-  if (!contact) { console.error(`contact ${contactId} not found`); process.exit(1); }
-
-  const name = [contact.first_name, contact.last_name].filter(Boolean).join(' ') || contactId;
-  const notes = await listNotes(supabase, contact.workspace_id, { entityId: contactId, limit: 200 });
-
-  // Only auto-extracted atomic facts — never touch manual notes or documents.
+/** Backfill one contact. Returns { total, purged }. Logs per-fact verdicts. */
+export async function backfillContact({ supabase, workspaceId, contactId, apply }) {
+  const notes = await listNotes(supabase, workspaceId, { entityId: contactId, limit: 200 });
   const facts = notes.filter(n => n.source === 'signal_extraction' && !n.metadata?.doc_type);
-
-  console.log(`\n${apply ? 'APPLY' : 'DRY-RUN'} — ${facts.length} signal_extraction facts on ${name}\n`);
 
   let purged = 0;
   for (const f of facts) {
     const verdict = await judge(f.content);
-    console.log(`  ${verdict === 'PURGE' ? '✗ PURGE' : '✓ keep '}  [${f.category}]  ${f.content}`);
+    console.log(`    ${verdict === 'PURGE' ? '✗ PURGE' : '✓ keep '}  [${f.category}]  ${f.content}`);
     if (verdict === 'PURGE') {
       purged++;
-      if (apply) await deleteNote(supabase, contact.workspace_id, f.id);
+      if (apply) await deleteNote(supabase, workspaceId, f.id);
     }
   }
+  return { total: facts.length, purged };
+}
 
-  console.log(`\n${apply ? `Invalidated ${purged}` : `Would invalidate ${purged}`} of ${facts.length} facts.`);
+async function main() {
+  const args = process.argv.slice(2);
+  const apply = args.includes('--apply');
+  const contactId = args.find(a => !a.startsWith('--')) || DEFAULT_CONTACT;
+
+  const supabase = getSupabaseClient();
+  const { data: contact } = await supabase
+    .from('contacts').select('workspace_id, first_name, last_name').eq('id', contactId).maybeSingle();
+  if (!contact) { console.error(`contact ${contactId} not found`); process.exit(1); }
+  const name = [contact.first_name, contact.last_name].filter(Boolean).join(' ') || contactId;
+
+  console.log(`\n${apply ? 'APPLY' : 'DRY-RUN'} — backfill ${name}\n`);
+  const { total, purged } = await backfillContact({ supabase, workspaceId: contact.workspace_id, contactId, apply });
+  console.log(`\n${apply ? `Invalidated ${purged}` : `Would invalidate ${purged}`} of ${total} facts.`);
   if (!apply && purged) console.log('Re-run with --apply to commit.\n');
 }
 
-main().catch(err => { console.error(err); process.exit(1); });
+// Run as a CLI only when invoked directly (not when imported by sweepWorkspace).
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main().catch(err => { console.error(err); process.exit(1); });
+}
