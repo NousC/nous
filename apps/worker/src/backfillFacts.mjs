@@ -25,18 +25,22 @@ async function judge(content) {
     feature: 'facts-backfill-judge',
     model: 'claude-haiku-4-5-20251001',
     max_tokens: 10,
-    messages: [{ role: 'user', content: `You are cleaning a CRM's atomic-fact store. Judge ONE existing fact.
+    messages: [{ role: 'user', content: `You are cleaning a CRM's atomic-fact store. Judge ONE existing fact about a person.
 
 FACT: "${content}"
 
-PURGE it if it is any of:
-- Meeting logistics: scheduling, availability, a reschedule, "has a call on X", an invite sent or pending.
-- Generic sentiment, small talk, or a pleasantry.
+PURGE it ONLY if it clearly is one of:
+- Meeting logistics: scheduling, availability ("available next week"), a reschedule, "has a call on X", an invite sent or pending.
+- Generic sentiment or pleasantry with no specifics ("interested in learning more", "excited to chat", "loves the product").
 - Non-durable: true today but meaningless in a few weeks.
 
-KEEP it if it is DURABLE (true for weeks/months) AND DECISION-RELEVANT (budget, authority, pain, goals, stack, or a real buying/project timeline) AND SPECIFIC (carries a concrete detail or reason).
+KEEP it if it carries durable, decision-relevant signal — this INCLUDES:
+- What tools or vendors they use, don't use, or are evaluating (e.g. "uses Clay", "not using Clay", "started evaluating Clay") — competitive/stack intel.
+- Budget, authority, team/headcount, goals, pain points, or a real buying/project timeline.
+- A genuine preference or opinion with substance ("prefers reliable workflows over AI agents").
+- A concrete fact about their company or business.
 
-Reply with ONLY one word: KEEP or PURGE` }],
+When in doubt, KEEP. Reply with ONLY one word: KEEP or PURGE` }],
   });
   return (msg.content[0]?.text || '').toUpperCase().includes('PURGE') ? 'PURGE' : 'KEEP';
 }
