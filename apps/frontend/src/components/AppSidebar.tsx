@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { VersionWidget } from "@/components/VersionWidget";
 import {
@@ -18,12 +18,16 @@ import {
   PanelLeftClose,
   PanelLeft,
   Sparkles,
+  Plus,
+  Pencil,
+  Trash2,
 } from "lucide-react";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { NavLink } from "@/components/NavLink";
 import { useAuth } from "@/contexts/AuthContext";
 import { SidebarWorkspaceSelector } from "@/components/SidebarWorkspaceSelector";
 import { AskAgentsModal } from "@/components/AskAgentsModal";
+import { DeleteConfirmDialog } from "@/components/DeleteConfirmDialog";
 
 type NavItem = { title: string; url: string; icon: React.ElementType };
 
@@ -81,6 +85,13 @@ export function AppSidebar() {
   // own page (/lists/:id).
   const [leadLists, setLeadLists] = useState<{ id: string; name: string; source: string; lead_count?: number }[]>([]);
   const [listsOpen, setListsOpen] = useState(true);
+  // Create / rename / delete are owned here in the sidebar now.
+  const [creatingList, setCreatingList] = useState(false);
+  const [newListName, setNewListName] = useState("");
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+  const [listBusy, setListBusy] = useState(false);
   const workspaceId = (userData as { workspace?: { id?: string } })?.workspace?.id;
 
   // Whether at least one integration is connected, to decide the Setup default.
@@ -126,22 +137,83 @@ export function AppSidebar() {
   // Lead-related surfaces (Lists, lead/campaign analytics) unlock with lead lists.
   const showCloudFeatures = showLeadLists;
 
-  // Fetch the lead lists for the dropdown. Refetches when the Lists page edits
-  // them (create/delete/import/rename) via a window event, so the dropdown stays
+  // Fetch the lead lists for the dropdown. Also refetches when the Lists page edits
+  // them (import/enrich changes counts) via a window event, so the dropdown stays
   // in sync without a reload.
-  useEffect(() => {
-    const token = session?.access_token;
+  const token = session?.access_token;
+  const reloadLists = useCallback(async () => {
     if (!showLeadLists || !token || !workspaceId) { setLeadLists([]); return; }
-    let cancelled = false;
-    const load = () =>
-      fetch(`${apiUrl}/api/lead-lists?workspaceId=${workspaceId}`, { headers: { Authorization: `Bearer ${token}` } })
-        .then(r => (r.ok ? r.json() : null))
-        .then(d => { if (!cancelled && Array.isArray(d?.lead_lists)) setLeadLists(d.lead_lists); })
-        .catch(() => {});
-    load();
-    window.addEventListener("nous:lists-changed", load);
-    return () => { cancelled = true; window.removeEventListener("nous:lists-changed", load); };
-  }, [showLeadLists, session?.access_token, workspaceId]);
+    try {
+      const r = await fetch(`${apiUrl}/api/lead-lists?workspaceId=${workspaceId}`, { headers: { Authorization: `Bearer ${token}` } });
+      const d = r.ok ? await r.json() : null;
+      if (Array.isArray(d?.lead_lists)) setLeadLists(d.lead_lists);
+    } catch { /* ignore */ }
+  }, [showLeadLists, token, workspaceId]);
+  useEffect(() => {
+    reloadLists();
+    window.addEventListener("nous:lists-changed", reloadLists);
+    return () => window.removeEventListener("nous:lists-changed", reloadLists);
+  }, [reloadLists]);
+
+  const jsonHeaders = { "Content-Type": "application/json", Authorization: `Bearer ${token ?? ""}` };
+  const notifyListsChanged = () => { try { window.dispatchEvent(new Event("nous:lists-changed")); } catch { /* ignore */ } };
+
+  // Create a list (the sidebar "+"), seed three blank rows so it opens to the
+  // familiar starting table, then jump to it.
+  const createList = async () => {
+    const name = newListName.trim();
+    if (!name || listBusy || !workspaceId) return;
+    setListBusy(true);
+    try {
+      const res = await fetch(`${apiUrl}/api/lead-lists`, {
+        method: "POST", headers: jsonHeaders,
+        body: JSON.stringify({ workspaceId, name, source: "csv" }),
+      });
+      const d = res.ok ? await res.json() : null;
+      const newId = d?.lead_list?.id ?? null;
+      if (newId) {
+        await Promise.all([0, 1, 2].map(() =>
+          fetch(`${apiUrl}/api/lead-lists/${newId}/leads/blank`, {
+            method: "POST", headers: jsonHeaders, body: JSON.stringify({ workspaceId }),
+          }).catch(() => {})));
+      }
+      setNewListName(""); setCreatingList(false);
+      await reloadLists();
+      notifyListsChanged();
+      if (newId) { setListsOpen(true); navigate(`/lists/${newId}`); }
+    } catch { /* ignore */ } finally { setListBusy(false); }
+  };
+
+  // Rename a list (hover → pencil → inline input).
+  const renameList = async (id: string) => {
+    const name = renameValue.trim();
+    if (!name || listBusy || !workspaceId) { setRenamingId(null); return; }
+    setListBusy(true);
+    try {
+      await fetch(`${apiUrl}/api/lead-lists/${id}`, {
+        method: "PATCH", headers: jsonHeaders, body: JSON.stringify({ workspaceId, name }),
+      });
+      setRenamingId(null); setRenameValue("");
+      await reloadLists();
+      notifyListsChanged();
+    } catch { /* ignore */ } finally { setListBusy(false); }
+  };
+
+  // Delete a list (hover → trash → confirm dialog).
+  const deleteList = async () => {
+    const list = deleteTarget;
+    if (!list || listBusy || !workspaceId) return;
+    setListBusy(true);
+    try {
+      await fetch(`${apiUrl}/api/lead-lists/${list.id}?workspaceId=${workspaceId}`, {
+        method: "DELETE", headers: { Authorization: `Bearer ${token ?? ""}` },
+      });
+      setDeleteTarget(null);
+      await reloadLists();
+      notifyListsChanged();
+      if (location.pathname === `/lists/${list.id}`) navigate("/lists");
+    } catch { /* ignore */ } finally { setListBusy(false); }
+  };
   // Billing is a cloud-only surface — self-host is unmetered with no subscription,
   // so drop "Usage & Billing" entirely (ops are visible on the Ops page).
   const visibleBottomNavItems = selfHosted
@@ -279,6 +351,14 @@ export function AppSidebar() {
                     </span>
                   </div>
                 </NavLink>
+                {/* + create a new list (always available) */}
+                <button
+                  onClick={() => { setCreatingList(true); setListsOpen(true); }}
+                  className="p-1 rounded-md text-gray-400 dark:text-white/30 hover:text-gray-600 dark:hover:text-white/60 hover:bg-gray-100/70 dark:hover:bg-white/[0.05] transition-colors"
+                  title="New list"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                </button>
                 {leadLists.length > 0 && (
                   <button
                     onClick={() => setListsOpen(o => !o)}
@@ -289,13 +369,44 @@ export function AppSidebar() {
                   </button>
                 )}
               </div>
-              {listsOpen && leadLists.length > 0 && (
+              {listsOpen && (leadLists.length > 0 || creatingList) && (
                 <ul className="mt-0.5 ml-[18px] flex flex-col gap-0.5 border-l border-gray-200/60 dark:border-white/[0.08] pl-2">
+                  {/* Inline create row (the sidebar "+") */}
+                  {creatingList && (
+                    <li>
+                      <input
+                        value={newListName}
+                        onChange={e => setNewListName(e.target.value)}
+                        autoFocus
+                        placeholder="List name"
+                        disabled={listBusy}
+                        onKeyDown={e => { if (e.key === "Enter") createList(); if (e.key === "Escape") { setCreatingList(false); setNewListName(""); } }}
+                        onBlur={() => { if (!newListName.trim()) { setCreatingList(false); setNewListName(""); } }}
+                        className="w-full rounded-md border border-gray-300 dark:border-white/15 bg-white dark:bg-white/[0.03] px-2 py-1 text-[13px] text-gray-900 dark:text-white outline-none focus:border-gray-400 dark:focus:border-white/30 disabled:opacity-50"
+                      />
+                    </li>
+                  )}
                   {leadLists.map(l => {
                     const native = l.source === "linkedin_engagement" || l.source === "linkedin_connections";
                     const active = isItemActive(`/lists/${l.id}`);
+                    const renaming = renamingId === l.id;
+                    if (renaming) {
+                      return (
+                        <li key={l.id}>
+                          <input
+                            value={renameValue}
+                            onChange={e => setRenameValue(e.target.value)}
+                            autoFocus
+                            disabled={listBusy}
+                            onKeyDown={e => { if (e.key === "Enter") renameList(l.id); if (e.key === "Escape") { setRenamingId(null); setRenameValue(""); } }}
+                            onBlur={() => renameList(l.id)}
+                            className="w-full rounded-md border border-gray-300 dark:border-white/15 bg-white dark:bg-white/[0.03] px-2 py-1 text-[13px] text-gray-900 dark:text-white outline-none focus:border-gray-400 dark:focus:border-white/30 disabled:opacity-50"
+                          />
+                        </li>
+                      );
+                    }
                     return (
-                      <li key={l.id}>
+                      <li key={l.id} className="group/list relative">
                         <NavLink
                           to={`/lists/${l.id}`}
                           end
@@ -312,8 +423,30 @@ export function AppSidebar() {
                               {l.name}
                             </span>
                           </span>
-                          <span className="text-[11px] tabular-nums text-gray-400 dark:text-white/30 flex-shrink-0 ml-1.5">{l.lead_count ?? 0}</span>
+                          {/* Lead count — fades out on hover for user lists so the
+                              rename/delete actions can take its place. */}
+                          <span className={`text-[11px] tabular-nums text-gray-400 dark:text-white/30 flex-shrink-0 ml-1.5 ${native ? "" : "group-hover/list:opacity-0"}`}>{l.lead_count ?? 0}</span>
                         </NavLink>
+                        {/* Hover actions — rename + delete (user lists only; the
+                            native LinkedIn lists are system-managed). */}
+                        {!native && (
+                          <span className="absolute right-1.5 top-1/2 -translate-y-1/2 hidden group-hover/list:flex items-center gap-0.5">
+                            <button
+                              onClick={e => { e.preventDefault(); e.stopPropagation(); setRenamingId(l.id); setRenameValue(l.name); }}
+                              title="Rename list"
+                              className="p-1 rounded text-gray-400 hover:text-gray-700 dark:text-white/40 dark:hover:text-white hover:bg-gray-200/70 dark:hover:bg-white/10 transition-colors"
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </button>
+                            <button
+                              onClick={e => { e.preventDefault(); e.stopPropagation(); setDeleteTarget({ id: l.id, name: l.name }); }}
+                              title="Delete list"
+                              className="p-1 rounded text-gray-400 hover:text-red-600 dark:text-white/40 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </button>
+                          </span>
+                        )}
                       </li>
                     );
                   })}
@@ -407,6 +540,16 @@ export function AppSidebar() {
           )}
         </button>
       </div>
+
+      {/* Delete-list confirmation (hover → trash on a list). */}
+      <DeleteConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(o) => { if (!o) setDeleteTarget(null); }}
+        onConfirm={deleteList}
+        title="Delete list"
+        itemName={deleteTarget?.name}
+        description={`The list "${deleteTarget?.name ?? ""}" and all its rows are removed. The contacts and their history stay in Nous.`}
+      />
     </aside>
   );
 }

@@ -109,14 +109,39 @@ leadListsRouter.get('/:id', async (req, res) => {
   }
 });
 
-// PATCH /api/lead-lists/:id — update a list's columns. Body: { workspaceId, columns }.
+// PATCH /api/lead-lists/:id — update a list's `name` (rename) and/or `columns`.
+// Body: { workspaceId, name?, columns? }. The native LinkedIn lists are
+// system-managed and can't be renamed.
 leadListsRouter.patch('/:id', async (req, res) => {
   try {
-    const { workspaceId, columns } = req.body;
+    const { workspaceId, columns, name } = req.body;
     if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
-    if (!Array.isArray(columns)) return res.status(400).json({ error: 'columns array required' });
-    const lead_list = await updateLeadListColumns(getSupabaseClient(), workspaceId, req.params.id, columns);
-    if (!lead_list) return res.status(404).json({ error: 'not_found' });
+    const supabase = getSupabaseClient();
+
+    // Rename — guard the system-managed native lists (Engagers / Connections).
+    if (name !== undefined) {
+      if (typeof name !== 'string' || !name.trim()) return res.status(400).json({ error: 'name required' });
+      const existing = await getLeadList(supabase, workspaceId, req.params.id);
+      if (!existing) return res.status(404).json({ error: 'not_found' });
+      if (existing.source === ENGAGEMENT_SOURCE || existing.source === 'linkedin_connections') {
+        return res.status(403).json({ error: 'system_list', message: 'This list is managed automatically and can\'t be renamed.' });
+      }
+      const { error } = await supabase.from('lead_lists')
+        .update({ name: name.trim() })
+        .eq('workspace_id', workspaceId).eq('id', req.params.id);
+      if (error) throw error;
+    }
+
+    // Columns — unchanged behaviour (the column-editor path).
+    if (columns !== undefined) {
+      if (!Array.isArray(columns)) return res.status(400).json({ error: 'columns array required' });
+      const lead_list = await updateLeadListColumns(supabase, workspaceId, req.params.id, columns);
+      if (!lead_list) return res.status(404).json({ error: 'not_found' });
+      return res.json({ lead_list });
+    }
+
+    if (name === undefined) return res.status(400).json({ error: 'name or columns required' });
+    const lead_list = await getLeadList(supabase, workspaceId, req.params.id);
     return res.json({ lead_list });
   } catch (err) {
     console.error('[PATCH /api/lead-lists/:id]', err);
@@ -345,6 +370,11 @@ leadListsRouter.patch('/:id/leads/:leadId', async (req, res) => {
       await assertClaims(supabase, workspaceId, leadId, { values: { first_name: first || '', last_name: rest.join(' ') || null } });
     } else if (key === 'company') {
       await assertClaims(supabase, workspaceId, leadId, { values: { company: value || null } });
+    } else if (key === 'domain') {
+      // Domain is a derived claim (the leads view reads property 'domain'); pin it
+      // as an asserted claim so a manual edit sticks and the Domain column shows it.
+      const norm = String(value || '').trim().replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/.*$/, '').toLowerCase() || null;
+      await assertClaims(supabase, workspaceId, leadId, { values: { domain: norm } });
     } else if (key === 'email' || key === 'linkedin_url') {
       const norm = key === 'email' ? String(value || '').toLowerCase() : String(value || '');
       // Retire the current active identifier of this kind, then add the new one.

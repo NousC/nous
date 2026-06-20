@@ -279,8 +279,6 @@ export default function Lists() {
   const [gated, setGated] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  const [creating, setCreating] = useState(false);
-  const [newName, setNewName] = useState("");
   // Inline cell editing — double-click a cell to edit it in place.
   const [editCell, setEditCell] = useState<{ id: string; key: string } | null>(null);
   const [editValue, setEditValue] = useState("");
@@ -290,9 +288,6 @@ export default function Lists() {
   const blankCreates = useRef<Map<string, Promise<string | null>>>(new Map());
   const [addingCol, setAddingCol] = useState(false);
   const [newColLabel, setNewColLabel] = useState("");
-
-  // Right-click → styled delete confirmation (replaces window.confirm).
-  const [deleteTarget, setDeleteTarget] = useState<LeadList | null>(null);
 
   // Manage panel for the auto-managed "LinkedIn Engagers" list.
   type EngagementInfo = {
@@ -398,6 +393,9 @@ export default function Lists() {
     window.addEventListener("mouseup", onUp);
   }
   const fileRef = useRef<HTMLInputElement>(null);
+  // Guards the lists-changed re-dispatch so the shared event can't loop back into
+  // itself when our own listener (below) triggers a reload.
+  const suppressListNotify = useRef(false);
 
   const loadLists = useCallback(async () => {
     if (!workspaceId || !token) return;
@@ -410,7 +408,7 @@ export default function Lists() {
       setLists(next);
       ssSet(SS_LISTS(workspaceId), next);
       // Let the sidebar's Lists dropdown refresh (create/delete/import/rename).
-      try { window.dispatchEvent(new Event("nous:lists-changed")); } catch { /* ignore */ }
+      if (!suppressListNotify.current) { try { window.dispatchEvent(new Event("nous:lists-changed")); } catch { /* ignore */ } }
       setActiveId(prev => {
         if (prev && next.some(l => l.id === prev)) return prev;
         const fromUrl = initialListRef.current;
@@ -422,6 +420,17 @@ export default function Lists() {
   }, [workspaceId, token]);
 
   useEffect(() => { loadLists(); }, [loadLists]);
+
+  // Sidebar create/rename/delete fires "nous:lists-changed" — mirror it here so the
+  // page (active list, name, counts) stays in sync. Suppress our own re-dispatch.
+  useEffect(() => {
+    const onChanged = () => {
+      suppressListNotify.current = true;
+      loadLists().finally(() => { suppressListNotify.current = false; });
+    };
+    window.addEventListener("nous:lists-changed", onChanged);
+    return () => window.removeEventListener("nous:lists-changed", onChanged);
+  }, [loadLists]);
 
   // Before the network returns, repaint the last view from sessionStorage: the
   // sidebar lists, the active list, and the leads-page cache. Runs once, in a
@@ -690,6 +699,14 @@ export default function Lists() {
     setBusy(true);
     try {
       const ids = await resolveSelectedIds();
+      const idSet = new Set(ids);
+      // Optimistic — drop the rows from the table NOW so they don't sit there
+      // "spinning" while the deletes run, and so a stale reload can't make them
+      // reappear. The reload below reconciles if a server delete actually failed.
+      setLeads(prev => prev.filter(l => !idSet.has(l.id)));
+      setLists(prev => prev.map(l => l.id === activeId ? { ...l, lead_count: Math.max(0, (l.lead_count ?? 0) - ids.length) } : l));
+      clearSelection();
+      clearLeadsCache();
       // Chunk so a single DELETE never exceeds the PostgREST IN-list URL limit.
       for (const batch of chunk(ids, 500)) {
         await fetch(`${apiUrl}/api/lead-lists/${activeId}/leads`, {
@@ -698,8 +715,6 @@ export default function Lists() {
           body: JSON.stringify({ workspaceId, ids: batch }),
         });
       }
-      clearSelection();
-      clearLeadsCache();
       await loadLeads(activeId, page, icpFilter, sort);
       await loadLists();
     } catch { /* silent */ }
@@ -998,49 +1013,6 @@ export default function Lists() {
     setCsvHeaders([]); setCsvRows([]); setMapping({}); setResult(null); setImportSource("");
   };
 
-  // Create a list. With { thenImport }, jump straight into the CSV import for the
-  // new list (the "+" flow lets you name, then either Add empty or Import).
-  const createList = async (opts?: { thenImport?: boolean }) => {
-    const thenImport = opts?.thenImport === true;
-    if (!newName.trim() || busy) return;
-    setBusy(true);
-    try {
-      const res = await fetch(`${apiUrl}/api/lead-lists`, {
-        method: "POST", headers: jsonHeaders,
-        body: JSON.stringify({ workspaceId, name: newName.trim(), source: "csv" }),
-      });
-      const d = res.ok ? await res.json() : null;
-      setNewName(""); setCreating(false);
-      const newId = d?.lead_list?.id ?? null;
-      // A brand-new empty list starts with three blank rows — the starting point,
-      // matching the table look. Skipped when importing: the CSV fills it instead.
-      if (newId && !thenImport) {
-        await Promise.all([0, 1, 2].map(() =>
-          fetch(`${apiUrl}/api/lead-lists/${newId}/leads/blank`, {
-            method: "POST", headers: jsonHeaders, body: JSON.stringify({ workspaceId }),
-          }).catch(() => {})));
-        clearLeadsCache();
-      }
-      await loadLists();
-      if (newId) {
-        setActiveId(newId);
-        if (thenImport) { setImporting(true); setResult(null); }
-      }
-    } catch { /* silent */ }
-    finally { setBusy(false); }
-  };
-
-  // Right-click a list → delete confirm for normal lists, or the manage panel for
-  // the auto-managed engagers list (which can't be deleted, only toggled).
-  const requestDeleteList = (list: LeadList) => {
-    if (!list) return;
-    if (list.source === "linkedin_engagement") {
-      openEngagement();
-      return;
-    }
-    setDeleteTarget(list);
-  };
-
   // Open the LinkedIn Engagers manage panel and (re)load its status.
   const openEngagement = async () => {
     setEngageOpen(true);
@@ -1067,21 +1039,6 @@ export default function Lists() {
       toast("Couldn't update — try again.");
     } finally { setEngageBusy(false); }
   };
-  const confirmDeleteList = async () => {
-    const list = deleteTarget;
-    if (!list || busy) return;
-    setBusy(true);
-    try {
-      await fetch(`${apiUrl}/api/lead-lists/${list.id}?workspaceId=${workspaceId}`, {
-        method: "DELETE", headers: authHeaders,
-      });
-      if (activeId === list.id) setActiveId(null);
-      setDeleteTarget(null);
-      await loadLists();
-    } catch { /* silent */ }
-    finally { setBusy(false); }
-  };
-
   // Export to CSV — the whole filtered list, or just the ticked rows, depending
   // on which Export button opened the menu. Then tag every exported lead with the
   // named channel/tool so the export is tracked like a native push.
@@ -1176,11 +1133,12 @@ export default function Lists() {
   };
 
   // ── Inline cell editing — double-click a cell, Enter/blur saves ──────────────
-  // Editable: the fixed name/email/company/linkedin columns + any custom field.
-  // The synthetic columns (domain/channel/email status/added) are read-only.
+  // Editable: the fixed name/email/company/linkedin columns, the Domain column,
+  // and any custom field. The other synthetic columns (channel/email status/
+  // added/icp/source) stay read-only.
   const isEditableCol = (key: string) =>
     key === "name" || key === "email" || key === "company" || key === "linkedin_url" ||
-    customCols.some(c => c.key === key);
+    key === "__domain" || customCols.some(c => c.key === key);
 
   const startEdit = (lead: Lead, key: string) => {
     if (!isEditableCol(key)) return;
@@ -1193,10 +1151,14 @@ export default function Lists() {
     const { key } = editCell;
     let id = editCell.id;
     const value = editValue;
+    // The Domain column is the synthetic "__domain" key in the table, but it
+    // persists as the lead's `domain` claim — translate it for the API.
+    const apiKey = key === "__domain" ? "domain" : key;
     setEditCell(null);
     // Optimistic — patch the row in place so the change shows instantly.
     setLeads(prev => prev.map(l => {
       if (l.id !== id) return l;
+      if (key === "__domain") return { ...l, domain: value || null };
       if (key === "name" || key === "email" || key === "company" || key === "linkedin_url") return { ...l, [key]: value };
       return { ...l, fields: { ...l.fields, [key]: value } };
     }));
@@ -1210,7 +1172,7 @@ export default function Lists() {
     try {
       await fetch(`${apiUrl}/api/lead-lists/${activeId}/leads/${id}`, {
         method: "PATCH", headers: jsonHeaders,
-        body: JSON.stringify({ workspaceId, key, value }),
+        body: JSON.stringify({ workspaceId, key: apiKey, value }),
       });
     } catch { /* keep the optimistic value */ }
   };
@@ -1355,28 +1317,6 @@ export default function Lists() {
           title={activeList?.name ?? "Lists"}
           actions={
             <>
-              {creating ? (
-                <span className="flex items-center gap-1.5">
-                  <input
-                    value={newName} onChange={e => setNewName(e.target.value)} autoFocus placeholder="List name"
-                    onKeyDown={e => { if (e.key === "Enter") createList(); if (e.key === "Escape") { setCreating(false); setNewName(""); } }}
-                    className="h-9 w-40 rounded-lg border border-border bg-background px-2.5 text-[13px] outline-none focus:border-muted-foreground"
-                  />
-                  <button onClick={() => createList()} disabled={busy || !newName.trim()}
-                    className="h-9 px-3 rounded-lg bg-foreground text-background text-[13px] font-semibold disabled:opacity-30">Add</button>
-                  <button onClick={() => createList({ thenImport: true })} disabled={busy || !newName.trim()} title="Create the list and import a CSV into it"
-                    className="inline-flex items-center gap-1 h-9 px-3 rounded-lg border border-border text-foreground/80 text-[13px] font-semibold hover:bg-muted/50 transition-colors disabled:opacity-30">
-                    <Upload className="h-3.5 w-3.5" /> Import
-                  </button>
-                  <button onClick={() => { setCreating(false); setNewName(""); }}
-                    className="px-1 text-[13px] text-muted-foreground hover:text-foreground">Cancel</button>
-                </span>
-              ) : (
-                <button onClick={() => setCreating(true)} title="Create a new list"
-                  className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-background border border-border text-foreground/80 text-[13px] font-semibold hover:bg-muted/50 transition-colors">
-                  <Plus className="h-3.5 w-3.5" /> New list
-                </button>
-              )}
               <button
                 onClick={() => navigate("/lists/clean")}
                 className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-background border border-border text-foreground/80 text-[13px] font-semibold hover:bg-muted/50 transition-colors"
@@ -1388,12 +1328,6 @@ export default function Lists() {
                 <button onClick={openEngagement} title="Manage this auto-updating list"
                   className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-background border border-border text-foreground/80 text-[13px] font-semibold hover:bg-muted/50 transition-colors">
                   <Settings2 className="h-3.5 w-3.5" /> Manage
-                </button>
-              )}
-              {activeList && activeList.source !== "linkedin_engagement" && activeList.source !== "linkedin_connections" && (
-                <button onClick={() => requestDeleteList(activeList)} title="Delete this list"
-                  className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-background border border-border text-foreground/70 text-[13px] font-semibold hover:bg-red-50 hover:text-red-600 hover:border-red-300 dark:hover:bg-red-950/40 dark:hover:text-red-400 transition-colors">
-                  Delete
                 </button>
               )}
               {activeList && (
@@ -1414,8 +1348,8 @@ export default function Lists() {
           }
         />
 
-        {/* List switching lives in the sidebar Lists dropdown now; creating and
-            managing a list live in the header actions above. */}
+        {/* List switching, creating, renaming and deleting all live in the sidebar
+            Lists dropdown now (hover a list for rename/delete; + to create). */}
 
         {result && (
           <div className="mb-4 text-[13px] text-green-700 dark:text-green-500">
@@ -1892,25 +1826,6 @@ export default function Lists() {
                 </div>
               </>
             )}
-          </div>
-        </div>
-      )}
-
-      {/* Delete-list confirmation */}
-      {deleteTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => !busy && setDeleteTarget(null)}>
-          <div onClick={e => e.stopPropagation()} className="w-full max-w-sm rounded-xl border border-border bg-background p-5 shadow-xl">
-            <span className="text-[15px] font-semibold text-foreground">Delete “{deleteTarget.name}”?</span>
-            <p className="text-[13px] text-muted-foreground mt-1.5">
-              The list and all its rows are removed. The contacts and their history stay in Nous.
-            </p>
-            <div className="flex items-center justify-end gap-2 mt-4">
-              <button onClick={() => setDeleteTarget(null)} className="text-[13px] text-muted-foreground hover:text-foreground px-3 py-1.5">Cancel</button>
-              <button onClick={confirmDeleteList} disabled={busy}
-                className="h-9 px-4 rounded-lg bg-red-600 text-white text-[13px] font-semibold hover:bg-red-700 transition-colors disabled:opacity-40">
-                {busy ? "Deleting…" : "Delete list"}
-              </button>
-            </div>
           </div>
         </div>
       )}
