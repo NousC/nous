@@ -20,16 +20,22 @@ export async function searchClaims(
   supabase: SupabaseClient,
   workspaceId: string,
   query: string,
-  opts: { limit?: number; threshold?: number } = {},
+  opts: { limit?: number; threshold?: number; propertyPrefix?: string } = {},
 ): Promise<ClaimSearchHit[]> {
   const vector = await embed(query);
   if (!vector) return [];
 
+  // propertyPrefix restricts the candidate set BEFORE the vector sort (e.g.
+  // 'note.' to dedup only against notes). Without it the search scans every
+  // claim in the workspace — tens of thousands — when the caller only cares
+  // about a few hundred notes, which is both slow and low-recall (the nearest
+  // global claims are rarely notes).
   const { data, error } = await supabase.rpc('search_claims', {
     p_workspace_id: workspaceId,
     p_embedding: JSON.stringify(vector),   // pgvector accepts the array literal as text
     p_threshold: opts.threshold ?? 0.3,
     p_limit: opts.limit ?? 20,
+    p_property_prefix: opts.propertyPrefix ?? null,
   });
   if (error) {
     // function missing (RPC not yet created) — degrade silently

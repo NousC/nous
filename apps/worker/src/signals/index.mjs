@@ -31,7 +31,11 @@ const SIGNAL_NOISE = [
 // to no-dedup (always ADD), which is safe but slightly noisier.
 
 async function searchSimilarNotes(supabase, workspaceId, query, threshold = 0.88, limit = 5) {
-  const hits = await searchClaims(supabase, workspaceId, query, { threshold, limit: limit * 3 });
+  // Restrict to note.* claims in SQL — dedup only compares against notes, and
+  // scoping the candidate set keeps the search fast (hundreds of notes, not
+  // tens of thousands of claims) and high-recall (the global nearest claims are
+  // usually signals/features, not notes).
+  const hits = await searchClaims(supabase, workspaceId, query, { threshold, limit: limit * 3, propertyPrefix: 'note.' });
   return hits
     .filter(h => h.property?.startsWith('note.'))
     .slice(0, limit)

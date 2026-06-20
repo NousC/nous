@@ -749,27 +749,41 @@ CREATE POLICY wsl_select ON workspace_system_log
 -- can decide to act, verify, or abstain — never a bare value.
 -- ============================================================
 
+-- plpgsql + a typed local vector variable so the embedding reaches the planner
+-- as a clean vector parameter (a text→vector coercion at the call boundary
+-- isn't index-usable). The optional p_property_prefix scopes the candidate set
+-- (e.g. 'note.' for dedup) BEFORE the vector sort — without it this scans every
+-- claim in the workspace. The distance threshold is applied AFTER the top-K, not
+-- in the WHERE, so it never blocks an index path.
 CREATE OR REPLACE FUNCTION search_claims(
-  p_workspace_id UUID,
-  p_embedding    VECTOR(1536),
-  p_threshold    FLOAT,
-  p_limit        INT
+  p_workspace_id    UUID,
+  p_embedding       VECTOR(1536),
+  p_threshold       FLOAT,
+  p_limit           INT,
+  p_property_prefix TEXT DEFAULT NULL
 )
 RETURNS TABLE (
   id UUID, entity_id UUID, property TEXT, value JSONB,
   confidence REAL, freshness TEXT, similarity FLOAT
 )
-LANGUAGE sql STABLE AS $$
-  SELECT c.id, c.entity_id, c.property, c.value,
-         c.confidence, c.freshness,
-         (1 - (c.embedding <=> p_embedding))::FLOAT AS similarity
-  FROM claims c
-  WHERE c.workspace_id = p_workspace_id
-    AND c.embedding IS NOT NULL
-    AND 1 - (c.embedding <=> p_embedding) >= p_threshold
-  ORDER BY c.embedding <=> p_embedding
-  LIMIT p_limit;
-$$;
+LANGUAGE plpgsql STABLE AS $$
+DECLARE v vector(1536) := p_embedding;
+BEGIN
+  RETURN QUERY
+  SELECT t.id, t.entity_id, t.property, t.value, t.confidence, t.freshness, t.similarity
+  FROM (
+    SELECT c.id, c.entity_id, c.property, c.value, c.confidence, c.freshness,
+           (1 - (c.embedding <=> v))::FLOAT AS similarity
+    FROM claims c
+    WHERE c.workspace_id = p_workspace_id
+      AND c.embedding IS NOT NULL
+      AND (p_property_prefix IS NULL OR c.property LIKE p_property_prefix || '%')
+    ORDER BY c.embedding <=> v
+    LIMIT p_limit
+  ) t
+  WHERE t.similarity >= p_threshold
+  ORDER BY t.similarity DESC;
+END $$;
 
 -- Semantic search over observations, with structured pre-filters. Powers the
 -- question-driven path of POST /v2/query.
