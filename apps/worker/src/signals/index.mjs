@@ -227,29 +227,44 @@ async function extractActivitySignals({ supabase, activityId, contactId, workspa
       meeting_held:     'meeting notes/transcript',
     }[type] || type;
 
+    // Meetings are content-rich, so they earn a few more facts than a single
+    // message — but the quality bar below is identical either way.
+    const maxFacts = type === 'meeting_held' ? 4 : 2;
+
     const msg = await anthropic.messages.create({
       feature: 'activity-signals-extract',
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 400,
-      messages: [{ role: 'user', content: `Extract CRM intelligence about ${contactName} from this private ${channelLabel}.
+      messages: [{ role: 'user', content: `Extract durable CRM intelligence about ${contactName} from this private ${channelLabel}.
 ${provenance}
-Record facts ONLY about ${contactName}, drawn from what THEY say about themselves, their company, needs, opinions, or plans. NEVER turn the user's own questions, offers, or statements into facts about ${contactName} (e.g. if the user asked "what's behind your product?", that is NOT a fact that ${contactName} is interested in the user's product).
+Record facts ONLY about ${contactName}, drawn from what THEY reveal about themselves, their company, needs, constraints, opinions, or plans. NEVER turn the user's own questions, offers, or statements into facts about ${contactName} (e.g. if the user asked "what's behind your product?", that is NOT a fact that ${contactName} is interested in the user's product).
 ${contactCtx ? `Contact: ${contactCtx}` : ''}
 
 Message: "${summary}"
 
-Extract ONLY concrete, actionable facts that reveal:
-- Budget or pricing opinions (e.g. "thinks $X is fair", "budget tight until Q2")
-- Decision makers or approval blockers (e.g. "needs CEO approval from Thomas Johnson")
-- Objections or concerns (e.g. "onboarding felt inefficient")
-- Feature preferences or praise (e.g. "loves the dashboard feature")
-- Timeline signals (e.g. "wants to start in June", "waiting on Q1 results")
-- Relationship intelligence (e.g. "was referred by Jane Smith")
+A fact is worth recording ONLY if it passes ALL THREE bars:
+1. DURABLE — still true weeks or months from now. A meeting time, an availability, or a reschedule is NOT durable.
+2. DECISION-RELEVANT — it would change how someone sells to or works with ${contactName}: their budget, authority, pain, goals, stack, or buying timeline.
+3. SPECIFIC — it carries the concrete detail or the reason WHY, not a vague label. "Evaluating Clay vs Apollo because Apollo's data went stale", not "looking at tools".
+
+NEVER record (noise, or it already lives elsewhere in the CRM):
+- Meeting logistics: scheduling, availability, reschedules, "has a call on X", invites sent or pending.
+- Generic sentiment, small talk, greetings, pleasantries.
+- Anything true today but meaningless next week.
+
+Categories, each with a good example:
+- Budget — "Mansoor owns the GTM-tooling budget at Clay; spend over $50k needs his VP's sign-off"
+- Timeline — a BUYING or PROJECT timeline tied to a business reason: "Wants to consolidate enrichment vendors before end of Q3, driven by a budget review" (NOT meeting times)
+- Pain Points — "Clay's outbound on Apollo and Instantly is bottlenecked by manual list-building"
+- Objections — "Worried that switching tools mid-quarter will disrupt live campaigns"
+- Preferences — "Strongly prefers tools with a native API over no-code builders"
+- Relationships — "Reports to the VP of Growth, who holds final vendor sign-off"
+- General — durable context that fits none of the above: "Plans to hire 2 SDRs once the team passes $50k MRR"
 
 Rules:
-- Each fact is one self-contained sentence naming the subject explicitly (no pronouns)
-- Skip greetings, generic sentiment, small talk, system messages
-- Maximum 2 facts — only extract if genuinely actionable
+- Each fact is one self-contained sentence naming ${contactName} explicitly (no pronouns).
+- Prefer fewer, sharper facts over more. If nothing clears all three bars, return [].
+- Maximum ${maxFacts} facts.
 
 Output ONLY valid JSON: [{"content": "...", "category": "Budget|Timeline|Pain Points|Objections|Preferences|Relationships|General"}]
 If nothing meaningful: []` }],
@@ -266,7 +281,7 @@ If nothing meaningful: []` }],
 
     const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-    for (const fact of facts) {
+    for (const fact of facts.slice(0, maxFacts)) {
       if (!fact.content || typeof fact.content !== 'string') continue;
 
       const { action, supersedes } = await decideMerge(supabase, workspaceId, fact.content);
