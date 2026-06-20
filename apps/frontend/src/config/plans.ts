@@ -2,8 +2,10 @@
  * Nous Pricing — single source of truth (frontend mirror of apps/api/src/lib/plans.mjs).
  *
  * Model: monthly subscription, pure-tier. No top-up packs. Run out and upgrade.
- * Two metered units: GTM ops (a flow — the live op log) and records (a stock —
- * unique people + companies held). Enrichment is bring-your-own-keys
+ * Billed on RETRIEVAL only — agent context pulls (get_context / get_account /
+ * query / attention). includedOpsPerMonth is the retrieval quota. Every other op
+ * is logged but free, and records (people + companies) are UNLIMITED on every
+ * plan (recordsLimit: null) — the graph is given away. Enrichment is bring-your-own-keys
  * (enrichmentsPerMonth: 0 on every plan) — it runs on the workspace's own provider
  * keys, so it is unmetered. CRM sync, lead lists + the ICP model are on every cloud
  * plan (the Cloud team layer — blocked on self-host). Self-hosted bypasses metering.
@@ -44,9 +46,10 @@ export interface Plan {
   id: PlanId;
   name: string;
   monthlyPriceUsd: number;
+  /** Retrieval quota / month — the one billed unit (get_context/get_account/query/attention). */
   includedOpsPerMonth: number;
-  /** Records (unique people + companies) the plan can hold. */
-  recordsLimit: number;
+  /** Records (unique people + companies) the plan can hold. null = unlimited (graph is free). */
+  recordsLimit: number | null;
   /** Connected LinkedIn accounts allowed per workspace (the one gated resource). */
   linkedinProfiles: number;
   enrichmentsPerMonth: number;
@@ -66,7 +69,7 @@ export const PLANS: Record<PlanId, Plan> = {
     name: 'Free',
     monthlyPriceUsd: 0,
     includedOpsPerMonth: 1_000,
-    recordsLimit: 100,
+    recordsLimit: null,
     linkedinProfiles: 0,
     enrichmentsPerMonth: 0,
     workspaceLimit: 1,
@@ -89,8 +92,8 @@ export const PLANS: Record<PlanId, Plan> = {
     id: 'starter',
     name: 'Start',
     monthlyPriceUsd: 29,
-    includedOpsPerMonth: 10_000,
-    recordsLimit: 1_000,
+    includedOpsPerMonth: 5_000,
+    recordsLimit: null,
     linkedinProfiles: 1,
     enrichmentsPerMonth: 0,
     workspaceLimit: 1,
@@ -112,7 +115,7 @@ export const PLANS: Record<PlanId, Plan> = {
     name: 'Pro',
     monthlyPriceUsd: 99,
     includedOpsPerMonth: 25_000,
-    recordsLimit: 10_000,
+    recordsLimit: null,
     linkedinProfiles: 1,
     enrichmentsPerMonth: 0,
     workspaceLimit: 1,
@@ -134,7 +137,7 @@ export const PLANS: Record<PlanId, Plan> = {
     name: 'Growth',
     monthlyPriceUsd: 249,
     includedOpsPerMonth: 100_000,
-    recordsLimit: 100_000,
+    recordsLimit: null,
     linkedinProfiles: 5,
     enrichmentsPerMonth: 0,
     workspaceLimit: 3,
@@ -162,7 +165,7 @@ export const PLANS: Record<PlanId, Plan> = {
     baseWorkspaces: 5,
     opsPerWorkspace: 100_000,
     includedOpsPerMonth: 500_000,
-    recordsLimit: 100_000, // per client workspace
+    recordsLimit: null, // unlimited — graph is given away
     linkedinProfiles: 1, // per client workspace
     enrichmentsPerMonth: 0,
     workspaceLimit: 5,
@@ -215,11 +218,15 @@ export function getPlanById(planId: unknown): Plan {
  * they are not per-tier differentiators and are not listed here.
  */
 export function getPlanFeaturesForDisplay(plan: Plan): string[] {
-  const recordsLine = plan.perWorkspaceUsd
-    ? `${plan.recordsLimit.toLocaleString()} records per client`
-    : `${plan.recordsLimit.toLocaleString()} records`;
+  // Records are unlimited on every plan now (recordsLimit: null) — the graph is
+  // given away and the retrieval meter does the tiering.
+  const recordsLine = plan.recordsLimit == null
+    ? 'Unlimited records'
+    : plan.perWorkspaceUsd
+      ? `${plan.recordsLimit.toLocaleString()} records per client`
+      : `${plan.recordsLimit.toLocaleString()} records`;
   const items: string[] = [
-    `${plan.includedOpsPerMonth.toLocaleString()} GTM operations / month`,
+    `${plan.includedOpsPerMonth.toLocaleString()} retrievals / month`,
     recordsLine,
     plan.enrichmentsPerMonth > 0
       ? `${plan.enrichmentsPerMonth.toLocaleString()} enrichments / month`

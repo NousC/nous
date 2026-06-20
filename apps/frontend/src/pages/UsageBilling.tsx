@@ -10,7 +10,7 @@ type PlanInfo = {
   name: string;
   monthlyPriceUsd: number;
   includedOpsPerMonth: number;
-  recordsLimit: number;
+  recordsLimit: number | null; // null = unlimited
   enrichmentsPerMonth: number;
   workspaceLimit: number | null;
   perWorkspaceUsd?: number | null;
@@ -64,10 +64,12 @@ function fmtDate(s?: string | null) {
  */
 function planBullets(p: PlanInfo): string[] {
   const b = [
-    `${num(p.includedOpsPerMonth)} GTM operations / month`,
-    p.perWorkspaceUsd
-      ? `${num(p.recordsLimit)} records per client`
-      : `${num(p.recordsLimit)} records`,
+    `${num(p.includedOpsPerMonth)} retrievals / month`,
+    p.recordsLimit == null
+      ? "Unlimited records"
+      : p.perWorkspaceUsd
+        ? `${num(p.recordsLimit)} records per client`
+        : `${num(p.recordsLimit)} records`,
     p.enrichmentsPerMonth > 0
       ? `${num(p.enrichmentsPerMonth)} enrichments / month`
       : "Enrichment: bring your own keys",
@@ -305,8 +307,13 @@ export default function UsageBilling() {
 
           {/* Usage */}
           <div className="p-6 md:p-7 bg-muted/30 border-t md:border-t-0 md:border-l border-border space-y-5">
-            <UsageMeter label="GTM operations" used={ops.used} included={ops.included} />
-            <UsageMeter label="Records" used={records.used} included={records.included} />
+            <UsageMeter label="Retrieval · billed" used={ops.used} included={ops.included} />
+            <div className="flex items-baseline justify-between">
+              <span className="text-[14px] font-medium text-foreground">Records</span>
+              <span className="text-[12px] text-muted-foreground tabular-nums">
+                {num(records.used)} <span className="text-muted-foreground/70">· Unlimited</span>
+              </span>
+            </div>
             <UsageMeter label="Enrichments" used={enrich.used} included={enrich.included} />
             <p className="text-[12px] text-muted-foreground/70 pt-1">
               {periodLabel ? `Current billing period · ${periodLabel}` : "Resets at the start of each month."}
@@ -319,7 +326,7 @@ export default function UsageBilling() {
       <div className="mb-4">
         <h2 className="text-[15px] font-semibold text-foreground">Nous plans</h2>
         <p className="text-[13px] text-muted-foreground mt-0.5">
-          Pure-tier pricing. GTM operations and records included per plan; enrichment is bring-your-own-keys. No top-up packs or overage charges.
+          Pure-tier pricing. You're billed only on retrieval (agent context pulls); records and everything else are unlimited, and enrichment is bring-your-own-keys. No top-up packs or overage charges.
         </p>
       </div>
 

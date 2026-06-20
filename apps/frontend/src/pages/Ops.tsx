@@ -17,12 +17,23 @@ interface LiveOp {
   color: string;
   detail: string;
   source: "system" | "agent" | "mcp" | "sdk" | "api";
+  /** Raw event_type from the op log — used to flag the billed (retrieval) ops. */
+  eventType?: string;
 }
 
 type Range = "all" | "1d" | "7d" | "30d";
 
 const RANGE_DAYS: Record<Range, number | null> = { all: null, "1d": 1, "7d": 7, "30d": 30 };
 const RANGE_LABEL: Record<Range, string> = { all: "All", "1d": "1d", "7d": "7d", "30d": "30d" };
+
+// The ONLY billed ops — agent context pulls. Mirrors RETRIEVAL_EVENT_TYPES in
+// apps/api/src/lib/plans.mjs. Everything else is logged but free.
+const RETRIEVAL_EVENT_TYPES = ["v2.context", "v2.account.get", "v2.query", "v2.attention"];
+const isRetrievalOp = (op: LiveOp) => !!op.eventType && RETRIEVAL_EVENT_TYPES.includes(op.eventType);
+
+interface RetrievalType { eventType: string; label: string; count: number; billed: boolean; }
+interface Breakdown { periodStart: string; total: number; billed: number; free: number; retrieval: RetrievalType[]; }
+interface OpsUsage { used: number; included: number; remaining: number; }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -61,16 +72,20 @@ export default function Ops() {
   const [lifetimeOps, setLifetimeOps] = useState(0);
   const [loading, setLoading]         = useState(true);
   const [range, setRange]             = useState<Range>("7d");
+  const [breakdown, setBreakdown]     = useState<Breakdown | null>(null);
+  const [retrievalUsage, setRetrievalUsage] = useState<OpsUsage | null>(null);
+  const [billedOnly, setBilledOnly]   = useState(false);
 
   const loadOps = useCallback(async () => {
     if (!workspaceId || !token) return;
     try {
       const fresh = await freshAccessToken();
       if (!fresh) return;
-      const [sysRes, agentRes, lifeRes] = await Promise.all([
+      const [sysRes, agentRes, lifeRes, breakdownRes] = await Promise.all([
         fetch(`${apiUrl}/api/workspace/system-log?workspace_id=${workspaceId}&days=30&limit=200&offset=0`, { headers: { Authorization: `Bearer ${fresh}` } }),
         fetch(`${apiUrl}/api/requests/log?days=30&limit=200&offset=0`, { headers: { Authorization: `Bearer ${fresh}` } }),
         fetch(`${apiUrl}/api/usage`, { headers: { Authorization: `Bearer ${fresh}` } }),
+        fetch(`${apiUrl}/api/usage/ops-breakdown`, { headers: { Authorization: `Bearer ${fresh}` } }),
       ]);
       const sysData   = sysRes.ok   ? await sysRes.json()   : { events: [] };
       const agentData = agentRes.ok ? await agentRes.json() : { requests: [] };
@@ -85,6 +100,7 @@ export default function Ops() {
           name: op.name, color: OP_COLORS[op.color],
           detail: e.summary || e.source,
           source: isAgentSource ? (e.source as LiveOp["source"]) : "system" as const,
+          eventType: e.event_type,
         };
       });
       const agentOps: LiveOp[] = (agentData.requests ?? []).map((r: any) => {
@@ -97,9 +113,15 @@ export default function Ops() {
       const seen = new Set<string>();
       const dedup = merged.filter(o => { if (seen.has(o.id)) return false; seen.add(o.id); return true; });
       setOps(dedup);
-      // All-time ops = SUM(billable_ops) from /api/usage.
+      // All-time ops = SUM(billable_ops) from /api/usage. ops.{used,included}
+      // are now the RETRIEVAL meter (what's billed).
       const usage = lifeRes.ok ? await lifeRes.json() : null;
       setLifetimeOps(usage?.ops?.allTime ?? 0);
+      if (usage?.ops) {
+        setRetrievalUsage({ used: usage.ops.used, included: usage.ops.included, remaining: usage.ops.remaining });
+      }
+      const bd = breakdownRes.ok ? await breakdownRes.json() : null;
+      if (bd) setBreakdown(bd);
     } catch { /* silent */ }
     finally { setLoading(false); }
   }, [workspaceId, token]);
@@ -110,13 +132,17 @@ export default function Ops() {
     return () => clearInterval(iv);
   }, [loadOps]);
 
-  // Range-filtered ops, computed client-side.
+  // Range-filtered ops, computed client-side. `billedOnly` further narrows to
+  // the retrieval ops — the ones that actually count toward the bill.
   const rangeOps = useMemo(() => {
     const days = RANGE_DAYS[range];
-    if (days == null) return ops;
-    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
-    return ops.filter(op => new Date(op.ts).getTime() >= cutoff);
-  }, [ops, range]);
+    const cutoff = days == null ? null : Date.now() - days * 24 * 60 * 60 * 1000;
+    return ops.filter(op => {
+      if (cutoff != null && new Date(op.ts).getTime() < cutoff) return false;
+      if (billedOnly && !isRetrievalOp(op)) return false;
+      return true;
+    });
+  }, [ops, range, billedOnly]);
 
   const metrics = useMemo(() => {
     const failed = rangeOps.filter(isFailedOp).length;
@@ -141,6 +167,61 @@ export default function Ops() {
           title="Ops"
         />
 
+        {/* ── Retrieval — the billed meter (on top) ── */}
+        <div className="mb-5 rounded-xl border border-border bg-background p-5">
+          <div className="flex items-center justify-between gap-4 mb-3">
+            <div>
+              <div className="text-[13px] font-semibold text-foreground">Retrieval · billed</div>
+              <div className="text-[12px] text-muted-foreground mt-0.5">
+                Agent context pulls are the only billed ops. Writes, scans and ingest are free.
+              </div>
+            </div>
+            {retrievalUsage && (
+              <div className="text-right">
+                <div className="text-[22px] font-bold text-foreground tabular-nums">
+                  {retrievalUsage.used.toLocaleString()}
+                  <span className="text-[14px] font-medium text-muted-foreground"> / {retrievalUsage.included.toLocaleString()}</span>
+                </div>
+                <div className="text-[11px] text-muted-foreground">{retrievalUsage.remaining.toLocaleString()} left this period</div>
+              </div>
+            )}
+          </div>
+          {retrievalUsage && retrievalUsage.included > 0 && (
+            <div className="h-2 w-full rounded-full bg-muted overflow-hidden mb-4">
+              <div
+                className="h-full rounded-full bg-primary transition-all"
+                style={{ width: `${Math.min(100, Math.round((retrievalUsage.used / retrievalUsage.included) * 100))}%` }}
+              />
+            </div>
+          )}
+
+          {/* Top metrics for Retrieval Ops */}
+          {breakdown && breakdown.retrieval.length > 0 && (
+            <div>
+              <div className="text-[11px] font-semibold tracking-wide text-muted-foreground mb-2">
+                TOP RETRIEVAL OPS · THIS PERIOD
+              </div>
+              <div className="space-y-1.5">
+                {breakdown.retrieval.map(r => {
+                  const max = breakdown.retrieval[0]?.count || 1;
+                  return (
+                    <div key={r.eventType} className="flex items-center gap-3">
+                      <span className="text-[12px] font-mono text-foreground w-28 flex-shrink-0">{r.label}</span>
+                      <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
+                        <div className="h-full rounded-full bg-primary/70" style={{ width: `${Math.round((r.count / max) * 100)}%` }} />
+                      </div>
+                      <span className="text-[12px] tabular-nums text-muted-foreground w-16 text-right flex-shrink-0">{r.count.toLocaleString()}</span>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="text-[11px] text-muted-foreground mt-3 tabular-nums">
+                {breakdown.billed.toLocaleString()} billed · {breakdown.free.toLocaleString()} free · {breakdown.total.toLocaleString()} ops total
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* ── Metrics row ── */}
         <div className="mb-5 flex items-center justify-between gap-4">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 flex-1">
@@ -161,6 +242,16 @@ export default function Ops() {
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
             LIVE OP LOG
           </span>
+          <div className="flex items-center gap-2">
+          <button
+            onClick={() => setBilledOnly(v => !v)}
+            className={`px-3 py-1 rounded-md text-[12px] font-semibold border transition-colors ${
+              billedOnly
+                ? "bg-primary text-primary-foreground border-primary"
+                : "border-border text-muted-foreground hover:text-foreground"
+            }`}>
+            Billed only
+          </button>
           <div className="inline-flex items-center rounded-lg border border-border bg-background p-0.5">
             {(["all", "1d", "7d", "30d"] as Range[]).map(r => (
               <button
@@ -174,6 +265,7 @@ export default function Ops() {
                 {RANGE_LABEL[r]}
               </button>
             ))}
+          </div>
           </div>
         </div>
 

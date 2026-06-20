@@ -9,11 +9,16 @@
  * them) but display as "Start" and "Agency". 'growth' is the tier inserted
  * between Pro and Agency.
  *
- * Metered units (each with the same warn → 3-day grace → restrict model):
- *   - ops          — webhooks, MCP/SDK/API calls, scans (the live op log); a flow
- *   - records      — unique people + companies held in the entity graph; a stock.
- *                    Lead-list people, CRM contacts and engagers are the same
- *                    entities rows, so a person in five lists counts once.
+ * Billed unit — RETRIEVAL only (warn → 3-day grace → restrict model):
+ *   - retrievals   — agent context pulls: get_context / get_account / query /
+ *                    attention. This is the ONLY metered + billed unit, and what
+ *                    `includedOpsPerMonth` now caps.
+ *   - ops          — every operation (webhooks, writes, scans, retrievals) is
+ *                    still logged to workspace_system_log for visibility, but only
+ *                    the retrieval subset counts toward the quota.
+ *   - records      — unique people + companies in the entity graph. UNLIMITED on
+ *                    every plan (recordsLimit: null): the graph is given away, the
+ *                    retrieval meter does the tiering, not graph size.
  *
  * Enrichment is bring-your-own-keys: no plan includes a managed enrichment
  * allowance (enrichmentsPerMonth: 0). Enrichment runs on the workspace's own
@@ -38,8 +43,8 @@ export const PLANS = {
     id: 'free',
     name: 'Free',
     monthlyPriceUsd: 0,
-    includedOpsPerMonth: 1_000,
-    recordsLimit: 100,
+    includedOpsPerMonth: 1_000, // retrieval calls / month
+    recordsLimit: null, // unlimited — graph is given away
     linkedinProfiles: 0,
     enrichmentsPerMonth: 0,
     workspaceLimit: 1,
@@ -60,8 +65,8 @@ export const PLANS = {
     id: 'starter',
     name: 'Start',
     monthlyPriceUsd: 29,
-    includedOpsPerMonth: 10_000,
-    recordsLimit: 1_000,
+    includedOpsPerMonth: 5_000, // retrieval calls / month
+    recordsLimit: null, // unlimited — graph is given away
     linkedinProfiles: 1,
     enrichmentsPerMonth: 0,
     workspaceLimit: 1,
@@ -79,8 +84,8 @@ export const PLANS = {
     id: 'pro',
     name: 'Pro',
     monthlyPriceUsd: 99,
-    includedOpsPerMonth: 25_000,
-    recordsLimit: 10_000,
+    includedOpsPerMonth: 25_000, // retrieval calls / month
+    recordsLimit: null, // unlimited — graph is given away
     linkedinProfiles: 1,
     enrichmentsPerMonth: 0,
     workspaceLimit: 1,
@@ -99,8 +104,8 @@ export const PLANS = {
     id: 'growth',
     name: 'Growth',
     monthlyPriceUsd: 249,
-    includedOpsPerMonth: 100_000,
-    recordsLimit: 100_000,
+    includedOpsPerMonth: 100_000, // retrieval calls / month
+    recordsLimit: null, // unlimited — graph is given away
     linkedinProfiles: 5,
     enrichmentsPerMonth: 0,
     workspaceLimit: 3,
@@ -127,8 +132,8 @@ export const PLANS = {
     perWorkspaceUsd: 100,
     baseWorkspaces: 5,
     opsPerWorkspace: 100_000,
-    includedOpsPerMonth: 500_000,
-    recordsLimit: 100_000, // per client workspace
+    includedOpsPerMonth: 500_000, // retrieval calls / month (100k × 5 base clients)
+    recordsLimit: null, // unlimited — graph is given away
     linkedinProfiles: 1, // per client workspace
     enrichmentsPerMonth: 0,
     workspaceLimit: 5,
@@ -207,22 +212,44 @@ export function periodStartFor(subscription) {
 }
 
 /**
- * Compute a team's ops usage for the current period off the live op log.
- * `ops used` = SUM(workspace_system_log.billable_ops) since the period start
- * (via the team_ops_used SQL function).
+ * The op event_types that count toward the billed meter. Billing is RETRIEVAL
+ * ONLY — the agent context pulls that deliver value: get_context, get_account,
+ * query, attention. Every other op (writes/observations, scans, workspace
+ * config, ingest) is still logged to workspace_system_log for visibility but is
+ * NOT billed. Labels are the PATH_LABELS in middleware/opLogger.mjs.
+ */
+export const RETRIEVAL_EVENT_TYPES = ['v2.context', 'v2.account.get', 'v2.query', 'v2.attention'];
+
+/**
+ * Compute a team's RETRIEVAL usage for the current period off the live op log.
+ * `used` = COUNT(workspace_system_log rows) since the period start whose
+ * event_type is a retrieval (each retrieval row is billable_ops=1, so the count
+ * equals the billed sum). Only retrievals are billed — see RETRIEVAL_EVENT_TYPES.
+ * Writes, scans and ingest are logged but free.
  */
 export async function getTeamOpsUsage(supabase, teamId, subscription) {
   const plan = getPlanFromSubscription(subscription);
   const periodStart = periodStartFor(subscription);
 
-  const { data, error } = await supabase.rpc('team_ops_used', {
-    p_team_id: teamId,
-    p_since: periodStart.toISOString(),
-  });
-  if (error) {
-    console.error('[getTeamOpsUsage] team_ops_used rpc failed:', error.message);
+  const { data: workspaces } = await supabase
+    .from('workspaces')
+    .select('id')
+    .eq('team_id', teamId);
+  const wsIds = (workspaces ?? []).map((w) => w.id);
+
+  let used = 0;
+  if (wsIds.length) {
+    const { count, error } = await supabase
+      .from('workspace_system_log')
+      .select('id', { count: 'exact', head: true })
+      .in('workspace_id', wsIds)
+      .in('event_type', RETRIEVAL_EVENT_TYPES)
+      .gte('occurred_at', periodStart.toISOString());
+    if (error) {
+      console.error('[getTeamOpsUsage] retrieval count failed:', error.message);
+    }
+    used = count ?? 0;
   }
-  const used = Number(data ?? 0);
   const included = plan.includedOpsPerMonth;
 
   return {
