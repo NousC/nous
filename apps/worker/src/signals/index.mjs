@@ -200,7 +200,7 @@ Second sentence: the single most important thing to know right now — the block
 // Extracts Budget / Timeline / Pain Points / Objections / Preferences / Relationships
 // from qualifying private interactions and saves as `note.*` claims.
 
-async function extractActivitySignals({ supabase, activityId, contactId, workspaceId, type, source, summary }) {
+export async function extractActivitySignals({ supabase, activityId, contactId, workspaceId, type, source, summary, maxFactsOverride, dryRun = false }) {
   try {
     setUser({ id: String(workspaceId) });
     const { data: contact } = await supabase.from('contacts')
@@ -228,8 +228,9 @@ async function extractActivitySignals({ supabase, activityId, contactId, workspa
     }[type] || type;
 
     // Meetings are content-rich, so they earn a few more facts than a single
-    // message — but the quality bar below is identical either way.
-    const maxFacts = type === 'meeting_held' ? 4 : 2;
+    // message — but the quality bar below is identical either way. A deliberate
+    // re-extract pass over a full transcript can raise the cap via override.
+    const maxFacts = maxFactsOverride ?? (type === 'meeting_held' ? 4 : 2);
 
     const msg = await anthropic.messages.create({
       feature: 'activity-signals-extract',
@@ -275,17 +276,21 @@ If nothing meaningful: []` }],
       const text = msg.content[0]?.text?.trim() ?? '[]';
       const s = text.indexOf('['), e = text.lastIndexOf(']');
       if (s !== -1 && e !== -1) facts = JSON.parse(text.slice(s, e + 1));
-    } catch { return; }
+    } catch { return []; }
 
-    if (!Array.isArray(facts) || facts.length === 0) return;
+    if (!Array.isArray(facts) || facts.length === 0) return [];
 
     const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const results = [];
 
     for (const fact of facts.slice(0, maxFacts)) {
       if (!fact.content || typeof fact.content !== 'string') continue;
 
       const { action, supersedes } = await decideMerge(supabase, workspaceId, fact.content);
-      if (action === 'SKIP') continue;
+      if (action === 'SKIP') { results.push({ ...fact, action: 'SKIP' }); continue; }
+
+      // Preview mode (re-extract dry-run): report what WOULD be saved, write nothing.
+      if (dryRun) { results.push({ ...fact, action }); continue; }
 
       let newMem = null;
       try {
@@ -316,14 +321,17 @@ If nothing meaningful: []` }],
           source: 'signal_extraction',
         }).catch(() => {});
       }
+      results.push({ ...fact, action });
     }
 
-    console.log(`[SIGNAL_EXTRACTOR] ${facts.length} facts — ${type}/${source} — contact ${contactId}`);
+    console.log(`[SIGNAL_EXTRACTOR] ${results.length} facts — ${type}/${source} — contact ${contactId}`);
 
-    // Refresh the pre-computed memory_summary on the contact
-    refreshContactBlock(supabase, contactId, workspaceId).catch(() => {});
+    // Refresh the pre-computed memory_summary on the contact (skip in dry-run).
+    if (!dryRun) refreshContactBlock(supabase, contactId, workspaceId).catch(() => {});
+    return results;
   } catch (err) {
     console.warn('[SIGNAL_EXTRACTOR_ERROR]', err.message);
+    return [];
   }
 }
 
