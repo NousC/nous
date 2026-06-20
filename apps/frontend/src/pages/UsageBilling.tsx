@@ -253,8 +253,6 @@ export default function UsageBilling() {
   const planId = state.plan;
   const sub = state.subscription;
   const ops = state.ops ?? { used: 0, included: 0, remaining: 0 };
-  const records = state.records ?? { used: 0, included: 0, remaining: 0 };
-  const enrich = state.enrichments ?? { used: 0, included: 0, remaining: 0 };
   const apiPlans = state.allPlans ?? [];
 
   // Ordered plans.
@@ -351,13 +349,6 @@ export default function UsageBilling() {
                 </div>
               )}
             </div>
-            <div className="flex items-baseline justify-between">
-              <span className="text-[14px] font-medium text-foreground">Records</span>
-              <span className="text-[12px] text-muted-foreground tabular-nums">
-                {num(records.used)} <span className="text-muted-foreground/70">· Unlimited</span>
-              </span>
-            </div>
-            <UsageMeter label="Enrichments" used={enrich.used} included={enrich.included} />
             <p className="text-[12px] text-muted-foreground/70 pt-1">
               {periodLabel ? `Current billing period · ${periodLabel}` : "Resets at the start of each month."}
             </p>
