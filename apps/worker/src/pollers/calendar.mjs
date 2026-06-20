@@ -22,17 +22,65 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 // contact email.
 const NOREPLY_RE = /(no-?reply|do-?not-?reply|scheduler|notification|invite|mailer-daemon|calendar-server)/i;
 const SCHEDULER_DOMAIN_RE = /(^|\.)(zoom\.us|calendly\.com|cal\.com|savvycal\.com|acuityscheduling\.com|chilipiper\.com|hubspot\.com|youcanbook\.me)$/i;
-function isNonHumanEmail(email) {
+export function isNonHumanEmail(email) {
   const e = (email || '').toLowerCase();
   const at = e.indexOf('@');
   if (at < 1) return true;
   return NOREPLY_RE.test(e.slice(0, at)) || SCHEDULER_DOMAIN_RE.test(e.slice(at + 1));
 }
 
+// Only treat a guest-less event as a possible 1:1 booking when there's real
+// evidence — booked by a scheduler, a conferencing link in the body, or a
+// meeting-shaped title. Keeps personal blocks ("gym", "Morning Routine") from
+// ever triggering name extraction.
+export function looksLikeExternalBooking(event) {
+  const org = (event.organizer?.email || event.creator?.email || '').toLowerCase();
+  if (org && isNonHumanEmail(org)) return true;   // created by a scheduler service
+  const blob = `${event.location || ''} ${event.description || ''}`.toLowerCase();
+  if (/(zoom\.us|calendly\.com|cal\.com|savvycal|meet\.google\.com|teams\.microsoft|whereby\.com|hangouts)/.test(blob)) return true;
+  const title = event.summary || '';
+  if (/\b(intro|call|meeting|sync|catch[- ]?up|1:1|demo|coffee|interview|discovery|chat|onboarding|kickoff)\b/i.test(title)) return true;
+  if (/\s(x|×|<>|<->|\/|&|vs\.?|with)\s/i.test(title) || /\bbetween\b.*\band\b/i.test(title)) return true;
+  return false;
+}
+
+// Cheap, deterministic name extraction from a meeting title — handles the common
+// scheduler patterns without an LLM. Returns the OTHER person's name (never the
+// owner), or null when nothing clear is found (then the LLM fallback runs).
+function heuristicCounterparty(title, ownerName) {
+  const t = (title || '').trim();
+  if (!t) return null;
+  const ownerToks = new Set((ownerName || '').toLowerCase().split(/\s+/).filter(w => w.length > 2));
+  const isOwner = (s) => s.toLowerCase().split(/\s+/).some(tok => ownerToks.has(tok));
+  const ok = (s) => s && /^\p{Lu}/u.test(s) && s.split(/\s+/).length >= 2 && s.split(/\s+/).length <= 4 && !isOwner(s);
+
+  // "… between Georgi Furnadzhiev and Bennet Glinder" → the non-owner side.
+  let m = t.match(/\bbetween\s+([\p{L}'’.\- ]+?)\s+and\s+([\p{L}'’.\- ]+)/iu);
+  if (m) {
+    const a = m[1].trim(), b = m[2].trim();
+    if (ok(a) && isOwner(b)) return a;
+    if (ok(b) && isOwner(a)) return b;
+  }
+  // "… with Mansoor Ali" (up to 3 capitalised words).
+  m = t.match(/\bwith\s+(\p{Lu}[\p{L}'’.\-]+(?:\s+\p{Lu}[\p{L}'’.\-]+){0,2})/u);
+  if (m && ok(m[1])) return m[1].trim();
+  // "A x B" / "A & B" / "A and B" / "A / B" / "A <> B" — keep the non-owner side.
+  const parts = t.split(/\s+(?:x|×|<>|<->|\/|&|vs\.?|and|und)\s+/i)
+    .map(s => s.replace(/\s*[-–—:|(].*$/, '').trim())   // drop trailing "- Intro", "| Zoom", "(30m)"
+    .filter(Boolean);
+  if (parts.length >= 2) {
+    const others = parts.filter(ok);
+    if (others.length === 1) return others[0];
+  }
+  return null;
+}
+
 // Pull the OTHER person's name out of a 1:1 booking's title/description when the
 // event carries no human guest (the Zoom-Scheduler pattern: "… with Mansoor Ali").
-// Best-effort Haiku call; null on no key / no clear name / failure.
-async function extractCounterpartyName({ title, description, ownerName }) {
+// Heuristic first (free, deterministic); Haiku fallback for ambiguous titles.
+export async function extractCounterpartyName({ title, description, ownerName }) {
+  const heuristic = heuristicCounterparty(title, ownerName);
+  if (heuristic) return heuristic;
   if (!process.env.ANTHROPIC_API_KEY) return null;
   const t = `${title || ''}\n${(description || '').slice(0, 500)}`.trim();
   if (!t) return null;
@@ -308,6 +356,7 @@ async function pollWorkspace(supabase, conn) {
       return e && e !== ownerEmail && !isNonHumanEmail(e);
     });
     if (hasHumanGuest) continue;   // real attendees we just don't have — don't trust the title
+    if (!looksLikeExternalBooking(event)) continue;   // personal block — not a booking
 
     // Cost guard: skip the LLM when we've already logged this event at its current
     // start. A moved start (reschedule) falls through and re-runs. Hard dedup in
