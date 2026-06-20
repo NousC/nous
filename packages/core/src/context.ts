@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { getClaims } from './db/claims.js';
 import { getObservations, type Observation } from './db/observations.js';
 import { collapseMeetingDupes } from './db/activities.js';
+import { getManagers } from './db/relationships.js';
 
 // The Context API's assembly layer. assembleContext() runs the pipeline —
 // retrieve → rank → connect → compress → tag → budget — and returns an
@@ -80,7 +81,17 @@ export interface TimelineItem {
   when: string; type: string; tier: 'full' | 'brief' | 'count';
   summary?: string | null; count?: number;
 }
-export interface Stakeholder { entity_id: string; name: string | null; role: string | null; }
+export interface Stakeholder {
+  entity_id: string;
+  name: string | null;
+  /** job title (the company stakeholder has null) */
+  title?: string | null;
+  /** buying-committee role (champion / economic_buyer / influencer / blocker / contact),
+   *  or 'company' for the account itself. Derived by the relationship worker. */
+  role: string | null;
+  /** the entity_id of this person's manager, when the org chart is known */
+  reports_to?: string | null;
+}
 
 export interface AssembledContext {
   entity: { id: string; type: string };
@@ -287,12 +298,15 @@ async function loadStakeholders(
   }
 
   const ids = [companyId, ...colleagueIds];
-  const { data: claimRows } = await supabase
-    .from('claims')
-    .select('entity_id, property, value')
-    .eq('workspace_id', workspaceId)
-    .in('entity_id', ids)
-    .in('property', ['name', 'first_name', 'last_name', 'job_title']);
+  const [{ data: claimRows }, managers] = await Promise.all([
+    supabase
+      .from('claims')
+      .select('entity_id, property, value')
+      .eq('workspace_id', workspaceId)
+      .in('entity_id', ids)
+      .in('property', ['name', 'first_name', 'last_name', 'job_title', 'committee_role']),
+    getManagers(supabase, workspaceId, colleagueIds),
+  ]);
 
   const byEntity = new Map<string, Record<string, unknown>>();
   for (const c of claimRows ?? []) {
@@ -308,12 +322,27 @@ async function loadStakeholders(
   };
 
   const stakeholders: Stakeholder[] = [
-    { entity_id: companyId, name: nameOf(companyId), role: 'company' },
+    { entity_id: companyId, name: nameOf(companyId), title: null, role: 'company', reports_to: null },
   ];
   for (const id of colleagueIds) {
-    const role = byEntity.get(id)?.job_title;
-    stakeholders.push({ entity_id: id, name: nameOf(id), role: (role as string) ?? 'contact' });
+    const m = byEntity.get(id) ?? {};
+    stakeholders.push({
+      entity_id: id,
+      name: nameOf(id),
+      title: (m.job_title as string) ?? null,
+      // committee role from the relationship worker; until it has run, default to 'contact'
+      role: (m.committee_role as string) ?? 'contact',
+      reports_to: managers.get(id) ?? null,
+    });
   }
+
+  // surface the committee in a useful order: champion → economic_buyer →
+  // influencer → blocker → contact, with the company anchored first.
+  const ROLE_ORDER: Record<string, number> = {
+    company: 0, champion: 1, economic_buyer: 2, influencer: 3, blocker: 4, contact: 5,
+  };
+  stakeholders.sort((a, b) =>
+    (ROLE_ORDER[a.role ?? 'contact'] ?? 9) - (ROLE_ORDER[b.role ?? 'contact'] ?? 9));
   return stakeholders;
 }
 
