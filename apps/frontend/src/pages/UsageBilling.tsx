@@ -36,6 +36,15 @@ type BillingState = {
   allPlans?: PlanInfo[];
 };
 
+type RetrievalType = { eventType: string; label: string; count: number; billed: boolean };
+type Breakdown = {
+  periodStart: string;
+  total: number;
+  billed: number;
+  free: number;
+  retrieval: RetrievalType[];
+};
+
 // Order on the page.
 const PLAN_ORDER = ["free", "starter", "pro", "growth", "scale"];
 
@@ -119,6 +128,7 @@ export default function UsageBilling() {
   const token = session?.access_token ?? "";
 
   const [state, setState] = useState<BillingState | null>(null);
+  const [breakdown, setBreakdown] = useState<Breakdown | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [action, setAction] = useState<string | null>(null);
@@ -128,9 +138,13 @@ export default function UsageBilling() {
     setLoading(true);
     setError(null);
     try {
-      const r = await fetch(`${apiUrl}/api/billing/state`, { headers: { Authorization: `Bearer ${token}` } });
+      const [r, bdRes] = await Promise.all([
+        fetch(`${apiUrl}/api/billing/state`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${apiUrl}/api/usage/ops-breakdown`, { headers: { Authorization: `Bearer ${token}` } }),
+      ]);
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "load_failed");
       setState(await r.json());
+      if (bdRes.ok) setBreakdown(await bdRes.json());
     } catch (e: any) {
       setError(e?.message || "Failed to load billing");
     } finally {
@@ -307,7 +321,36 @@ export default function UsageBilling() {
 
           {/* Usage */}
           <div className="p-6 md:p-7 bg-muted/30 border-t md:border-t-0 md:border-l border-border space-y-5">
-            <UsageMeter label="Retrieval · billed" used={ops.used} included={ops.included} />
+            <div>
+              <UsageMeter label="Retrieval · billed" used={ops.used} included={ops.included} />
+              <p className="mt-2 text-[12px] text-muted-foreground">
+                Agent context pulls are the only billed ops. Writes, scans and ingest are free.
+              </p>
+              {breakdown && breakdown.retrieval.length > 0 && (
+                <div className="mt-4">
+                  <div className="mb-2 text-[11px] font-semibold tracking-wide text-muted-foreground">
+                    TOP RETRIEVAL OPS · THIS PERIOD
+                  </div>
+                  <div className="space-y-1.5">
+                    {breakdown.retrieval.map((r) => {
+                      const max = breakdown.retrieval[0]?.count || 1;
+                      return (
+                        <div key={r.eventType} className="flex items-center gap-3">
+                          <span className="w-28 flex-shrink-0 font-mono text-[12px] text-foreground">{r.label}</span>
+                          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+                            <div className="h-full rounded-full bg-foreground/70" style={{ width: `${Math.round((r.count / max) * 100)}%` }} />
+                          </div>
+                          <span className="w-16 flex-shrink-0 text-right text-[12px] tabular-nums text-muted-foreground">{num(r.count)}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="mt-3 text-[11px] tabular-nums text-muted-foreground">
+                    {num(breakdown.billed)} billed · {num(breakdown.free)} free · {num(breakdown.total)} ops total
+                  </div>
+                </div>
+              )}
+            </div>
             <div className="flex items-baseline justify-between">
               <span className="text-[14px] font-medium text-foreground">Records</span>
               <span className="text-[12px] text-muted-foreground tabular-nums">
