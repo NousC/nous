@@ -235,7 +235,10 @@ export async function extractActivitySignals({ supabase, activityId, contactId, 
     const msg = await anthropic.messages.create({
       feature: 'activity-signals-extract',
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 400,
+      // Scale the output budget with the fact cap — a deep transcript re-extract
+      // asking for up to 8 detailed facts needs more room than a 2-fact message,
+      // or the JSON array truncates mid-fact and fails to parse (→ zero facts).
+      max_tokens: Math.min(2000, Math.max(400, maxFacts * 130)),
       messages: [{ role: 'user', content: `Extract durable CRM intelligence about ${contactName} from this private ${channelLabel}.
 ${provenance}
 Record facts ONLY about ${contactName}, drawn from what THEY reveal about themselves, their company, needs, constraints, opinions, or plans. NEVER turn the user's own questions, offers, or statements into facts about ${contactName} (e.g. if the user asked "what's behind your product?", that is NOT a fact that ${contactName} is interested in the user's product).

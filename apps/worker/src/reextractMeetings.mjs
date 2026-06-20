@@ -52,10 +52,13 @@ async function main() {
 
   if (!sources.length) { console.log(`No meeting transcript/notes on ${name}.`); process.exit(0); }
 
-  console.log(`\n${apply ? 'APPLY' : 'DRY-RUN'} — re-extracting ${sources.length} meeting doc(s) on ${name} (up to ${maxFacts} facts each)\n`);
+  console.log(`\n${apply ? 'APPLY' : 'DRY-RUN'} — re-extracting on ${name} (up to ${maxFacts} facts; richest source first)\n`);
 
+  // Mine the single richest source that yields facts (transcript first, then the
+  // AI summary). Stopping after the first hit avoids cross-source duplicates —
+  // especially while prod dedup is degraded.
   for (const doc of sources) {
-    console.log(`# ${doc.metadata?.doc_type} — ${doc.content.length} chars`);
+    console.log(`# trying ${doc.metadata?.doc_type} — ${doc.content.length} chars`);
     const results = await extractActivitySignals({
       supabase,
       activityId:  doc.id,
@@ -67,12 +70,13 @@ async function main() {
       maxFactsOverride: maxFacts,
       dryRun:      !apply,
     });
-    if (!results?.length) { console.log('  (nothing cleared the bar)\n'); continue; }
+    if (!results?.length) { console.log('  (nothing cleared the bar — trying next source)\n'); continue; }
     for (const r of results) {
       const tag = r.action === 'SKIP' ? '· already have' : (apply ? '+ saved' : '+ new  ');
       console.log(`  ${tag}  [${r.category}]  ${r.content}`);
     }
     console.log('');
+    break; // richest source produced facts — done
   }
 }
 
