@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { getClaims } from './db/claims.js';
 import { getObservations, type Observation } from './db/observations.js';
 import { collapseMeetingDupes } from './db/activities.js';
+import { listNotes } from './db/notes.js';
 
 // The Context API's assembly layer. assembleContext() runs the pipeline —
 // retrieve → rank → connect → compress → tag → budget — and returns an
@@ -118,9 +119,10 @@ export async function assembleContext(
     .eq('id', entityId).eq('workspace_id', workspaceId).maybeSingle();
   if (!entity) return null;
 
-  const [claims, observations] = await Promise.all([
+  const [claims, observations, notes] = await Promise.all([
     getClaims(supabase, workspaceId, entityId),
     getObservations(supabase, workspaceId, entityId, { kind: 'event', limit: 300 }),
+    listNotes(supabase, workspaceId, { entityId, limit: 100 }),
   ]);
 
   // workspace-level grounding — the agent's own ICP / product / positioning,
@@ -139,42 +141,31 @@ export async function assembleContext(
   // Drop legacy v1 bookkeeping claims before ranking — see LEGACY_CONTEXT_NOISE.
   const usefulClaims = claims.filter(c => !LEGACY_CONTEXT_NOISE.has(c.property));
 
-  // Pull contact documents (meeting briefs / notes / transcripts) out of the
-  // claim stream — their full bodies would blow the token budget. Surface them
-  // as a compact list (type · title · date · snippet); the agent fetches a full
-  // body with get_account when it needs one.
-  const isDoc = (c: { property: string; value: unknown }) =>
-    typeof c.property === 'string' && c.property.startsWith('note.') &&
-    !!(c.value as { metadata?: { doc_type?: string } } | null)?.metadata?.doc_type;
-  const documents = usefulClaims
-    .filter(isDoc)
-    .map(c => {
-      const v = c.value as { content?: string; metadata?: { doc_type?: string; title?: string; date?: string } };
-      const text = String(v.content ?? '').replace(/\s+/g, ' ').trim();
+  // Documents (briefs / notes / transcripts) and atomic facts both come from the
+  // notes layer, read via listNotes — which returns ACTIVE notes only. The raw
+  // claim stream (getClaims) still contains soft-deleted note.* rows, so deriving
+  // facts from it would resurface purged/deduped facts. Full bodies would blow the
+  // budget, so documents are a compact list (agent fetches a full body with
+  // get_account); all note.* claims are dropped from the ranked-claim stream.
+  const documents = notes
+    .filter(n => (n.metadata as { doc_type?: string })?.doc_type)
+    .map(n => {
+      const meta = n.metadata as { doc_type?: string; title?: string; date?: string };
+      const text = String(n.content ?? '').replace(/\s+/g, ' ').trim();
       return {
-        type: v.metadata?.doc_type ?? 'note',
-        title: v.metadata?.title ?? null,
-        date: v.metadata?.date ?? c.last_observed_at ?? null,
+        type: meta.doc_type ?? 'note',
+        title: meta.title ?? null,
+        date: meta.date ?? n.created_at ?? null,
         snippet: text.length > 200 ? text.slice(0, 200) + '…' : text,
       };
     })
     .sort((a, b) => +new Date(b.date ?? 0) - +new Date(a.date ?? 0))
     .slice(0, 8);
-  // Plain atomic facts (note.* WITHOUT a doc_type) — the account's durable,
-  // decision-relevant memory. Surface them as a clean list (like documents)
-  // rather than leaving them as opaque note.<uuid> claims in the claim stream.
-  const isFact = (c: { property: string; value: unknown }) =>
-    typeof c.property === 'string' && c.property.startsWith('note.') && !isDoc(c);
-  const facts = usefulClaims
-    .filter(isFact)
-    .map(c => {
-      const v = c.value as { content?: string; category?: string };
-      return { category: v.category ?? 'General', content: String(v.content ?? '').trim(), date: c.last_observed_at ?? null };
-    })
-    .filter(f => f.content)
-    .sort((a, b) => +new Date(b.date ?? 0) - +new Date(a.date ?? 0))
+  const facts = notes
+    .filter(n => !(n.metadata as { doc_type?: string })?.doc_type && n.content.trim())
+    .map(n => ({ category: n.category, content: n.content, date: n.created_at }))
     .slice(0, 15);
-  const rankClaims = usefulClaims.filter(c => !isDoc(c) && !isFact(c));
+  const rankClaims = usefulClaims.filter(c => !c.property.startsWith('note.'));
 
   // rank claims: on-theme first, then confidence, then recency — then budget-cap
   const ranked = [...rankClaims].sort((a, b) => {
