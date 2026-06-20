@@ -25,6 +25,7 @@ import { processEmbeddings } from './workers/embeddings.mjs';
 import { runCrmAutoSync } from './workers/crmSync.mjs';
 import { runCrmHygieneSweep } from './workers/crmHygiene.mjs';
 import { runStageDerivation } from './workers/stageDerivation.mjs';
+import { runRelationshipDerivation } from './workers/relationshipDerivation.mjs';
 import { runOnboardingDrip } from './workers/onboardingDrip.mjs';
 import { runOpsLimitEmails } from './workers/opsLimitEmails.mjs';
 import { runLinkedInEngagement } from './workers/linkedinEngagement.mjs';
@@ -262,6 +263,20 @@ async function runStageDerivationSafe() {
 runStageDerivationSafe();
 cron.schedule('15 * * * *', runStageDerivationSafe);
 console.log('[WORKER] Pipeline-stage derivation — hourly at :15');
+
+// ── Relationship-graph derivation — hourly at :25 ────────────────────────────
+// Derives the org chart (reports_to edges) and a buying-committee role per
+// person (champion / economic_buyer / influencer / blocker / contact) for each
+// company, from titles + engagement. Writes reports_to to the relationships
+// table and committee_role as a state observation (the claim engine derives the
+// claim). Runs after stage derivation (:15) so works_at edges are settled.
+// get_context's stakeholders read both. See workers/relationshipDerivation.mjs.
+async function runRelationshipDerivationSafe() {
+  try { await runRelationshipDerivation(); }
+  catch (err) { console.error('[WORKER] relationship derivation error:', err.message); }
+}
+cron.schedule('25 * * * *', runRelationshipDerivationSafe);
+console.log('[WORKER] Relationship-graph derivation — hourly at :25');
 
 // ── Onboarding drip — hourly at :45 ──────────────────────────────────────────
 // Dogfood follow-up sequence for our own signups. Reads the observation
