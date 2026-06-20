@@ -3,6 +3,7 @@ import type { Observation } from './observations.js';
 import { getObservations } from './observations.js';
 import { collapseMeetingDupes } from './activities.js';
 import { fireClaimTransitionTriggers } from './triggers.js';
+import { listNotes } from './notes.js';
 
 // Claims are the derived layer — the current best belief about
 // (entity, property), with calibrated confidence, provenance, and decay.
@@ -25,11 +26,21 @@ export interface Claim {
   last_observed_at: string | null;
 }
 
+/** A durable, decision-relevant fact about an account (an asserted note.* claim,
+ *  excluding long-form documents). Surfaced inline so agents don't need a
+ *  separate facts lookup. */
+export interface AccountFact {
+  category: string;
+  content: string;
+  date: string;
+}
+
 export interface AccountRecord {
   entity_id: string;
   type: string;
   claims: Record<string, Claim>;          // property -> claim
   recent_observations: Observation[];
+  facts: AccountFact[];                    // atomic memory, newest first
 }
 
 // Reconcile needs the provenance chain (supporting_observation_ids) that the
@@ -243,17 +254,30 @@ export async function getAccountRecord(
     .maybeSingle();
   if (!entity) return null;
 
-  const [claims, recent] = await Promise.all([
+  const [claims, recent, notes] = await Promise.all([
     getClaims(supabase, workspaceId, entityId),
     getObservations(supabase, workspaceId, entityId, { limit: 50 }),
+    listNotes(supabase, workspaceId, { entityId, limit: 50 }),
   ]);
+
+  // Atomic facts = asserted note.* claims minus long-form documents. Surface them
+  // as a clean, capped list so an agent gets the account's durable memory inline
+  // (no separate facts call). The raw note.<uuid> claims are removed from `claims`
+  // to avoid duplicating them as opaque uuid-keyed entries.
+  const facts = notes
+    .filter(n => !n.metadata?.doc_type)
+    .slice(0, 15)
+    .map(n => ({ category: n.category, content: n.content, date: n.created_at }));
 
   return {
     entity_id: entity.id,
     type: entity.type,
-    claims: Object.fromEntries(claims.map(c => [c.property, c])),
+    claims: Object.fromEntries(
+      claims.filter(c => !c.property.startsWith('note.')).map(c => [c.property, c]),
+    ),
     // collapse one meeting reported by two connectors into a single row
     recent_observations: collapseMeetingDupes(recent),
+    facts,
   };
 }
 

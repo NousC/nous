@@ -94,6 +94,10 @@ export interface AssembledContext {
   /** Long-form documents kept on the contact (meeting briefs, notes, transcripts).
    *  Compact list only — fetch a full body with get_account. */
   documents: { type: string; title: string | null; date: string | null; snippet: string }[];
+  /** Atomic facts — the account's durable, decision-relevant memory (note.*
+   *  asserted claims, newest first). Surfaced as a clean section so the agent
+   *  reads them inline instead of from opaque note.<uuid> claims. */
+  facts: { category: string; content: string; date: string | null }[];
   meta: { token_estimate: number; claims_total: number; claims_returned: number; timeline_events: number };
 }
 
@@ -156,7 +160,21 @@ export async function assembleContext(
     })
     .sort((a, b) => +new Date(b.date ?? 0) - +new Date(a.date ?? 0))
     .slice(0, 8);
-  const rankClaims = usefulClaims.filter(c => !isDoc(c));
+  // Plain atomic facts (note.* WITHOUT a doc_type) — the account's durable,
+  // decision-relevant memory. Surface them as a clean list (like documents)
+  // rather than leaving them as opaque note.<uuid> claims in the claim stream.
+  const isFact = (c: { property: string; value: unknown }) =>
+    typeof c.property === 'string' && c.property.startsWith('note.') && !isDoc(c);
+  const facts = usefulClaims
+    .filter(isFact)
+    .map(c => {
+      const v = c.value as { content?: string; category?: string };
+      return { category: v.category ?? 'General', content: String(v.content ?? '').trim(), date: c.last_observed_at ?? null };
+    })
+    .filter(f => f.content)
+    .sort((a, b) => +new Date(b.date ?? 0) - +new Date(a.date ?? 0))
+    .slice(0, 15);
+  const rankClaims = usefulClaims.filter(c => !isDoc(c) && !isFact(c));
 
   // rank claims: on-theme first, then confidence, then recency — then budget-cap
   const ranked = [...rankClaims].sort((a, b) => {
@@ -216,7 +234,7 @@ export async function assembleContext(
     entity: { id: entity.id, type: entity.type },
     intent,
     summary: buildSummary(entity.type, claimsOut, events.length, intent),
-    claims: claimsOut, workspace: workspaceClaims, timeline, stakeholders, predictions, documents,
+    claims: claimsOut, workspace: workspaceClaims, timeline, stakeholders, predictions, documents, facts,
     meta: {
       token_estimate: 0,
       claims_total: claims.length, claims_returned: claimsOut.length,
