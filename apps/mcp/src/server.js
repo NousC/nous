@@ -145,7 +145,8 @@ export function createServer() {
     "get_context",
     "Get engineered context for a specific task about a person or company. Pass their email (or " +
     "entity id) and the intent. Returns a focused, ranked context block: the facts that matter for " +
-    "that task — each with a confidence and a freshness — plus the recent timeline, the buying-group " +
+    "that task — each with a confidence and a freshness — the durable FACTS we've learned about them " +
+    "(their atomic memory: budget, authority, pain, stack, plans), the recent timeline, the buying-group " +
     "stakeholders, open predictions, and the account's ICP fit score (0-100 + why). Call this before " +
     "drafting outreach, preparing for a meeting, " +
     "or making any decision about a person. A fact's freshness tells you whether to trust it: 'fresh' " +
@@ -175,8 +176,14 @@ export function createServer() {
         lines.push(`ICP FIT: ${ctx.icp.score}/100 — ${label}${ctx.icp.reason ? `  (${ctx.icp.reason})` : ""}`);
         lines.push("");
       }
+      if (ctx.facts?.length) {
+        // Atomic memory — the durable, decision-relevant facts learned about them.
+        lines.push(`FACTS (${ctx.facts.length} — durable memory about them):`);
+        for (const f of ctx.facts) lines.push(`  [${f.category}] ${f.content}`);
+        lines.push("");
+      }
       if (ctx.claims?.length) {
-        lines.push(`FACTS (${ctx.meta?.claims_returned ?? ctx.claims.length}):`);
+        lines.push(`ATTRIBUTES (${ctx.meta?.claims_returned ?? ctx.claims.length}):`);
         for (const c of ctx.claims) {
           lines.push(`  ${c.property}: ${fmtVal(c.value)}  [${pct(c.confidence)} · ${c.freshness}]`);
         }
@@ -229,7 +236,8 @@ export function createServer() {
   // ===========================================================================
   server.tool(
     "get_account",
-    "Get the full account record for a person or company — every known fact (claim) with its " +
+    "Get the full account record for a person or company — the durable FACTS we've learned about them " +
+    "(their atomic memory: budget, authority, pain, stack, plans), every attribute (claim) with its " +
     "confidence and freshness, plus the recent activity timeline. Pass an email or entity UUID. " +
     "For a task-specific, ranked view, prefer get_context.",
     { id: z.string().describe("Email address or entity UUID") },
@@ -242,9 +250,15 @@ export function createServer() {
         lines.push(`ICP FIT: ${rec.icp.score}/100 — ${label}${rec.icp.reason ? `  (${rec.icp.reason})` : ""}`);
         lines.push("");
       }
+      if (rec.facts?.length) {
+        // Atomic memory — the durable, decision-relevant facts learned about them.
+        lines.push(`FACTS (${rec.facts.length} — durable memory about them):`);
+        for (const f of rec.facts) lines.push(`  [${f.category}] ${f.content}`);
+        lines.push("");
+      }
       const claims = Object.values(rec.claims ?? {});
       if (claims.length) {
-        lines.push(`FACTS (${claims.length}):`);
+        lines.push(`ATTRIBUTES (${claims.length}):`);
         for (const c of claims) {
           lines.push(`  ${c.property}: ${fmtVal(c.value)}  [${pct(c.confidence)} · ${c.freshness}]`);
         }
@@ -355,7 +369,11 @@ export function createServer() {
     "  4. Scheduled meetings/calls are events with property 'interaction.meeting_scheduled' and a " +
     "future-dated `when`. For 'what's booked today/this week', set property:'interaction.meeting_scheduled' " +
     "with from/to bounding the day or week (since_days only looks backward and can't reach them), and " +
-    "order:'asc' to list soonest-first. Meeting rows render the absolute date and time.",
+    "order:'asc' to list soonest-first. Meeting rows render the absolute date and time.\n" +
+    "  5. scope.facts:true + question searches the FACTS corpus (durable atomic facts about accounts) " +
+    "instead of activity — cross-account semantic fact search like 'which accounts want off Clay' or " +
+    "'who is hiring'. return:'entities' gives the single best-matching fact per account. (A single " +
+    "account's facts already come back inline with get_account.)",
     {
       scope: z.object({
         kind: z.enum(["event", "state"]).optional(),
@@ -367,6 +385,7 @@ export function createServer() {
         to: z.string().optional().describe("ISO timestamp — only activity at/before this (absolute upper bound). Combine from+to for a window; future-dated for upcoming meetings"),
         order: z.enum(["asc", "desc"]).optional().describe("observed_at order (default desc, newest first). Use 'asc' for an upcoming-meeting schedule (soonest first)"),
         limit: z.number().optional().describe("max items (default 50, cap 200)"),
+        facts: z.boolean().optional().describe("search the FACTS corpus (durable atomic facts about accounts) instead of activity. Needs `question` — a cross-account semantic fact search, e.g. 'which accounts want off Clay'. return:'entities' = the best matching fact per account."),
       }).describe("Corpus filter"),
       without: z.object({
         kind: z.enum(["event", "state"]).optional(),
@@ -386,7 +405,7 @@ export function createServer() {
       const r = await post("/v2/query", body);
       const head = `${r.matched} match${r.matched !== 1 ? "es" : ""}` +
                    (r.sampled ? ` (showing ${r.returned})` : "") +
-                   (r.return === "entities" ? " · grouped by entity" : "");
+                   (r.corpus === "facts" ? " · facts" : r.return === "entities" ? " · grouped by entity" : "");
       const roll = Object.entries(r.rollups?.by_type ?? {})
         .map(([t, n]) => `${n}× ${fmtType(t)}`).join(" · ");
       const lines = [head, roll].filter(Boolean);
@@ -395,7 +414,10 @@ export function createServer() {
       }
       lines.push("");
       for (const it of r.items ?? []) {
-        if (r.return === "entities") {
+        if (r.corpus === "facts") {
+          lines.push(`  ${it.entity_name ?? it.entity_id}  [${it.category}] ${it.content}` +
+                     (it.similarity != null ? `  (${it.similarity})` : ""));
+        } else if (r.return === "entities") {
           lines.push(`  ${it.entity_name ?? it.entity_id}  ` +
                      `(${it.matches} match${it.matches !== 1 ? "es" : ""}, last ${whenLabel(it.most_recent_type, it.most_recent_at)})` +
                      (it.most_recent_value != null ? `  → ${fmtVal(it.most_recent_value)}` : "") +
