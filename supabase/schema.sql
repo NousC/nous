@@ -777,6 +777,7 @@ BEGIN
     FROM claims c
     WHERE c.workspace_id = p_workspace_id
       AND c.embedding IS NOT NULL
+      AND c.invalid_at IS NULL                                  -- never resurface soft-deleted/purged/deduped facts
       AND (p_property_prefix IS NULL OR c.property LIKE p_property_prefix || '%')
     ORDER BY c.embedding <=> v
     LIMIT p_limit

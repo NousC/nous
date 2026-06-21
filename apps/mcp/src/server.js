@@ -179,7 +179,7 @@ export function createServer() {
       if (ctx.facts?.length) {
         // Atomic memory — the durable, decision-relevant facts learned about them.
         lines.push(`FACTS (${ctx.facts.length} — durable memory about them):`);
-        for (const f of ctx.facts) lines.push(`  [${f.category}] ${f.content}`);
+        for (const f of ctx.facts) lines.push(`  [${f.category}] ${f.content}${f.date ? `  (${relAge(f.date)})` : ""}`);
         lines.push("");
       }
       if (ctx.claims?.length) {
@@ -253,7 +253,7 @@ export function createServer() {
       if (rec.facts?.length) {
         // Atomic memory — the durable, decision-relevant facts learned about them.
         lines.push(`FACTS (${rec.facts.length} — durable memory about them):`);
-        for (const f of rec.facts) lines.push(`  [${f.category}] ${f.content}`);
+        for (const f of rec.facts) lines.push(`  [${f.category}] ${f.content}${f.date ? `  (${relAge(f.date)})` : ""}`);
         lines.push("");
       }
       const claims = Object.values(rec.claims ?? {});

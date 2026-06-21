@@ -265,7 +265,7 @@ export async function getAccountRecord(
   // (no separate facts call). The raw note.<uuid> claims are removed from `claims`
   // to avoid duplicating them as opaque uuid-keyed entries.
   const facts = notes
-    .filter(n => !n.metadata?.doc_type)
+    .filter(n => !n.metadata?.doc_type && n.content.trim())
     .slice(0, 15)
     .map(n => ({ category: n.category, content: n.content, date: n.created_at }));
 
