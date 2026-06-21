@@ -786,7 +786,10 @@ BEGIN
 END $$;
 
 -- Semantic search over observations, with structured pre-filters. Powers the
--- question-driven path of POST /v2/query.
+-- question-driven path of POST /v2/query. plpgsql + a typed local vector var so
+-- the embedding reaches the planner as a clean vector parameter (a text→vector
+-- coercion at the call boundary isn't index-usable) — without this the ivfflat
+-- index is ignored and the query seq-scans every observation.
 CREATE OR REPLACE FUNCTION search_observations(
   p_workspace_id    UUID,
   p_embedding       VECTOR(1536),
@@ -800,9 +803,12 @@ RETURNS TABLE (
   id UUID, entity_id UUID, property TEXT, value JSONB,
   source TEXT, observed_at TIMESTAMPTZ, similarity FLOAT
 )
-LANGUAGE sql STABLE AS $$
+LANGUAGE plpgsql STABLE AS $$
+DECLARE v vector(1536) := p_embedding;
+BEGIN
+  RETURN QUERY
   SELECT o.id, o.entity_id, o.property, o.value, o.source, o.observed_at,
-         (1 - (o.embedding <=> p_embedding))::FLOAT AS similarity
+         (1 - (o.embedding <=> v))::FLOAT
   FROM observations o
   WHERE o.workspace_id = p_workspace_id
     AND o.embedding IS NOT NULL
@@ -810,9 +816,9 @@ LANGUAGE sql STABLE AS $$
     AND (p_property_prefix IS NULL OR o.property ILIKE p_property_prefix || '%')
     AND (p_source          IS NULL OR o.source = p_source)
     AND (p_since           IS NULL OR o.observed_at >= p_since)
-  ORDER BY o.embedding <=> p_embedding
+  ORDER BY o.embedding <=> v
   LIMIT p_limit;
-$$;
+END $$;
 
 
 -- ============================================================
