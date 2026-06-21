@@ -18,6 +18,10 @@ export const queryV2Router = Router();
 //   • "Didn't reply in 5 days"    — without: replies in same 5d window
 //   • "Cooled in 5 days"          — without: any activity in last 5d
 //   • "Funnel by stage"           — scope.kind='state', property='stage' → rollups.by_value
+//   • "Which accounts want off X" — scope.facts:true + question → semantic search over the
+//                                   FACTS corpus (note.* claims); return:'entities' = best
+//                                   matching fact per account. Per-account facts come back
+//                                   inline with get_account, so this is for cross-account lookup.
 queryV2Router.post('/', async (req, res) => {
   try {
     const supabase = getSupabaseClient();

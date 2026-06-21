@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { searchObservations } from './db/search.js';
+import { searchObservations, searchClaims } from './db/search.js';
 
 // runQuery() — the corpus-query engine behind POST /v2/query.
 //
@@ -27,6 +27,9 @@ export interface QueryScope {
   to?: string;              // ISO — observed_at <= to   (absolute upper bound)
   order?: 'asc' | 'desc';   // observed_at sort (default desc). 'asc' for schedules — soonest first.
   limit?: number;           // max items returned (default 50, hard cap 200)
+  facts?: boolean;          // query the FACTS corpus (note.* claims) instead of observations.
+                            // Needs `question` — it's a cross-account semantic fact search
+                            // ("which accounts want off Clay"). return:'entities' = best fact per account.
 }
 
 export interface QueryOptions {
@@ -62,15 +65,26 @@ export interface EntityItem {
   firmographics?: Record<string, unknown> | null;            // industry/company_size/title for grouping
 }
 
+// One matching atomic fact in a facts-corpus query (scope.facts).
+export interface FactItem {
+  entity_id: string;
+  entity_name: string | null;
+  category: string;
+  content: string;
+  source: string | null;
+  similarity: number;
+}
+
 export interface QueryResult {
   scope: QueryScope;
   without?: QueryScope;
   mode: 'structured' | 'semantic';
   return: 'observations' | 'entities';
+  corpus?: 'observations' | 'facts';        // 'facts' when scope.facts was set
   matched: number;
   returned: number;
   sampled: boolean;
-  items: QueryItem[] | EntityItem[];
+  items: QueryItem[] | EntityItem[] | FactItem[];
   rollups: {
     by_type:   Record<string, number>;
     by_source: Record<string, number>;
@@ -136,6 +150,102 @@ async function fetchScopeObservations(
   return data ?? [];
 }
 
+// Batched name resolution — entity_id -> display name, from the name claims.
+async function resolveEntityNames(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  entityIds: string[],
+): Promise<Map<string, string>> {
+  const nameByEntity = new Map<string, string>();
+  if (!entityIds.length) return nameByEntity;
+  const { data } = await supabase
+    .from('claims')
+    .select('entity_id, property, value')
+    .eq('workspace_id', workspaceId)
+    .in('entity_id', entityIds)
+    .in('property', NAME_PROPS);
+  const parts = new Map<string, Record<string, unknown>>();
+  for (const c of (data as any[]) ?? []) {
+    const m = parts.get(c.entity_id) ?? {};
+    m[c.property] = c.value;
+    parts.set(c.entity_id, m);
+  }
+  for (const [id, m] of parts) {
+    const name = m.name ? String(m.name) : [m.first_name, m.last_name].filter(Boolean).join(' ') || null;
+    if (name) nameByEntity.set(id, name);
+  }
+  return nameByEntity;
+}
+
+// Facts-corpus query — semantic search over note.* claims (cross-account fact
+// search). scope.facts routes here. Returns FactItems; return:'entities'
+// collapses to the single best-matching fact per account.
+async function runFactsQuery(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  scope: QueryScope,
+  question: string | undefined,
+  returnMode: 'observations' | 'entities',
+  limit: number,
+): Promise<QueryResult> {
+  const empty: QueryResult = {
+    scope, mode: 'semantic', return: returnMode, corpus: 'facts',
+    matched: 0, returned: 0, sampled: false, items: [],
+    rollups: { by_type: {}, by_source: {} }, meta: { token_estimate: 0 },
+  };
+  // Facts search is inherently semantic — without a question there's nothing to
+  // rank against.
+  if (!question || !question.trim()) return empty;
+
+  const hits = await searchClaims(supabase, workspaceId, question, {
+    propertyPrefix: 'note.', limit: ENTITY_FETCH_CAP, threshold: 0.3,
+  });
+  const factHits = hits.filter(h => {
+    const v = h.value as { content?: string; metadata?: { doc_type?: string } } | null;
+    return h.entity_id && v?.content && !v.metadata?.doc_type;   // facts only, not documents
+  });
+  if (!factHits.length) return empty;
+
+  const names = await resolveEntityNames(supabase, workspaceId, [...new Set(factHits.map(h => h.entity_id))]);
+  let factItems: FactItem[] = factHits.map(h => {
+    const v = h.value as { category?: string; content?: string; source?: string };
+    return {
+      entity_id: h.entity_id,
+      entity_name: names.get(h.entity_id) ?? null,
+      category: v.category ?? 'General',
+      content: String(v.content ?? '').trim(),
+      source: v.source ?? null,
+      similarity: Math.round((h.similarity ?? 0) * 100) / 100,
+    };
+  });
+
+  if (returnMode === 'entities') {
+    const best = new Map<string, FactItem>();
+    for (const f of factItems) {
+      const cur = best.get(f.entity_id);
+      if (!cur || f.similarity > cur.similarity) best.set(f.entity_id, f);
+    }
+    factItems = [...best.values()];
+  }
+  factItems.sort((a, b) => b.similarity - a.similarity);
+
+  const matched = factItems.length;
+  const out = factItems.slice(0, limit);
+  const byType: Record<string, number> = {};
+  const bySource: Record<string, number> = {};
+  for (const f of factItems) {
+    byType[f.category] = (byType[f.category] ?? 0) + 1;
+    if (f.source) bySource[f.source] = (bySource[f.source] ?? 0) + 1;
+  }
+  const result: QueryResult = {
+    scope, mode: 'semantic', return: returnMode, corpus: 'facts',
+    matched, returned: out.length, sampled: matched > out.length,
+    items: out, rollups: { by_type: byType, by_source: bySource }, meta: { token_estimate: 0 },
+  };
+  result.meta.token_estimate = Math.ceil(JSON.stringify(result).length / 4);
+  return result;
+}
+
 export async function runQuery(
   supabase: SupabaseClient,
   workspaceId: string,
@@ -145,6 +255,10 @@ export async function runQuery(
 ): Promise<QueryResult> {
   const returnMode = options.return ?? 'observations';
   const limit = Math.min(Math.max(scope.limit ?? 50, 1), 200);
+
+  // Facts corpus — a different store (note.* claims), so it short-circuits the
+  // observation pipeline entirely.
+  if (scope.facts) return runFactsQuery(supabase, workspaceId, scope, question, returnMode, limit);
 
   // ── 1. Pull the scope corpus ─────────────────────────────────────────────
   // For entity mode + without-set we need MORE than `limit` rows up front,
