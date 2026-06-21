@@ -1090,16 +1090,23 @@ export default function Lists() {
   const addColumn = async () => {
     const label = newColLabel.trim();
     if (!label || !activeList || busy) return;
+    const key = slugify(label);
+    setNewColLabel(""); setAddingCol(false);
+    // No-op on a duplicate key (e.g. re-adding a default column's name).
+    if (customCols.some(c => c.key === key)) return;
+    const columns = [...customCols, { key, label }];
+    const listId = activeList.id;
     setBusy(true);
+    // Optimistic — show the new column immediately by updating the active list's
+    // stored columns; customCols/allCols recompute from it on the next render.
+    setLists(prev => prev.map(l => l.id === listId ? { ...l, columns } : l));
     try {
-      const columns = [...customCols, { key: slugify(label), label }];
-      await fetch(`${apiUrl}/api/lead-lists/${activeList.id}`, {
+      await fetch(`${apiUrl}/api/lead-lists/${listId}`, {
         method: "PATCH", headers: jsonHeaders,
         body: JSON.stringify({ workspaceId, columns }),
       });
-      setNewColLabel(""); setAddingCol(false);
-      loadLists();
-    } catch { /* silent */ }
+      await loadLists();
+    } catch { /* keep the optimistic column */ }
     finally { setBusy(false); }
   };
 

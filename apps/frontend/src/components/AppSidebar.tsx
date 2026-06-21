@@ -184,35 +184,29 @@ export function AppSidebar() {
     } catch { /* ignore */ } finally { setListBusy(false); }
   };
 
-  // Rename a list (hover → pencil → inline input).
-  const renameList = async (id: string) => {
+  // Rename a list (hover → pencil → inline input). Optimistic — the new name
+  // shows instantly; the PATCH + reconcile happen in the background.
+  const renameList = (id: string) => {
     const name = renameValue.trim();
-    if (!name || listBusy || !workspaceId) { setRenamingId(null); return; }
-    setListBusy(true);
-    try {
-      await fetch(`${apiUrl}/api/lead-lists/${id}`, {
-        method: "PATCH", headers: jsonHeaders, body: JSON.stringify({ workspaceId, name }),
-      });
-      setRenamingId(null); setRenameValue("");
-      await reloadLists();
-      notifyListsChanged();
-    } catch { /* ignore */ } finally { setListBusy(false); }
+    setRenamingId(null); setRenameValue("");
+    if (!name || !workspaceId) return;
+    setLeadLists(prev => prev.map(l => l.id === id ? { ...l, name } : l));
+    fetch(`${apiUrl}/api/lead-lists/${id}`, {
+      method: "PATCH", headers: jsonHeaders, body: JSON.stringify({ workspaceId, name }),
+    }).then(() => { reloadLists(); notifyListsChanged(); }, () => reloadLists());
   };
 
-  // Delete a list (hover → trash → confirm dialog).
-  const deleteList = async () => {
+  // Delete a list (hover → trash → confirm dialog). Optimistic — it disappears
+  // immediately; the DELETE + reconcile happen in the background.
+  const deleteList = () => {
     const list = deleteTarget;
-    if (!list || listBusy || !workspaceId) return;
-    setListBusy(true);
-    try {
-      await fetch(`${apiUrl}/api/lead-lists/${list.id}?workspaceId=${workspaceId}`, {
-        method: "DELETE", headers: { Authorization: `Bearer ${token ?? ""}` },
-      });
-      setDeleteTarget(null);
-      await reloadLists();
-      notifyListsChanged();
-      if (location.pathname === `/lists/${list.id}`) navigate("/lists");
-    } catch { /* ignore */ } finally { setListBusy(false); }
+    setDeleteTarget(null);
+    if (!list || !workspaceId) return;
+    setLeadLists(prev => prev.filter(l => l.id !== list.id));
+    if (location.pathname === `/lists/${list.id}`) navigate("/lists");
+    fetch(`${apiUrl}/api/lead-lists/${list.id}?workspaceId=${workspaceId}`, {
+      method: "DELETE", headers: { Authorization: `Bearer ${token ?? ""}` },
+    }).then(() => { reloadLists(); notifyListsChanged(); }, () => reloadLists());
   };
   // Billing is a cloud-only surface — self-host is unmetered with no subscription,
   // so drop "Usage & Billing" entirely (ops are visible on the Ops page).
