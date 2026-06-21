@@ -591,21 +591,26 @@ export default function Lists() {
     }
   }, [routeListId, lists, loading, activeId]);
 
-  // Active list → URL. Point the path at the active list's own page when it drifts
-  // from the param (default selection, programmatic switch after create/delete),
-  // and keep ?page in the query so a refresh stays put.
+  // Active list → URL. When the URL ALREADY points at a real list, that list is the
+  // source of truth — never navigate away from it (the route→activeId effect above
+  // syncs activeId to it). Navigating on a transient activeId≠routeListId mismatch
+  // is what caused the two effects to fight and the list to flip back and forth.
+  // We only push the path when the URL holds no valid list (default selection on
+  // first load, after a delete, or a stale/legacy ?list= id); otherwise just keep
+  // ?page in sync so a refresh stays put.
   useEffect(() => {
     if (!activeId) return;
-    if (routeListId !== activeId) {
+    const routeValid = !!routeListId && lists.some(l => l.id === routeListId);
+    if (!routeValid) {
       navigate(page > 0 ? `/lists/${activeId}?page=${page + 1}` : `/lists/${activeId}`, { replace: true });
-    } else {
-      setSearchParams(prev => {
-        const p = new URLSearchParams(prev);
-        if (page > 0) p.set("page", String(page + 1)); else p.delete("page");
-        return p;
-      }, { replace: true });
+      return;
     }
-  }, [activeId, page, routeListId, navigate, setSearchParams]);
+    setSearchParams(prev => {
+      const p = new URLSearchParams(prev);
+      if (page > 0) p.set("page", String(page + 1)); else p.delete("page");
+      return p;
+    }, { replace: true });
+  }, [activeId, page, routeListId, lists, navigate, setSearchParams]);
 
   const activeList = lists.find(l => l.id === activeId) ?? null;
   // Always include the default custom columns, even on older lists whose stored
