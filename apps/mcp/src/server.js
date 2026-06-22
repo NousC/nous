@@ -416,6 +416,7 @@ export function createServer() {
       for (const it of r.items ?? []) {
         if (r.corpus === "facts") {
           lines.push(`  ${it.entity_name ?? it.entity_id}  [${it.category}] ${it.content}` +
+                     (it.date ? `  [${relAge(it.date)}]` : "") +
                      (it.similarity != null ? `  (${it.similarity})` : ""));
         } else if (r.return === "entities") {
           lines.push(`  ${it.entity_name ?? it.entity_id}  ` +

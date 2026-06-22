@@ -764,15 +764,15 @@ CREATE OR REPLACE FUNCTION search_claims(
 )
 RETURNS TABLE (
   id UUID, entity_id UUID, property TEXT, value JSONB,
-  confidence REAL, freshness TEXT, similarity FLOAT
+  confidence REAL, freshness TEXT, valid_from TIMESTAMPTZ, similarity FLOAT
 )
 LANGUAGE plpgsql STABLE AS $$
 DECLARE v vector(1536) := p_embedding;
 BEGIN
   RETURN QUERY
-  SELECT t.id, t.entity_id, t.property, t.value, t.confidence, t.freshness, t.similarity
+  SELECT t.id, t.entity_id, t.property, t.value, t.confidence, t.freshness, t.valid_from, t.similarity
   FROM (
-    SELECT c.id, c.entity_id, c.property, c.value, c.confidence, c.freshness,
+    SELECT c.id, c.entity_id, c.property, c.value, c.confidence, c.freshness, c.valid_from,
            (1 - (c.embedding <=> v))::FLOAT AS similarity
     FROM claims c
     WHERE c.workspace_id = p_workspace_id

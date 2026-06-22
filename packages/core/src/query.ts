@@ -72,6 +72,7 @@ export interface FactItem {
   category: string;
   content: string;
   source: string | null;
+  date: string | null;        // when the fact was learned (claim valid_from)
   similarity: number;
 }
 
@@ -215,6 +216,7 @@ async function runFactsQuery(
       category: v.category ?? 'General',
       content: String(v.content ?? '').trim(),
       source: v.source ?? null,
+      date: h.valid_from ?? null,
       similarity: Math.round((h.similarity ?? 0) * 100) / 100,
     };
   });

@@ -13,6 +13,7 @@ export interface ClaimSearchHit {
   value: unknown;
   confidence: number;
   freshness: string;
+  valid_from?: string | null;
   similarity: number;
 }
 
