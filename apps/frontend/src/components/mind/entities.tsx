@@ -140,6 +140,7 @@ const LOGO_FALLBACK: Record<string, string> = {
   pipedrive: "/provider-logos/pipedrive.svg",
   attio: "/provider-logos/attio.svg",
   prospeo: "/provider-logos/prospeo.svg",
+  apify: "/provider-logos/apify.svg",
   airtable: "/provider-logos/airtable.svg",
   slack: "/provider-logos/slack.svg",
   instantly: "/provider-logos/instantly.svg",
