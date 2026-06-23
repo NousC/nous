@@ -231,7 +231,7 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
     const CO_TABS: { id: CoTab; label: string; count?: number }[] = [
       { id:"overview",  label:"Overview"                          },
       { id:"activity",  label:"Activity",  count:cd?.activity.length ?? 0 },
-      { id:"facts",     label:"Facts",     count:cd?.facts.length ?? 0    },
+      { id:"facts",     label:"Intel",     count:cd?.facts.length ?? 0    },
     ];
     // who-relates-to-whom, keyed by the person the edge starts from
     const relsBySubject: Record<string, GraphEdge[]> = {};
@@ -358,7 +358,7 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
                     </div>
               ) : (
                 (cd?.facts.length ?? 0) === 0
-                  ? <p className="text-[13px] text-muted-foreground/70 text-center py-12">No facts yet</p>
+                  ? <p className="text-[13px] text-muted-foreground/70 text-center py-12">No intel yet</p>
                   : <div className="divide-y divide-border/60">
                       {cd!.facts.map((f, i) => (
                         <div key={f.property ?? i} className="py-3">

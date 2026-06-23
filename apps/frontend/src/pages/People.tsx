@@ -114,7 +114,7 @@ function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token:
     { id:"notes",     label:"Notes",     count: documents.length },
     { id:"signals",   label:"Signals",   count: signals.length },
     { id:"company",   label:"Company"                          },
-    { id:"memory",    label:"Facts",     count: facts.length   },
+    { id:"memory",    label:"Intel",     count: facts.length   },
   ];
 
   const tabItems = tab==="activity" ? acts : tab==="emails" ? emails : tab==="linkedin" ? linkedin : tab==="slack" ? slack : tab==="calls" ? calls : [];
@@ -221,7 +221,7 @@ function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token:
             )}
             {tab === "memory" && (
               facts.length === 0
-                ? <p className="text-[13px] text-muted-foreground/70 py-12 text-center">No facts yet</p>
+                ? <p className="text-[13px] text-muted-foreground/70 py-12 text-center">No intel yet</p>
                 : <div className="divide-y divide-border/60">
                     {facts.map((m: any) => (
                       <div key={m.id} className="py-3">
