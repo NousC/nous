@@ -24,10 +24,11 @@
 //   * cloud + not Pro/Growth/Partner (no allowlist) -> skipped
 
 import { getSupabaseClient, insertLeads, createLeadList, listLeadLists, logWorkerRun } from '@nous/core';
-import { runActor, hasApifyToken } from '../utils/apify.mjs';
+import { runActor, resolveApifyToken } from '../utils/apify.mjs';
 import { logSysEvent } from '../utils/systemLog.mjs';
 
 const WINDOW_DAYS  = Number(process.env.ENGAGEMENT_WINDOW_DAYS || 7);
+const MAX_WINDOW_DAYS = 120;      // ceiling for an on-demand backfill window
 const FLOOR_HOURS  = 48;          // skip posts younger than this — engagement is still arriving
 const MAX_POSTS    = Number(process.env.ENGAGEMENT_MAX_POSTS || 5);
 const MAX_PER_POST = 100;         // comments / reactions pulled per post
@@ -47,6 +48,13 @@ const ALLOWLIST = new Set(
 function normUrl(u) {
   if (!u) return null;
   return String(u).toLowerCase().split('?')[0].replace(/\/+$/, '');
+}
+
+// Tiny stable hash (djb2) for building idempotent external_ids from a post set.
+function hashStr(s) {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+  return (h >>> 0).toString(36);
 }
 
 function relSecs(s) {
@@ -101,11 +109,17 @@ async function ensureList(supabase, workspaceId) {
 }
 
 // Scrape a profile's recent-post engagers. Returns a map keyed by normalized URL.
-async function scrapeEngagers(profileUrl) {
+// windowDays bounds how far back to look (default = the weekly window); token is
+// the workspace's BYOK Apify key. maxPosts scales with the window so a backfill
+// reaches the older posts it's asking for.
+async function scrapeEngagers(profileUrl, { windowDays = WINDOW_DAYS, token } = {}) {
   const now = Date.now() / 1000;
   const url = String(profileUrl).split('?')[0];
+  // A wider backfill needs more posts pulled + scanned. Cap so a runaway window
+  // can't fan out unboundedly; the post-search actor itself maxes at 100.
+  const maxPosts = Math.min(100, Math.max(MAX_POSTS, Math.ceil(windowDays / 7) * MAX_POSTS));
   const posts = await runActor('harvestapi~linkedin-post-search',
-    { profileUrls: [url], maxItems: 25, sortBy: 'date' });
+    { profileUrls: [url], maxItems: Math.min(100, maxPosts * 2), sortBy: 'date' }, { token });
 
   const keep = [];
   for (const p of posts) {
@@ -115,10 +129,10 @@ async function scrapeEngagers(profileUrl) {
     if (t != null) {
       const ageH = (now - t) / 3600;
       if (ageH < FLOOR_HOURS) continue;
-      if (ageH / 24 > WINDOW_DAYS) continue;
+      if (ageH / 24 > windowDays) continue;
     }
     keep.push(pu);
-    if (keep.length >= MAX_POSTS) break;
+    if (keep.length >= maxPosts) break;
   }
 
   const eng = new Map();
@@ -144,12 +158,12 @@ async function scrapeEngagers(profileUrl) {
   for (const pu of keep) {
     try {
       const comments = await runActor('harvestapi~linkedin-post-comments',
-        { posts: [pu], maxItems: MAX_PER_POST, profileScraperMode: PROFILE_MODE });
+        { posts: [pu], maxItems: MAX_PER_POST, profileScraperMode: PROFILE_MODE }, { token });
       for (const c of comments) add(c.actor, 'comment', { text: c.commentary, postUrl: pu });
     } catch (err) { console.error('[ENGAGE] comments error', pu, err.message); }
     try {
       const reactions = await runActor('harvestapi~linkedin-post-reactions',
-        { posts: [pu], maxItems: MAX_PER_POST, profileScraperMode: PROFILE_MODE });
+        { posts: [pu], maxItems: MAX_PER_POST, profileScraperMode: PROFILE_MODE }, { token });
       for (const r of reactions) add(r.actor, 'reaction', { react: r.reactionType, postUrl: pu });
     } catch (err) { console.error('[ENGAGE] reactions error', pu, err.message); }
   }
@@ -157,11 +171,18 @@ async function scrapeEngagers(profileUrl) {
 }
 
 // ── per-workspace run ────────────────────────────────────────────────────────
-async function runForWorkspace(supabase, conn) {
+// opts:
+//   windowDays — how far back to mine (default = weekly window). On-demand passes
+//                the user's requested backfill window.
+//   force      — skip the engagement_enabled toggle (on-demand is an explicit ask,
+//                so it runs even when the weekly scrape is turned off).
+//   method     — observation method tag ('cron' | 'manual').
+async function runForWorkspace(supabase, conn, opts = {}) {
+  const { windowDays = WINDOW_DAYS, force = false, method = 'cron' } = opts;
   const workspaceId = conn.workspace_id;
   const profileUrl = conn.linkedin_profile_url;
   if (!profileUrl) return null;
-  if (conn.engagement_enabled === false) {
+  if (!force && conn.engagement_enabled === false) {
     console.log(`[ENGAGE] ${workspaceId} engagement turned off — skipping`);
     return null;
   }
@@ -169,9 +190,21 @@ async function runForWorkspace(supabase, conn) {
     console.log(`[ENGAGE] ${workspaceId} not eligible (needs active Scale plan or allowlist) — skipping`);
     return null;
   }
-  console.log(`[ENGAGE] ${workspaceId} eligible — scraping ${profileUrl}`);
+  const token = await resolveApifyToken(supabase, workspaceId);
+  if (!token) {
+    console.log(`[ENGAGE] ${workspaceId} no Apify key (connect one in Integrations) — skipping`);
+    return null;
+  }
+  console.log(`[ENGAGE] ${workspaceId} eligible — scraping ${profileUrl} (window ${windowDays}d)`);
 
-  const { engagers, postsMined } = await scrapeEngagers(profileUrl);
+  // Mark the scrape as run regardless of yield, so the backfill suggestion + UI
+  // freshness reflect that we looked. Done once up front so an early return
+  // (no engagers) still stamps it.
+  await supabase.from('workspace_linkedin_connections')
+    .update({ last_engagement_scrape_at: new Date().toISOString() })
+    .eq('workspace_id', workspaceId).eq('linkedin_profile_url', profileUrl);
+
+  const { engagers, postsMined } = await scrapeEngagers(profileUrl, { windowDays, token });
   if (engagers.size === 0) {
     await logSysEvent(supabase, {
       workspaceId, source: 'linkedin_engagement', eventType: 'run',
@@ -219,7 +252,6 @@ async function runForWorkspace(supabase, conn) {
     for (const r of ids) { const k = normUrl(r.value); if (k && !byUrl.has(k)) byUrl.set(k, r.entity_id); }
     if (ids.length < 1000) break;
   }
-  const rundate = new Date().toISOString().slice(0, 10);
   const nowISO = new Date().toISOString();
   const obs = [];
   for (const e of engagers.values()) {
@@ -229,6 +261,13 @@ async function runForWorkspace(supabase, conn) {
     // What renders as the activity body on the timeline: the comment text if they
     // commented, otherwise the reaction.
     const summary = e.sample_comment || (e.reaction ? `Reacted ${e.reaction}` : null);
+    // Idempotent external_id: keyed on the engager + the exact set of posts they
+    // engaged on + the kind — NOT the run date. Re-running the same window (or a
+    // weekly run overlapping a manual backfill) yields the same id, so the same
+    // engagement is never inserted twice. A genuinely new engagement (a new post)
+    // changes the post set -> a new id -> a new timeline entry.
+    const postSig = hashStr([...e.post_urls].map(normUrl).sort().join('|'));
+    const externalId = `li_engage_${entityId}_${kindStr}_${postSig}`;
     obs.push({
       workspace_id: workspaceId,
       entity_id: entityId,
@@ -243,8 +282,8 @@ async function runForWorkspace(supabase, conn) {
         summary,
       },
       source: 'apify_linkedin',
-      method: 'cron',
-      external_id: `li_engage_${entityId}_${rundate}`,
+      method,
+      external_id: externalId,
       observed_at: nowISO,
     });
   }
@@ -276,10 +315,11 @@ async function runForWorkspace(supabase, conn) {
   return { workspaceId, postsMined, engagers: engagers.size, inserted: res.inserted };
 }
 
-// ── entrypoint ───────────────────────────────────────────────────────────────
+// ── entrypoint (weekly cron) ─────────────────────────────────────────────────
+// No global APIFY_TOKEN gate anymore — the key is BYOK per-workspace
+// (resolveApifyToken inside runForWorkspace). A workspace with no connected key
+// is simply skipped; self-host still falls back to the env var.
 export async function runLinkedInEngagement() {
-  if (!hasApifyToken()) { console.log('[ENGAGE] APIFY_TOKEN not set — feature off, skipping'); return; }
-
   const startedAt = new Date().toISOString();
   const supabase = getSupabaseClient();
   const { data: conns, error } = await supabase
@@ -311,4 +351,44 @@ export async function runLinkedInEngagement() {
     details: { workspaces, engagers: totalEngagers, inserted: totalInserted },
     startedAt,
   });
+}
+
+// ── on-demand requests poller (every minute) ─────────────────────────────────
+// Drains the on-demand scrape queue: any connection row where the API set
+// engagement_scrape_requested_days (the user, via the app or the scrape_engagers
+// MCP tool, asked to mine a window NOW). Runs each with force=true (an explicit
+// ask runs even if the weekly toggle is off), then clears the request. Cheap
+// no-op when nothing is queued (partial-indexed query).
+export async function runEngagementScrapeRequests() {
+  const supabase = getSupabaseClient();
+  const { data: rows, error } = await supabase
+    .from('workspace_linkedin_connections')
+    .select('workspace_id, linkedin_profile_url, engagement_enabled, engagement_scrape_requested_days')
+    .not('engagement_scrape_requested_days', 'is', null)
+    .not('linkedin_profile_url', 'is', null)
+    .order('engagement_scrape_requested_at', { ascending: true })
+    .limit(10);
+  if (error) {
+    // Column missing = migration not applied yet; stay silent so it's a clean no-op.
+    if (error.code === '42703' || error.code === 'PGRST204') return;
+    console.error('[ENGAGE] load scrape requests failed', error.message);
+    return;
+  }
+  if (!rows?.length) return;
+
+  for (const conn of rows) {
+    const windowDays = Math.min(MAX_WINDOW_DAYS, Math.max(1, conn.engagement_scrape_requested_days || WINDOW_DAYS));
+    try {
+      await runForWorkspace(supabase, conn, { windowDays, force: true, method: 'manual' });
+    } catch (err) {
+      console.error('[ENGAGE] on-demand scrape failed', conn.workspace_id, err.message);
+    } finally {
+      // Always clear the request so a failure can't wedge the queue (last_*_at is
+      // stamped inside runForWorkspace, so the user still sees it was attempted).
+      await supabase.from('workspace_linkedin_connections')
+        .update({ engagement_scrape_requested_days: null, engagement_scrape_requested_at: null })
+        .eq('workspace_id', conn.workspace_id)
+        .eq('linkedin_profile_url', conn.linkedin_profile_url);
+    }
+  }
 }

@@ -252,6 +252,8 @@ async function bootstrapProviders() {
           { name: 'fireflies', display_name: 'Fireflies.ai', category: 'meetings'   },
           { name: 'fathom',    display_name: 'Fathom',       category: 'meetings'   },
           { name: 'calendly',  display_name: 'Calendly',     category: 'meetings'   },
+          // BYOK key for the LinkedIn engager scrape (HarvestAPI actors on Apify).
+          { name: 'apify',     display_name: 'Apify',        category: 'scraping'   },
         ],
         { onConflict: 'name' }   // overwrite — fixes stale categories on every boot
       );

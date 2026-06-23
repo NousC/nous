@@ -27,7 +27,7 @@ import { runCrmHygieneSweep } from './workers/crmHygiene.mjs';
 import { runStageDerivation } from './workers/stageDerivation.mjs';
 import { runOnboardingDrip } from './workers/onboardingDrip.mjs';
 import { runOpsLimitEmails } from './workers/opsLimitEmails.mjs';
-import { runLinkedInEngagement } from './workers/linkedinEngagement.mjs';
+import { runLinkedInEngagement, runEngagementScrapeRequests } from './workers/linkedinEngagement.mjs';
 
 // Wire webhook-driven activity logging → CRM push at module load.
 // Worker is where most logActivity() calls originate (Instantly/Lemlist replies,
@@ -190,6 +190,18 @@ async function runWeeklyEngagement() {
 
 cron.schedule('0 6 * * 1', runWeeklyEngagement, { timezone: 'UTC' });
 console.log('[WORKER] LinkedIn engagement — weekly Monday 06:00 UTC');
+
+// ── On-demand engagement scrape requests — every minute ──────────────────────
+// Drains the queue filled by POST /api/linkedin/engagement/scrape (the app
+// button + the scrape_engagers MCP tool). Lets a user mine engagers right now /
+// backfill a wider window, instead of waiting for the weekly run. Cheap no-op
+// when nothing is queued. See workers/linkedinEngagement.mjs.
+async function runEngagementRequestsSafe() {
+  try { await runEngagementScrapeRequests(); }
+  catch (err) { console.error('[WORKER] engagement scrape requests error:', err.message); }
+}
+cron.schedule('* * * * *', runEngagementRequestsSafe);
+console.log('[WORKER] LinkedIn engagement on-demand requests — every minute');
 
 // ── Webhook retry queue — every minute ───────────────────────────────────────
 // Picks up rows from webhook_inbox whose handlers failed (DB hiccup, Haiku
