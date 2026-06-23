@@ -45,6 +45,9 @@ function pickEmail(item) {
 export async function reprocessAiArk(supabase, workspaceId, leadListId, body) {
   const items = extractResults(body || {});
   console.log(`[AIARK_WEBHOOK] ws=${workspaceId} list=${leadListId || '-'} items=${items.length}`);
+  // Temporary diagnostics: log the real envelope so we can confirm the shape +
+  // whether emails are actually present. Trim later once verified.
+  console.log('[AIARK_WEBHOOK] raw:', JSON.stringify(body || {}).slice(0, 1500));
 
   if (!items.length) {
     // Log the shape so we can confirm/adjust the parser against the real payload.
@@ -73,18 +76,21 @@ export async function reprocessAiArk(supabase, workspaceId, leadListId, body) {
     if (!byName.has(nk)) byName.set(nk, l.id); // name-only fallback
   }
 
-  let set = 0, missed = 0;
+  let set = 0, noEmail = 0, noMatch = 0;
   for (const item of items) {
     const inp = item.input || item;
     const fn = norm(inp.firstname || inp.first_name || inp.firstName);
     const ln = norm(inp.lastname || inp.last_name || inp.lastName);
     const dom = normDomain(inp.domain || inp.company_domain || inp.companyDomain);
-    const picked = pickEmail(item);
-    if (!picked) { missed++; continue; }
-
     const fullName = `${fn} ${ln}`.trim();
-    const leadId = byNameDomain.get(`${fullName}|${dom}`) || byName.get(fullName) || null;
-    if (!leadId) { missed++; continue; }
+    const picked = pickEmail(item);
+    const leadId = picked
+      ? (byNameDomain.get(`${fullName}|${dom}`) || byName.get(fullName) || null)
+      : null;
+    console.log(`[AIARK_WEBHOOK] item name="${fullName}" dom="${dom}" email=${picked?.email || '-'} -> ${picked ? (leadId ? `lead ${leadId}` : 'NO LEAD MATCH') : 'NO EMAIL FOUND'}`);
+
+    if (!picked) { noEmail++; continue; }
+    if (!leadId) { noMatch++; continue; }
 
     // Set the email identifier — same swap the lead-list PATCH endpoint does:
     // retire the active email (if any), then add the found one.
@@ -99,10 +105,10 @@ export async function reprocessAiArk(supabase, workspaceId, leadListId, body) {
 
   await logSysEvent(supabase, {
     workspaceId, source: 'aiark', eventType: 'emails_found',
-    summary: `AI-Ark: set ${set} email${set === 1 ? '' : 's'}${missed ? `, ${missed} unmatched` : ''}`,
-    metadata: { lead_list_id: leadListId, set, missed, category: 'enrich' },
+    summary: `AI-Ark: set ${set} email${set === 1 ? '' : 's'}${noEmail ? `, ${noEmail} no-email` : ''}${noMatch ? `, ${noMatch} no-match` : ''}`,
+    metadata: { lead_list_id: leadListId, set, no_email: noEmail, no_match: noMatch, category: 'enrich' },
   });
-  return { set, missed };
+  return { set, noEmail, noMatch };
 }
 
 export async function handleAiArk(req, res, workspaceId, leadListId) {
