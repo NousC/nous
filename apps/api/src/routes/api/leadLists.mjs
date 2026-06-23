@@ -19,7 +19,7 @@ import {
   selectLeadIdsByFilter,
 } from '@nous/core';
 import { hasFeature } from '../../lib/plans.mjs';
-import { requireEnrichmentQuota, requireRecordsBalance, requireFeature } from '../../lib/access.mjs';
+import { requireEnrichmentQuota, requireFeature } from '../../lib/access.mjs';
 import { enrichContact, getApolloEnrichmentKey, getFindymailEnrichmentKey, getProspeoEnrichmentKey } from '../../services/enrichment.mjs';
 import { getVerifier, verifyLead, listConnectedVerifiers } from '../../services/verification.mjs';
 import { estimateCost } from '../../lib/providerPricing.mjs';
@@ -258,7 +258,7 @@ leadListsRouter.get('/:id/operations', async (req, res) => {
 // `importDuplicates` defaults to false: rows whose email or normalized
 // linkedin_url already exists in the workspace are skipped. Set true to
 // force-insert; the response always includes a `duplicate_skipped` count.
-leadListsRouter.post('/:id/leads', requireRecordsBalance, async (req, res) => {
+leadListsRouter.post('/:id/leads', async (req, res) => {
   try {
     const { leads, importDuplicates, source } = req.body;
     const workspaceId = req.body.workspaceId || req.workspaceId;

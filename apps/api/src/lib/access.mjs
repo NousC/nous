@@ -16,7 +16,6 @@ import {
   getTeamOpsUsage,
   getTeamOpsState,
   getTeamEnrichmentUsage,
-  getTeamRecordsState,
   hasFeature,
   isSelfHosted,
 } from './plans.mjs';
@@ -128,42 +127,6 @@ export async function requireOpsBalance(req, res, next) {
     // Fail OPEN: never block a live agent op because metering hiccuped. A bug
     // here must not be able to take down customer automation.
     console.error('[requireOpsBalance] fail-open:', err?.message);
-    return next();
-  }
-}
-
-/**
- * Express middleware. Blocks PROACTIVE record creation (lead-list imports,
- * scraper enqueue, bulk adds) when the team is over its records limit AND the
- * 3-day grace window has expired. Mount this ONLY on proactive-creation routes —
- * never on organic ingest (webhooks/pollers/CRM-sync worker), so captured GTM
- * signal is never lost. Pass-through on self-host.
- */
-export async function requireRecordsBalance(req, res, next) {
-  if (isSelfHosted()) return next();
-  try {
-    const { team, subscription, plan, supabase } = await resolveTeamAndPlan(req);
-    const records = await getTeamRecordsState(supabase, team.id, subscription);
-    req.recordsState = records.state; // 'ok' | 'warn' | 'grace' | 'restricted'
-
-    // Only 'restricted' blocks. 'grace' still passes — 3 days over the limit
-    // before imports stop. Existing data and live ingest are untouched.
-    if (records.state === 'restricted') {
-      return res.status(402).json({
-        error: 'upgrade_required',
-        reason: 'records_limit_reached',
-        current_plan: plan.id,
-        included: records.included,
-        used: records.used,
-        grace_expired_at: records.graceUntil,
-        upgrade_url: '/settings?section=billing',
-        message: `You've reached the records limit on the ${plan.name} plan and the 3-day grace window has ended. Upgrade or remove records to resume imports — your existing data and incoming signal are untouched.`,
-      });
-    }
-    return next();
-  } catch (err) {
-    // Fail OPEN: a metering hiccup must never block legitimate work.
-    console.error('[requireRecordsBalance] fail-open:', err?.message);
     return next();
   }
 }

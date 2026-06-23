@@ -4,10 +4,10 @@
  * Plan IDs: 'free' | 'starter' | 'pro' | 'growth' | 'scale'. Pure-tier model — no
  * top-up packs; run out of ops/enrichments → upgrade tier.
  *
- * Customer-facing names: Free / Start / Pro / Growth / Agency. The internal ids
+ * Customer-facing names: Free / Start / Pro / Growth / Partner. The internal ids
  * 'starter' and 'scale' are kept (existing subscriptions + Stripe metadata key on
- * them) but display as "Start" and "Agency". 'growth' is the tier inserted
- * between Pro and Agency.
+ * them) but display as "Start" and "Partner". 'growth' is the tier inserted
+ * between Pro and Partner.
  *
  * Billed unit — RETRIEVAL only (warn → 3-day grace → restrict model):
  *   - retrievals   — agent context pulls: get_context / get_account / query /
@@ -30,7 +30,7 @@
  * Grandfathering: subscription.plan_id is set from checkout metadata, not from
  * Stripe Price ID. Existing subscribers on legacy Prices keep those Prices and
  * continue paying the old amount; new subscribers pay the current
- * $29/$99/$249/$499 via the STRIPE_*_PRICE_ID env vars. The new Growth tier
+ * $29/$99/$249/$500 via the STRIPE_*_PRICE_ID env vars. The new Growth tier
  * needs STRIPE_GROWTH_PRICE_ID created in Stripe before it can be subscribed to.
  *
  * Self-hosted (SELF_HOSTED=true) bypasses all gating and metering — see access.mjs.
@@ -364,94 +364,8 @@ export async function getTeamEnrichmentUsage(supabase, teamId, subscription) {
   };
 }
 
-/**
- * Records held by a team — unique people + companies in the entity graph across
- * all the team's workspaces. This is a STOCK (current total), not a per-period
- * flow, so there is no period filter. Leads, contacts and CRM accounts are the
- * same `entities` rows (different views), so a person in five lists is counted
- * once — we count unique humans + companies, never list rows.
- */
-export async function getTeamRecordsUsage(supabase, teamId, subscription) {
-  const plan = getPlanFromSubscription(subscription);
-
-  const { data: workspaces } = await supabase
-    .from('workspaces')
-    .select('id')
-    .eq('team_id', teamId);
-  const wsIds = (workspaces ?? []).map((w) => w.id);
-
-  let used = 0;
-  if (wsIds.length) {
-    const { count } = await supabase
-      .from('entities')
-      .select('id', { count: 'exact', head: true })
-      .in('workspace_id', wsIds)
-      .in('type', ['person', 'company'])
-      // Exclude 'merged' dedup tombstones — a person merged into another entity
-      // counts once (as the survivor), never twice.
-      .neq('status', 'merged');
-    used = count ?? 0;
-  }
-  const included = plan.recordsLimit;
-
-  return {
-    used,
-    included,
-    remaining: Math.max(0, included - used),
-  };
-}
-
-/**
- * Records state + grace clock — the stock-meter twin of getTeamOpsState. Same
- * warn/grace/restricted model and same 3-day window (OPS_GRACE_DAYS), but the
- * unit is records held (a stock) not ops/month (a flow). "Over" = the team holds
- * at least as many people+companies as the plan allows. Persists one bit:
- * team_records_grace.grace_started_at. Records is a stock, so "back under"
- * happens by pruning or upgrading — the clock clears automatically either way.
- */
-export async function getTeamRecordsState(supabase, teamId, subscription) {
-  const usage = await getTeamRecordsUsage(supabase, teamId, subscription);
-  const { used, included } = usage;
-  const percentUsed = included > 0 ? Math.round((used / included) * 100) : 0;
-  const over = included > 0 && used >= included;
-
-  const { data: graceRow } = await supabase
-    .from('team_records_grace')
-    .select('grace_started_at')
-    .eq('team_id', teamId)
-    .maybeSingle();
-  let graceStartedAt = graceRow?.grace_started_at ? new Date(graceRow.grace_started_at) : null;
-
-  if (!over) {
-    // Back under (or never over) — clear a stale clock so the next crossing restarts it.
-    if (graceStartedAt) {
-      await supabase
-        .from('team_records_grace')
-        .upsert({ team_id: teamId, grace_started_at: null, updated_at: new Date().toISOString() });
-      graceStartedAt = null;
-    }
-    return {
-      ...usage,
-      percentUsed,
-      state: percentUsed >= OPS_WARN_PCT ? 'warn' : 'ok',
-      graceUntil: null,
-    };
-  }
-
-  // Over the limit — start the clock on first crossing.
-  if (!graceStartedAt) {
-    const now = new Date();
-    await supabase
-      .from('team_records_grace')
-      .upsert({ team_id: teamId, grace_started_at: now.toISOString(), updated_at: now.toISOString() });
-    graceStartedAt = now;
-  }
-  const graceUntil = new Date(graceStartedAt.getTime() + OPS_GRACE_DAYS * DAY_MS);
-  const restricted = Date.now() >= graceUntil.getTime();
-  return {
-    ...usage,
-    percentUsed,
-    state: restricted ? 'restricted' : 'grace',
-    graceUntil: graceUntil.toISOString(),
-  };
-}
+// NOTE: The per-records meter (getTeamRecordsUsage / getTeamRecordsState +
+// the team_records_grace table) was removed when billing went retrieval-only —
+// recordsLimit is null on every plan, so records are unlimited and never gated.
+// recordsLimit is kept as a nullable field for future optionality. The
+// team_records_grace table is now unused and can be dropped in a later migration.

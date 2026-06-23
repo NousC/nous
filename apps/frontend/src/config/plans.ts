@@ -11,9 +11,11 @@
  * plan (the Cloud team layer — blocked on self-host). Self-hosted bypasses metering.
  *
  * Plan IDs: 'free' | 'starter' | 'pro' | 'growth' | 'scale'.
- * Customer-facing names: Free / Start / Pro / Growth / Agency. Internal ids
+ * Customer-facing names: Free / Start / Pro / Growth / Partner. Internal ids
  * 'starter' and 'scale' are kept (subscriptions key on them) but display as
- * "Start" and "Agency". Enterprise is a marketing-page CTA (mailto), not a tier.
+ * "Start" and "Partner". There is no Enterprise tier — Partner is the top of the
+ * ladder, and anything beyond it is handled as a custom plan off the marketing
+ * pricing page (talk-to-us), not a self-serve tier.
  *
  * `dedicatedSlack` and `multiClientDashboard` are display-only flags. The
  * backend does not gate on them. They drive what the UI shows the customer.

@@ -31,7 +31,6 @@ type BillingState = {
     is_comp?: boolean;
   } | null;
   ops?: { used: number; included: number; remaining: number } | null;
-  records?: { used: number; included: number; remaining: number } | null;
   enrichments?: { used: number; included: number; remaining: number } | null;
   allPlans?: PlanInfo[];
 };
