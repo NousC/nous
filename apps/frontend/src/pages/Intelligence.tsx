@@ -54,6 +54,9 @@ interface Signal {
 interface IcpFact {
   id: string; category: string; content: string; created_at?: string | null;
   confidence?: number; subject?: string | null; reaffirmed_at?: string | null; source?: string;
+  // The file this section was synced from (e.g. "context/icp.md"), when the ICP
+  // lives in the user's own repo and Nous mirrors it. Present → read-only here.
+  source_path?: string | null;
 }
 
 // A fact is worth revisiting if it was AI-drafted and never confirmed
@@ -435,7 +438,7 @@ export default function Intelligence() {
         if (mem) {
           const facts: IcpFact[] = (mem.memories ?? [])
             .filter((m: any) => ICP_CATEGORIES.includes(m.category))
-            .map((m: any) => ({ id: m.id, category: m.category, content: m.content, created_at: m.created_at, confidence: m.confidence, subject: m.subject, reaffirmed_at: m.reaffirmed_at, source: m.source }));
+            .map((m: any) => ({ id: m.id, category: m.category, content: m.content, created_at: m.created_at, confidence: m.confidence, subject: m.subject, reaffirmed_at: m.reaffirmed_at, source: m.source, source_path: m.metadata?.source_path ?? null }));
           setIcpFacts(facts);
         }
         if (scruns) setRuns(scruns.runs ?? []);
@@ -568,6 +571,15 @@ export default function Intelligence() {
   const builtFacts = icpFacts.filter(f => f.source === "playbook" || f.source === "agent");
   const playbookDone = builtFacts.length >= 2;
   const needsSetup = !playbookDone && !hasModel;
+
+  // Does the ICP live in the user's own repo? When any section was synced from a
+  // file (get_icp records source_path), the file is the source of truth and this
+  // page is a READ-ONLY mirror — editing happens in their repo, not here. We show
+  // provenance and drop the in-app edit controls so there's one place to author.
+  const syncedPaths = [...new Set(icpFacts.map(f => f.source_path).filter((p): p is string => !!p))];
+  const fileSynced = syncedPaths.length > 0;
+  const icpPath = icpFacts.find(f => f.category === "ICP" && f.source_path)?.source_path
+    ?? syncedPaths[0] ?? null;
 
   const gap = substrate?.calibration.gap ?? null;
   const resolved = substrate?.calibration.resolved ?? 0;
@@ -844,9 +856,21 @@ export default function Intelligence() {
                 </div>
               </div>
             ) : (
-              /* Saved context — the source of truth, grouped + editable. */
+              /* Saved context. When synced from the user's repo it's a read-only
+                 mirror (edit in the file); otherwise it's grouped + editable. */
               <div className="px-4 py-4 space-y-4">
+                {fileSynced && (
+                  <div className="rounded-lg border border-border bg-muted/30 p-3 flex items-start gap-2">
+                    <Info className="h-3.5 w-3.5 mt-0.5 text-muted-foreground/70 flex-shrink-0" />
+                    <div className="text-[11.5px] text-muted-foreground/90 leading-relaxed">
+                      Synced from{" "}
+                      <code className="text-[11px] px-1 py-[1px] rounded bg-muted text-foreground/80">{icpPath}</code>{" "}
+                      in your repo. This is a read-only mirror — edit your ICP in that file and re-sync (the agent runs <span className="font-medium text-foreground/80">get_icp</span>). Nous writes the learned model back into the same file.
+                    </div>
+                  </div>
+                )}
                 {(() => {
+                  if (fileSynced) return null;
                   const review = icpFacts
                     .map(f => ({ f, reason: reviewReason(f) }))
                     .filter((x): x is { f: IcpFact; reason: string } => x.reason !== null);
@@ -893,6 +917,7 @@ export default function Intelligence() {
                       <div key={cat} className="group/section">
                         <div className="flex items-center justify-between mb-1.5 pb-1 border-b border-border/40">
                           <span className="text-[12px] font-semibold uppercase tracking-wider text-foreground/60">{cat}</span>
+                          {!fileSynced && (
                           <button
                             onClick={() => (adding ? closeAdd() : openAdd())}
                             className={`flex-shrink-0 h-5 w-5 grid place-items-center rounded text-muted-foreground/40 hover:text-foreground hover:bg-muted transition-all ${adding ? "opacity-100" : "opacity-0 group-hover/section:opacity-100"}`}
@@ -901,6 +926,7 @@ export default function Intelligence() {
                           >
                             <Plus className="h-3.5 w-3.5" />
                           </button>
+                          )}
                         </div>
                         <div className="space-y-1.5">
                           {items.map(f => {
@@ -929,6 +955,7 @@ export default function Intelligence() {
                                     <History className="h-3.5 w-3.5" />
                                   </button>
                                 )}
+                                {!fileSynced && (
                                 <button
                                   onClick={() => removeIcpFact(f.id)}
                                   className="flex-shrink-0 h-5 w-5 grid place-items-center rounded text-muted-foreground/50 hover:text-red-500 hover:bg-red-500/10 transition-colors"
@@ -937,6 +964,7 @@ export default function Intelligence() {
                                 >
                                   <Trash2 className="h-3.5 w-3.5" />
                                 </button>
+                                )}
                               </div>
                               {historyOpen === f.id && (
                                 <div className="mt-1 ml-1 pl-3 border-l-2 border-border/60 space-y-1">
@@ -959,7 +987,11 @@ export default function Intelligence() {
                             </div>
                             );
                           })}
-                          {adding ? (
+                          {fileSynced ? (
+                            items.length === 0 ? (
+                              <span className="text-[12px] text-muted-foreground/40">— not in {icpPath}</span>
+                            ) : null
+                          ) : adding ? (
                             <input
                               type="text"
                               autoFocus
