@@ -119,8 +119,37 @@ contactsApiRouter.get('/:id', verifySupabaseAuth, async (req, res) => {
     const { user } = await ensureUserAndTeam(req.user);
     if (!UUID.test(id)) return res.status(400).json({ error: 'invalid_contact_id' });
 
-    const { data: contact, error } = await supabase.from('contacts').select('*').eq('id', id).single();
-    if (error || !contact) return res.status(404).json({ error: 'contact_not_found' });
+    // Try the contacts view first (people you've actually engaged). A lead that
+    // hasn't graduated into that view yet still has an entity, observations and
+    // signals under the SAME id, so fall back to the leads view and build a
+    // contact shape from it. This is what lets a cold lead open its full record
+    // straight from a lead list.
+    let { data: contact } = await supabase.from('contacts').select('*').eq('id', id).maybeSingle();
+    if (!contact) {
+      const { data: leadRows } = await supabase.from('leads').select('*').eq('id', id).limit(1);
+      const lead = leadRows?.[0];
+      if (!lead) return res.status(404).json({ error: 'contact_not_found' });
+      const { data: pred } = await supabase.from('predictions')
+        .select('predicted_value')
+        .eq('entity_id', id).eq('kind', 'icp_fit')
+        .order('predicted_at', { ascending: false }).limit(1).maybeSingle();
+      const parts = (lead.name || '').trim().split(/\s+/).filter(Boolean);
+      const f = lead.fields || {};
+      contact = {
+        id: lead.id, workspace_id: lead.workspace_id,
+        email: lead.email || null, linkedin_url: lead.linkedin_url || null,
+        first_name: parts[0] || null, last_name: parts.slice(1).join(' ') || null,
+        job_title: f.title || f.job_title || null, company: lead.company || null,
+        domain: lead.domain || null, industry: f.industry || null, company_size: f.company_size || null,
+        phone: null, city: null, country: null, seniority: null, department: null,
+        pipeline_stage: null, deal_stage: null, deal_value: null, notes: null,
+        lead_source: lead.source || null, source: lead.source || null, company_id: null,
+        icp_score: pred?.predicted_value?.score ?? lead.scorecard_score ?? null,
+        icp_fit: pred?.predicted_value?.fit ?? null,
+        icp_reasoning: pred?.predicted_value?.reason ?? null,
+        created_at: lead.created_at || null, updated_at: lead.updated_at || null,
+      };
+    }
 
     const { data: membership } = await supabase.from('workspace_members').select('workspace_id').eq('workspace_id', contact.workspace_id).eq('user_id', user.id).single();
     if (!membership) return res.status(403).json({ error: 'contact_not_found_or_unauthorized' });

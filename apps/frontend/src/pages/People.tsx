@@ -393,10 +393,24 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
   const [enrichErr, setEnrichErr] = useState<Set<string>>(new Set());
   const stages = ["identified","aware","connected","interested","evaluating","client"];
 
-  const detail = useMemo<ContactInfo | null>(
+  // A lead opened from a list may be a cold lead that the People view hides
+  // (un-engaged leads aren't in this list). When the id isn't in the loaded
+  // list, fetch that one record by id so its full tabbed record still opens.
+  const inList = useMemo<ContactInfo | null>(
     () => id ? contacts.find(c => c.id === id) ?? null : null,
     [id, contacts]
   );
+  const [fetchedDetail, setFetchedDetail] = useState<ContactInfo | null>(null);
+  useEffect(() => {
+    if (!id || inList) { setFetchedDetail(null); return; }
+    let alive = true;
+    fetch(`${apiUrl}/api/contacts/${id}`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (alive && d?.contact) setFetchedDetail(mapContact(d.contact)); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [id, inList, token]);
+  const detail = inList ?? fetchedDetail;
   const setDetail = (c: ContactInfo | null) => navigate(c ? `/people/${c.id}` : "/accounts?tab=people");
 
   const deleteContact = async (cid: string, e: React.MouseEvent) => {

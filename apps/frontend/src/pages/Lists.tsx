@@ -255,6 +255,9 @@ export default function Lists() {
   const token = session?.access_token ?? "";
   const workspaceId = userData?.workspace?.id ?? "";
   const navigate = useNavigate();
+  // Single-click a lead name opens its full record (the tabbed detail at
+  // /people/:id). The 200ms gate lets a double-click still rename inline.
+  const nameClickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
   // The active list now lives in the path — /lists/:listId, each list its own
   // page. (Named routeListId so it doesn't shadow the local listId in addBlankRow.)
@@ -1682,8 +1685,8 @@ export default function Lists() {
                           const isEditing = editCell?.id === l.id && editCell?.key === c.key;
                           return (
                           <div key={c.key}
-                            onDoubleClick={editable && !isEditing ? () => startEdit(l, c.key) : undefined}
-                            title={editable && !isEditing ? "Double-click to edit" : undefined}
+                            onDoubleClick={editable && !isEditing && c.key !== "name" ? () => startEdit(l, c.key) : undefined}
+                            title={editable && !isEditing && c.key !== "name" ? "Double-click to edit" : undefined}
                             className={`px-3 py-2.5 text-[13px] truncate flex-shrink-0 ${editable ? "cursor-text" : ""} ${isEditing ? "ring-1 ring-inset ring-foreground/25 bg-background" : ""} ${i === 0 ? `text-foreground font-medium sticky left-10 z-10 border-r border-border ${isRowSelected(l.id) ? "bg-muted/60" : "bg-background group-hover:bg-muted/40"}` : "text-muted-foreground"}`} style={{ width: c.w }}>
                             {isEditing ? (
                               <input
@@ -1698,6 +1701,14 @@ export default function Lists() {
                               emailStatusTag(l.email_status)
                             ) : c.key === "__signal" ? (
                               signalTag(l)
+                            ) : c.key === "name" ? (
+                              <span
+                                onClick={() => { if (nameClickTimer.current) return; nameClickTimer.current = setTimeout(() => { nameClickTimer.current = null; navigate(`/people/${l.id}`); }, 200); }}
+                                onDoubleClick={() => { if (nameClickTimer.current) { clearTimeout(nameClickTimer.current); nameClickTimer.current = null; } if (editable) startEdit(l, "name"); }}
+                                title="Open record · double-click to rename"
+                                className="cursor-pointer hover:underline">
+                                {val || <span className="text-muted-foreground/40">—</span>}
+                              </span>
                             ) : isLink ? (
                               <a href={val} target="_blank" rel="noopener noreferrer"
                                  onClick={e => e.stopPropagation()}
