@@ -44,7 +44,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { get, post } from "./client.js";
 
-export const SERVER_VERSION = "0.37.0";
+export const SERVER_VERSION = "0.38.0";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -771,6 +771,10 @@ export function createServer() {
       lines.push("SETUP:");
       lines.push(`  ${mark(setup.onboarding?.done)} Onboarding${setup.onboarding?.done ? "" : ` — missing ${(setup.onboarding?.missing ?? []).join(", ") || "details"}`}`);
       lines.push(`  ${mark(setup.gtm_playbook?.done)} GTM playbook${setup.gtm_playbook?.model ? " (scoring model live)" : ""}${setup.gtm_playbook?.stale_facts ? ` · ${setup.gtm_playbook.stale_facts} stale fact(s)` : ""}`);
+      if (setup.icp_sync) {
+        const sy = setup.icp_sync;
+        lines.push(`  ⟳ ICP synced from ${sy.synced_from} (${relAge(sy.synced_at)})${sy.model_changed ? " · model has CHANGED since — run get_icp_model to refresh the file" : ""}`);
+      }
       const ints = setup.integrations?.connected ?? [];
       lines.push(`  ${mark((setup.integrations?.count ?? 0) > 0)} Integrations (${setup.integrations?.count ?? 0})${ints.length ? `: ${ints.map((i) => i.name).join(", ")}` : ""}`);
       const crm = setup.crm_sync ?? {};
@@ -956,7 +960,11 @@ export function createServer() {
     "in the project for an existing GTM setup — folders like context/, .claude/, gtm/, and files named " +
     "icp*, positioning*, pricing*, competitors*, messaging*, market*. READ the ones you find with your " +
     "own file tools, then call this with each file's content mapped to a section, AND its path in " +
-    "`source_path`. Nous keeps a served copy of the prose and rebuilds the ICP scoring model from it; " +
+    "`source_path`. MAP GRANULARLY: map each FILE to the single section it best fits (icp.md -> ICP, " +
+    "positioning.md -> Positioning, pricing.md -> Pricing, competitors.md -> Competitors, market.md -> " +
+    "Market, messaging.md -> Notes) — one entry per file, do NOT dump several files' content into ICP. " +
+    "If one file holds several sections under headers, split it by header into multiple entries. " +
+    "Nous keeps a served copy of the prose and rebuilds the ICP scoring model from it; " +
     "the recorded source_path is what get_icp_model writes the learned model back into. " +
     "IF NO ICP FILE EXISTS: don't invent one in Nous. Offer to create `context/icp.md` from what the user " +
     "tells you (write it with your file tools), then call this on that file — so their ICP lives in their " +

@@ -857,25 +857,24 @@ export default function Intelligence() {
                   <AgentSetupHint prompt="Set up my ICP" />
                 </div>
               </div>
-            ) : fileSynced ? (
-              /* Synced from the user's repo — don't mirror the context here. Just
-                 say it lives in their Claude Code file; editing happens there. */
-              <div className="px-4 py-4">
-                <div className="rounded-lg border border-border bg-muted/30 p-4 flex items-start gap-3">
-                  <Info className="h-4 w-4 mt-0.5 text-muted-foreground/70 flex-shrink-0" />
-                  <div>
-                    <div className="text-[13px] font-medium text-foreground">We sync to your ICP file in Claude Code</div>
-                    <div className="text-[12px] text-muted-foreground mt-1 leading-relaxed">
-                      Your ICP lives in{" "}
-                      <code className="text-[11px] px-1 py-[1px] rounded bg-muted text-foreground/80">{icpPath}</code>{" "}
-                      in your repo. Edit it there — Nous mirrors it and writes the learned model below back into the same file. Nothing to manage here.
+            ) : (
+              /* Saved context. When synced from a repo file, show the sync notice
+                 and fold the file-backed sections into it; any non-file sections
+                 stay editable. Otherwise, the full editable context. */
+              <div className="px-4 py-4 space-y-4">
+                {fileSynced && (
+                  <div className="rounded-lg border border-border bg-muted/30 p-4 flex items-start gap-3">
+                    <Info className="h-4 w-4 mt-0.5 text-muted-foreground/70 flex-shrink-0" />
+                    <div>
+                      <div className="text-[13px] font-medium text-foreground">We sync to your ICP file in Claude Code</div>
+                      <div className="text-[12px] text-muted-foreground mt-1 leading-relaxed">
+                        Your ICP lives in{" "}
+                        <code className="text-[11px] px-1 py-[1px] rounded bg-muted text-foreground/80">{icpPath}</code>{" "}
+                        in your repo. Edit it there — Nous mirrors it and writes the learned model below back into the same file. Sections from your file are managed there; anything else stays editable here.
+                      </div>
                     </div>
                   </div>
-                </div>
-              </div>
-            ) : (
-              /* Saved context — grouped + editable (workspaces without a synced file). */
-              <div className="px-4 py-4 space-y-4">
+                )}
                 {(() => {
                   if (fileSynced) return null;
                   const review = icpFacts
@@ -917,6 +916,9 @@ export default function Intelligence() {
                 <div className="space-y-5">
                   {ICP_CATEGORIES.map(cat => {
                     const items = icpFacts.filter(f => f.category === cat);
+                    // Sections synced from the file are managed in the repo — fold them
+                    // away here (the notice above covers them); keep the rest editable.
+                    if (fileSynced && items.some(f => f.source_path)) return null;
                     const adding = addSection === cat;
                     const openAdd = () => { setAddSection(cat); setSectionDraft(""); };
                     const closeAdd = () => { setAddSection(null); setSectionDraft(""); };
@@ -924,7 +926,6 @@ export default function Intelligence() {
                       <div key={cat} className="group/section">
                         <div className="flex items-center justify-between mb-1.5 pb-1 border-b border-border/40">
                           <span className="text-[12px] font-semibold uppercase tracking-wider text-foreground/60">{cat}</span>
-                          {!fileSynced && (
                           <button
                             onClick={() => (adding ? closeAdd() : openAdd())}
                             className={`flex-shrink-0 h-5 w-5 grid place-items-center rounded text-muted-foreground/40 hover:text-foreground hover:bg-muted transition-all ${adding ? "opacity-100" : "opacity-0 group-hover/section:opacity-100"}`}
@@ -933,7 +934,6 @@ export default function Intelligence() {
                           >
                             <Plus className="h-3.5 w-3.5" />
                           </button>
-                          )}
                         </div>
                         <div className="space-y-1.5">
                           {items.map(f => {
@@ -962,7 +962,6 @@ export default function Intelligence() {
                                     <History className="h-3.5 w-3.5" />
                                   </button>
                                 )}
-                                {!fileSynced && (
                                 <button
                                   onClick={() => removeIcpFact(f.id)}
                                   className="flex-shrink-0 h-5 w-5 grid place-items-center rounded text-muted-foreground/50 hover:text-red-500 hover:bg-red-500/10 transition-colors"
@@ -971,7 +970,6 @@ export default function Intelligence() {
                                 >
                                   <Trash2 className="h-3.5 w-3.5" />
                                 </button>
-                                )}
                               </div>
                               {historyOpen === f.id && (
                                 <div className="mt-1 ml-1 pl-3 border-l-2 border-border/60 space-y-1">
@@ -994,11 +992,7 @@ export default function Intelligence() {
                             </div>
                             );
                           })}
-                          {fileSynced ? (
-                            items.length === 0 ? (
-                              <span className="text-[12px] text-muted-foreground/40">— not in {icpPath}</span>
-                            ) : null
-                          ) : adding ? (
+                          {adding ? (
                             <input
                               type="text"
                               autoFocus

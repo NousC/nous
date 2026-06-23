@@ -1,8 +1,11 @@
 import { Router } from 'express';
+import { createHash } from 'node:crypto';
 import {
   getSupabaseClient,
   listNotes,
   saveNote,
+  listSignals,
+  modelVersion,
   listTriggers,
   createTrigger,
   TRIGGER_EVENTS,
@@ -135,6 +138,26 @@ workspaceStatusV2Router.get('/status', async (req, res) => {
       const a = ageDays(n.reaffirmed_at || n.created_at);
       return a != null && a >= 90;
     }).length;
+
+    // ── ICP file sync — the two-way symbiosis drift state. If the ICP was synced
+    // from a repo file (get_icp), surface where, and whether the model has evolved
+    // since the last sync (so the agent re-runs get_icp_model to update the file).
+    const icpSourceNote = icpNotes.find((n) => n?.metadata?.source_path);
+    let icpSync = null;
+    if (icpSourceNote) {
+      const activeSignals = await safe(() => listSignals(supabase, workspaceId, { activeOnly: true }), []);
+      const currentMv = activeSignals.length ? modelVersion(activeSignals) : null;
+      const syncedMv = icpSourceNote.metadata?.synced_model_version ?? null;
+      icpSync = {
+        synced_from: icpSourceNote.metadata.source_path,
+        synced_at: icpSourceNote.reaffirmed_at || icpSourceNote.created_at,
+        synced_hash: icpSourceNote.metadata?.synced_hash ?? null,
+        model_version: currentMv,
+        // The model has learned new signals since the file was last written → the
+        // file is stale, run get_icp_model. Null synced version (legacy import) → unknown.
+        model_changed: !!(syncedMv && currentMv && syncedMv !== currentMv),
+      };
+    }
 
     // ── Integrations (verified connections), with CRM + enrichment derived ──
     const verified = (connections || []).filter((c) => c.is_verified === true);
@@ -274,6 +297,17 @@ workspaceStatusV2Router.get('/status', async (req, res) => {
       });
     }
 
+    // 6a. ICP file write-back — the model has learned new signals since the ICP
+    // file was last synced, so the file is stale. Nudge the agent to write it back.
+    if (icpSync?.model_changed) {
+      next_steps.push({
+        id: 'icp_writeback',
+        title: 'Write the updated ICP model back to the file',
+        why: `The scoring model has evolved since ${icpSync.synced_from} was last synced — the learned block in that file is out of date.`,
+        how: `Call get_icp_model and write the returned block into ${icpSync.synced_from} (replace the existing block between the nous:icp markers). If the user has edited that file, re-run get_icp first to pull their changes back in.`,
+      });
+    }
+
     // 6b. Routing preferences — Claude Code only, optional finishing touch once
     // the workspace is set up. (No done-signal exists, so it's surfaced as the
     // last optional step.)
@@ -339,6 +373,7 @@ workspaceStatusV2Router.get('/status', async (req, res) => {
           model: hasModel,
           stale_facts: staleFacts,
         },
+        icp_sync: icpSync,
         integrations: { count: verified.length, connected: connectedList },
         // The recommended onboarding integrations, in priority order.
         recommended: {
@@ -706,17 +741,21 @@ workspaceStatusV2Router.post('/icp/import', requireFeature('icpScoring'), async 
     const valid = new Set(ALL_SECTIONS);
     const imported = [];
     const skipped = [];
+    const sourceFactIds = [];   // facts carrying a source_path, to stamp the model version
     for (const s of sections) {
       const name = String(s?.section || '').trim();
       const content = String(s?.content || '').trim();
       if (!valid.has(name) || !content) { skipped.push(name || '(unnamed)'); continue; }
-      await writeWorkspaceFact(supabase, req.workspaceId, {
+      const sourcePath = s?.source_path ? String(s.source_path).trim() : null;
+      const r = await writeWorkspaceFact(supabase, req.workspaceId, {
         section: name,
         content,
         source: 'icp-file',
-        sourcePath: s?.source_path ? String(s.source_path).trim() : null,
+        sourcePath,
+        syncedHash: createHash('sha256').update(content).digest('hex').slice(0, 16),
       });
-      imported.push({ section: name, source_path: s?.source_path || null });
+      if (sourcePath && r?.fact?.id) sourceFactIds.push(r.fact.id);
+      imported.push({ section: name, source_path: sourcePath });
     }
 
     if (!imported.length) {
@@ -726,12 +765,28 @@ workspaceStatusV2Router.post('/icp/import', requireFeature('icpScoring'), async 
     // Rebuild the model from the freshly synced context (force — the context just changed).
     const seed = await seedScorecardFromMemory(supabase, req.workspaceId, { force: true });
 
+    // Stamp the model version this synced context produced onto the source facts,
+    // so get_workspace_status can detect the model drifting away from what was last
+    // written back (the write-back drift flag).
+    const mv = (seed.signals && seed.signals.length) ? modelVersion(seed.signals) : null;
+    if (mv && sourceFactIds.length) {
+      for (const id of sourceFactIds) {
+        await safe(async () => {
+          const { data: cur } = await supabase.from('claims').select('value').eq('id', id).eq('workspace_id', req.workspaceId).maybeSingle();
+          const val = cur?.value ?? {};
+          const m = { ...(val.metadata ?? {}), synced_model_version: mv };
+          await supabase.from('claims').update({ value: { ...val, metadata: m } }).eq('id', id).eq('workspace_id', req.workspaceId);
+        });
+      }
+    }
+
     return res.status(201).json({
       ok: true,
       imported,
       skipped,
       model_status: seed.status,
       signals: seed.signals ?? [],
+      model_version: mv,
     });
   } catch (err) {
     console.error('[POST /v2/workspace/icp/import]', err);

@@ -42,7 +42,7 @@ export function findSupersedable(active, subject) {
 // (get_icp_model) knows which file to update. If a later edit doesn't carry the
 // path, it's preserved from the fact being superseded so provenance stays sticky.
 export async function writeWorkspaceFact(supabase, workspaceId, opts = {}) {
-  const { section, category, content, mode, subject, supersedes, confidence, source, sourcePath } = opts;
+  const { section, category, content, mode, subject, supersedes, confidence, source, sourcePath, syncedHash } = opts;
   const sectionName = String(section || category || 'Notes');
   const entityId = await getWorkspaceEntityId(supabase, workspaceId);
   if (!entityId) throw new Error('workspace_entity_not_found');
@@ -79,8 +79,15 @@ export async function writeWorkspaceFact(supabase, workspaceId, opts = {}) {
 
   // Carry the source path forward when this write doesn't supply one, so a plain
   // update_gtm_profile edit doesn't strip the file link recorded at import time.
+  // Same for the synced content hash + model version (the drift baseline) — keep
+  // them unless this write supersedes them.
   const carriedPath = sourcePath || target?.metadata?.source_path || null;
-  const metadata = carriedPath ? { source_path: carriedPath } : undefined;
+  const meta = {};
+  if (carriedPath) meta.source_path = carriedPath;
+  const carriedHash = syncedHash || target?.metadata?.synced_hash || null;
+  if (carriedHash) meta.synced_hash = carriedHash;
+  if (target?.metadata?.synced_model_version) meta.synced_model_version = target.metadata.synced_model_version;
+  const metadata = Object.keys(meta).length ? meta : undefined;
 
   const params = {
     entityId,
