@@ -47,7 +47,7 @@ const setupItems: NavItem[] = [
 const mainNavItems: NavItem[] = [
   { title: "Ops",      url: "/ops",          icon: Activity },
   { title: "Accounts", url: "/accounts",     icon: Users    },
-  { title: "ICP",      url: "/playbook",     icon: Brain    },
+  { title: "ICP",      url: "/icp",          icon: Brain    },
 ];
 
 // Surfaces rendered inline under Accounts. Lists (lead database) is open on

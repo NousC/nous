@@ -175,8 +175,9 @@ export function AppRoutes() {
             {/* Each list on its own page — /lists/:listId. (Static /lists/clean
                 above wins over this param route in React Router v6.) */}
             <Route path="/lists/:listId" element={<CloudOnly><Suspense fallback={<MinimalLoader />}><Lists /></Suspense></CloudOnly>} />
-            <Route path="/playbook"      element={<Suspense fallback={<MinimalLoader />}><Intelligence /></Suspense>} />
-            <Route path="/intelligence"  element={<Navigate to="/playbook" replace />} />
+            <Route path="/icp"           element={<Suspense fallback={<MinimalLoader />}><Intelligence /></Suspense>} />
+            <Route path="/playbook"      element={<Navigate to="/icp" replace />} />
+            <Route path="/intelligence"  element={<Navigate to="/icp" replace />} />
             <Route path="/settings/*" element={<Navigate to="/settings" replace />} />
 
             <Route path="/inbox" element={<Suspense fallback={<TableLoader />}><Inbox /></Suspense>} />
