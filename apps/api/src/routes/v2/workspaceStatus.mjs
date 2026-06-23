@@ -14,6 +14,8 @@ import { requireFeature, resolveTeamAndPlan, hasFeature, isSelfHosted } from '..
 import { testProviderCredentials, encryptCredentials } from '../api/workflowProviders.mjs';
 import { resolveCrmTokenForProvider } from '../api/crm.mjs';
 import { runClosedDeals } from '../api/mind.mjs';
+import { writeWorkspaceFact, ALL_SECTIONS } from './workspaceFacts.mjs';
+import { computeIcpModel, renderIcpBlock, findIcpSourcePath } from '../../lib/icpModel.mjs';
 
 // ── Workspace status + onboarding — the agent's setup surface ──────────────────
 //
@@ -682,6 +684,85 @@ workspaceStatusV2Router.post('/closed-deals', async (req, res) => {
     return res.status(201).json({ ok: true, ...r });
   } catch (err) {
     console.error('[POST /v2/workspace/closed-deals]', err);
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
+// ── POST /v2/workspace/icp/import ─────────────────────────────────────────────
+// The file→Nous direction of the ICP symbiosis (get_icp). The agent reads the
+// user's EXISTING ICP/positioning files (context/icp.md, etc.) and posts each
+// section's content + the file it came from. Nous mirrors each section as a GTM
+// context fact (recording source_path so the write-back knows the target file),
+// then rebuilds the scoring model from the freshly synced context. Their file
+// stays the source of truth for the prose; Nous keeps a served copy + the model.
+workspaceStatusV2Router.post('/icp/import', requireFeature('icpScoring'), async (req, res) => {
+  try {
+    const supabase = getSupabaseClient();
+    const sections = Array.isArray(req.body?.sections) ? req.body.sections : [];
+    if (!sections.length) {
+      return res.status(400).json({ error: 'no_sections', message: 'Pass sections: [{ section, content, source_path }].' });
+    }
+
+    const valid = new Set(ALL_SECTIONS);
+    const imported = [];
+    const skipped = [];
+    for (const s of sections) {
+      const name = String(s?.section || '').trim();
+      const content = String(s?.content || '').trim();
+      if (!valid.has(name) || !content) { skipped.push(name || '(unnamed)'); continue; }
+      await writeWorkspaceFact(supabase, req.workspaceId, {
+        section: name,
+        content,
+        source: 'icp-file',
+        sourcePath: s?.source_path ? String(s.source_path).trim() : null,
+      });
+      imported.push({ section: name, source_path: s?.source_path || null });
+    }
+
+    if (!imported.length) {
+      return res.status(400).json({ error: 'no_valid_sections', message: `No valid sections. Use one of: ${ALL_SECTIONS.join(', ')}.`, skipped });
+    }
+
+    // Rebuild the model from the freshly synced context (force — the context just changed).
+    const seed = await seedScorecardFromMemory(supabase, req.workspaceId, { force: true });
+
+    return res.status(201).json({
+      ok: true,
+      imported,
+      skipped,
+      model_status: seed.status,
+      signals: seed.signals ?? [],
+    });
+  } catch (err) {
+    console.error('[POST /v2/workspace/icp/import]', err);
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
+// ── GET /v2/workspace/icp/model ───────────────────────────────────────────────
+// The Nous→file direction of the ICP symbiosis (get_icp_model). Returns the
+// learned scoring model (signals + lift + calibration) rendered as the fenced
+// <!-- nous:icp --> block, plus the target file path Nous recorded at import.
+// The agent writes the block back into that file with its native editor.
+workspaceStatusV2Router.get('/icp/model', async (req, res) => {
+  try {
+    const supabase = getSupabaseClient();
+    const model = await computeIcpModel(supabase, req.workspaceId);
+    const target_path = await findIcpSourcePath(supabase, req.workspaceId);
+    const block = renderIcpBlock(model, {});
+    return res.json({
+      has_model: model.has_model,
+      has_outcomes: model.has_outcomes ?? false,
+      target_path,
+      block,
+      block_start: '<!-- nous:icp start -->',
+      block_end: '<!-- nous:icp end -->',
+      signals: model.signals,
+      calibration: model.calibration,
+      model_version: model.model_version,
+    });
+  } catch (err) {
+    console.error('[GET /v2/workspace/icp/model]', err);
     return res.status(500).json({ error: 'internal_error' });
   }
 });

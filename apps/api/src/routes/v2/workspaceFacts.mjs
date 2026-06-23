@@ -34,6 +34,81 @@ export function findSupersedable(active, subject) {
   );
 }
 
+// Write one GTM context section (evolve-or-append), shared by the POST /facts
+// route and the ICP file-import endpoint. In "replace" mode the section evolves
+// into a single living belief (old versions kept as history); in "append" mode
+// it logs a new entry. `sourcePath` records the file this section was synced
+// FROM (e.g. "context/icp.md"), persisted in note metadata so the write-back
+// (get_icp_model) knows which file to update. If a later edit doesn't carry the
+// path, it's preserved from the fact being superseded so provenance stays sticky.
+export async function writeWorkspaceFact(supabase, workspaceId, opts = {}) {
+  const { section, category, content, mode, subject, supersedes, confidence, source, sourcePath } = opts;
+  const sectionName = String(section || category || 'Notes');
+  const entityId = await getWorkspaceEntityId(supabase, workspaceId);
+  if (!entityId) throw new Error('workspace_entity_not_found');
+
+  const append = mode === 'append' || (mode == null && APPEND_SECTIONS.has(sectionName));
+  const slug = subject ? String(subject) : (append ? undefined : slugify(sectionName));
+  const conf = typeof confidence === 'number'
+    ? Math.min(Math.max(confidence, 0), 1)
+    : WRITEBACK_CONFIDENCE;
+
+  // Replace mode collapses every active fact this section owns (the evolving
+  // slot match PLUS legacy slotless facts in the same category) into one current
+  // belief — otherwise they pile up beside the evolved one (the "replace just
+  // appends" bug).
+  let targetId = supersedes ? String(supersedes) : null;
+  let extraVictims = [];
+  let target = null;
+  if (!append) {
+    const active = await listNotes(supabase, workspaceId, { entityId, limit: 200 });
+    const ownedBySection = active.filter(n =>
+      n.id !== targetId && (
+        (slug && (
+          n.subject === slug ||
+          n.subject === `playbook.${slug}` ||
+          (typeof n.subject === 'string' && n.subject.endsWith(`.${slug}`))
+        )) ||
+        n.category === sectionName
+      )
+    );
+    if (!targetId) targetId = ownedBySection.shift()?.id ?? null;
+    extraVictims = ownedBySection.filter(n => n.id !== targetId);
+    target = active.find(n => n.id === targetId) ?? null;
+  }
+
+  // Carry the source path forward when this write doesn't supply one, so a plain
+  // update_gtm_profile edit doesn't strip the file link recorded at import time.
+  const carriedPath = sourcePath || target?.metadata?.source_path || null;
+  const metadata = carriedPath ? { source_path: carriedPath } : undefined;
+
+  const params = {
+    entityId,
+    category: sectionName,
+    content: String(content).trim(),
+    source: source || 'agent',
+    subject: slug,
+    confidence: conf,
+    ...(metadata ? { metadata } : {}),
+  };
+
+  const fact = targetId
+    ? await supersedeNote(supabase, workspaceId, targetId, params)
+    : await saveNote(supabase, workspaceId, params);
+
+  for (const v of extraVictims) {
+    await deleteNote(supabase, workspaceId, v.id);
+  }
+
+  return {
+    fact,
+    section: sectionName,
+    mode: append ? 'append' : 'replace',
+    superseded: Boolean(targetId),
+    collapsed: extraVictims.length,
+  };
+}
+
 // GET /v2/workspace/facts — workspace-level facts the workspace owner has
 // explicitly recorded (ICP, target market, product, pricing, competitors,
 // playbooks). These are NOT facts about individual people or companies;
@@ -83,6 +158,9 @@ workspaceFactsV2Router.get('/', async (req, res) => {
       content: n.content,
       source: n.source,
       confidence: n.confidence,
+      // The file this section was synced from, if any (e.g. "context/icp.md").
+      // Drives the UI's "synced from <file>" provenance + the write-back target.
+      source_path: n.metadata?.source_path ?? null,
       // Reflect the last confirmation so "age" is honest — a reaffirmed fact is
       // fresh again even if it was first recorded long ago.
       recorded_at: n.reaffirmed_at || n.created_at,
@@ -114,78 +192,20 @@ workspaceFactsV2Router.get('/', async (req, res) => {
 workspaceFactsV2Router.post('/', async (req, res) => {
   try {
     const supabase = getSupabaseClient();
-    const workspaceId = req.workspaceId;
-    const { section, category, content, mode, subject, supersedes, confidence } = req.body ?? {};
+    const { section, category, content, mode, subject, supersedes, confidence, source_path } = req.body ?? {};
 
     if (!content || !String(content).trim()) {
       return res.status(400).json({ error: 'content required' });
     }
-    const sectionName = String(section || category || 'Notes');
-    const entityId = await getWorkspaceEntityId(supabase, workspaceId);
-    if (!entityId) return res.status(404).json({ error: 'workspace_entity_not_found' });
 
-    // Append (a running log entry) vs replace (evolve the one living section).
-    const append = mode === 'append' || (mode == null && APPEND_SECTIONS.has(sectionName));
-    const slug = subject ? String(subject) : (append ? undefined : slugify(sectionName));
-
-    const conf = typeof confidence === 'number'
-      ? Math.min(Math.max(confidence, 0), 1)
-      : WRITEBACK_CONFIDENCE;
-    const params = {
-      entityId,
-      category: sectionName,
-      content: String(content).trim(),
-      source: 'agent',
-      subject: slug,
-      confidence: conf,
-    };
-
-    // Replace mode evolves the section into a single living doc. A section can
-    // hold MORE than one stragglerfact: the subject-slot match (the belief the
-    // agent has been evolving) PLUS legacy facts saved without a subject slot
-    // (onboarding / playbook / manual imports). If we only superseded the
-    // slot match, those legacy facts would pile up beside the evolved belief
-    // forever (the "replace just appends" bug). So in replace mode we collapse
-    // every active fact owned by this section, not just the slot match.
-    let targetId = supersedes ? String(supersedes) : null;
-    let extraVictims = [];
-    if (!append) {
-      const active = await listNotes(supabase, workspaceId, { entityId, limit: 200 });
-      const ownedBySection = active.filter(n =>
-        n.id !== targetId && (
-          // subject-slot match (e.g. 'pricing' / 'playbook.pricing')
-          (slug && (
-            n.subject === slug ||
-            n.subject === `playbook.${slug}` ||
-            (typeof n.subject === 'string' && n.subject.endsWith(`.${slug}`))
-          )) ||
-          // legacy facts with no slot but the same section category
-          n.category === sectionName
-        )
-      );
-      if (!targetId) targetId = ownedBySection.shift()?.id ?? null;
-      // whatever slot match `targetId` didn't claim is invalidated below
-      extraVictims = ownedBySection.filter(n => n.id !== targetId);
-    }
-
-    const fact = targetId
-      ? await supersedeNote(supabase, workspaceId, targetId, params)
-      : await saveNote(supabase, workspaceId, params);
-
-    // Collapse the rest of the section's active facts into history so the
-    // section reads as one current belief, not a duplicate pile.
-    for (const v of extraVictims) {
-      await deleteNote(supabase, workspaceId, v.id);
-    }
-
-    return res.status(201).json({
-      fact,
-      section: sectionName,
-      mode: append ? 'append' : 'replace',
-      superseded: Boolean(targetId),
-      collapsed: extraVictims.length,
+    const result = await writeWorkspaceFact(supabase, req.workspaceId, {
+      section, category, content, mode, subject, supersedes, confidence, sourcePath: source_path,
     });
+    return res.status(201).json(result);
   } catch (err) {
+    if (String(err?.message) === 'workspace_entity_not_found') {
+      return res.status(404).json({ error: 'workspace_entity_not_found' });
+    }
     console.error('[POST /v2/workspace/facts]', err);
     return res.status(500).json({ error: 'internal_error' });
   }

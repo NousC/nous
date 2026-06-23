@@ -25,6 +25,8 @@
  *   set_workspace_profile— agent-driven onboarding: set the workspace's name, site, type, ICP
  *   build_scoring_model  — build/rebuild the ICP scoring model from the recorded GTM context
  *   record_closed_deals  — build the ICP model from real closed-won/lost deals (contrastive lift)
+ *   get_icp              — sync the user's EXISTING ICP/positioning files into Nous (file → graph)
+ *   get_icp_model        — get the learned ICP model as a block to write back into their ICP file (graph → file)
  *   connect_integration  — connect a key-based integration (Apollo, Prospeo, HubSpot, …)
  *   configure_crm_sync   — set CRM sync rules (auto-sync, create policy, hygiene cadence)
  *   sync_crm_now         — run an immediate incremental/full CRM pull (don't wait for the daily cron)
@@ -41,7 +43,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { get, post } from "./client.js";
 
-export const SERVER_VERSION = "0.35.0";
+export const SERVER_VERSION = "0.36.0";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -114,6 +116,7 @@ Nous first even when the user never says "Nous":
 - Your action items / what you owe an account    -> get_action_items
 - A fact looks stale before you act on it       -> verify
 - Our ICP, market, pricing, positioning         -> get_gtm_profile
+- Our ICP lives in a file (sync it / learn it)  -> get_icp / get_icp_model
 - Our own GTM shifted                           -> update_gtm_profile
 - A brief / note / transcript on a contact      -> save_note / search_notes
 - What's set up here and what to do next        -> get_workspace_status
@@ -771,7 +774,13 @@ export function createServer() {
     "their website, whether they sell a SERVICE or SOFTWARE, and a sentence describing their ideal " +
     "customer, then write them here. This seeds the GTM context and the ICP scoring model. Call " +
     "get_workspace_status first to see what's already set; send only the fields you're setting or " +
-    "changing. After this, the next step is usually the GTM playbook (update_gtm_profile).",
+    "changing. " +
+    "IMPORTANT for the ICP: before asking the user to describe their ICP from scratch, if you're in " +
+    "Claude Code, look for an ICP they ALREADY wrote — folders like context/, .claude/, gtm/ and files " +
+    "named icp*, positioning*, pricing*, competitors*. If you find them, read them and call get_icp to " +
+    "sync them (don't retype the ICP here); if none exists, offer to create context/icp.md from the " +
+    "conversation, then get_icp it — so their ICP lives in their repo. " +
+    "After this, the next step is usually the GTM playbook (update_gtm_profile) or get_icp.",
     {
       name: z.string().optional().describe("The user's company / workspace name."),
       website: z.string().optional().describe("The company website (used to seed the GTM context)."),
@@ -884,6 +893,105 @@ export function createServer() {
         }
         throw e;
       }
+    }
+  );
+
+  // ===========================================================================
+  // TOOL: get_icp  —  POST /v2/workspace/icp/import
+  // The file→Nous half of the ICP symbiosis. In Claude Code the user often
+  // already keeps their ICP/positioning as markdown (context/icp.md, etc.). Don't
+  // make them re-author it in Nous — READ those files and sync them here. Nous
+  // mirrors each section and remembers the file path so get_icp_model can write
+  // the learned model back into the same file. Their file stays the source of
+  // truth for the prose; Nous owns the learned scoring half.
+  // ===========================================================================
+  server.tool(
+    "get_icp",
+    "Sync the user's EXISTING ICP/positioning files into Nous, instead of making them re-author their " +
+    "ICP in a second place. CLAUDE CODE flow: when onboarding (or whenever their ICP files change), look " +
+    "in the project for an existing GTM setup — folders like context/, .claude/, gtm/, and files named " +
+    "icp*, positioning*, pricing*, competitors*, messaging*, market*. READ the ones you find with your " +
+    "own file tools, then call this with each file's content mapped to a section, AND its path in " +
+    "`source_path`. Nous keeps a served copy of the prose and rebuilds the ICP scoring model from it; " +
+    "the recorded source_path is what get_icp_model writes the learned model back into. " +
+    "IF NO ICP FILE EXISTS: don't invent one in Nous. Offer to create `context/icp.md` from what the user " +
+    "tells you (write it with your file tools), then call this on that file — so their ICP lives in their " +
+    "repo where they'll keep editing it. Re-run this after the user edits an ICP file to re-sync. The ICP " +
+    "section's source_path matters most (it's the write-back target).",
+    {
+      sections: z.array(z.object({
+        section: z.enum(["ICP", "Market", "Product", "Pricing", "Competitors", "Positioning", "GTM Motion", "Notes"])
+          .describe("Which GTM context section this file/content maps to."),
+        content: z.string().describe("The section's content, read from the file (trimmed prose, not the whole repo)."),
+        source_path: z.string().optional()
+          .describe("The file this came from, relative to the project root, e.g. 'context/icp.md'. Required on the ICP section so the learned model can be written back."),
+      })).describe("One entry per ICP/positioning file (or section) you read."),
+    },
+    async ({ sections }) => {
+      try {
+        const r = await post("/v2/workspace/icp/import", { sections });
+        const imp = r.imported ?? [];
+        const lines = [
+          `Synced ${imp.length} section${imp.length === 1 ? "" : "s"} from the user's files:`,
+          ...imp.map((s) => `  • ${s.section}${s.source_path ? `  ← ${s.source_path}` : ""}`),
+        ];
+        if (r.skipped?.length) lines.push("", `Skipped (unknown/empty): ${r.skipped.join(", ")}`);
+        const sig = r.signals ?? [];
+        if (r.model_status === "created" && sig.length) {
+          lines.push("", `Built the ICP scoring model — ${sig.length} signal${sig.length === 1 ? "" : "s"}.`);
+          lines.push("Next: if the user can name a few closed-won + closed-lost domains, call record_closed_deals to sharpen it on real outcomes, then call get_icp_model to write the learned model back into their ICP file.");
+        } else if (r.model_status === "no_icp_memory") {
+          lines.push("", "Synced, but there wasn't enough ICP content to build a scoring model — make sure the ICP section has real content.");
+        } else {
+          lines.push("", "Context synced. Call get_icp_model when you want to write the learned model back into their ICP file.");
+        }
+        return { content: [{ type: "text", text: lines.join("\n").trim() }] };
+      } catch (e) {
+        const msg = String(e?.message ?? e);
+        if (msg.includes("no_sections") || msg.includes("no_valid_sections")) {
+          return { content: [{ type: "text", text:
+            "Nothing to sync. Read the user's ICP/positioning file(s) first and pass each as a section " +
+            "(ICP, Positioning, Pricing, …) with its source_path. If they have no such file, offer to create context/icp.md." }] };
+        }
+        throw e;
+      }
+    }
+  );
+
+  // ===========================================================================
+  // TOOL: get_icp_model  —  GET /v2/workspace/icp/model
+  // The Nous→file half of the ICP symbiosis. Nous learns which signals actually
+  // predict a win (lift + calibration) from real outcomes; this returns that
+  // learned model as a ready-to-write fenced block, which the agent writes back
+  // into the user's own ICP file with its native editor. Server renders the
+  // block so the format is controlled centrally — the agent just persists it.
+  // ===========================================================================
+  server.tool(
+    "get_icp_model",
+    "Get the LEARNED ICP scoring model (which signals predict a win, their weight, lift, and the " +
+    "calibration gap) as a ready-to-write markdown block, and write it back into the user's own ICP " +
+    "file. This is the payoff of the symbiosis: their file keeps the words, Nous keeps the model, and " +
+    "this writes the model under their words. CLAUDE CODE flow: call this after get_icp or after " +
+    "record_closed_deals, then with your file tools open `target_path`, and if the file already has a " +
+    "block between '<!-- nous:icp start -->' and '<!-- nous:icp end -->' REPLACE that whole block with " +
+    "the returned `block`; if not, append the returned `block` (e.g. replacing a '## [To refine]' " +
+    "placeholder). Never edit inside the markers by hand — this tool regenerates them. Everything " +
+    "OUTSIDE the markers is the user's; never touch it.",
+    {},
+    async () => {
+      const r = await get("/v2/workspace/icp/model");
+      if (!r.has_model) {
+        return { content: [{ type: "text", text:
+          "No ICP scoring model yet. Sync the user's ICP file with get_icp first (or build one with " +
+          "build_scoring_model / record_closed_deals), then call this to write it back." }] };
+      }
+      const note = r.has_outcomes
+        ? "This model is trained on real closed deals (lift + calibration shown)."
+        : "This model is seeded from the ICP only — add closed deals with record_closed_deals to sharpen it.";
+      return { content: [{ type: "text", text:
+        `Write the block below into ${r.target_path} with your file editor — replace any existing block ` +
+        `between the nous:icp markers, or append it if there's none (create the file/section if absent). ` +
+        `Leave everything outside the markers untouched. ${note}\n\n${r.block}` }] };
     }
   );
 
