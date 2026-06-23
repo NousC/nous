@@ -227,7 +227,10 @@ export async function resolveContact(supabase, workspaceId, data, { createIfMiss
   // Create the v2 entity first (and register every identifier on it); then
   // create the v1 contact row using the entity's id as its primary key, so the
   // migration convention `contact.id == entity.id` holds for new ingestion.
-  const entityId = await getOrCreateEntity(supabase, workspaceId, 'person', identifiers);
+  // nameHint enables the corroborated name fallback — attach to a unique existing
+  // person instead of forking a duplicate (prevents the Omkar LinkedIn/Cal.com split).
+  const entityId = await getOrCreateEntity(supabase, workspaceId, 'person', identifiers,
+    { nameHint: { first_name, last_name } });
 
   const { data: created, error } = await supabase.from('contacts').insert({
     id: entityId,
