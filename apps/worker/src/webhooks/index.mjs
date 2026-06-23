@@ -17,6 +17,7 @@ import { handleLemlist } from './handlers/lemlist.mjs';
 import { handleCalendly } from './handlers/calendly.mjs';
 import { handleCalCom } from './handlers/calcom.mjs';
 import { handleStripe } from './handlers/stripe.mjs';
+import { handleAiArk } from './handlers/aiark.mjs';
 import { enqueueForRetry } from '../utils/webhookInbox.mjs';
 
 // Ops metering note: each webhook handler writes its own workspace_system_log
@@ -210,6 +211,23 @@ webhookRouter.post(['/stripe/:workspaceId', '/stripe'], (req, res) => {
   handleStripe(req, res, workspaceId).catch(err => {
     console.error('[WEBHOOK/stripe]', err);
     res.status(500).json({ error: 'internal_error' });
+  });
+});
+
+// AI-Ark — the lookalike-builder skill points the email-finder webhook here with
+// the target lead list in the path: /inbound/aiark/:workspaceId/:leadListId.
+// AI-Ark doesn't sign payloads, so auth is an optional shared secret query param.
+webhookRouter.post(['/aiark/:workspaceId/:leadListId', '/aiark/:workspaceId', '/aiark'], (req, res) => {
+  const workspaceId = req.params.workspaceId || req.query.workspace_id;
+  const leadListId = req.params.leadListId || req.query.lead_list_id || null;
+  if (!workspaceId) return res.status(400).json({ error: 'workspace_id_required' });
+  if (!checkQuerySecret(req, process.env.AIARK_WEBHOOK_SECRET)) {
+    return res.status(401).json({ error: 'invalid_secret' });
+  }
+  handleAiArk(req, res, workspaceId, leadListId).catch(async err => {
+    console.error('[WEBHOOK/aiark] handler threw, queuing for retry:', err.message);
+    await enqueueForRetry(getSupabaseClient(), { workspaceId, source: 'aiark', req, err });
+    if (!res.headersSent) res.status(200).json({ ok: true, queued: true });
   });
 });
 
