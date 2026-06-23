@@ -26,8 +26,7 @@ const HARDCODED_PROVIDERS: AvailableProvider[] = [
   { id:"millionverifier", name:"millionverifier", display_name:"MillionVerifier", logo_url:"/provider-logos/millionverifier.png", category:"verification" },
   { id:"neverbounce",     name:"neverbounce",     display_name:"NeverBounce",     logo_url:"/provider-logos/neverbounce.png",     category:"verification" },
   // BYOK key for the LinkedIn engager scrape (weekly + on-demand "scrape engagers").
-  // No bundled logo asset — IntegrationLogo renders an "AP" initials tile.
-  { id:"apify",     name:"apify",     display_name:"Apify",     category:"scraping"     },
+  { id:"apify",     name:"apify",     display_name:"Apify",     logo_url:"/provider-logos/apify.svg",     category:"scraping"     },
   { id:"fireflies", name:"fireflies", display_name:"Fireflies.ai", logo_url:"/provider-logos/fireflies.svg", category:"meetings"     },
   { id:"fathom",    name:"fathom",    display_name:"Fathom",       logo_url:"/provider-logos/fathom.svg",    category:"meetings"     },
   { id:"cal_com",   name:"cal_com",   display_name:"Cal.com",      logo_url:"/provider-logos/cal_com.svg",   category:"meetings"     },
