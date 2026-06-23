@@ -830,6 +830,8 @@ export default function Intelligence() {
             <div className="flex items-center justify-between px-4 py-2.5 bg-muted/50 border-b border-border">
               {needsSetup ? (
                 <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">Your context</span>
+              ) : fileSynced ? (
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">ICP source</span>
               ) : (
                 <button
                   onClick={() => setContextOpen(o => !o)}
@@ -840,7 +842,7 @@ export default function Intelligence() {
                 </button>
               )}
             </div>
-            {(needsSetup || contextOpen) && (
+            {(needsSetup || contextOpen || fileSynced) && (
             <>
             {needsSetup ? (
               /* Cold start — setup is done by the agent, not here. Point them to it. */
@@ -855,20 +857,25 @@ export default function Intelligence() {
                   <AgentSetupHint prompt="Set up my ICP" />
                 </div>
               </div>
-            ) : (
-              /* Saved context. When synced from the user's repo it's a read-only
-                 mirror (edit in the file); otherwise it's grouped + editable. */
-              <div className="px-4 py-4 space-y-4">
-                {fileSynced && (
-                  <div className="rounded-lg border border-border bg-muted/30 p-3 flex items-start gap-2">
-                    <Info className="h-3.5 w-3.5 mt-0.5 text-muted-foreground/70 flex-shrink-0" />
-                    <div className="text-[11.5px] text-muted-foreground/90 leading-relaxed">
-                      Synced from{" "}
+            ) : fileSynced ? (
+              /* Synced from the user's repo — don't mirror the context here. Just
+                 say it lives in their Claude Code file; editing happens there. */
+              <div className="px-4 py-4">
+                <div className="rounded-lg border border-border bg-muted/30 p-4 flex items-start gap-3">
+                  <Info className="h-4 w-4 mt-0.5 text-muted-foreground/70 flex-shrink-0" />
+                  <div>
+                    <div className="text-[13px] font-medium text-foreground">We sync to your ICP file in Claude Code</div>
+                    <div className="text-[12px] text-muted-foreground mt-1 leading-relaxed">
+                      Your ICP lives in{" "}
                       <code className="text-[11px] px-1 py-[1px] rounded bg-muted text-foreground/80">{icpPath}</code>{" "}
-                      in your repo. This is a read-only mirror — edit your ICP in that file and re-sync (the agent runs <span className="font-medium text-foreground/80">get_icp</span>). Nous writes the learned model back into the same file.
+                      in your repo. Edit it there — Nous mirrors it and writes the learned model below back into the same file. Nothing to manage here.
                     </div>
                   </div>
-                )}
+                </div>
+              </div>
+            ) : (
+              /* Saved context — grouped + editable (workspaces without a synced file). */
+              <div className="px-4 py-4 space-y-4">
                 {(() => {
                   if (fileSynced) return null;
                   const review = icpFacts
