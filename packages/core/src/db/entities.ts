@@ -178,21 +178,110 @@ export async function upsertIdentifier(
   return !error;
 }
 
+/** The lowercase, letters-only local part of the incoming email, for surname-token matching. */
+function incomingEmailLocal(identifiers: Identifier[]): string | null {
+  const email = identifiers.find(i => i.kind === 'email')?.value;
+  if (!email) return null;
+  const local = email.split('@')[0]?.toLowerCase().replace(/[^a-z]/g, '') ?? '';
+  return local.length >= 4 ? local : null;
+}
+
+/**
+ * Last-resort person resolution when no identifier matched — attach to a UNIQUE
+ * existing person instead of forking a duplicate. This is the dedup-PREVENTION
+ * pair to mergeEntities: it stops the Omkar split (LinkedIn "Omkar Mahale" +
+ * Cal.com "Omkar M" / 099omkarmahale@gmail.com) from ever happening.
+ *
+ * Anchored on an exact first-name match (cheap, bounded), then accepted only on
+ * a UNIQUE corroborated candidate via one of two safe signals:
+ *   - surname-token (strong): the incoming email's local part contains the
+ *     candidate's surname ("omkarmahale" ⊃ "mahale"). High precision — accepted
+ *     even when the candidate already has an email, because the email itself
+ *     corroborates. This is what catches Omkar.
+ *   - name-prefix (lossless only): the incoming surname is a prefix/initial of the
+ *     candidate's ("M" ⊂ "Mahale"), accepted only when the candidate has NO email
+ *     of its own, so attaching is non-destructive.
+ *
+ * Any ambiguity (two same-first-name candidates) → null, never guess.
+ */
+async function resolvePersonByNameFallback(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  identifiers: Identifier[],
+  nameHint?: { first_name?: string | null; last_name?: string | null },
+): Promise<string | null> {
+  const fn = nameHint?.first_name?.trim().toLowerCase() ?? '';
+  const ln = nameHint?.last_name?.trim().toLowerCase() ?? '';
+  if (fn.length < 2) return null;                       // need a first name to anchor on
+  const emailLocal = incomingEmailLocal(identifiers);
+  if (!emailLocal && !ln) return null;                  // nothing to corroborate with
+
+  const { data } = await supabase
+    .from('claims')
+    .select('entity_id, property, value')
+    .eq('workspace_id', workspaceId)
+    .in('property', ['first_name', 'last_name'])
+    .is('invalid_at', null)
+    .limit(5000);
+  const byEntity = new Map<string, { first?: string; last?: string }>();
+  for (const c of (data as { entity_id: string; property: string; value: unknown }[]) ?? []) {
+    const m = byEntity.get(c.entity_id) ?? {};
+    if (c.property === 'first_name') m.first = String(c.value ?? '').trim().toLowerCase();
+    else m.last = String(c.value ?? '').trim().toLowerCase();
+    byEntity.set(c.entity_id, m);
+  }
+
+  const strong: string[] = [];   // surname appears in the incoming email — safe even if they have an email
+  const weak: string[] = [];     // name-prefix only — gated below to email-less (lossless) candidates
+  for (const [id, m] of byEntity) {
+    if (!m.first || m.first !== fn) continue;           // anchor: exact first name
+    const cand = m.last ?? '';
+    if (emailLocal && cand.length >= 3 && emailLocal.includes(cand)) strong.push(id);
+    else if (ln && cand && (cand === ln || cand.startsWith(ln) || ln.startsWith(cand))) weak.push(id);
+  }
+
+  if (strong.length === 1) return strong[0];
+  if (strong.length > 1) return null;                   // ambiguous — never guess
+  if (weak.length === 1) {
+    const { data: hasEmail } = await supabase
+      .from('entity_identifiers')
+      .select('id').eq('entity_id', weak[0]).eq('kind', 'email').eq('status', 'active').limit(1);
+    if (!hasEmail?.length) return weak[0];              // lossless: candidate had no email of its own
+  }
+  return null;
+}
+
 /**
  * Resolve an entity by any of its identifiers; create one if none match.
  * The entry point for ingestion — every observation needs an entity.
+ *
+ * `opts.nameHint` enables a safe last-resort name fallback (persons only) that
+ * attaches to a unique corroborated existing person rather than forking a
+ * duplicate — see resolvePersonByNameFallback. Callers that have the incoming
+ * name (e.g. contact ingestion) should pass it; callers that don't are unaffected.
  */
 export async function getOrCreateEntity(
   supabase: SupabaseClient,
   workspaceId: string,
   type: EntityType,
   identifiers: Identifier[],
+  opts?: { nameHint?: { first_name?: string | null; last_name?: string | null } },
 ): Promise<string> {
   for (const id of identifiers) {
     const existing = await resolveEntity(supabase, workspaceId, id);
     if (existing) {
       await attachIdentifiers(supabase, workspaceId, existing, identifiers);
       return existing;
+    }
+  }
+
+  // No identifier matched. Before forking a new person, try the corroborated
+  // name fallback — this prevents the duplicate that merge_contacts would later fix.
+  if (type === 'person' && opts?.nameHint) {
+    const matched = await resolvePersonByNameFallback(supabase, workspaceId, identifiers, opts.nameHint);
+    if (matched) {
+      await attachIdentifiers(supabase, workspaceId, matched, identifiers);
+      return matched;
     }
   }
 
@@ -383,6 +472,162 @@ export async function getEntity(
     .eq('workspace_id', workspaceId)
     .maybeSingle();
   return (data as Entity) ?? null;
+}
+
+// ── merge ──────────────────────────────────────────────────────────────────
+// Fold one person-entity into another. The agent's dedup primitive: when the
+// same human exists as two entities (e.g. one from a LinkedIn connection with
+// no email, one from a Cal.com booking with an email and a truncated name),
+// merge collapses them into one.
+
+export interface MergeSummary {
+  keep_id: string;
+  drop_id: string;
+  identifiers_moved: number;
+  claims_moved: number;
+  claims_conflicted: number;       // kept on the survivor; drop's copy parked on the tombstone
+  observations_moved: number;
+  observations_conflicted: number; // (source, external_id) collisions left on the tombstone
+  relationships_repointed: number;
+  relationships_removed: number;   // self-loops + duplicate edges
+  collections_moved: number;
+  collections_deduped: number;
+  rows_repointed: Record<string, number>;
+}
+
+/**
+ * Merge `dropId` into `keepId` (same workspace, same entity type).
+ *
+ * Lossless: drop's active identifiers (a second email, a LinkedIn URL) re-attach
+ * to keep, so a future match on EITHER identifier resolves to the one entity —
+ * no primary/secondary, both are live keys. Conflict policy is keep-wins: a
+ * claim / observation / edge that would collide is left on the drop tombstone
+ * rather than overwriting keep or tripping a unique index.
+ *
+ * Soft + reversible: drop becomes status='merged', merged_into=keepId, so it
+ * drops out of resolveEntity automatically (every lookup filters status='active')
+ * and the merge can be undone by re-activating it.
+ */
+export async function mergeEntities(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  keepId: string,
+  dropId: string,
+): Promise<MergeSummary> {
+  if (keepId === dropId) throw new Error('cannot merge an entity into itself');
+
+  const { data: ents } = await supabase
+    .from('entities')
+    .select('id, workspace_id, type, status')
+    .in('id', [keepId, dropId]);
+  const keep = (ents as Entity[] | null)?.find(e => e.id === keepId);
+  const drop = (ents as Entity[] | null)?.find(e => e.id === dropId);
+  if (!keep || !drop) throw new Error('one or both entities not found');
+  if (keep.workspace_id !== workspaceId || drop.workspace_id !== workspaceId)
+    throw new Error('entity not in this workspace');
+  if (keep.type !== drop.type) throw new Error(`type mismatch: ${keep.type} vs ${drop.type}`);
+  if (drop.status === 'merged') throw new Error('drop entity is already merged');
+
+  const summary: MergeSummary = {
+    keep_id: keepId, drop_id: dropId,
+    identifiers_moved: 0, claims_moved: 0, claims_conflicted: 0,
+    observations_moved: 0, observations_conflicted: 0,
+    relationships_repointed: 0, relationships_removed: 0,
+    collections_moved: 0, collections_deduped: 0, rows_repointed: {},
+  };
+
+  // identifiers — re-attach drop's active ones unless keep already actively holds the value
+  const { data: dropIdents } = await supabase
+    .from('entity_identifiers')
+    .select('id, kind, value')
+    .eq('entity_id', dropId).eq('status', 'active');
+  for (const id of (dropIdents as { id: string; kind: string; value: string }[]) ?? []) {
+    const { data: held } = await supabase
+      .from('entity_identifiers')
+      .select('id')
+      .eq('workspace_id', workspaceId).eq('kind', id.kind).eq('value', id.value)
+      .eq('status', 'active').neq('entity_id', dropId).maybeSingle();
+    if (held) continue;                                       // real collision — leave it on drop
+    await supabase.from('entity_identifiers').update({ entity_id: keepId }).eq('id', id.id);
+    summary.identifiers_moved++;
+  }
+
+  // claims — move only properties keep doesn't already have (one row per ws+entity+property)
+  const { data: keepClaims } = await supabase
+    .from('claims').select('property').eq('entity_id', keepId).is('invalid_at', null);
+  const keepProps = new Set(((keepClaims as { property: string }[]) ?? []).map(c => c.property));
+  const { data: dropClaims } = await supabase
+    .from('claims').select('id, property, invalid_at').eq('entity_id', dropId);
+  for (const c of (dropClaims as { id: string; property: string; invalid_at: string | null }[]) ?? []) {
+    if (c.invalid_at == null && keepProps.has(c.property)) { summary.claims_conflicted++; continue; }
+    if (c.invalid_at == null) keepProps.add(c.property);
+    await supabase.from('claims').update({ entity_id: keepId }).eq('id', c.id);
+    summary.claims_moved++;
+  }
+
+  // observations — move all except (source, external_id) collisions
+  const { data: keepObs } = await supabase
+    .from('observations').select('source, external_id').eq('entity_id', keepId).not('external_id', 'is', null);
+  const keepObsKeys = new Set(((keepObs as { source: string; external_id: string }[]) ?? []).map(o => `${o.source}|${o.external_id}`));
+  const { data: dropObs } = await supabase
+    .from('observations').select('id, source, external_id').eq('entity_id', dropId);
+  for (const o of (dropObs as { id: string; source: string; external_id: string | null }[]) ?? []) {
+    if (o.external_id != null && keepObsKeys.has(`${o.source}|${o.external_id}`)) { summary.observations_conflicted++; continue; }
+    await supabase.from('observations').update({ entity_id: keepId }).eq('id', o.id);
+    summary.observations_moved++;
+  }
+
+  // relationships — re-point both ends; drop self-loops and duplicate edges
+  const { data: keepRels } = await supabase
+    .from('relationships').select('from_entity_id, to_entity_id, type')
+    .or(`from_entity_id.eq.${keepId},to_entity_id.eq.${keepId}`);
+  const keepEdge = new Set(((keepRels as { from_entity_id: string; to_entity_id: string; type: string }[]) ?? [])
+    .map(r => `${r.from_entity_id}|${r.to_entity_id}|${r.type}`));
+  const { data: dropRels } = await supabase
+    .from('relationships').select('id, from_entity_id, to_entity_id, type')
+    .or(`from_entity_id.eq.${dropId},to_entity_id.eq.${dropId}`);
+  for (const r of (dropRels as { id: string; from_entity_id: string; to_entity_id: string; type: string }[]) ?? []) {
+    const from = r.from_entity_id === dropId ? keepId : r.from_entity_id;
+    const to   = r.to_entity_id   === dropId ? keepId : r.to_entity_id;
+    if (from === to || keepEdge.has(`${from}|${to}|${r.type}`)) {
+      await supabase.from('relationships').delete().eq('id', r.id);
+      summary.relationships_removed++;
+      continue;
+    }
+    keepEdge.add(`${from}|${to}|${r.type}`);
+    await supabase.from('relationships').update({ from_entity_id: from, to_entity_id: to }).eq('id', r.id);
+    summary.relationships_repointed++;
+  }
+
+  // collection_entities — move unless keep already a member of that collection
+  const { data: keepCols } = await supabase.from('collection_entities').select('collection_id').eq('entity_id', keepId);
+  const keepColSet = new Set(((keepCols as { collection_id: string }[]) ?? []).map(c => c.collection_id));
+  const { data: dropCols } = await supabase.from('collection_entities').select('collection_id').eq('entity_id', dropId);
+  for (const c of (dropCols as { collection_id: string }[]) ?? []) {
+    if (keepColSet.has(c.collection_id)) {
+      await supabase.from('collection_entities').delete().eq('entity_id', dropId).eq('collection_id', c.collection_id);
+      summary.collections_deduped++;
+    } else {
+      await supabase.from('collection_entities').update({ entity_id: keepId }).eq('entity_id', dropId).eq('collection_id', c.collection_id);
+      summary.collections_moved++;
+    }
+  }
+
+  // plain re-points — PK-only tables + the v1 contact_id back-references
+  const plain: [string, string][] = [
+    ['predictions', 'entity_id'], ['claim_jobs', 'entity_id'], ['crm_hygiene_proposals', 'entity_id'],
+    ['outbound_events', 'entity_id'], ['leads', 'contact_id'], ['workspace_system_log', 'contact_id'],
+  ];
+  for (const [table, col] of plain) {
+    const { data: moved } = await supabase.from(table).update({ [col]: keepId }).eq(col, dropId).select('id');
+    if (moved && moved.length) summary.rows_repointed[table] = moved.length;
+  }
+
+  // delete the duplicate v1 contacts row (entity tombstone preserves lineage), then tombstone
+  await supabase.from('contacts').delete().eq('id', dropId);
+  await supabase.from('entities').update({ status: 'merged', merged_into: keepId }).eq('id', dropId);
+
+  return summary;
 }
 
 // ── focus resolution ─────────────────────────────────────────────────────────

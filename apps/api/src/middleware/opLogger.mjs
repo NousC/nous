@@ -26,6 +26,7 @@ function detectSource(req) {
 const PATH_LABELS = {
   'POST /v2/context':         'v2.context',
   'GET /v2/accounts':         'v2.account.get',
+  'POST /v2/accounts/merge':  'v2.account.merge',
   'POST /v2/observations':    'v2.observations.write',
   'POST /v2/query':           'v2.query',
   'GET /v2/attention':        'v2.attention',
