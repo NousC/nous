@@ -13,6 +13,7 @@
  * Tools:
  *   get_context          — engineered context for a task (draft_email, follow_up, ...) + ICP fit score
  *   get_account          — the full account record: every claim + the timeline + ICP fit score
+ *   merge_contacts       — fold two duplicate records for the same person into one (lossless, reversible)
  *   record               — record what happened / what you learned (observe, never update)
  *   query                — retrieve + summarise a corpus of activity across many people
  *   attention            — what needs your attention (accounts gone quiet, facts decayed)
@@ -43,7 +44,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { get, post } from "./client.js";
 
-export const SERVER_VERSION = "0.36.0";
+export const SERVER_VERSION = "0.37.0";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -275,6 +276,49 @@ export function createServer() {
         }
       }
       return { content: [{ type: "text", text: lines.join("\n").trim() }] };
+    }
+  );
+
+  // ===========================================================================
+  // TOOL: merge_contacts  —  POST /v2/accounts/merge
+  // Fold a duplicate person into one account record. Agent-only dedup.
+  // ===========================================================================
+  server.tool(
+    "merge_contacts",
+    "Merge two duplicate records for the SAME person into one account. Use when the same human exists " +
+    "twice — e.g. one record from a LinkedIn connection (no email) and one from a Cal.com booking (email, " +
+    "truncated name) that never got linked. Pass `keep` (the survivor) and `drop` (the duplicate to fold in); " +
+    "each may be an email, LinkedIn URL, entity UUID, or name. Lossless — the duplicate's identifiers (a second " +
+    "email, a LinkedIn URL) re-attach to the survivor, so a future match on EITHER resolves to the one account — " +
+    "and reversible. If a name matches several people you'll get candidates: confirm the survivor with the user, " +
+    "then re-call with the chosen entity ids. Prefer passing the keep that already has the most history.",
+    {
+      keep: z.string().describe("The survivor to keep — email, LinkedIn URL, entity UUID, or name."),
+      drop: z.string().describe("The duplicate to fold into keep — email, LinkedIn URL, entity UUID, or name."),
+    },
+    async ({ keep, drop }) => {
+      const r = await post("/v2/accounts/merge", { keep, drop });
+
+      if (r.status === "ambiguous") {
+        const opts = (r.candidates ?? []).map(c =>
+          `  • ${c.name ?? "(unnamed)"}${c.detail ? ` — ${c.detail}` : ""}  [${c.entity_id}]`).join("\n");
+        const term = r.which === "keep" ? keep : drop;
+        return { content: [{ type: "text", text:
+          `"${term}" (the ${r.which}) matches several people. Re-call merge_contacts with one of these entity ids as ${r.which}:\n${opts}` }] };
+      }
+
+      const moved = Object.entries(r.rows_repointed ?? {}).map(([t, n]) => `${n} ${t}`).join(", ");
+      const lines = [
+        `Merged — folded ${r.drop_id} into ${r.keep_id}.`,
+        `  identifiers re-attached: ${r.identifiers_moved}  (a future match on either now resolves to one account)`,
+        `  claims moved: ${r.claims_moved}${r.claims_conflicted ? ` (${r.claims_conflicted} kept on survivor)` : ""}`,
+        `  observations moved: ${r.observations_moved}`,
+        (r.relationships_repointed || r.relationships_removed)
+          ? `  relationships: ${r.relationships_repointed} re-pointed, ${r.relationships_removed} pruned` : null,
+        moved ? `  re-pointed: ${moved}` : null,
+        `The duplicate is now a reversible tombstone (merged into the survivor).`,
+      ].filter(Boolean);
+      return { content: [{ type: "text", text: lines.join("\n") }] };
     }
   );
 
@@ -1398,6 +1442,49 @@ export function createServer() {
         const msg = /no_verifier_connected/.test(e.message)
           ? "No email verifier is connected. Tell the user to add a MillionVerifier or NeverBounce API key in Integrations, then try again."
           : `Couldn't verify: ${e.message}`;
+        return { content: [{ type: "text", text: msg }] };
+      }
+    }
+  );
+
+  // ===========================================================================
+  // TOOL: scrape_engagers
+  // On-demand LinkedIn engager scrape — mine who commented/reacted on the
+  // workspace's own recent posts into the native "LinkedIn Engagers" list, NOW,
+  // instead of waiting for the weekly cron. Backfill a wider window with `days`.
+  // ===========================================================================
+  server.tool(
+    "scrape_engagers",
+    "Scrape the people who commented or reacted on YOUR OWN recent LinkedIn posts into the native " +
+    "\"LinkedIn Engagers\" lead list — right now, instead of waiting for the weekly auto-run. Each " +
+    "engager is saved with the engagement captured (the actual comment text for comments, the " +
+    "reaction for likes) on their timeline. Use when the user says \"scrape engagers\", \"who " +
+    "engaged with my last post\", or \"backfill my engagers for the last N months\". `days` sets the " +
+    "look-back window (default 7, since the weekly run already covers the recent past; pass a larger " +
+    "value like 60 to backfill). Runs on the workspace's OWN Apify key (bring-your-own-key) — if none " +
+    "is connected it says so; tell the user to add an Apify key in Integrations. The scrape runs in " +
+    "the background (within a minute); the new engagers then appear in the list.",
+    {
+      days: z.number().int().min(1).max(120).optional().describe("Look-back window in days. Default 7. Use a larger value (e.g. 60) to backfill a gap since the last scrape."),
+    },
+    async ({ days }) => {
+      try {
+        const r = await post("/api/linkedin/engagement/scrape", { days });
+        const lastLine = r.last_scraped_at
+          ? `Last scraped ${relAge(r.last_scraped_at)}.`
+          : "First scrape for this workspace.";
+        return { content: [{ type: "text", text:
+          `Engager scrape queued — mining the last ${r.days} day(s) across ${r.accounts} connected ` +
+          `LinkedIn account${r.accounts === 1 ? "" : "s"}. ${lastLine} It runs in the background; ` +
+          `new engagers land in the "LinkedIn Engagers" list within a minute or two.` }] };
+      } catch (e) {
+        const msg = /apify_not_connected/.test(e.message)
+          ? "Engager scraping is bring-your-own-key. Tell the user to add their own Apify key in Integrations, then try again."
+          : /linkedin_not_connected/.test(e.message)
+          ? "No LinkedIn account is connected. Tell the user to connect LinkedIn in Integrations first."
+          : /needs_plan/.test(e.message)
+          ? "LinkedIn engager scraping is on the Pro plan and up. Tell the user to upgrade to use it."
+          : `Couldn't start the scrape: ${e.message}`;
         return { content: [{ type: "text", text: msg }] };
       }
     }
