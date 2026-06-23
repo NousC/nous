@@ -711,12 +711,22 @@ CREATE TABLE workspace_linkedin_connections (
   -- Per-account on/off for the weekly LinkedIn Engagers scrape. Default true so
   -- existing connected accounts keep running; users toggle it from the Lists page.
   engagement_enabled   BOOLEAN NOT NULL DEFAULT true,
+  -- Last time this account's engagers were scraped (weekly cron OR on-demand).
+  -- Drives the "it's been N days, backfill that window" backfill suggestion.
+  last_engagement_scrape_at        TIMESTAMPTZ,
+  -- A pending on-demand scrape request: the window (days) the user asked to mine
+  -- now. The worker poller runs any row where this is set, then clears it back to
+  -- NULL. engagement_scrape_requested_at records when it was filed.
+  engagement_scrape_requested_days INTEGER,
+  engagement_scrape_requested_at   TIMESTAMPTZ,
   -- A workspace can connect many LinkedIn accounts (one per rep). The plan's
   -- linkedinProfiles limit is enforced in code. Re-connecting the same account
   -- updates its row in place.
   UNIQUE (workspace_id, unipile_account_id)
 );
 CREATE INDEX wlc_workspace ON workspace_linkedin_connections(workspace_id);
+CREATE INDEX wlc_engagement_request ON workspace_linkedin_connections (engagement_scrape_requested_at)
+  WHERE engagement_scrape_requested_days IS NOT NULL;
 ALTER TABLE workspace_linkedin_connections ENABLE ROW LEVEL SECURITY;
 CREATE POLICY wlc_all ON workspace_linkedin_connections
   FOR ALL USING (is_workspace_member(workspace_id));

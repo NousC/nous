@@ -855,6 +855,91 @@ export function registerLinkedInRoutes(app, supabase, verifySupabaseAuth, verify
     }
   });
 
+  // POST /api/linkedin/engagement/scrape
+  // On-demand engager scrape — "scrape engagers for my last posts / backfill the
+  // last N days now", instead of waiting for the weekly cron. Queues the request
+  // (the worker poller runs it within a minute); does NOT block on the scrape.
+  // Workspace derived from auth (API key from the MCP tool, or Supabase JWT with
+  // workspaceId in body for the app). Body: { days? } — default 7, max 120.
+  app.post('/api/linkedin/engagement/scrape', verifyAuthEither, async (req, res) => {
+    try {
+      const workspaceId = req.workspaceId;
+      if (!workspaceId) return res.status(401).json({ error: 'auth_required' });
+
+      const days = Math.min(120, Math.max(1, Math.round(Number(req.body?.days) || 7)));
+
+      const { data: conns } = await supabase
+        .from('workspace_linkedin_connections')
+        .select('linkedin_profile_url, last_engagement_scrape_at')
+        .eq('workspace_id', workspaceId)
+        .not('linkedin_profile_url', 'is', null);
+      const usable = conns || [];
+      if (!usable.length) return res.status(404).json({ error: 'linkedin_not_connected' });
+
+      // Same plan gate the weekly run enforces (worker isEligible) so the user gets
+      // a clear answer here instead of a silently-dropped request. Self-host + the
+      // dogfood allowlist always pass; cloud needs an active Pro/Growth/Partner plan.
+      if (process.env.SELF_HOSTED !== 'true') {
+        const allow = new Set((process.env.LINKEDIN_ENGAGEMENT_WORKSPACES || '')
+          .split(',').map(s => s.trim()).filter(Boolean));
+        if (!allow.has(workspaceId)) {
+          const { data: ws } = await supabase
+            .from('workspaces').select('team_id').eq('id', workspaceId).maybeSingle();
+          const { data: sub } = ws?.team_id ? await supabase
+            .from('subscriptions').select('plan_id, status').eq('team_id', ws.team_id).maybeSingle() : { data: null };
+          const dead = !sub || ['canceled', 'incomplete_expired', 'past_due'].includes(sub.status);
+          const paid = sub && ['pro', 'growth', 'scale'].includes(sub.plan_id);
+          if (dead || !paid) return res.status(403).json({ error: 'needs_plan', message: 'LinkedIn engager scraping is on the Pro plan and up.' });
+        }
+      }
+
+      // Pure BYOK on Cloud: an Apify key must be connected (self-host falls back to
+      // the APIFY_TOKEN env; the dogfood/pilot allowlist may use the shared key, so
+      // both are exempt).
+      const byokAllow = new Set((process.env.LINKEDIN_ENGAGEMENT_WORKSPACES || '')
+        .split(',').map(s => s.trim()).filter(Boolean));
+      if (process.env.SELF_HOSTED !== 'true' && !byokAllow.has(workspaceId)) {
+        const { data: provider } = await supabase
+          .from('workflow_providers').select('id').eq('name', 'apify').maybeSingle();
+        let hasKey = false;
+        if (provider?.id) {
+          const { data: pc } = await supabase
+            .from('workflow_provider_connections')
+            .select('id').eq('workspace_id', workspaceId).eq('provider_id', provider.id)
+            .eq('is_verified', true).limit(1).maybeSingle();
+          hasKey = !!pc;
+        }
+        if (!hasKey) {
+          return res.status(400).json({
+            error: 'apify_not_connected',
+            message: 'Connect your own Apify key in Integrations first — engager scraping is bring-your-own-key and runs on your Apify account.',
+          });
+        }
+      }
+
+      const lastScrapedAt = usable
+        .map(c => c.last_engagement_scrape_at).filter(Boolean)
+        .sort().slice(-1)[0] || null;
+
+      const { error: updErr } = await supabase
+        .from('workspace_linkedin_connections')
+        .update({ engagement_scrape_requested_days: days, engagement_scrape_requested_at: new Date().toISOString() })
+        .eq('workspace_id', workspaceId)
+        .not('linkedin_profile_url', 'is', null);
+      if (updErr) return res.status(500).json({ error: updErr.message });
+
+      return res.json({
+        queued: true,
+        days,
+        accounts: usable.length,
+        last_scraped_at: lastScrapedAt,
+      });
+    } catch (err) {
+      console.error('[LINKEDIN_ENGAGEMENT_SCRAPE]', err.message);
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
   // POST /api/linkedin/invite
   // Body: { workspaceId, linkedinUserId, message? }
   app.post('/api/linkedin/invite', verifySupabaseAuth, async (req, res) => {

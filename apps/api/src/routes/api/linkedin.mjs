@@ -67,19 +67,45 @@ linkedinRouter.get('/engagement', verifySupabaseAuth, async (req, res) => {
     // aggregate across all of them for the single workspace-level panel.
     const { data: conns } = await supabase
       .from('workspace_linkedin_connections')
-      .select('linkedin_name, linkedin_profile_url, engagement_enabled')
+      .select('linkedin_name, linkedin_profile_url, engagement_enabled, last_engagement_scrape_at')
       .eq('workspace_id', workspaceId);
     const usable = (conns || []).filter(c => c.linkedin_profile_url);
 
-    const configured = !!process.env.APIFY_TOKEN;            // feature off everywhere without it
+    // BYOK: the scrape runs on the workspace's own Apify key. On Cloud that key
+    // MUST be connected (pure BYOK); self-host falls back to the APIFY_TOKEN env,
+    // and the dogfood/pilot allowlist may use the shared env key too.
+    const byokAllow = new Set((process.env.LINKEDIN_ENGAGEMENT_WORKSPACES || '')
+      .split(',').map(s => s.trim()).filter(Boolean));
+    let configured = (process.env.SELF_HOSTED === 'true' || byokAllow.has(workspaceId)) && !!process.env.APIFY_TOKEN;
+    if (!configured) {
+      const { data: provider } = await supabase
+        .from('workflow_providers').select('id').eq('name', 'apify').maybeSingle();
+      if (provider?.id) {
+        const { data: pc } = await supabase
+          .from('workflow_provider_connections')
+          .select('id').eq('workspace_id', workspaceId).eq('provider_id', provider.id)
+          .eq('is_verified', true).limit(1).maybeSingle();
+        configured = !!pc;
+      }
+    }
+
     const connected = usable.length > 0;
     const elig = connected ? await engagementEligible(supabase, workspaceId) : { ok: false, reason: 'not_connected' };
-    const reason = !configured ? 'not_configured'
-      : !connected ? 'not_connected'
+    const reason = !connected ? 'not_connected'
+      : !configured ? 'no_apify_key'
       : elig.ok ? null : elig.reason;
     // Enabled if any connected account is actively scraping; the toggle flips them all.
     const enabled = connected ? usable.some(c => c.engagement_enabled !== false) : true;
     const readsFrom = usable.map(c => c.linkedin_name || c.linkedin_profile_url).filter(Boolean).join(', ') || null;
+
+    // Last on-demand/cron scrape across this workspace's accounts + a suggested
+    // backfill window (days since that scrape, capped) so the UI/agent can offer
+    // "it's been N days — backfill that window".
+    const lastScrapedAt = usable
+      .map(c => c.last_engagement_scrape_at).filter(Boolean).sort().slice(-1)[0] || null;
+    const suggestedBackfillDays = lastScrapedAt
+      ? Math.min(120, Math.max(7, Math.ceil((Date.now() - new Date(lastScrapedAt).getTime()) / 86400000)))
+      : null;
 
     const { data: last } = await supabase
       .from('workspace_system_log')
@@ -95,6 +121,9 @@ linkedinRouter.get('/engagement', verifySupabaseAuth, async (req, res) => {
       schedule: 'Weekly · Mondays',
       window: { posts: Number(process.env.ENGAGEMENT_MAX_POSTS || 5), days: Number(process.env.ENGAGEMENT_WINDOW_DAYS || 7) },
       self_host: process.env.SELF_HOSTED === 'true',
+      byok: true,
+      last_scraped_at: lastScrapedAt,
+      suggested_backfill_days: suggestedBackfillDays,
       last_run: last ? { summary: last.summary, at: last.occurred_at, metadata: last.metadata } : null,
     });
   } catch (err) {

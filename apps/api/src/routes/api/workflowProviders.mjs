@@ -301,6 +301,13 @@ export async function testProviderCredentials(provider, credentials) {
       if (r.status === 401 || r.status === 403) return { verified: false, message: 'Invalid Prospeo API key' };
       return { verified: false, message: `Prospeo returned ${r.status} — check your API key` };
     }
+    if (p === 'apify') {
+      if (!token) return { verified: false, message: 'No credentials provided' };
+      const r = await fetch(`https://api.apify.com/v2/users/me?token=${encodeURIComponent(token)}`);
+      if (r.ok) return { verified: true, message: 'Connected to Apify' };
+      if (r.status === 401 || r.status === 403) return { verified: false, message: 'Invalid Apify token' };
+      return { verified: false, message: `Apify returned ${r.status} — check your token` };
+    }
     if (!token) return { verified: false, message: 'No credentials provided' };
     // No live test endpoint wired up for this provider — save the key, but be
     // honest that we could NOT confirm it works (don't claim "Connected").
@@ -532,7 +539,7 @@ workflowProvidersRouter.get('/slack/channels', verifySupabaseAuth, async (req, r
 // Providers connectable via the simplified /:name/test + /:name/connect endpoints
 // (used by the Mind popup quick-connect flow). Anything not in this list still works
 // via the generic /connections endpoint used by Settings → Integrations.
-const NAMED_PROVIDERS = ['apollo', 'instantly', 'lemlist', 'emailbison', 'heyreach', 'smartlead', 'prospeo', 'findymail', 'millionverifier', 'neverbounce', 'hubspot', 'pipedrive', 'attio', 'calendly', 'fireflies', 'fathom', 'cal_com'];
+const NAMED_PROVIDERS = ['apollo', 'instantly', 'lemlist', 'emailbison', 'heyreach', 'smartlead', 'prospeo', 'findymail', 'millionverifier', 'neverbounce', 'hubspot', 'pipedrive', 'attio', 'calendly', 'fireflies', 'fathom', 'cal_com', 'apify'];
 
 const CAL_COM_API_VERSION = '2026-05-01';
 
@@ -945,6 +952,18 @@ async function testNamedProvider(name, apiKey) {
       return { verified: true, message: `Connected as ${who}` };
     }
     return { verified: false, message: `Cal.com returned ${r.status} — check your API key` };
+  }
+
+  if (name === 'apify') {
+    // /v2/users/me is the lightest connectivity check (no actor run, no credits).
+    const r = await fetch(`https://api.apify.com/v2/users/me?token=${encodeURIComponent(apiKey)}`);
+    if (r.ok) {
+      const d = await r.json().catch(() => ({}));
+      const who = d.data?.username || d.data?.email || 'Apify account';
+      return { verified: true, message: `Connected to Apify (${who})` };
+    }
+    if (r.status === 401 || r.status === 403) return { verified: false, message: 'Invalid Apify token' };
+    return { verified: false, message: `Apify returned ${r.status} — check your token` };
   }
 
   return { verified: false, message: 'Unknown provider' };
