@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { ArrowLeft, Linkedin, Trash2, RefreshCw, Search, Download, Upload, FileText } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { relTime, eventTime } from "@/components/mind/shared";
@@ -265,8 +265,8 @@ function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token:
             {/* ICP score — read-only, computed by the Scorecard */}
             {(() => {
               const sc = contact.icpScore;
-              const fit = sc == null ? null : sc >= 75 ? "Strong fit" : sc >= 50 ? "Potential fit" : "Weak fit";
-              const col = sc == null ? "#9ca3af" : sc >= 75 ? "#15803d" : sc >= 50 ? "#b45309" : "#6b7280";
+              const fit = sc == null ? null : sc >= 85 ? "Strong fit" : sc >= 70 ? "Good fit" : sc >= 50 ? "Potential fit" : "Weak fit";
+              const col = sc == null ? "#9ca3af" : sc >= 85 ? "#15803d" : sc >= 70 ? "#ca8a04" : sc >= 50 ? "#ea580c" : "#6b7280";
               return (
                 <div className="mb-4 pb-3.5 border-b border-border/60">
                   <div className="text-[11px] font-medium text-muted-foreground/70 mb-1">ICP Score</div>
@@ -358,6 +358,7 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
   const workspaceId = userData?.workspace?.id ?? "";
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [contacts, setContacts] = useState<ContactInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -411,7 +412,8 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
     return () => { alive = false; };
   }, [id, inList, token]);
   const detail = inList ?? fetchedDetail;
-  const setDetail = (c: ContactInfo | null) => navigate(c ? `/people/${c.id}` : "/accounts?tab=people");
+  // Back goes to wherever you came from (e.g. the lead list), not always Accounts.
+  const setDetail = (c: ContactInfo | null) => navigate(c ? `/people/${c.id}` : ((location.state as { from?: string } | null)?.from || "/accounts?tab=people"));
 
   const deleteContact = async (cid: string, e: React.MouseEvent) => {
     e.stopPropagation();

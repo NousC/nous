@@ -165,6 +165,13 @@ const EMAIL_STATUS_TAG: Record<string, { label: string; cls: string }> = {
   UNAVAILABLE: { label: "Unavailable", cls: "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-400" },
   BOUNCED:     { label: "Bounced",     cls: "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-400" },
 };
+// ICP score, color-banded: 85+ green · 70+ yellow · 50+ orange · <50 gray.
+function icpTag(val: string | number | null | undefined) {
+  const n = val == null || val === "" ? null : Number(val);
+  if (n == null || Number.isNaN(n)) return <span className="text-muted-foreground/40">—</span>;
+  const col = n >= 85 ? "#15803d" : n >= 70 ? "#ca8a04" : n >= 50 ? "#ea580c" : "#6b7280";
+  return <span className="text-[12px] font-semibold tabular-nums" style={{ color: col }}>{n}</span>;
+}
 function emailStatusTag(status: string | null) {
   if (!status) return <span className="text-muted-foreground/40">—</span>;
   const t = EMAIL_STATUS_TAG[status.toUpperCase()] ?? { label: status, cls: "bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300" };
@@ -1664,7 +1671,27 @@ export default function Lists() {
 
                 {/* Rows */}
                 {leadsLoading ? (
-                  <div className="text-[13px] text-muted-foreground py-12 text-center">Loading…</div>
+                  /* Skeleton rows — keep the exact column geometry so the table
+                     never collapses; loading → loaded is a shimmer, not a jump. */
+                  <>
+                    {Array.from({ length: 12 }).map((_, r) => (
+                      <div key={r} className="flex border-b border-border/60">
+                        <div className="px-2 py-2.5 flex items-center flex-shrink-0 sticky left-0 z-10 bg-background" style={{ width: SEL_W }}>
+                          <div className="h-3.5 w-3.5 rounded-sm bg-muted animate-pulse" />
+                        </div>
+                        {allCols.map((c, i) => (
+                          <div key={c.key}
+                            className={`px-3 py-2.5 flex-shrink-0 ${i === 0 ? "sticky left-10 z-10 border-r border-border bg-background" : ""}`}
+                            style={{ width: c.w }}>
+                            <div className="h-3 rounded bg-muted animate-pulse" style={{ width: `${55 + ((r * 7 + i * 13) % 35)}%` }} />
+                          </div>
+                        ))}
+                        <div className="px-3 py-2.5 flex-shrink-0" style={{ width: STATUS_W }}>
+                          <div className="h-3 w-12 rounded bg-muted animate-pulse" />
+                        </div>
+                      </div>
+                    ))}
+                  </>
                 ) : (
                   <>
                     {leads.map(l => (
@@ -1701,9 +1728,11 @@ export default function Lists() {
                               emailStatusTag(l.email_status)
                             ) : c.key === "__signal" ? (
                               signalTag(l)
+                            ) : c.key === "__icp" ? (
+                              icpTag(val)
                             ) : c.key === "name" ? (
                               <span
-                                onClick={() => { if (nameClickTimer.current) return; nameClickTimer.current = setTimeout(() => { nameClickTimer.current = null; navigate(`/people/${l.id}`); }, 200); }}
+                                onClick={() => { if (nameClickTimer.current) return; nameClickTimer.current = setTimeout(() => { nameClickTimer.current = null; navigate(`/people/${l.id}`, { state: { from: `/lists/${routeListId}` } }); }, 200); }}
                                 onDoubleClick={() => { if (nameClickTimer.current) { clearTimeout(nameClickTimer.current); nameClickTimer.current = null; } if (editable) startEdit(l, "name"); }}
                                 title="Open record · double-click to rename"
                                 className="cursor-pointer hover:underline">
