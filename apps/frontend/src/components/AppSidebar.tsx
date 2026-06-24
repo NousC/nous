@@ -9,6 +9,7 @@ import {
   Users,
   Plug,
   Webhook,
+  Zap,
   Brain,
   List,
   Lock,
@@ -34,13 +35,14 @@ type NavItem = { title: string; url: string; icon: React.ElementType };
 const apiUrl = import.meta.env.VITE_API_URL ?? "";
 
 // SETUP — collapsible dropdown group. Holds the connect-once / configure-once
-// surfaces (install, keys, integrations, webhooks) plus the playground.
+// surfaces (install, keys, integrations, webhooks, triggers) plus the playground.
 const setupItems: NavItem[] = [
   { title: "Install",      url: "/install",      icon: Package      },
   { title: "Playground",   url: "/playground",   icon: FlaskConical },
   { title: "API Keys",     url: "/keys",         icon: Key          },
   { title: "Integrations", url: "/integrations", icon: Plug         },
   { title: "Webhooks",     url: "/webhooks",     icon: Webhook      },
+  { title: "Triggers",     url: "/triggers",     icon: Zap          },
 ];
 
 // Main navigation — the day-to-day surfaces you return to.
