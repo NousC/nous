@@ -870,7 +870,7 @@ export default function Intelligence() {
                       <div className="text-[12px] text-muted-foreground mt-1 leading-relaxed">
                         Your ICP lives in{" "}
                         <code className="text-[11px] px-1 py-[1px] rounded bg-muted text-foreground/80">{icpPath}</code>{" "}
-                        in your repo. Edit it there — Nous mirrors it and writes the learned model below back into the same file. Sections from your file are managed there; anything else stays editable here.
+                        in your repo. Edit it there — Nous mirrors it and writes the learned model below back into the same file.
                       </div>
                     </div>
                   </div>
@@ -916,9 +916,10 @@ export default function Intelligence() {
                 <div className="space-y-5">
                   {ICP_CATEGORIES.map(cat => {
                     const items = icpFacts.filter(f => f.category === cat);
-                    // Sections synced from the file are managed in the repo — fold them
-                    // away here (the notice above covers them); keep the rest editable.
-                    if (fileSynced && items.some(f => f.source_path)) return null;
+                    // When the ICP is file-synced, the repo file is the source of truth —
+                    // fold every section away and let the notice above stand alone. Nothing
+                    // is editable here; it all lives in context/icp/icp.md.
+                    if (fileSynced) return null;
                     const adding = addSection === cat;
                     const openAdd = () => { setAddSection(cat); setSectionDraft(""); };
                     const closeAdd = () => { setAddSection(null); setSectionDraft(""); };
