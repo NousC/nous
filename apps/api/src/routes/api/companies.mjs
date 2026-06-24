@@ -256,6 +256,25 @@ companiesApiRouter.get('/:id/detail', verifySupabaseAuth, async (req, res) => {
       icpFit(supabase, workspaceId, id),
     ]);
 
+    // Buying signals — signal.* state claims on the company entity (signal-scan /
+    // record_signal write these). Companies are entities too, so the same query
+    // the contact endpoint uses works here. Signals are company-level by nature,
+    // so they belong on the company record, not only the person.
+    const { data: sigRows } = await supabase.from('claims')
+      .select('property, value, computed_at')
+      .eq('entity_id', id).like('property', 'signal.%')
+      .is('invalid_at', null)
+      .order('computed_at', { ascending: false });
+    const signals = (sigRows || []).map(s => ({
+      signal_class: (s.property || '').replace(/^signal\./, ''),
+      detected:   s.value?.detected ?? null,
+      implies:    s.value?.implies ?? null,
+      score:      s.value?.score ?? null,
+      approach:   s.value?.approach ?? null,
+      angle:      s.value?.angle ?? null,
+      updated_at: s.computed_at,
+    }));
+
     return res.json({
       company,
       icp: icp || null,
@@ -263,6 +282,7 @@ companiesApiRouter.get('/:id/detail', verifySupabaseAuth, async (req, res) => {
       edges,
       activity,
       facts: account ? Object.values(account.claims) : [],
+      signals,
       recent_observations: account?.recent_observations ?? [],
     });
   } catch (err) {

@@ -18,7 +18,7 @@ const CO_COL_DEFAULTS: Record<string, number> = {
   lastActivity: 116, contacts: 72, stage: 92,
 };
 
-type CoTab = "overview" | "activity" | "facts";
+type CoTab = "overview" | "activity" | "facts" | "signals";
 type CoSort = { col: string | null; dir: "asc"|"desc" };
 
 type Stakeholder = {
@@ -42,6 +42,7 @@ type CompanyDetail = {
   edges: GraphEdge[];
   activity: any[];
   facts: Claim[];
+  signals: any[];
 };
 
 // Freshness is the Mind's "how stale is this belief" axis — green when fresh,
@@ -228,10 +229,25 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
   // never the list, so the table doesn't flash before the detail appears.
   if (id) {
     if (!detail) return <div className="h-full flex items-center justify-center text-[13px] text-muted-foreground/70 bg-background">Loading…</div>;
+    // Intel = what we LEARNED about the company (research, conversations, what they
+    // do) — NOT enrichment/firmographic fields (those live in the sidebar) and NOT
+    // signals (the Signals tab). Filter the raw claims down to real intel.
+    const intelHidden = (prop: string) => {
+      const p = (prop || "").toLowerCase();
+      return p.startsWith("signal.") || p.startsWith("apollo") || p.startsWith("hubspot")
+        || p.startsWith("salesforce") || p.startsWith("enrichment") || p.startsWith("enriched")
+        || p.endsWith("_id") || p.endsWith("_raw")
+        || ["domain","name","industry","employee_count","employees","company_size","size_band",
+            "country","city","state","location","revenue","revenue_range","annual_revenue",
+            "founded_year","website","linkedin","linkedin_url","logo","photo_url","tech_stack",
+            "technologies","last_activity_at"].includes(p);
+    };
+    const intelFacts = (cd?.facts ?? []).filter(f => !intelHidden(f.property));
     const CO_TABS: { id: CoTab; label: string; count?: number }[] = [
       { id:"overview",  label:"Overview"                          },
       { id:"activity",  label:"Activity",  count:cd?.activity.length ?? 0 },
-      { id:"facts",     label:"Intel",     count:cd?.facts.length ?? 0    },
+      { id:"signals",   label:"Signals",   count:cd?.signals?.length ?? 0  },
+      { id:"facts",     label:"Intel",     count:intelFacts.length        },
     ];
     // who-relates-to-whom, keyed by the person the edge starts from
     const relsBySubject: Record<string, GraphEdge[]> = {};
@@ -356,11 +372,30 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
                         );
                       })}
                     </div>
+              ) : coTab === "signals" ? (
+                (cd?.signals?.length ?? 0) === 0
+                  ? <p className="text-[13px] text-muted-foreground/70 text-center py-12">No signals yet — run signal-scan on this account</p>
+                  : <div className="divide-y divide-border/60">
+                      {cd!.signals.map((s: any) => {
+                        const col = s.score == null ? "#6b7280" : s.score >= 8 ? "#15803d" : s.score >= 5 ? "#b45309" : "#6b7280";
+                        return (
+                          <div key={s.signal_class} className="py-3">
+                            <div className="flex items-baseline gap-2 mb-1">
+                              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 capitalize">{s.signal_class}</span>
+                              {s.score != null && <span className="text-[12px] font-semibold tabular-nums" style={{ color: col }}>{s.score}/10</span>}
+                              {s.updated_at && <span className="text-[12px] text-muted-foreground/70 ml-auto">{relTime(s.updated_at)}</span>}
+                            </div>
+                            <p className="text-[13px] text-foreground/80 leading-relaxed">{s.detected}{s.implies ? ` — ${s.implies}` : ""}</p>
+                            {s.angle && <p className="text-[12px] text-muted-foreground italic mt-1">Angle: {s.angle}</p>}
+                          </div>
+                        );
+                      })}
+                    </div>
               ) : (
-                (cd?.facts.length ?? 0) === 0
+                intelFacts.length === 0
                   ? <p className="text-[13px] text-muted-foreground/70 text-center py-12">No intel yet</p>
                   : <div className="divide-y divide-border/60">
-                      {cd!.facts.map((f, i) => (
+                      {intelFacts.map((f, i) => (
                         <div key={f.property ?? i} className="py-3">
                           <div className="flex items-baseline gap-2 mb-1">
                             <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">{prettyProp(f.property)}</span>
