@@ -240,20 +240,34 @@ contactsApiRouter.get('/:id', verifySupabaseAuth, async (req, res) => {
 
     // Buying signals — signal.* state claims written by signal-scan / record_signal.
     // One current claim per class; the same claims feed the ICP scorecard as features.
+    // Signals are company-level by nature, so a contact INHERITS its company's
+    // signals (the person rarely carries its own). Query the person entity AND its
+    // company entity, and dedupe per class with the person's own claim winning.
+    const sigEntityIds = contact.company_id ? [id, contact.company_id] : [id];
     const { data: sigRows } = await supabase.from('claims')
-      .select('property, value, confidence, computed_at')
-      .eq('entity_id', id).like('property', 'signal.%')
+      .select('entity_id, property, value, confidence, computed_at')
+      .in('entity_id', sigEntityIds).like('property', 'signal.%')
       .is('invalid_at', null)
       .order('computed_at', { ascending: false });
-    const signals = (sigRows || []).map(s => ({
-      signal_class: (s.property || '').replace(/^signal\./, ''),
-      detected:   s.value?.detected ?? null,
-      implies:    s.value?.implies ?? null,
-      score:      s.value?.score ?? null,
-      approach:   s.value?.approach ?? null,
-      angle:      s.value?.angle ?? null,
-      updated_at: s.computed_at,
-    }));
+    const byClass = new Map();
+    for (const s of (sigRows || [])) {
+      const cls = (s.property || '').replace(/^signal\./, '');
+      const isOwn = s.entity_id === id;
+      const cur = byClass.get(cls);
+      if (!cur || (isOwn && !cur._own)) {
+        byClass.set(cls, {
+          signal_class: cls,
+          detected:   s.value?.detected ?? null,
+          implies:    s.value?.implies ?? null,
+          score:      s.value?.score ?? null,
+          approach:   s.value?.approach ?? null,
+          angle:      s.value?.angle ?? null,
+          updated_at: s.computed_at,
+          _own: isOwn,
+        });
+      }
+    }
+    const signals = Array.from(byClass.values()).map(({ _own, ...s }) => s);
 
     return res.json({ contact, activities, company, memories, signals });
   } catch (err) {
