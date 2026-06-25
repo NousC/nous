@@ -11,7 +11,7 @@ export const contactsApiRouter = Router();
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const SYSTEM_TYPES = new Set(['stage_changed', 'contact_created', 'contact_updated', 'score_updated', 'enrichment_completed']);
+const SYSTEM_TYPES = new Set(['stage_changed', 'contact_created', 'contact_updated', 'score_updated', 'enrichment_completed', 'added_to_campaign']);
 
 // LinkedIn message-ish activity types (Unipile direct + sequencer webhooks). For
 // these the timeline must show the MESSAGE TEXT, never a generic "linkedin message
