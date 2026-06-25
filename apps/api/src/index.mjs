@@ -20,6 +20,7 @@ import { accountsV2Router } from './routes/v2/accounts.mjs';
 import { observationsV2Router } from './routes/v2/observations.mjs';
 import { contextV2Router } from './routes/v2/context.mjs';
 import { queryV2Router } from './routes/v2/query.mjs';
+import { reportV2Router } from './routes/v2/report.mjs';
 import { attentionV2Router } from './routes/v2/attention.mjs';
 import { verifyV2Router } from './routes/v2/verify.mjs';
 import { dedupV2Router } from './routes/v2/dedup.mjs';
@@ -137,6 +138,7 @@ app.use('/v2/accounts',        verifyApiKey,     requireOpsBalance, logV2Op, acc
 app.use('/v2/observations',    verifyApiKey,     requireOpsBalance, logV2Op, observationsV2Router);
 app.use('/v2/context',         verifyApiKey,     requireOpsBalance, logV2Op, contextV2Router);
 app.use('/v2/query',           verifyApiKey,     requireOpsBalance, logV2Op, queryV2Router);
+app.use('/v2/report',          verifyApiKey,     requireOpsBalance, logV2Op, reportV2Router);
 app.use('/v2/attention',       verifyApiKey,     requireOpsBalance, logV2Op, attentionV2Router);
 app.use('/v2/verify',          verifyApiKey,     requireOpsBalance, logV2Op, verifyV2Router);
 app.use('/v2/dedup',           verifyAuthEither, requireOpsBalance, logV2Op, dedupV2Router);
