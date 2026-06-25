@@ -153,6 +153,13 @@ function cellValue(lead: Lead, key: string): string {
   // Lead source — where this lead came from. A system column, always present.
   if (key === "__source") return lead.source ?? "";
   const v = lead.fields?.[key];
+  // Core columns (company/domain/email/linkedin) mirror the lead's top-level field
+  // when the custom field wasn't set — e.g. a "company" column should show the
+  // lead's real company even if fields.company was never written.
+  if (v == null && (key === "company" || key === "domain" || key === "email" || key === "linkedin_url")) {
+    const top = (lead as Record<string, unknown>)[key];
+    if (top != null && top !== "") return String(top);
+  }
   return v == null ? "" : String(v);
 }
 
