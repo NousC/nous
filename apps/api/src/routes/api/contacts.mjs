@@ -154,17 +154,23 @@ contactsApiRouter.get('/:id', verifySupabaseAuth, async (req, res) => {
     const { data: membership } = await supabase.from('workspace_members').select('workspace_id').eq('workspace_id', contact.workspace_id).eq('user_id', user.id).single();
     if (!membership) return res.status(403).json({ error: 'contact_not_found_or_unauthorized' });
 
-    // ICP score fallback. The contacts view's icp_score is the model PREDICTION,
-    // which stays null until the ICP model actually runs. The lead-list shows the
-    // lead's own fields.icp_score (set when a list is scored), so fall back to that
-    // here when there's no prediction — then the record-details sidebar and the
-    // lead-list show the SAME number instead of "Not scored yet" vs a value.
-    if (contact.icp_score == null) {
+    // Hybrid ICP score. The contacts view's icp_score is the MODEL prediction; the
+    // lead-list shows the lead's own fields.icp_score (the seed score from a scan).
+    // Until the scorecard is trained on real outcomes the model is thin, so we
+    // DISPLAY the seed and let the model learn quietly. Once enough icp_fit
+    // predictions have RESOLVED (closed-deal outcomes), the model has signal and we
+    // switch the displayed score to it. Keeps the sidebar and the list aligned.
+    {
+      const prediction = contact.icp_score;          // model prediction (may be null)
       const { data: fc } = await supabase.from('claims')
         .select('value').eq('entity_id', id).eq('property', 'fields').is('invalid_at', null).maybeSingle();
-      const fic = fc?.value?.icp_score ?? fc?.value?.scorecard_score;
-      const n = fic == null ? null : Number(fic);
-      if (n != null && !Number.isNaN(n)) contact.icp_score = n;
+      const sraw = fc?.value?.icp_score ?? fc?.value?.scorecard_score;
+      const seed = sraw == null || Number.isNaN(Number(sraw)) ? null : Number(sraw);
+      const { count: resolved } = await supabase.from('predictions')
+        .select('id', { count: 'exact', head: true })
+        .eq('workspace_id', contact.workspace_id).eq('kind', 'icp_fit').not('resolved_at', 'is', null);
+      const trained = (resolved ?? 0) >= 10;          // model has enough graded outcomes
+      contact.icp_score = trained ? (prediction ?? seed) : (seed ?? prediction);
     }
 
     // Activities are kind:'event' observations in the v2 substrate.
