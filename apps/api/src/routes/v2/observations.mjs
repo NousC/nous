@@ -5,6 +5,9 @@ import {
   recordObservation,
   recomputeClaim,
   detectIdentifier,
+  listSignals,
+  scoreAndStake,
+  rescoreEntityFromClaims,
 } from '@nous/core';
 
 export const observationsV2Router = Router();
@@ -81,7 +84,34 @@ observationsV2Router.post('/', async (req, res) => {
       }
     }
 
-    return res.json({ entity_id: entityId, recorded, claims_recomputed: claimsRecomputed });
+    // If a buying signal changed, (re)score the entity's ICP prediction NOW.
+    // Signals are scorecard features, but scoring was previously only triggered
+    // by the claim-engine worker — and that worker only RE-scores an entity that
+    // ALREADY has an open prediction. A fresh lead that gets signal-scanned had
+    // no prediction, so nothing ever staked one (the sidebar stayed "Not scored
+    // yet"). Here: rescore the open prediction in place, or stake one if none
+    // exists. Both gate on scoreable features (job_title/seniority/industry/…),
+    // so an unenriched lead is correctly skipped (the lead-list fields.icp_score
+    // fallback covers its sidebar). Best-effort — never block the write.
+    let icpScored = null;
+    if ([...claimsRecomputed].some(p => p.startsWith('signal.'))) {
+      try {
+        const signals = await listSignals(supabase, workspaceId);
+        if (signals.some(s => s.active)) {
+          const r = await rescoreEntityFromClaims(supabase, workspaceId, entityId, { signals });
+          if (r.status === 'no_open_prediction') {
+            const staked = await scoreAndStake(supabase, workspaceId, entityId, signals);
+            icpScored = staked ? { status: 'staked', score: staked.score } : { status: 'not_scoreable' };
+          } else {
+            icpScored = { status: r.status, score: r.to ?? null };
+          }
+        }
+      } catch (e) {
+        console.error('[POST /v2/observations] icp (re)score failed:', e.message);
+      }
+    }
+
+    return res.json({ entity_id: entityId, recorded, claims_recomputed: claimsRecomputed, icp_scored: icpScored });
   } catch (err) {
     console.error('[POST /v2/observations]', err);
     return res.status(500).json({ error: 'internal_error' });
