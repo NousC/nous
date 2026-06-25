@@ -77,8 +77,8 @@ export async function writeWorkspaceFact(supabase, workspaceId, opts = {}) {
     target = active.find(n => n.id === targetId) ?? null;
   }
 
-  // Carry the source path forward when this write doesn't supply one, so a plain
-  // update_gtm_profile edit doesn't strip the file link recorded at import time.
+  // Carry the source path forward when this write doesn't supply one, so a later
+  // section write doesn't strip the file link recorded at import time.
   // Same for the synced content hash + model version (the drift baseline) — keep
   // them unless this write supersedes them.
   const carriedPath = sourcePath || target?.metadata?.source_path || null;

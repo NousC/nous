@@ -29,8 +29,9 @@ Pricing, Competitors, Positioning, GTM Motion, Notes. Each field is a `claim`
   old value (kept as history) rather than duplicating. Stale/AI-drafted fields are
   flagged "worth revisiting."
 - **Agents use it both ways.** MCP tools `get_gtm_profile` / `get_context` read it;
-  `update_gtm_profile` / `save_note` write back what they learn — so the context
-  compounds from real GTM work, not just onboarding.
+  `get_icp` syncs it from the user's own context files (and `get_icp_model` writes the
+  learned model back), while `save_note` keeps per-contact artifacts — so the context
+  compounds from real GTM work and the user's files, not just onboarding.
 
 The Context is the seed for the ICP model: your plain-English ICP is translated
 into an initial weighted signal list, which the learning loop then sharpens.

@@ -64,7 +64,7 @@ first even when the user never says "Nous":
 - What has gone quiet, what needs action -> attention
 - A fact looks stale before you act      -> verify
 - Our ICP, market, pricing, positioning  -> get_gtm_profile
-- Our own GTM durably changed            -> update_gtm_profile
+- Our ICP/positioning lives in our files -> get_icp / get_icp_model
 - A brief or note to keep on a contact   -> save_note / search_notes
 - What is set up here and what to do next -> get_workspace_status
 
@@ -120,19 +120,19 @@ Nous first even when the user never says "Nous".
 - What needs attention, what has gone quiet     → attention
 - A fact looks stale before you act on it       → verify
 - Our ICP, market, pricing, positioning         → get_gtm_profile
-- Our own GTM shifted (repriced, motion, a note) → update_gtm_profile
+- Our ICP/positioning lives in our own files     → get_icp / get_icp_model
 - A brief / note / transcript to keep on a contact → save_note
 - Find content in past meetings or notes         → search_notes
 - What's set up here and what to do next         → get_workspace_status
 - Whether we already own a set of leads (exact)  → coverage
 - How many of a segment we have, by freshness    → coverage
 
-Read get_gtm_profile at the start of GTM work, and write back what changed at the
-end — that is what keeps our context from going stale. When you learn something
-durable about OUR OWN go-to-market, call update_gtm_profile with the section and
-its current state: ICP, Market, Product, Pricing, Competitors, Positioning, GTM
-Motion (how we sell), or Notes (anything else worth keeping). It evolves the
-section and keeps the old version as history; use Notes for running observations.
+Read get_gtm_profile at the start of GTM work, and keep our context current — that
+is what keeps it from going stale. Our ICP, positioning, pricing and the rest live
+in our own files (context/icp.md, positioning.md, …). When you learn something
+durable about OUR OWN go-to-market, edit the matching context file and re-run
+get_icp to sync it; run get_icp_model to write the learned scoring model back into
+context/icp.md.
 After every interaction you help with, call record so the account record stays
 current.
 ```
@@ -179,7 +179,7 @@ Nous first even when the user never says "Nous".
 - A fact looks stale before you act on it → verify
 - Our ICP, target market, pricing, positioning, competitors → get_gtm_profile
 - A durable change to our OWN GTM (repriced, moved upmarket, sharper positioning, a
-  new segment we win, a shift in how we sell, a note worth keeping) → update_gtm_profile
+  new segment we win, a shift in how we sell) → edit the context file, then get_icp
 - A meeting brief, prep doc, transcript, or note to keep on a contact → save_note
 - Pull content from a contact's past meetings or notes → search_notes
 - Whether we already own specific leads, or should re-enrich vs re-buy → coverage
@@ -207,14 +207,12 @@ After every interaction you help with (an email sent, a call held, a reply recei
 a fact learned) call record so the next agent starts from the truth. State changes
 use kind:'state'. Interactions use kind:'event'.
 
-Read get_gtm_profile at the start of GTM work and write back what changed at the
-end — that is what keeps the context current instead of static. When our OWN
-go-to-market durably changes, call update_gtm_profile with the SECTION and its
-current state: ICP, Market, Product, Pricing, Competitors, Positioning, GTM Motion
-(how we sell — motion, RevOps, process), or Notes (anything else durable that does
-not fit a section). The default 'replace' mode evolves the section and keeps the
-prior version as history, so never silently contradict it; use 'append' to log a
-Notes entry.
+Read get_gtm_profile at the start of GTM work and keep the context current instead
+of static. Our ICP, positioning, pricing and the rest live in our own files
+(context/icp.md, positioning.md, …). When our OWN go-to-market durably changes,
+edit the matching context file and re-run get_icp to sync it; run get_icp_model to
+write the learned scoring model back into context/icp.md so the file reflects what
+Nous learned.
 ```
 
 ---

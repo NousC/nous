@@ -19,7 +19,6 @@
  *   attention            — what needs your attention (accounts gone quiet, facts decayed)
  *   verify               — re-check a fact before acting on it
  *   get_gtm_profile      — the user's GTM profile (ICP, market, pricing, product, competitors)
- *   update_gtm_profile   — write back a change to a GTM context section (evolve, keep history)
  *   save_note            — attach a note/document (meeting brief, transcript, prep) to a contact
  *   search_notes         — semantic search over saved notes & documents
  *   get_workspace_status — what's set up in this workspace + a ranked next_steps list (call first)
@@ -44,7 +43,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { get, post } from "./client.js";
 
-export const SERVER_VERSION = "0.38.0";
+export const SERVER_VERSION = "0.39.0";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -117,8 +116,8 @@ Nous first even when the user never says "Nous":
 - Your action items / what you owe an account    -> get_action_items
 - A fact looks stale before you act on it       -> verify
 - Our ICP, market, pricing, positioning         -> get_gtm_profile
-- Our ICP lives in a file (sync it / learn it)  -> get_icp / get_icp_model
-- Our own GTM shifted                           -> update_gtm_profile
+- Our ICP/positioning lives in our own files    -> get_icp (file → graph) / get_icp_model (graph → file)
+- Our own GTM shifted (repriced, repositioned)  -> edit the context file, then re-run get_icp
 - A brief / note / transcript on a contact      -> save_note / search_notes
 - What's set up here and what to do next        -> get_workspace_status
 
@@ -628,41 +627,11 @@ export function createServer() {
   };
   server.tool("get_gtm_profile", gtmProfileDescription, gtmProfileSchema, gtmProfileHandler);
 
-  // ===========================================================================
-  // TOOL: update_gtm_profile  —  POST /v2/workspace/facts
-  // Write-back: the agent records a durable change to the user's OWN GTM profile
-  // and EVOLVES the matching belief (supersede + keep history) instead of piling
-  // up contradictions. This is the loop that keeps the context current as the
-  // company learns — pair it with get_gtm_profile.
-  // ===========================================================================
-  server.tool(
-    "update_gtm_profile",
-    "Keep a SECTION of the user's OWN GTM context current. Each section is a living file: ICP, " +
-    "Market, Product, Pricing, Competitors, Positioning (these feed the ICP scoring model), plus " +
-    "'GTM Motion' (how they sell — motion, RevOps, process) and 'Notes' (a running log for anything " +
-    "else durable about their GTM that doesn't fit the others). Use this whenever the user states or " +
-    "you learn a lasting change to how THEY go to market — repriced, moved upmarket, sharpened " +
-    "positioning, changed their motion, won a new segment, or a useful note about how they operate. " +
-    "This is NOT for facts about a prospect or account (use `record` for those). " +
-    "Rules: keep content short and current — a sentence or two, not an essay. In the default 'replace' " +
-    "mode the section EVOLVES (the old version is kept as history, never silently contradicted), so " +
-    "just write the section's current state. Use 'append' mode to log a Notes entry without replacing. " +
-    "Nous is the source of truth for the GTM context — write back here instead of keeping a local file.",
-    {
-      section: z.enum(["ICP", "Market", "Product", "Pricing", "Competitors", "Positioning", "GTM Motion", "Notes"])
-        .describe("Which section of the GTM context this updates."),
-      content: z.string().describe("The section's current content — short and current, not an essay."),
-      mode: z.enum(["replace", "append"]).optional()
-        .describe("'replace' (default) evolves the section and keeps the prior version as history. 'append' logs a new entry without replacing — the default for Notes."),
-      supersedes: z.string().optional()
-        .describe("Optional id of a specific existing fact to replace (overrides section matching)."),
-    },
-    async ({ section, content, mode, supersedes }) => {
-      const r = await post("/v2/workspace/facts", { section, content, mode, supersedes });
-      const verb = r.mode === "append" ? "Logged to" : r.superseded ? "Updated" : "Recorded";
-      return { content: [{ type: "text", text: `${verb} ${section}: ${content}` }] };
-    },
-  );
+  // The GTM context is no longer written through a dedicated MCP tool. In the file
+  // symbiosis model the user's own files (context/icp.md, positioning.md, …) are
+  // the source of truth: the agent edits those with its own file tools and calls
+  // `get_icp` to sync them into the graph (and `get_icp_model` to write the learned
+  // model back). The shared POST /v2/workspace/facts route still backs that import.
 
   // ===========================================================================
   // TOOL: save_note  —  POST /v2/notes
@@ -680,7 +649,7 @@ export function createServer() {
     "Notes are append-only and dated, so a contact builds a record across meetings — later you can " +
     "read the last few and see what changed. This is NOT for logging that an interaction happened " +
     "(use `record` with an interaction.* event for that), and NOT for the user's own GTM profile " +
-    "(use `update_gtm_profile`). Put the full text in `content` — it's kept for agents to read; the " +
+    "(that lives in their context files — sync it with `get_icp`). Put the full text in `content` — it's kept for agents to read; the " +
     "UI shows the title and date, not the whole body.",
     {
       focus: z.string().describe("Who to attach it to — an email, LinkedIn URL, domain, or entity UUID (not a bare name)."),
@@ -826,9 +795,11 @@ export function createServer() {
     "IMPORTANT for the ICP: before asking the user to describe their ICP from scratch, if you're in " +
     "Claude Code, look for an ICP they ALREADY wrote — folders like context/, .claude/, gtm/ and files " +
     "named icp*, positioning*, pricing*, competitors*. If you find them, read them and call get_icp to " +
-    "sync them (don't retype the ICP here); if none exists, offer to create context/icp.md from the " +
-    "conversation, then get_icp it — so their ICP lives in their repo. " +
-    "After this, the next step is usually the GTM playbook (update_gtm_profile) or get_icp.",
+    "sync them (don't retype the ICP here); if none exists, scaffold a context/ folder (icp.md, " +
+    "positioning.md, pricing.md, market.md, competitors.md, gtm-motion.md) from the conversation + your " +
+    "site research, then get_icp it — so their ICP lives in their repo. (Not in Claude Code? Capture a " +
+    "first cut in the `icp` field here instead.) " +
+    "After this, the next step is the context files: call get_icp to sync them into the graph.",
     {
       name: z.string().optional().describe("The user's company / workspace name."),
       website: z.string().optional().describe("The company website (used to seed the GTM context)."),
@@ -852,25 +823,26 @@ export function createServer() {
       ].filter(Boolean);
       return { content: [{ type: "text", text:
         `Workspace profile saved.${set.length ? ` ${set.join(" · ")}.` : ""}\n` +
-        `Next: call get_workspace_status to see what to set up next (usually the GTM playbook).` }] };
+        `Next: call get_workspace_status to see what to set up next (usually syncing the ICP/context files with get_icp).` }] };
     }
   );
 
   // ===========================================================================
   // TOOL: build_scoring_model  —  POST /v2/workspace/scoring-model
-  // The second half of building the GTM playbook. The agent records the GTM
-  // context with update_gtm_profile, then calls this to turn it into a weighted
+  // The second half of building the GTM playbook. The agent syncs the GTM context
+  // from the user's files with get_icp, then calls this to turn it into a weighted
   // ICP scoring model. After this, accounts get scored for fit and
   // get_workspace_status shows the playbook as done.
   // ===========================================================================
   server.tool(
     "build_scoring_model",
-    "Build (or rebuild) the user's ICP scoring model from the GTM context they've recorded. This is " +
-    "the second half of setting up the GTM playbook: first record the ICP and how they sell with " +
-    "update_gtm_profile, then call this to translate that context into a weighted set of scoring " +
-    "signals so accounts get scored for fit. If a model already exists it is left alone unless you " +
-    "pass force:true (use that when the GTM context has changed and the model should be rebuilt). If " +
-    "it reports no GTM context yet, record some with update_gtm_profile first, then call this again. " +
+    "Build (or rebuild) the user's ICP scoring model from their synced GTM context. This is " +
+    "the second half of setting up the GTM playbook: first sync the user's ICP/positioning/pricing " +
+    "files with get_icp, then call this to translate that context into a weighted set of scoring " +
+    "signals so accounts get scored for fit. (get_icp usually builds the model on first sync, so you " +
+    "often won't need this directly.) If a model already exists it is left alone unless you " +
+    "pass force:true (use that when the context files have changed and the model should be rebuilt). If " +
+    "it reports no GTM context yet, sync the user's context files with get_icp first, then call this again. " +
     "STRONGER than this tool: if the user can name a few closed-WON and closed-LOST customer domains, " +
     "call record_closed_deals instead (or as well) — it trains the model on real outcomes via " +
     "contrastive lift, which beats a model inferred from a description.",
@@ -892,7 +864,7 @@ export function createServer() {
         const msg = String(e?.message ?? e);
         if (msg.includes("no_gtm_context")) {
           return { content: [{ type: "text", text:
-            "No GTM context recorded yet. Record the ICP and how they sell with update_gtm_profile first, then build the model." }] };
+            "No GTM context yet. Sync the user's ICP/context files with get_icp first (or scaffold context/icp.md, then get_icp), then build the model." }] };
         }
         if (msg.includes("model_exists")) {
           return { content: [{ type: "text", text:
@@ -966,10 +938,13 @@ export function createServer() {
     "If one file holds several sections under headers, split it by header into multiple entries. " +
     "Nous keeps a served copy of the prose and rebuilds the ICP scoring model from it; " +
     "the recorded source_path is what get_icp_model writes the learned model back into. " +
-    "IF NO ICP FILE EXISTS: don't invent one in Nous. Offer to create `context/icp.md` from what the user " +
-    "tells you (write it with your file tools), then call this on that file — so their ICP lives in their " +
-    "repo where they'll keep editing it. Re-run this after the user edits an ICP file to re-sync. The ICP " +
-    "section's source_path matters most (it's the write-back target).",
+    "IF NO ICP FILES EXIST: don't invent context in Nous. Offer to SCAFFOLD a context/ folder in their " +
+    "repo — context/icp.md, positioning.md, pricing.md, market.md, competitors.md, gtm-motion.md — " +
+    "filled from what the user tells you plus your own research of their website (write them with your " +
+    "file tools), then call this on those files — so their GTM context lives in their repo where they'll " +
+    "keep editing it. At minimum create context/icp.md if that's all they'll give you. Re-run this after " +
+    "the user edits any context file to re-sync. The ICP section's source_path matters most (it's the " +
+    "write-back target for get_icp_model).",
     {
       sections: z.array(z.object({
         section: z.enum(["ICP", "Market", "Product", "Pricing", "Competitors", "Positioning", "GTM Motion", "Notes"])
