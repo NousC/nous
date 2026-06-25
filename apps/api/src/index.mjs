@@ -13,7 +13,7 @@ import { verifySupabaseAuth } from './middleware/supabaseAuth.mjs';
 import { verifyAuthEither } from './middleware/authEither.mjs';
 import { requireAdmin } from './middleware/requireAdmin.mjs';
 import { logV2Op } from './middleware/opLogger.mjs';
-import { requireFeature, requireOpsBalance } from './lib/access.mjs';
+import { requireFeature, requireOpsBalance, blockOnSelfHost } from './lib/access.mjs';
 
 // v2 — Context API (evidence substrate)
 import { accountsV2Router } from './routes/v2/accounts.mjs';
@@ -143,6 +143,10 @@ app.use('/v2/attention',       verifyApiKey,     requireOpsBalance, logV2Op, att
 app.use('/v2/verify',          verifyApiKey,     requireOpsBalance, logV2Op, verifyV2Router);
 app.use('/v2/dedup',           verifyAuthEither, requireOpsBalance, logV2Op, dedupV2Router);
 app.use('/v2/workspace/facts', verifyApiKey,     requireOpsBalance, logV2Op, workspaceFactsV2Router);
+// Event triggers (set_trigger / list_triggers) are a Cloud-only feature — block
+// them on self-host. Mounted BEFORE the general /v2/workspace router so this more
+// specific path runs first; on cloud it falls through to the real handler.
+app.use('/v2/workspace/triggers', blockOnSelfHost('triggers'));
 // Mounted AFTER /v2/workspace/facts so the more specific facts route wins; this
 // handles /v2/workspace/status (GET) and /v2/workspace/onboarding (POST).
 app.use('/v2/workspace',       verifyApiKey,     requireOpsBalance, logV2Op, workspaceStatusV2Router);
@@ -182,11 +186,11 @@ app.use('/api/workspace/api-keys',    verifySupabaseAuth, apiKeysRouter);
 // approve + request routes apply verifySupabaseAuth themselves.
 app.use('/api/cli/auth',              cliAuthRouter);
 app.use('/api/workspace/memories',    verifySupabaseAuth, workspaceMemoriesRouter);
-app.use('/api/playground',            playgroundRouter);
+app.use('/api/playground',            blockOnSelfHost('playground'), playgroundRouter);
 app.use('/api/mind',                  verifySupabaseAuth, mindRouter);
 app.use('/api/lead-lists',            verifyAuthEither, requireFeature('leadLists'), leadListsRouter);
 app.use('/api/campaign-messages',     verifyAuthEither, requireFeature('leadLists'), campaignMessagesRouter);
-app.use('/api/triggers',              verifyAuthEither, triggersRouter);
+app.use('/api/triggers',              verifyAuthEither, blockOnSelfHost('triggers'), triggersRouter);
 app.use('/api/webhooks',              verifySupabaseAuth, webhooksRouter);
 app.use('/api/workflow-providers',    verifySupabaseAuth, workflowProvidersRouter);
 // LinkedIn action endpoints — invite/message/sync (Supabase JWT, workspaceId in body),

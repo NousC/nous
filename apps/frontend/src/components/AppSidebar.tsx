@@ -215,6 +215,10 @@ export function AppSidebar() {
   const visibleBottomNavItems = selfHosted
     ? bottomNavItems.filter((i) => i.url !== "/usage")
     : bottomNavItems;
+  // Triggers + the Playground are Cloud-only — drop them from Setup on self-host.
+  const visibleSetupItems = selfHosted
+    ? setupItems.filter((i) => i.url !== "/triggers" && i.url !== "/playground")
+    : setupItems;
 
   const isItemActive = (url: string) => {
     if (url === "/") return location.pathname === "/";
@@ -310,7 +314,7 @@ export function AppSidebar() {
             the rest live one click away once the sidebar is expanded. */}
         {(setupOpen || collapsed) && (
           <ul className="flex flex-col gap-0.5 mt-0.5">
-            {(collapsed ? setupItems.slice(0, 1) : setupItems).map(renderNavItem)}
+            {(collapsed ? visibleSetupItems.slice(0, 1) : visibleSetupItems).map(renderNavItem)}
           </ul>
         )}
       </nav>

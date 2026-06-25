@@ -61,9 +61,10 @@ export async function resolveTeamAndPlan(req) {
 // Features that are NOT available on self-host (cloud-only). Self-host gets the
 // open primitive — the customer graph, identity resolution, get_context /
 // get_account / query, verify, record, MCP, integrations, AND the ICP scoring
-// model — unmetered. The team layer (CRM sync, lead lists) is reserved for Nous
-// Cloud and is the OSS→cloud conversion lever. Add governance/enterprise features here later.
-const CLOUD_ONLY_FEATURES = new Set(['crmSync', 'leadLists']);
+// model — unmetered. The team/managed layer (CRM sync, lead lists, the event
+// triggers, and the hosted playground) is reserved for Nous Cloud and is the
+// OSS→cloud conversion lever. Add governance/enterprise features here later.
+const CLOUD_ONLY_FEATURES = new Set(['crmSync', 'leadLists', 'triggers', 'playground']);
 
 export function requireFeature(feature) {
   return async function requireFeatureMiddleware(req, res, next) {
@@ -93,6 +94,28 @@ export function requireFeature(feature) {
       console.error('[requireFeature]', feature, err);
       return res.status(500).json({ error: 'internal_error' });
     }
+  };
+}
+
+/**
+ * Express middleware. Blocks a cloud-only route on SELF-HOST only; cloud always
+ * passes through. Unlike requireFeature, it never resolves the team/plan, so it
+ * is safe on routes that have no auth context yet (e.g. the playground) — it
+ * checks isSelfHosted() against CLOUD_ONLY_FEATURES and nothing else.
+ *
+ * Usage:
+ *   app.use('/api/triggers', verifyAuthEither, blockOnSelfHost('triggers'), triggersRouter);
+ */
+export function blockOnSelfHost(feature) {
+  return function blockOnSelfHostMiddleware(req, res, next) {
+    if (isSelfHosted() && CLOUD_ONLY_FEATURES.has(feature)) {
+      return res.status(403).json({
+        error: 'cloud_only_feature',
+        feature,
+        message: `${feature} is available on Nous Cloud only.`,
+      });
+    }
+    return next();
   };
 }
 

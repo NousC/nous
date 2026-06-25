@@ -138,9 +138,11 @@ export function AppRoutes() {
           Lives outside StandardLayout so the chat + tool-trace UI gets the
           full viewport, matching the Mem0 playground pattern. */}
       <Route path="/playground" element={
-        <div className="h-screen w-full bg-background overflow-hidden">
-          <Suspense fallback={<MinimalLoader />}><Playground /></Suspense>
-        </div>
+        <CloudOnly>
+          <div className="h-screen w-full bg-background overflow-hidden">
+            <Suspense fallback={<MinimalLoader />}><Playground /></Suspense>
+          </div>
+        </CloudOnly>
       } />
 
       {/* Standard layout — sidebar + conditional header */}
@@ -157,7 +159,7 @@ export function AppRoutes() {
             <Route path="/keys"       element={<Suspense fallback={<MinimalLoader />}><ApiKeys /></Suspense>} />
             {/* Main nav */}
             <Route path="/webhooks"   element={<Suspense fallback={<MinimalLoader />}><Webhooks /></Suspense>} />
-            <Route path="/triggers"   element={<Suspense fallback={<MinimalLoader />}><Triggers /></Suspense>} />
+            <Route path="/triggers"   element={<CloudOnly><Suspense fallback={<MinimalLoader />}><Triggers /></Suspense></CloudOnly>} />
 
             <Route path="/billing" element={<Suspense fallback={<MinimalLoader />}><UsageBilling /></Suspense>} />
             <Route path="/usage" element={<CloudOnly><Suspense fallback={<MinimalLoader />}><UsageBilling /></Suspense></CloudOnly>} />
