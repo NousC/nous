@@ -138,7 +138,7 @@ export async function scoreAndStake(
   // don't record a hollow 0. It will be picked up once enrichment lands.
   if (!hasScoreableFeature(features)) return null;
 
-  const { score, fit, reason, fired } = scoreToPrediction(features, signals);
+  const { score, fit, reason, fired, firedSignals } = scoreToPrediction(features, signals);
 
   const { data, error } = await supabase
     .from('predictions')
@@ -149,6 +149,7 @@ export async function scoreAndStake(
       predicted_value: { score, fit, reason },
       predicted_confidence: score / 100,
       feature_snapshot: snapshot,
+      fired_signals: firedSignals,   // the exact signals that fired — labels the episode
       model_version: modelVersion(signals),
     })
     .select('id')

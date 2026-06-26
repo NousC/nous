@@ -4,14 +4,17 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 // Triggers — outbound webhooks. Nous tells the user's workflow ("n8n, Claude
 // routine, custom backend") that something happened on the Account Record.
 //
-// V1 scope is interactions only (charter decision). Six event types. The
-// catalog is the contract; do not rename without a migration.
+// V1 scope is interactions only (charter decision). Eight event types. The
+// catalog is the contract; do not rename without a migration. Adding events is
+// additive and safe — a send fires nothing unless a subscriber asks for it.
 
 export const TRIGGER_EVENTS = [
   'interaction.email_received',          // a reply landed (Instantly/Smartlead/EmailBison/Lemlist)
   'interaction.email_bounced',           // bounce or unsubscribe
+  'interaction.email_sent',              // WE sent an email (any connected sender / Gmail)
   'interaction.linkedin_connection_accepted',
   'interaction.linkedin_message_received',
+  'interaction.linkedin_message_sent',   // WE sent a LinkedIn message (HeyReach/Lemlist/Unipile)
   'interaction.meeting_scheduled',       // Calendly / Cal.com
   'interaction.meeting_held',            // Fireflies / Fathom
 ] as const;
@@ -25,6 +28,8 @@ export type TriggerEvent = typeof TRIGGER_EVENTS[number];
 const TRIGGERED_ACTIVITY_TYPES: Record<string, TriggerEvent> = {
   email_received:                'interaction.email_received',
   email_bounced:                 'interaction.email_bounced',
+  email_sent:                    'interaction.email_sent',
+  linkedin_message_sent:         'interaction.linkedin_message_sent',
   linkedin_connection_accepted:  'interaction.linkedin_connection_accepted',
   // Every accept-detection path (new_relation webhook, message-inferred,
   // invite-poll + full sync) logs the activity type `linkedin_connected` — so

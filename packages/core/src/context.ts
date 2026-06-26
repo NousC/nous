@@ -3,6 +3,7 @@ import { getClaims } from './db/claims.js';
 import { getObservations, type Observation } from './db/observations.js';
 import { collapseMeetingDupes } from './db/activities.js';
 import { listNotes } from './db/notes.js';
+import { classifyBuyingRole, asBuyingRole, type BuyingRole } from './buyingRole.js';
 
 // The Context API's assembly layer. assembleContext() runs the pipeline —
 // retrieve → rank → connect → compress → tag → budget — and returns an
@@ -81,7 +82,7 @@ export interface TimelineItem {
   when: string; type: string; tier: 'full' | 'brief' | 'count';
   summary?: string | null; count?: number;
 }
-export interface Stakeholder { entity_id: string; name: string | null; role: string | null; }
+export interface Stakeholder { entity_id: string; name: string | null; role: string | null; buying_role: BuyingRole | null; }
 
 export interface AssembledContext {
   entity: { id: string; type: string };
@@ -301,7 +302,7 @@ async function loadStakeholders(
     .select('entity_id, property, value')
     .eq('workspace_id', workspaceId)
     .in('entity_id', ids)
-    .in('property', ['name', 'first_name', 'last_name', 'job_title']);
+    .in('property', ['name', 'first_name', 'last_name', 'job_title', 'buying_role']);
 
   const byEntity = new Map<string, Record<string, unknown>>();
   for (const c of claimRows ?? []) {
@@ -317,11 +318,13 @@ async function loadStakeholders(
   };
 
   const stakeholders: Stakeholder[] = [
-    { entity_id: companyId, name: nameOf(companyId), role: 'company' },
+    { entity_id: companyId, name: nameOf(companyId), role: 'company', buying_role: null },
   ];
   for (const id of colleagueIds) {
-    const role = byEntity.get(id)?.job_title;
-    stakeholders.push({ entity_id: id, name: nameOf(id), role: (role as string) ?? 'contact' });
+    const title = byEntity.get(id)?.job_title;
+    // A stored buying_role claim (agent/user-set) wins; otherwise infer from title.
+    const buying_role = asBuyingRole(byEntity.get(id)?.buying_role) ?? classifyBuyingRole(title);
+    stakeholders.push({ entity_id: id, name: nameOf(id), role: (title as string) ?? 'contact', buying_role });
   }
   return stakeholders;
 }
