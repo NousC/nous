@@ -413,6 +413,60 @@ CREATE TRIGGER scorecard_signals_touch BEFORE UPDATE ON scorecard_signals
 
 
 -- ============================================================
+-- 7c. PLAYBOOKS  — the policy layer (rules every agent obeys)
+--
+-- The four foundation playbooks (voice, outreach, icp, positioning)
+-- agents read BEFORE they act, via get_playbook. One row per kind
+-- per workspace. Runtime-agnostic: a row can mirror a Claude Code
+-- file (source 'claude_code', file_path set) or be authored in Nous
+-- (source 'nous'). updated_at is set by the app on write.
+-- ============================================================
+
+CREATE TABLE playbooks (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  workspace_id UUID NOT NULL,
+  kind         TEXT NOT NULL CHECK (kind IN ('voice','outreach','icp','positioning')),
+  title        TEXT NOT NULL,
+  body_md      TEXT NOT NULL DEFAULT '',
+  source       TEXT NOT NULL DEFAULT 'nous' CHECK (source IN ('nous','claude_code')),
+  file_path    TEXT,
+  content_hash TEXT,
+  version      INTEGER NOT NULL DEFAULT 1,
+  synced_at    TIMESTAMPTZ,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (workspace_id, kind)
+);
+CREATE INDEX playbooks_workspace_idx ON playbooks(workspace_id);
+
+
+-- ============================================================
+-- 7d. REPORTS  — generated cross-channel funnel / campaign reports
+--
+-- Saved markdown reports (optionally scoped to a lead list or a
+-- sequencer campaign), opened full-page in the app. metrics_json
+-- holds the structured numbers behind the prose.
+-- ============================================================
+
+CREATE TABLE reports (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  workspace_id UUID NOT NULL,
+  lead_list_id UUID,
+  provider     TEXT,
+  campaign_id  TEXT,
+  title        TEXT NOT NULL,
+  period_from  TIMESTAMPTZ,
+  period_to    TIMESTAMPTZ,
+  markdown     TEXT NOT NULL,
+  metrics_json JSONB,
+  generated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX reports_ws_idx ON reports(workspace_id, generated_at DESC);
+CREATE INDEX reports_list_idx ON reports(lead_list_id, generated_at DESC);
+
+
+-- ============================================================
 -- 7b. WORKER RUNS  — transparency on the compound-intelligence loop
 --
 -- Every nightly/periodic worker writes a row after each invocation
