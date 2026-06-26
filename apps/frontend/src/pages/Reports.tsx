@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { FileBarChart } from "lucide-react";
 
 const apiUrl = import.meta.env.VITE_API_URL ?? "";
 
@@ -37,13 +36,7 @@ export default function Reports() {
   return (
     <div className="flex flex-col h-full bg-background">
       <div className="px-8 pt-7 pb-4">
-        <div className="flex items-center gap-2 mb-1">
-          <FileBarChart className="h-[18px] w-[18px] text-foreground" />
-          <h1 className="text-[20px] font-semibold tracking-tight text-foreground">Reports</h1>
-        </div>
-        <p className="text-[13px] text-muted-foreground pl-[26px]">
-          Weekly campaign audits — the platform's totals married with Nous's resolved, signal-attributed intelligence.
-        </p>
+        <h1 className="text-[20px] font-semibold tracking-tight text-foreground">Reports</h1>
       </div>
       <div className="flex-1 overflow-auto px-8 pb-8">
         {loading ? (
@@ -61,7 +54,6 @@ export default function Reports() {
                 title="Open report in a new tab"
                 className="w-full text-left flex items-center gap-4 px-1 py-3.5 hover:bg-muted/40 transition-colors"
               >
-                <FileBarChart className="h-4 w-4 text-muted-foreground/60 flex-shrink-0" />
                 <span className="text-[14px] font-medium text-foreground/90 flex-1 truncate">{r.title}</span>
                 {r.metrics_json?.totals && (
                   <span className="text-[12px] text-muted-foreground hidden sm:inline">
