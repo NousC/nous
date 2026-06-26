@@ -151,6 +151,19 @@ contactsApiRouter.get('/:id', verifySupabaseAuth, async (req, res) => {
       };
     }
 
+    // Cold leads aren't in the contacts view → company_id is null. Resolve the
+    // COMPANY entity from the lead's domain so the person INHERITS the company's
+    // signals (company-class signals live on the company entity, not the person).
+    if (!contact.company_id && contact.domain) {
+      const { data: idRows } = await supabase.from('entity_identifiers')
+        .select('entity_id')
+        .eq('workspace_id', contact.workspace_id).eq('kind', 'domain').eq('value', contact.domain);
+      for (const r of (idRows || [])) {
+        const { data: e } = await supabase.from('entities').select('id, type').eq('id', r.entity_id).maybeSingle();
+        if (e?.type === 'company') { contact.company_id = e.id; break; }
+      }
+    }
+
     const { data: membership } = await supabase.from('workspace_members').select('workspace_id').eq('workspace_id', contact.workspace_id).eq('user_id', user.id).single();
     if (!membership) return res.status(403).json({ error: 'contact_not_found_or_unauthorized' });
 
