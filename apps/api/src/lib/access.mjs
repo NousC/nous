@@ -62,9 +62,9 @@ export async function resolveTeamAndPlan(req) {
 // open primitive — the customer graph, identity resolution, get_context /
 // get_account / query, verify, record, MCP, integrations, AND the ICP scoring
 // model — unmetered. The team/managed layer (CRM sync, lead lists, the event
-// triggers, and the hosted playground) is reserved for Nous Cloud and is the
-// OSS→cloud conversion lever. Add governance/enterprise features here later.
-const CLOUD_ONLY_FEATURES = new Set(['crmSync', 'leadLists', 'triggers', 'playground']);
+// triggers, the hosted playground, and reports) is reserved for Nous Cloud and is
+// the OSS→cloud conversion lever. Add governance/enterprise features here later.
+const CLOUD_ONLY_FEATURES = new Set(['crmSync', 'leadLists', 'triggers', 'playground', 'reports']);
 
 export function requireFeature(feature) {
   return async function requireFeatureMiddleware(req, res, next) {

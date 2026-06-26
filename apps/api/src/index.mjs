@@ -141,7 +141,7 @@ app.use('/v2/accounts',        verifyApiKey,     requireOpsBalance, logV2Op, acc
 app.use('/v2/observations',    verifyApiKey,     requireOpsBalance, logV2Op, observationsV2Router);
 app.use('/v2/context',         verifyApiKey,     requireOpsBalance, logV2Op, contextV2Router);
 app.use('/v2/query',           verifyApiKey,     requireOpsBalance, logV2Op, queryV2Router);
-app.use('/v2/report',          verifyApiKey,     requireOpsBalance, logV2Op, reportV2Router);
+app.use('/v2/report',          verifyApiKey,     blockOnSelfHost('reports'), requireOpsBalance, logV2Op, reportV2Router);
 app.use('/v2/attention',       verifyApiKey,     requireOpsBalance, logV2Op, attentionV2Router);
 app.use('/v2/verify',          verifyApiKey,     requireOpsBalance, logV2Op, verifyV2Router);
 app.use('/v2/dedup',           verifyAuthEither, requireOpsBalance, logV2Op, dedupV2Router);
