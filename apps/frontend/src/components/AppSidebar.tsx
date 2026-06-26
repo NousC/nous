@@ -12,6 +12,7 @@ import {
   Zap,
   Brain,
   List,
+  FileBarChart,
   Lock,
   CreditCard,
   BookOpen,
@@ -55,6 +56,8 @@ const mainNavItems: NavItem[] = [
 // Surfaces rendered inline under Accounts. Lists (lead database) is open on
 // self-host and Pro+ on cloud.
 const listsNavItem: NavItem  = { title: "Lists",    url: "/lists",    icon: List     };
+// Reports — campaign audits, cloud-only (same gate as Lists).
+const reportsNavItem: NavItem = { title: "Reports",  url: "/reports",  icon: FileBarChart };
 
 // Bottom navigation — Settings is reached via the profile button below.
 const bottomNavItems: NavItem[] = [
@@ -454,6 +457,7 @@ export function AppSidebar() {
               )}
             </li>
           ))}
+          {showCloudFeatures && renderNavItem(reportsNavItem)}
         </ul>
       </nav>
 

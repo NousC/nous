@@ -53,6 +53,7 @@ const UsageBilling    = lazyWithErrorBoundary(() => import("@/pages/UsageBilling
 const Inbox           = lazyWithErrorBoundary(() => import("@/pages/Inbox"));
 const Intelligence    = lazyWithErrorBoundary(() => import("@/pages/Intelligence"));
 const Lists           = lazyWithErrorBoundary(() => import("@/pages/Lists"));
+const Reports         = lazyWithErrorBoundary(() => import("@/pages/Reports"));
 const CleanList       = lazyWithErrorBoundary(() => import("@/pages/CleanList"));
 const NotFound        = lazyWithErrorBoundary(() => import("@/pages/NotFound"));
 const ConnectGate     = lazyWithErrorBoundary(() => import("@/pages/ConnectGate"));
@@ -175,6 +176,7 @@ export function AppRoutes() {
             <Route path="/companies/:id" element={<Suspense fallback={<MinimalLoader />}><Companies /></Suspense>} />
             <Route path="/integrations"  element={<Suspense fallback={<MinimalLoader />}><Integrations /></Suspense>} />
             <Route path="/lists"         element={<CloudOnly><Suspense fallback={<MinimalLoader />}><Lists /></Suspense></CloudOnly>} />
+            <Route path="/reports"       element={<CloudOnly><Suspense fallback={<MinimalLoader />}><Reports /></Suspense></CloudOnly>} />
             <Route path="/lists/clean"   element={<CloudOnly><Suspense fallback={<MinimalLoader />}><CleanList /></Suspense></CloudOnly>} />
             {/* Each list on its own page — /lists/:listId. (Static /lists/clean
                 above wins over this param route in React Router v6.) */}

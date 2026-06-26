@@ -75,7 +75,7 @@ reportV2Router.post('/', async (req, res) => {
   try {
     const supabase = getSupabaseClient();
     const ws = req.workspaceId;
-    const { window: win = {}, group_by = [], campaign_id } = req.body || {};
+    const { window: win = {}, group_by = [], campaign_id, lead_list_id } = req.body || {};
     const dims = (Array.isArray(group_by) ? group_by : [group_by]).filter(Boolean);
 
     const to = win.to ? new Date(win.to) : new Date();
@@ -103,6 +103,16 @@ reportV2Router.post('/', async (req, res) => {
     const truncated = rows.length > FETCH_CAP;
     if (truncated) rows = rows.slice(0, FETCH_CAP);
     if (campaign_id) rows = rows.filter(o => (o.raw?.campaign_id ?? null) === campaign_id);
+
+    // Scope to a lead list (= a campaign): keep only events on that list's leads.
+    // The list's entity ids == lead ids; filter the obs to that set in JS so a
+    // 2k-id `.in()` never blows the query-string limit.
+    if (lead_list_id) {
+      const { data: listLeads } = await supabase
+        .from('leads').select('id').eq('workspace_id', ws).eq('lead_list_id', lead_list_id).limit(50000);
+      const inList = new Set((listLeads || []).map(l => l.id));
+      rows = rows.filter(o => inList.has(o.entity_id));
+    }
 
     const totals = tally(rows);
 

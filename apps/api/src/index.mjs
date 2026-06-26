@@ -48,6 +48,7 @@ import { opsEmailsRouter } from './routes/opsEmails.mjs';
 import { integrationsRouter } from './routes/api/integrations.mjs';
 import { crmRouter } from './routes/api/crm.mjs';
 import { contactsApiRouter } from './routes/api/contacts.mjs';
+import { reportsApiRouter } from './routes/api/reports.mjs';
 import { companiesApiRouter } from './routes/api/companies.mjs';
 import { signalsRouter, publicSignalsRouter } from './routes/api/signals.mjs';
 import { skillDownloadsRouter } from './routes/public/skillDownloads.mjs';
@@ -191,6 +192,7 @@ app.use('/api/mind',                  verifySupabaseAuth, mindRouter);
 app.use('/api/lead-lists',            verifyAuthEither, requireFeature('leadLists'), leadListsRouter);
 app.use('/api/campaign-messages',     verifyAuthEither, requireFeature('leadLists'), campaignMessagesRouter);
 app.use('/api/triggers',              verifyAuthEither, blockOnSelfHost('triggers'), triggersRouter);
+app.use('/api/reports',               blockOnSelfHost('reports'), reportsApiRouter);
 app.use('/api/webhooks',              verifySupabaseAuth, webhooksRouter);
 app.use('/api/workflow-providers',    verifySupabaseAuth, workflowProvidersRouter);
 // LinkedIn action endpoints — invite/message/sync (Supabase JWT, workspaceId in body),
