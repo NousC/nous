@@ -220,15 +220,16 @@ interface EmitParams {
 
 async function maybeEnqueueTrigger(supabase: SupabaseClient, p: EmitParams): Promise<void> {
   try {
-    const eventType = triggerEventForActivity(p.activityType);
+    let eventType = triggerEventForActivity(p.activityType);
     if (!eventType) return;
 
-    // The direct LinkedIn (Unipile) integration writes ALL messages — both
-    // inbound and outbound — as activityType=linkedin_message with the
-    // direction stashed in rawData. The trigger is "message received", so
-    // skip outbound. HeyReach's linkedin_message_received is already
-    // inbound-only and never hits this branch.
-    if (p.activityType === 'linkedin_message' && p.rawData?.is_outbound === true) return;
+    // The direct LinkedIn (Unipile) integration writes BOTH inbound and outbound
+    // as activityType=linkedin_message, with the direction in rawData. Split it:
+    // an outbound one fires the SENT event, not RECEIVED. (HeyReach/Lemlist log
+    // the explicit linkedin_message_sent type, which the map already routes.)
+    if (p.activityType === 'linkedin_message' && p.rawData?.is_outbound === true) {
+      eventType = 'interaction.linkedin_message_sent';
+    }
 
     const person = await buildPersonSnapshot(supabase, p.workspaceId, p.entityId);
 

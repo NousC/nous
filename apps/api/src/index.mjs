@@ -23,6 +23,7 @@ import { queryV2Router } from './routes/v2/query.mjs';
 import { reportV2Router } from './routes/v2/report.mjs';
 import { attentionV2Router } from './routes/v2/attention.mjs';
 import { verifyV2Router } from './routes/v2/verify.mjs';
+import { canContactV2Router } from './routes/v2/canContact.mjs';
 import { dedupV2Router } from './routes/v2/dedup.mjs';
 import { workspaceFactsV2Router } from './routes/v2/workspaceFacts.mjs';
 import { workspaceStatusV2Router } from './routes/v2/workspaceStatus.mjs';
@@ -142,6 +143,7 @@ app.use('/v2/query',           verifyApiKey,     requireOpsBalance, logV2Op, que
 app.use('/v2/report',          verifyApiKey,     requireOpsBalance, logV2Op, reportV2Router);
 app.use('/v2/attention',       verifyApiKey,     requireOpsBalance, logV2Op, attentionV2Router);
 app.use('/v2/verify',          verifyApiKey,     requireOpsBalance, logV2Op, verifyV2Router);
+app.use('/v2/can-contact',     verifyApiKey,     requireOpsBalance, logV2Op, canContactV2Router);
 app.use('/v2/dedup',           verifyAuthEither, requireOpsBalance, logV2Op, dedupV2Router);
 app.use('/v2/workspace/facts', verifyApiKey,     requireOpsBalance, logV2Op, workspaceFactsV2Router);
 // Event triggers (set_trigger / list_triggers) are a Cloud-only feature — block

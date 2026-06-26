@@ -70,6 +70,8 @@ CREATE TABLE workspaces (
   industry                     TEXT DEFAULT 'agency' CHECK (industry IN ('agency','startup','software','consultancy')),
   business_type                TEXT CHECK (business_type IS NULL OR business_type IN ('service','software')),
   icp_text                     TEXT,
+  -- Outreach coordination — cooldown policy the can_contact() guardrail reads
+  outreach_cooldowns           JSONB NOT NULL DEFAULT '{"email_hours":72,"linkedin_hours":48,"any_hours":24}'::jsonb,
   -- Brand / proposal config (used by the generation surfaces)
   brand_theme                  JSONB DEFAULT '{}',
   target_audience              JSONB DEFAULT '{}',
@@ -351,6 +353,7 @@ CREATE TABLE predictions (
   predicted_value        JSONB NOT NULL,
   predicted_confidence   REAL  NOT NULL,
   feature_snapshot       JSONB NOT NULL DEFAULT '{}',   -- {feature: {value, confidence}} at scoring time
+  fired_signals          JSONB NOT NULL DEFAULT '[]',   -- [{key, weight}] the signals that fired — labels the episode
   model_version          TEXT,
   predicted_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
 

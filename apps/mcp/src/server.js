@@ -218,7 +218,10 @@ export function createServer() {
       }
       if (ctx.stakeholders?.length) {
         lines.push("STAKEHOLDERS:");
-        for (const s of ctx.stakeholders) lines.push(`  ${s.name ?? "—"} — ${s.role ?? ""}`);
+        for (const s of ctx.stakeholders) {
+          const role = s.buying_role && s.buying_role !== "unknown" ? `  [${s.buying_role.replace(/_/g, " ")}]` : "";
+          lines.push(`  ${s.name ?? "—"} — ${s.role ?? ""}${role}`);
+        }
         lines.push("");
       }
       if (ctx.predictions?.length) {
@@ -504,6 +507,42 @@ export function createServer() {
         return `  ${when}${it.entity_name ?? it.entity_id} — ${it.what}\n      → ${it.suggested_action}`;
       });
       return { content: [{ type: "text", text: `Needs attention (${r.items.length}):\n${lines.join("\n")}` }] };
+    }
+  );
+
+  // ===========================================================================
+  // TOOL: can_contact  —  POST /v2/can-contact
+  // The outreach guardrail — shared touch-state so two agents never double-touch.
+  // ===========================================================================
+  server.tool(
+    "can_contact",
+    "Before you send outreach, check whether an account is clear to contact RIGHT NOW. Nous holds the " +
+    "shared outbound state (last email/LinkedIn touch per account) so multiple agents don't double-touch " +
+    "the same prospect. Returns go/no-go for the channel, the last touch, per-channel cooldown status, " +
+    "and whether the contact is suppressed (opted out / bounced). Call it before draft_email / a LinkedIn " +
+    "send; if ok is false, skip or rotate channel. After you actually send, record the interaction " +
+    "(interaction.email_sent / interaction.linkedin_message_sent) so the next agent sees it.",
+    {
+      focus: z.string().describe("Who to check — an email, LinkedIn URL, domain, entity UUID, or name."),
+      channel: z.enum(["any", "email", "linkedin"]).optional().describe("Channel you intend to use (default: any)."),
+    },
+    async ({ focus, channel }) => {
+      const r = await post("/v2/can-contact", { focus, channel: channel ?? "any" });
+
+      if (r.status === "ambiguous") {
+        const opts = (r.candidates ?? []).map(c =>
+          `  • ${c.name ?? "(unnamed)"}${c.detail ? ` — ${c.detail}` : ""}  [${c.entity_id}]`).join("\n");
+        return { content: [{ type: "text", text:
+          `"${focus}" matches several people. Call can_contact again with one of these entity ids:\n${opts}` }] };
+      }
+
+      const head = `${r.ok ? "✅ OK to contact" : "⛔ Hold"} (${r.channel}) — ${r.reason}`;
+      const ch = r.per_channel ?? {};
+      const fmt = (name, s) => s
+        ? `  ${name}: ${s.last_at ? `last ${s.hours_ago}h ago` : "no prior touch"} · cooldown ${s.cooldown_hours}h${s.blocked ? " · BLOCKED" : ""}`
+        : null;
+      const detail = [fmt("email", ch.email), fmt("linkedin", ch.linkedin)].filter(Boolean).join("\n");
+      return { content: [{ type: "text", text: `${head}\n${detail}` }] };
     }
   );
 

@@ -84,14 +84,17 @@ export function modelVersion(signals: ScorecardSignal[]): string {
 export function scoreToPrediction(
   features: Record<string, unknown>,
   signals: ScorecardSignal[],
-): { score: number; fit: boolean; reason: string; fired: number } {
+): { score: number; fit: boolean; reason: string; fired: number; firedSignals: { key: string; weight: number }[] } {
   const { score, fired } = scoreLead(features, signals);
   const fit = score >= 70;
   const reason = fired.length
     ? `Scorecard: ${fired.length} signal${fired.length === 1 ? '' : 's'} fired — ` +
       fired.slice(0, 4).map(f => f.key).join(', ')
     : 'Scorecard: no signals matched this profile';
-  return { score, fit, reason, fired: fired.length };
+  // firedSignals is the structured list (persisted on the prediction so the
+  // learning loop can trace WHICH signals drove a win, not just correlate
+  // features); `fired` stays the count for back-compat callers (rescore).
+  return { score, fit, reason, fired: fired.length, firedSignals: fired };
 }
 
 // ── Signal queries ────────────────────────────────────────────────────────────

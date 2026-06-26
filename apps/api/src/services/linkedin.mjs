@@ -1079,10 +1079,11 @@ export function registerLinkedInRoutes(app, supabase, verifySupabaseAuth, verify
         returnedChatId = result?.id || result?.chat_id || null;
       }
 
-      // Persist chat_id to channels.linkedin — critical for outbound webhook resolution
+      // Resolve the contact once — used for chat_id persistence AND outbound logging.
+      const normUrl = linkedin_url ? normaliseLinkedInUrl(linkedin_url) : null;
+      let sentContact = null;
       if (returnedChatId) {
-        const normUrl = linkedin_url ? normaliseLinkedInUrl(linkedin_url) : null;
-        const { data: contact } = await supabase
+        const { data } = await supabase
           .from('contacts')
           .select('id, channels')
           .eq('workspace_id', workspaceId)
@@ -1092,17 +1093,47 @@ export function registerLinkedInRoutes(app, supabase, verifySupabaseAuth, verify
               : `channels.cs.{"linkedin":{"chat_id":"${returnedChatId}"}}`
           )
           .maybeSingle();
-        if (contact && contact.channels?.linkedin?.chat_id !== returnedChatId) {
-          const ch = contact.channels || {};
-          const li = ch.linkedin || {};
-          const { error: chatUpdateErr } = await supabase.from('contacts').update({
-            channels: {
-              ...ch,
-              linkedin: { ...li, chat_id: returnedChatId, synced_at: new Date().toISOString() },
-            },
-          }).eq('id', contact.id);
-          if (chatUpdateErr) console.error('[LINKEDIN_SEND_MESSAGE] channels update failed:', chatUpdateErr.message);
-        }
+        sentContact = data || null;
+      }
+      // Fall back to URL / member-id match when the chat lookup missed.
+      let sentContactId = sentContact?.id || null;
+      if (!sentContactId && (normUrl || linkedin_member_id)) {
+        sentContactId = await matchContact(supabase, workspaceId, {
+          profileUrl: linkedin_url, memberId: linkedin_member_id, fullName: null,
+        });
+      }
+
+      // Persist chat_id to channels.linkedin — critical for outbound webhook resolution
+      if (returnedChatId && sentContact && sentContact.channels?.linkedin?.chat_id !== returnedChatId) {
+        const ch = sentContact.channels || {};
+        const li = ch.linkedin || {};
+        const { error: chatUpdateErr } = await supabase.from('contacts').update({
+          channels: {
+            ...ch,
+            linkedin: { ...li, chat_id: returnedChatId, synced_at: new Date().toISOString() },
+          },
+        }).eq('id', sentContact.id);
+        if (chatUpdateErr) console.error('[LINKEDIN_SEND_MESSAGE] channels update failed:', chatUpdateErr.message);
+      }
+
+      // Log the outbound message NOW so touch-history doesn't depend on Unipile
+      // echoing our own send back via webhook. Dedupes with the webhook handler
+      // (handlers/linkedin.mjs) through the shared li_msg_<id> external_id — same
+      // type + is_outbound — so when both fire only one observation survives.
+      if (sentContactId) {
+        const sentMsgId = result?.message_id || null;
+        const dayKey = new Date().toISOString().slice(0, 10);
+        await coreLogActivity(supabase, {
+          workspaceId,
+          contactId:  sentContactId,
+          type:       'linkedin_message',
+          source:     'linkedin',
+          externalId: sentMsgId ? `li_msg_${sentMsgId}` : `li_send_${sentContactId}_${dayKey}`,
+          occurredAt: new Date().toISOString(),
+          description: 'LinkedIn message sent',
+          summary:    typeof text === 'string' ? text.slice(0, 2000) : null,
+          rawData:    { is_outbound: true, text, chat_id: returnedChatId },
+        }).catch(e => console.error('[LINKEDIN_SEND_MESSAGE] logActivity failed:', e.message));
       }
 
       return res.json({ success: true, chat_id: returnedChatId, result });

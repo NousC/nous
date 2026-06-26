@@ -9,6 +9,8 @@ export * from './db/predictions.js';
 export * from './db/notes.js';
 export * from './db/search.js';
 export * from './context.js';
+export * from './buyingRole.js';
+export * from './services/canContact.js';
 export * from './query.js';
 export * from './discovery.js';
 export * from './attention.js';
