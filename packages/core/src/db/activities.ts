@@ -40,15 +40,37 @@ const EVALUATING_TYPES = new Set(['meeting_held', 'pricing_page_visit', 'proposa
 const INTERESTED_TYPES = new Set(['email_reply', 'email_received', 'slack_message', 'content_download', 'website_revisit']);
 const CONNECTED_TYPES  = new Set(['linkedin_connected']);
 const AWARE_TYPES      = new Set(['website_visit', 'email_opened', 'linkedin_view', 'social_engagement']);
+// Terminal exits. These leave the active ladder: a dead deal (lost), a bad-fit we
+// ruled out (disqualified), or a former customer who left (churned). They never
+// decay — the decay job only demotes aware/interested/evaluating — and the stage
+// worker never auto-advances out of them. Only an explicit re-engagement revives
+// one (see advancePipelineStage).
+const LOST_TYPES         = new Set(['deal_lost']);
+const DISQUALIFIED_TYPES = new Set(['deal_disqualified']);
+const CHURN_TYPES        = new Set(['deal_churned', 'subscription_canceled', 'subscription_cancelled']);
 
-const STAGE_ORDER: Record<string, number> = { identified: 0, aware: 1, connected: 2, interested: 3, evaluating: 4, client: 5 };
+// Ladder ranks. Terminal exits sit ABOVE the ladder so the rank-gated advance can
+// never step a ladder signal onto — or out of — a terminal stage; terminal
+// transitions and reactivation are handled explicitly below, not by rank.
+const STAGE_ORDER: Record<string, number> = {
+  identified: 0, aware: 1, connected: 2, interested: 3, evaluating: 4, client: 5,
+  lost: 6, disqualified: 6, churned: 7,
+};
+
+const TERMINAL_STAGES = new Set(['lost', 'disqualified', 'churned']);
+// Only a real buying signal — a two-way conversation or deeper — revives a dead or
+// churned account. A stray open / visit must not resurrect it.
+const REACTIVATING_STAGES = new Set(['interested', 'evaluating', 'client']);
 
 function stageForType(type: string): string | null {
-  if (CLIENT_TYPES.has(type))     return 'client';
-  if (EVALUATING_TYPES.has(type)) return 'evaluating';
-  if (INTERESTED_TYPES.has(type)) return 'interested';
-  if (CONNECTED_TYPES.has(type))  return 'connected';
-  if (AWARE_TYPES.has(type))      return 'aware';
+  if (CLIENT_TYPES.has(type))       return 'client';
+  if (CHURN_TYPES.has(type))        return 'churned';
+  if (LOST_TYPES.has(type))         return 'lost';
+  if (DISQUALIFIED_TYPES.has(type)) return 'disqualified';
+  if (EVALUATING_TYPES.has(type))   return 'evaluating';
+  if (INTERESTED_TYPES.has(type))   return 'interested';
+  if (CONNECTED_TYPES.has(type))    return 'connected';
+  if (AWARE_TYPES.has(type))        return 'aware';
   return null;
 }
 
@@ -87,25 +109,50 @@ async function advancePipelineStage(
 
   const rawCurrent = stageClaims?.find(c => c.property === 'pipeline_stage')?.value;
   const current = typeof rawCurrent === 'string' ? rawCurrent : 'identified';
-  if ((STAGE_ORDER[targetStage] ?? 0) <= (STAGE_ORDER[current] ?? 0)) return;
 
-  // Update the v1 column (still read by the Contacts UI; Phase 4 retires it)
-  // AND record a v2 state observation so the pipeline_stage claim recomputes.
-  await supabase.from('contacts').update({ pipeline_stage: targetStage }).eq('id', contactId);
-  await supabase.from('observations').insert({
-    workspace_id: workspaceId,
-    entity_id: contactId,
-    kind: 'state',
-    property: 'pipeline_stage',
-    value: targetStage,
-    source: 'system',
-    method: 'inference',
-    observed_at: new Date().toISOString(),
-  }).then(({ error }) => {
-    if (error && !['23505', '42P01', 'PGRST205'].includes(error.code ?? '')) {
-      console.warn('[ACTIVITY] pipeline_stage observation failed:', error.message);
-    }
-  });
+  // Persist a transition: pin the v1 column (still read by the Contacts UI; Phase 4
+  // retires it) AND append a v2 state observation so the pipeline_stage claim
+  // recomputes from the substrate.
+  const writeStage = async (next: string): Promise<void> => {
+    await supabase.from('contacts').update({ pipeline_stage: next }).eq('id', contactId);
+    await supabase.from('observations').insert({
+      workspace_id: workspaceId,
+      entity_id: contactId,
+      kind: 'state',
+      property: 'pipeline_stage',
+      value: next,
+      source: 'system',
+      method: 'inference',
+      observed_at: new Date().toISOString(),
+    }).then(({ error }) => {
+      if (error && !['23505', '42P01', 'PGRST205'].includes(error.code ?? '')) {
+        console.warn('[ACTIVITY] pipeline_stage observation failed:', error.message);
+      }
+    });
+  };
+
+  // ── Terminal transition (lost / disqualified / churned) ───────────────────────
+  // A close-lost, disqualification or churn is an authoritative state change, not a
+  // ladder climb, so it skips the rank gate. Guards: 'churned' only applies to an
+  // account that actually became a client, and we never flip one terminal into
+  // another (a lost deal isn't "churned").
+  if (TERMINAL_STAGES.has(targetStage)) {
+    if (current === targetStage || TERMINAL_STAGES.has(current)) return;
+    if (targetStage === 'churned' && current !== 'client') return;
+    return writeStage(targetStage);
+  }
+
+  // ── Reactivation ──────────────────────────────────────────────────────────────
+  // A dead or churned account that shows fresh real intent comes back into the
+  // funnel at the signal's stage. Weak passive pings (opens, visits) don't revive.
+  if (TERMINAL_STAGES.has(current)) {
+    if (!REACTIVATING_STAGES.has(targetStage)) return;
+    return writeStage(targetStage);
+  }
+
+  // ── Normal ladder advance (advancement only — never downgrade) ────────────────
+  if ((STAGE_ORDER[targetStage] ?? 0) <= (STAGE_ORDER[current] ?? 0)) return;
+  return writeStage(targetStage);
 }
 
 /**

@@ -10,7 +10,7 @@ import { PageHeader } from "@/components/ui/page-header";
 
 const apiUrl = import.meta.env.VITE_API_URL ?? "";
 const PAGE_SIZE = 50;
-const PIPELINE_STAGES = ["identified", "aware", "connected", "interested", "evaluating", "client"];
+const PIPELINE_STAGES = ["identified", "aware", "connected", "interested", "evaluating", "client", "lost", "disqualified", "churned"];
 
 // Default widths for the resizable columns. "Last Int." is the elastic flex-1
 // column and the action "Enrich" cell is fixed, so neither is listed here.
@@ -394,7 +394,7 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
   const [enriching, setEnriching] = useState<Set<string>>(new Set());
   const [enriched, setEnriched] = useState<Set<string>>(new Set());
   const [enrichErr, setEnrichErr] = useState<Set<string>>(new Set());
-  const stages = ["identified","aware","connected","interested","evaluating","client"];
+  const stages = ["identified","aware","connected","interested","evaluating","client","lost","disqualified","churned"];
 
   // A lead opened from a list may be a cold lead that the People view hides
   // (un-engaged leads aren't in this list). When the id isn't in the loaded

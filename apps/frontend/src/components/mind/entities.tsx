@@ -47,8 +47,10 @@ export interface Company {
 }
 
 // Pipeline order, lowest to highest — used to pick an account's furthest stage
-// and to sort the companies table by it.
-export const STAGE_ORDER = ["identified", "aware", "connected", "interested", "evaluating", "client"];
+// and to sort the companies table by it. Terminal exits (lost/disqualified/churned)
+// rank just above 'identified' so that when a company has both a dead contact and
+// a live one, the live (further-along) contact wins the company's rollup stage.
+export const STAGE_ORDER = ["identified", "lost", "disqualified", "churned", "aware", "connected", "interested", "evaluating", "client"];
 
 export interface IntegrationConn {
   id: string;
@@ -92,7 +94,9 @@ export function healthColor(h: number | null) {
 }
 
 export function stageColor(s: string) {
-  return s === "client" ? "#4ade80" : s === "evaluating" ? "#60a5fa" : s === "interested" ? "#fb923c" : s === "connected" ? "#38bdf8" : s === "aware" ? "#facc15" : "#9ca3af";
+  return s === "client" ? "#4ade80" : s === "evaluating" ? "#60a5fa" : s === "interested" ? "#fb923c" : s === "connected" ? "#38bdf8" : s === "aware" ? "#facc15"
+    : s === "lost" ? "#f87171" : s === "disqualified" ? "#fb7185" : s === "churned" ? "#94a3b8"
+    : "#9ca3af";
 }
 
 // ─── ActivityIcon ─────────────────────────────────────────────────────────────

@@ -3,7 +3,11 @@
 // 'connected' = an accepted LinkedIn connection with no conversation yet. It sits
 // above 'aware' but below 'interested', and is deliberately kept out of the People
 // page (it would flood the list); it stays curable by the agent and via filters.
-export type PipelineStage = 'identified' | 'aware' | 'connected' | 'interested' | 'evaluating' | 'client';
+export type PipelineStage =
+  | 'identified' | 'aware' | 'connected' | 'interested' | 'evaluating' | 'client'
+  // terminal exits — off the active ladder, never decay, only an explicit
+  // re-engagement revives them (see advancePipelineStage):
+  | 'lost' | 'disqualified' | 'churned';
 
 export type MemoryCategory = 'ICP' | 'Product' | 'Pricing' | 'Market' | 'Competitors' | 'Team' | 'Patterns' | 'General';
 

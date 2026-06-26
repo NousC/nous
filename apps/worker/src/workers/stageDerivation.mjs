@@ -23,7 +23,11 @@
 
 import { getSupabaseClient } from '@nous/core';
 
-const STAGE_RANK = { identified: 0, aware: 1, connected: 2, interested: 3, evaluating: 4, client: 5 };
+// Terminal exits (lost/disqualified/churned) rank ABOVE the active ladder so this
+// advance-only worker never bumps a terminal account back into the funnel — a
+// ladder signal never out-ranks a terminal stage, so the comparison below leaves
+// it alone. Reactivation is owned by the real-time activity path (advancePipelineStage).
+const STAGE_RANK = { identified: 0, aware: 1, connected: 2, interested: 3, evaluating: 4, client: 5, lost: 6, disqualified: 6, churned: 7 };
 const ENTITIES_PER_RUN = 2000;  // sanity cap; loop again on next tick if more
 const LOOKBACK_DAYS    = 90;
 

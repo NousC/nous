@@ -1,6 +1,9 @@
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export const VALID_PIPELINE_STAGES = ['identified', 'aware', 'interested', 'evaluating', 'client'] as const;
+export const VALID_PIPELINE_STAGES = [
+  'identified', 'aware', 'connected', 'interested', 'evaluating', 'client',
+  'lost', 'disqualified', 'churned',
+] as const;
 
 export function isUUID(value: string): boolean {
   return UUID_RE.test(value);
