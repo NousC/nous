@@ -55,6 +55,7 @@ const Intelligence    = lazyWithErrorBoundary(() => import("@/pages/Intelligence
 const Lists           = lazyWithErrorBoundary(() => import("@/pages/Lists"));
 const Reports         = lazyWithErrorBoundary(() => import("@/pages/Reports"));
 const Note            = lazyWithErrorBoundary(() => import("@/pages/Note"));
+const ReportView      = lazyWithErrorBoundary(() => import("@/pages/Report"));
 const CleanList       = lazyWithErrorBoundary(() => import("@/pages/CleanList"));
 const NotFound        = lazyWithErrorBoundary(() => import("@/pages/NotFound"));
 const ConnectGate     = lazyWithErrorBoundary(() => import("@/pages/ConnectGate"));
@@ -147,8 +148,9 @@ export function AppRoutes() {
         </CloudOnly>
       } />
 
-      {/* Standalone note page — opened in a new tab, clean full-page markdown, no sidebar. */}
+      {/* Standalone note + report pages — opened in a new tab, clean full-page markdown. */}
       <Route path="/note/:id" element={<Suspense fallback={<MinimalLoader />}><Note /></Suspense>} />
+      <Route path="/report/:id" element={<Suspense fallback={<MinimalLoader />}><ReportView /></Suspense>} />
 
       {/* Standard layout — sidebar + conditional header */}
       <Route path="*" element={
