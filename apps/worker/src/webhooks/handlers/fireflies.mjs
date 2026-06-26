@@ -162,7 +162,13 @@ export async function reprocessFireflies(supabase, workspaceId, body) {
   if (actionItems)       digestParts.push(`Action items:\n${actionItems}`);
   if (keywords.length)   digestParts.push(`Keywords: ${keywords.slice(0, 20).join(', ')}`);
   const digest = digestParts.join('\n\n').trim() || null;
-  const meetingSummary = digest || await extractMeetingFacts(title, allParticipants);
+  // The fact extractor reads `meetingSummary`. Fireflies fires the webhook the
+  // moment the raw transcript is ready, but generates its AI summary/overview a
+  // little later — so the digest is often still empty here. When it is, mine the
+  // full transcript directly (bounded; the extractor caps its own output) rather
+  // than falling back to a title-only string that yields zero facts.
+  const meetingSummary = digest
+    || (transcriptText ? transcriptText.slice(0, 12000) : await extractMeetingFacts(title, allParticipants));
   // Fireflies `date` is an epoch-ms timestamp (or an ISO string on enriched bodies).
   let occurredAt = new Date().toISOString();
   if (meetingDate != null) {
