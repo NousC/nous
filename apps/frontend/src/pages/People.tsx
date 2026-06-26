@@ -49,7 +49,6 @@ function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token:
   const [localOverrides, setLocalOverrides] = useState<Record<string, string | null>>({});
   const [lostMarking, setLostMarking] = useState(false);
   const [lostMarked, setLostMarked] = useState(false);
-  const [openDoc, setOpenDoc] = useState<any>(null);   // a note opened in the markdown viewer
 
   // Record an explicit closed-lost — a real negative the Mind learns from,
   // unlike a contact that simply goes quiet.
@@ -206,8 +205,8 @@ function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token:
                       const text = String(m.content || "").replace(/\s+/g, " ").trim();
                       const long = text.length > 220;
                       return (
-                        <div key={m.id} onClick={() => setOpenDoc(m)}
-                          title="Open note"
+                        <div key={m.id} onClick={() => window.open(`/note/${m.id}`, "_blank")}
+                          title="Open note in a new tab"
                           className="py-3 flex items-start gap-2.5 cursor-pointer hover:bg-muted/30 -mx-2 px-2 rounded-md transition-colors">
                           <DocIcon source={m.source} />
                           <div className="flex-1 min-w-0">
@@ -346,18 +345,6 @@ function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token:
             >
               {lostMarked ? "Marked lost ✓" : lostMarking ? "Marking…" : "Mark as lost"}
             </button>
-          </div>
-        </div>
-      )}
-      {/* Note viewer — click a note to read the full markdown. */}
-      {openDoc && (
-        <div onClick={() => setOpenDoc(null)} className="fixed inset-0 z-50 bg-black/40 flex items-start justify-center overflow-auto py-10 px-4">
-          <div onClick={e => e.stopPropagation()} className="bg-background rounded-xl border border-border/60 shadow-xl max-w-3xl w-full my-auto">
-            <div className="flex items-center justify-between px-6 py-3.5 border-b border-border/60 sticky top-0 bg-background rounded-t-xl">
-              <span className="text-[14px] font-semibold">{openDoc.metadata?.title || openDoc.category || "Note"}</span>
-              <button onClick={() => setOpenDoc(null)} className="text-muted-foreground hover:text-foreground text-[20px] leading-none px-1">×</button>
-            </div>
-            <pre className="px-6 py-5 whitespace-pre-wrap text-[13px] leading-relaxed text-foreground/90" style={{ fontFamily: "inherit" }}>{openDoc.content}</pre>
           </div>
         </div>
       )}
