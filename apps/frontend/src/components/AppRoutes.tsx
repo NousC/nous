@@ -56,6 +56,7 @@ const Lists           = lazyWithErrorBoundary(() => import("@/pages/Lists"));
 const Reports         = lazyWithErrorBoundary(() => import("@/pages/Reports"));
 const Note            = lazyWithErrorBoundary(() => import("@/pages/Note"));
 const ReportView      = lazyWithErrorBoundary(() => import("@/pages/Report"));
+const PlaybookView    = lazyWithErrorBoundary(() => import("@/pages/Playbook"));
 const CleanList       = lazyWithErrorBoundary(() => import("@/pages/CleanList"));
 const NotFound        = lazyWithErrorBoundary(() => import("@/pages/NotFound"));
 const ConnectGate     = lazyWithErrorBoundary(() => import("@/pages/ConnectGate"));
@@ -151,6 +152,7 @@ export function AppRoutes() {
       {/* Standalone note + report pages — opened in a new tab, clean full-page markdown. */}
       <Route path="/note/:id" element={<Suspense fallback={<MinimalLoader />}><Note /></Suspense>} />
       <Route path="/report/:id" element={<Suspense fallback={<MinimalLoader />}><ReportView /></Suspense>} />
+      <Route path="/playbook/:id" element={<Suspense fallback={<MinimalLoader />}><PlaybookView /></Suspense>} />
 
       {/* Standard layout — sidebar + conditional header */}
       <Route path="*" element={
@@ -187,9 +189,10 @@ export function AppRoutes() {
             {/* Each list on its own page — /lists/:listId. (Static /lists/clean
                 above wins over this param route in React Router v6.) */}
             <Route path="/lists/:listId" element={<CloudOnly><Suspense fallback={<MinimalLoader />}><Lists /></Suspense></CloudOnly>} />
-            <Route path="/icp"           element={<Suspense fallback={<MinimalLoader />}><Intelligence /></Suspense>} />
+            <Route path="/playbooks"     element={<Suspense fallback={<MinimalLoader />}><Intelligence /></Suspense>} />
+            <Route path="/icp"           element={<Navigate to="/playbooks" replace />} />
             <Route path="/playbook"      element={<Navigate to="/icp" replace />} />
-            <Route path="/intelligence"  element={<Navigate to="/icp" replace />} />
+            <Route path="/intelligence"  element={<Navigate to="/playbooks" replace />} />
             <Route path="/settings/*" element={<Navigate to="/settings" replace />} />
 
             <Route path="/inbox" element={<Suspense fallback={<TableLoader />}><Inbox /></Suspense>} />

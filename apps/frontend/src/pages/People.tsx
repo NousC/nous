@@ -202,19 +202,19 @@ function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token:
                 : <div className="divide-y divide-border/60">
                     {documents.map((m: any) => {
                       const when = m.metadata?.date || m.created_at;
-                      const text = String(m.content || "").replace(/\s+/g, " ").trim();
-                      const long = text.length > 220;
+                      const isLinkedInScan = /linkedin post scan|post scan/i.test(String(m.metadata?.title || ""));
                       return (
                         <div key={m.id} onClick={() => window.open(`/note/${m.id}`, "_blank")}
                           title="Open note in a new tab"
-                          className="py-3 flex items-start gap-2.5 cursor-pointer hover:bg-muted/30 -mx-2 px-2 rounded-md transition-colors">
-                          <DocIcon source={m.source} />
+                          className="py-3 flex items-center gap-2.5 cursor-pointer hover:bg-muted/30 -mx-2 px-2 rounded-md transition-colors">
+                          {isLinkedInScan
+                            ? <Linkedin className="h-4 w-4 text-[#0A66C2] flex-shrink-0" />
+                            : <DocIcon source={m.source} />}
                           <div className="flex-1 min-w-0">
                             <div className="flex items-baseline gap-2">
                               <span className="text-[13px] font-medium text-foreground/85 truncate">{m.metadata?.title || m.category}</span>
                               <span className="text-[12px] text-muted-foreground/70 ml-auto flex-shrink-0">{relTime(when)}</span>
                             </div>
-                            <p className="text-[13px] text-muted-foreground leading-relaxed line-clamp-2 mt-0.5">{long ? text.slice(0, 220) + "…" : text}</p>
                           </div>
                         </div>
                       );

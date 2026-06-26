@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { RefreshCw, ChevronRight, Trash2, History, Info, Plus, ArrowLeft } from "lucide-react";
+import { RefreshCw, ChevronRight, Trash2, History, Info, Plus, ArrowLeft, FileText } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { PageHeader } from "@/components/ui/page-header";
 import { AgentSetupHint } from "@/components/AgentSetupHint";
@@ -370,6 +370,17 @@ export default function Intelligence() {
   const [savingFact, setSavingFact] = useState(false);
   const [addSection, setAddSection] = useState<string | null>(null);
   const [sectionDraft, setSectionDraft] = useState("");
+
+  // Playbooks — the policy files every agent reads before acting (voice, outreach,
+  // icp, positioning). Each opens as a raw .md page; the badge says whether it's
+  // mirrored from a Claude Code file or stored in Nous.
+  const PB_ORDER = ["voice", "outreach", "icp", "positioning"];
+  const [playbooks, setPlaybooks] = useState<any[]>([]);
+  useEffect(() => {
+    if (!token || !workspaceId) return;
+    fetch(`${apiUrl}/api/playbooks?workspaceId=${workspaceId}`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => (r.ok ? r.json() : null)).then(d => { if (d?.playbooks) setPlaybooks(d.playbooks); }).catch(() => {});
+  }, [token, workspaceId]);
 
   // Collapsed by default — the page leads with the "getting smarter" story;
   // the full profile is one click away.
@@ -777,7 +788,7 @@ export default function Intelligence() {
     <div className="h-full overflow-y-auto bg-background">
       <div className="px-8 py-7 max-w-[1240px] mx-auto">
         <PageHeader
-          title="ICP"
+          title="Playbooks"
           actions={
             <div className="flex items-center gap-2">
               {!needsSetup && (
@@ -825,7 +836,35 @@ export default function Intelligence() {
 
         <div className="space-y-4">
 
-          {/* ─── 1. Your context — the living profile, the hero of the page ─── */}
+          {/* ─── Playbooks — the policy files every agent reads before acting ─── */}
+          {playbooks.length > 0 && (
+            <div className="rounded-xl border border-border bg-background overflow-hidden">
+              <div className="px-4 py-2.5 bg-muted/50 border-b border-border">
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">Playbooks</span>
+              </div>
+              <div className="divide-y divide-border/60">
+                {[...playbooks].sort((a, b) => PB_ORDER.indexOf(a.kind) - PB_ORDER.indexOf(b.kind)).map(pb => (
+                  <button
+                    key={pb.id}
+                    onClick={() => window.open(`/playbook/${pb.id}`, "_blank")}
+                    title="Open the playbook as a raw markdown file"
+                    className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-muted/30 transition-colors"
+                  >
+                    <FileText className="h-4 w-4 text-muted-foreground/50 flex-shrink-0" />
+                    <span className="text-[13px] font-medium text-foreground/85 flex-1 truncate">{pb.title}</span>
+                    <span
+                      className={`text-[11px] px-2 py-0.5 rounded-full flex-shrink-0 ${pb.source === "claude_code" ? "bg-[#0A66C2]/10 text-[#0A66C2]" : "bg-muted text-muted-foreground/70"}`}
+                    >
+                      {pb.source === "claude_code" ? "Synced from Claude Code" : "Stored in Nous"}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ─── Your context — only when NOT file-synced; the Playbooks list above covers file-backed policies ─── */}
+          {!fileSynced && (
           <div className="rounded-xl border border-border bg-background overflow-hidden">
             <div className="flex items-center justify-between px-4 py-2.5 bg-muted/50 border-b border-border">
               {needsSetup ? (
@@ -1025,6 +1064,7 @@ export default function Intelligence() {
             </>
             )}
           </div>
+          )}
 
           {/* ─── 2. How your workspace is getting smarter — the centerpiece. ───
                ─── The compounding story: the model AND the context sharpening ───

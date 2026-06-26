@@ -627,6 +627,54 @@ export function createServer() {
   };
   server.tool("get_gtm_profile", gtmProfileDescription, gtmProfileSchema, gtmProfileHandler);
 
+  // ===========================================================================
+  // TOOLS: get_playbook / sync_playbook  —  the POLICY layer (vs. facts).
+  // Playbooks are versioned rule-docs that GOVERN agent behavior: voice, outreach,
+  // icp, positioning. Read the relevant one BEFORE acting; push file edits back so
+  // every agent obeys the same rules. GET/POST /v2/playbooks.
+  // ===========================================================================
+  const getPlaybookSchema = {
+    kind: z.enum(["voice", "outreach", "icp", "positioning"]).optional()
+      .describe("Which policy to read. Omit to list all four."),
+  };
+  const getPlaybookHandler = async ({ kind }) => {
+    const r = await get("/v2/playbooks", kind ? { kind } : undefined);
+    const pbs = r.playbooks || [];
+    if (!pbs.length) return { content: [{ type: "text", text:
+      "No playbooks set up yet. The user can set them up on the Playbooks page or in their context files." }] };
+    if (kind) {
+      const pb = pbs[0];
+      const src = pb.source === "claude_code" ? `mirrors ${pb.file_path}` : "stored in Nous";
+      return { content: [{ type: "text", text:
+        `# ${pb.title} — ${pb.kind} playbook (v${pb.version}, ${src})\n\n${pb.body_md}` }] };
+    }
+    const lines = pbs.map(p => `  ${p.kind.padEnd(12)} ${p.title}  (${p.source === "claude_code" ? p.file_path : "stored in Nous"})`);
+    return { content: [{ type: "text", text:
+      "The user's playbooks (read one with get_playbook(kind)):\n" + lines.join("\n") }] };
+  };
+  server.tool("get_playbook",
+    "Read a PLAYBOOK — the user's policy/rules for a kind of action: voice, outreach, icp, or positioning. " +
+    "These are RULES TO OBEY, not facts. Read the relevant playbook BEFORE you act: before writing outreach " +
+    "read 'voice' and 'outreach'; before scoring or qualifying read 'icp'; for messaging read 'positioning'. " +
+    "Omit kind to list all four.",
+    getPlaybookSchema, getPlaybookHandler);
+
+  const syncPlaybookSchema = {
+    kind: z.enum(["voice", "outreach", "icp", "positioning"]).describe("Which playbook to update."),
+    body_md: z.string().describe("The full markdown content of the playbook."),
+    file_path: z.string().optional().describe("The repo file this mirrors, e.g. 'context/icp/icp.md'. Pass it when syncing a Claude Code file so the source is recorded as the file."),
+  };
+  const syncPlaybookHandler = async ({ kind, body_md, file_path }) => {
+    const r = await post(`/v2/playbooks/${kind}`, { body_md, file_path });
+    return { content: [{ type: "text", text:
+      `Synced the ${r.playbook?.kind || kind} playbook into Nous (v${r.playbook?.version}). Other agents now read the same rules.` }] };
+  };
+  server.tool("sync_playbook",
+    "Push a playbook's content into Nous so the graph stays current. Call this AFTER you edit a policy file " +
+    "in the repo (e.g. context/icp/icp.md, references/voice.md), passing the file's new content and its path, " +
+    "so Nous mirrors it and every other agent obeys the same rules.",
+    syncPlaybookSchema, syncPlaybookHandler);
+
   // The GTM context is no longer written through a dedicated MCP tool. In the file
   // symbiosis model the user's own files (context/icp.md, positioning.md, …) are
   // the source of truth: the agent edits those with its own file tools and calls

@@ -26,6 +26,7 @@ import { verifyV2Router } from './routes/v2/verify.mjs';
 import { dedupV2Router } from './routes/v2/dedup.mjs';
 import { workspaceFactsV2Router } from './routes/v2/workspaceFacts.mjs';
 import { workspaceStatusV2Router } from './routes/v2/workspaceStatus.mjs';
+import { playbooksV2Router } from './routes/v2/playbooks.mjs';
 import { notesV2Router } from './routes/v2/notes.mjs';
 import { signalsV2Router } from './routes/v2/signals.mjs';
 import { peopleV2Router } from './routes/v2/people.mjs';
@@ -49,6 +50,7 @@ import { integrationsRouter } from './routes/api/integrations.mjs';
 import { crmRouter } from './routes/api/crm.mjs';
 import { contactsApiRouter } from './routes/api/contacts.mjs';
 import { reportsApiRouter } from './routes/api/reports.mjs';
+import { playbooksApiRouter } from './routes/api/playbooks.mjs';
 import { companiesApiRouter } from './routes/api/companies.mjs';
 import { signalsRouter, publicSignalsRouter } from './routes/api/signals.mjs';
 import { skillDownloadsRouter } from './routes/public/skillDownloads.mjs';
@@ -151,6 +153,7 @@ app.use('/v2/workspace/triggers', blockOnSelfHost('triggers'));
 // Mounted AFTER /v2/workspace/facts so the more specific facts route wins; this
 // handles /v2/workspace/status (GET) and /v2/workspace/onboarding (POST).
 app.use('/v2/workspace',       verifyApiKey,     requireOpsBalance, logV2Op, workspaceStatusV2Router);
+app.use('/v2/playbooks',       verifyApiKey,     playbooksV2Router);
 app.use('/v2/notes',           verifyApiKey,     requireOpsBalance, logV2Op, notesV2Router);
 app.use('/v2/signals',         verifyApiKey,     requireOpsBalance, logV2Op, signalsV2Router);
 app.use('/v2/people',          verifyApiKey,     requireOpsBalance, logV2Op, peopleV2Router);
@@ -193,6 +196,7 @@ app.use('/api/lead-lists',            verifyAuthEither, requireFeature('leadList
 app.use('/api/campaign-messages',     verifyAuthEither, requireFeature('leadLists'), campaignMessagesRouter);
 app.use('/api/triggers',              verifyAuthEither, blockOnSelfHost('triggers'), triggersRouter);
 app.use('/api/reports',               blockOnSelfHost('reports'), reportsApiRouter);
+app.use('/api/playbooks',             playbooksApiRouter);
 app.use('/api/webhooks',              verifySupabaseAuth, webhooksRouter);
 app.use('/api/workflow-providers',    verifySupabaseAuth, workflowProvidersRouter);
 // LinkedIn action endpoints — invite/message/sync (Supabase JWT, workspaceId in body),

@@ -125,6 +125,23 @@ workspaceStatusV2Router.get('/status', async (req, res) => {
     if (!workspace?.business_type) profileMissing.push('business_type');
     const onboardingDone = !!(workspace?.website && workspace?.business_type);
 
+    // ── Playbooks — the four policy slots (voice, outreach, icp, positioning).
+    // Report per-slot state so onboarding knows exactly what to set up, and resumes
+    // a half-finished setup instead of restarting. Runtime-agnostic: a slot can be
+    // mirrored from a file (source 'claude_code') or stored in Nous (source 'nous').
+    const PB_KINDS = ['voice', 'outreach', 'icp', 'positioning'];
+    const playbookRows = await safe(async () => {
+      const { data } = await supabase.from('playbooks')
+        .select('kind, source, file_path, updated_at').eq('workspace_id', workspaceId);
+      return data ?? [];
+    }, []);
+    const playbooks = PB_KINDS.map((k) => {
+      const r = (playbookRows || []).find((x) => x.kind === k);
+      return { kind: k, exists: !!r, source: r?.source ?? null, file_path: r?.file_path ?? null };
+    });
+    const playbooksMissing = playbooks.filter((p) => !p.exists).map((p) => p.kind);
+    const playbooksComplete = playbooksMissing.length === 0;
+
     // ── GTM playbook ──
     // "Built" = the in-app wizard ran (source 'playbook') OR the agent wrote real
     // GTM context (source 'agent'). Agent-operated onboarding is first-class — it
@@ -225,6 +242,28 @@ workspaceStatusV2Router.get('/status', async (req, res) => {
           + 'If NONE exist, SCAFFOLD a context/ folder — icp.md, positioning.md, pricing.md, market.md, competitors.md, gtm-motion.md — filled from the profile research you already did plus a short interview, then call get_icp on them. '
           + 'get_icp builds the scoring model on first sync, so after this accounts start getting scored. '
           + 'OTHER CLIENTS (Codex / claude.ai, no repo): skip the files — the ICP you set in set_workspace_profile is enough to seed the model; build_scoring_model from there.',
+      });
+    }
+
+    // 2b. Playbooks — the policy layer. Make sure all four exist (voice, outreach,
+    // icp, positioning), gathered WITH the user, mirrored to files where the runtime
+    // has them. Only the missing slots are listed — a half-finished setup resumes here.
+    if (onboardingDone && !playbooksComplete) {
+      next_steps.push({
+        id: 'setup_playbooks',
+        title: `Set up the playbooks (${PB_KINDS.length - playbooksMissing.length}/4 done — missing: ${playbooksMissing.join(', ')})`,
+        why: 'Playbooks are the rules every agent obeys before it acts — voice, outreach, ICP, positioning. Set them up ONCE, with the user, and every agent (here, Claude Desktop, Codex, your own) reads the same versioned policy via get_playbook.',
+        how: [
+          'FRAME IT FIRST: tell the user you are setting up their playbooks — the four rule-docs every agent obeys (voice, outreach, ICP, positioning) — that you will handle voice + outreach yourself, and need a little from them on ICP + positioning.',
+          'DETECT THE ENVIRONMENT: check your OWN tools. Can you read/write files? If yes, look for a context/ folder + files (icp*, positioning*, voice*, outreach*). No file tools (Claude Desktop / claude.ai) = store in Nous only, no files.',
+          'THEN, FOR EACH MISSING SLOT, pick a posture by how much content already exists:',
+          '(a) CONTENT EXISTS — a real file, or a doc the user pastes: MIRROR it. Read it, confirm with the user ("found your ICP, bringing it in as-is, good?"), then sync_playbook(kind, body, file_path). If it looks stale/thin or conflicts with their recent deals, FLAG it — do not blindly copy.',
+          '(b) INFERABLE — no doc but a website / a few customers: DRAFT from research, then CONFIRM. "I read your site, here is a draft ICP and positioning, two things to check: ..." then sync_playbook.',
+          '(c) BLANK — nothing to go on: INTERVIEW. Ask together: ICP (industry, size, buyer role, the trigger), positioning (your category, your wedge, your competitors). Co-create, then sync_playbook.',
+          'PER-KIND GATHERING: voice = infer from the user\'s REAL writing (their LinkedIn posts / sent emails), NEVER ask "what is your voice". outreach = start from the proven situation/insight/inquisition method, let them tweak. icp + positioning + competitors = interview or infer as above.',
+          'WRITE IT: file-capable runtime -> write the file in that runtime\'s convention (Claude Code: context/...; Codex: AGENTS.md; else a nous/ folder) AND sync_playbook with file_path. No filesystem -> sync_playbook with NO file_path (stored in Nous).',
+          'RULES: never silently create — always confirm the draft with the user first. Set up ONLY the missing slots; finished slots stay. When all four exist, you are done.',
+        ].join(' '),
       });
     }
 
@@ -394,6 +433,7 @@ workspaceStatusV2Router.get('/status', async (req, res) => {
           stale_facts: staleFacts,
         },
         icp_sync: icpSync,
+        playbooks: { complete: playbooksComplete, missing: playbooksMissing, slots: playbooks },
         integrations: { count: verified.length, connected: connectedList },
         // The recommended onboarding integrations, in priority order.
         recommended: {

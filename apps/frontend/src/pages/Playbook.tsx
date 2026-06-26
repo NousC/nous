@@ -4,33 +4,33 @@ import { useAuth } from "@/contexts/AuthContext";
 
 const apiUrl = import.meta.env.VITE_API_URL ?? "";
 
-// No rendering, no styling, no design — just the raw file contents dumped into a
-// bare <pre>, exactly as the agent wrote it. Reports are agent artifacts, not human
-// documents. The only non-default applied is pre-wrap so long lines don't overflow.
+// Raw source view of a playbook (the policy doc agents read). No rendering, no
+// design, just the markdown body in a bare <pre>, exactly like notes and reports.
 const pre: React.CSSProperties = { whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: "12px", lineHeight: 1.6 };
 
-export default function Report() {
+export default function Playbook() {
   const { id } = useParams();
   const { session, userData } = useAuth();
   const token = session?.access_token ?? "";
   const workspaceId = userData?.workspace?.id ?? "";
-  const [report, setReport] = useState<any>(null);
+  const [pb, setPb] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!token || !workspaceId || !id) return;
     (async () => {
       try {
-        const res = await fetch(`${apiUrl}/api/reports/${id}?workspaceId=${workspaceId}`, {
+        const res = await fetch(`${apiUrl}/api/playbooks/${id}?workspaceId=${workspaceId}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         const d = await res.json();
-        setReport(d.report || null);
+        setPb(d.playbook || null);
       } catch { /* ignore */ } finally { setLoading(false); }
     })();
   }, [id, token, workspaceId]);
 
+  if (typeof document !== "undefined" && pb) document.title = pb.title || "Playbook";
   if (loading) return <pre style={pre}>Loading…</pre>;
-  if (!report) return <pre style={pre}>Report not found.</pre>;
-  return <pre style={pre}>{report.markdown || ""}</pre>;
+  if (!pb) return <pre style={pre}>Playbook not found.</pre>;
+  return <pre style={pre}>{pb.body_md || ""}</pre>;
 }
