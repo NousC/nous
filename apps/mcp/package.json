@@ -1,6 +1,6 @@
 {
   "name": "@opennous/mcp",
-  "version": "0.38.0",
+  "version": "0.39.0",
   "description": "Nous — the Context Graph for AI Agents.",
   "license": "AGPL-3.0-only",
   "repository": {
@@ -13,7 +13,9 @@
     "nous-mcp": "src/index.js"
   },
   "main": "./src/index.js",
-  "files": ["src"],
+  "files": [
+    "src"
+  ],
   "scripts": {
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
@@ -21,7 +23,14 @@
     "start:http": "node src/http.js",
     "typecheck": "echo 'no ts in mcp — skipping'"
   },
-  "keywords": ["mcp", "nous", "memory", "crm", "gtm", "agents"],
+  "keywords": [
+    "mcp",
+    "nous",
+    "memory",
+    "crm",
+    "gtm",
+    "agents"
+  ],
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",
     "zod": "^3.23.8"
