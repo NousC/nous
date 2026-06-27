@@ -592,11 +592,13 @@ export default function Lists() {
     return () => { cancelled = true; };
   }, [activeId, workspaceId, lists]);
 
-  // Switching lists resets filters, sort, selection, counts. The page is kept on
-  // the very first activeId (restored from the URL); later switches reset it.
+  // Switching lists resets the list-specific filters + selection. Sort and the
+  // ICP filter are persistent user PREFERENCES (localStorage), so they survive a
+  // list switch and a reload — never reset them here, or the persisted choice is
+  // clobbered back to default on every list open.
   useEffect(() => {
     if (!activeId) return;
-    setIcpFilter("all"); setStatusFilter(""); setReplyFilter(""); setFbFilters([]); setSort("recent"); setSelected(new Set()); setSelectAllMatching(false); setCounts(null);
+    setStatusFilter(""); setReplyFilter(""); setFbFilters([]); setSelected(new Set()); setSelectAllMatching(false); setCounts(null);
     setEditCell(null); resetImport();
     if (firstActiveRef.current) firstActiveRef.current = false;
     else setPage(0);
