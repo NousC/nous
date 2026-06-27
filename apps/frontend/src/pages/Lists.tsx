@@ -334,7 +334,11 @@ export default function Lists() {
   const [importSource, setImportSource] = useState("");
   const [result, setResult] = useState<{ inserted: number; skipped: number } | null>(null);
   // ICP segmentation filter — sales-nav-builder tags each lead fields.icp true/false.
-  const [icpFilter, setIcpFilter] = useState<"all" | "icp" | "non">("all");
+  // Persisted (localStorage) so the choice survives navigation + reloads until changed.
+  const [icpFilter, setIcpFilter] = useState<"all" | "icp" | "non">(() => {
+    try { return (localStorage.getItem("nous.lists.icpFilter") as "all" | "icp" | "non") || "all"; }
+    catch { return "all"; }
+  });
   // Outbound filters — by lifecycle status and reply outcome.
   const [statusFilter, setStatusFilter] = useState("");
   const [replyFilter, setReplyFilter] = useState("");
@@ -370,9 +374,16 @@ export default function Lists() {
     const p = parseInt(searchParams.get("page") || "1", 10);
     return Number.isFinite(p) && p > 1 ? p - 1 : 0;
   });
-  // Sort + ICP counts (server-side).
-  const [sort, setSort] = useState<"recent" | "icp_score_desc" | "icp_score_asc">("recent");
+  // Sort + ICP counts (server-side). Sort is persisted (localStorage) so an ICP
+  // sort sticks across navigation + reloads until the user changes it.
+  const [sort, setSort] = useState<"recent" | "icp_score_desc" | "icp_score_asc">(() => {
+    try { return (localStorage.getItem("nous.lists.sort") as "recent" | "icp_score_desc" | "icp_score_asc") || "recent"; }
+    catch { return "recent"; }
+  });
   const [counts, setCounts] = useState<{ icp: number; non_icp: number } | null>(null);
+  // Persist sort + ICP filter so they survive navigation and reloads until changed.
+  useEffect(() => { try { localStorage.setItem("nous.lists.sort", sort); } catch { /* ignore */ } }, [sort]);
+  useEffect(() => { try { localStorage.setItem("nous.lists.icpFilter", icpFilter); } catch { /* ignore */ } }, [icpFilter]);
   // Connect → message → reply funnel counts for the native LinkedIn Connections list.
   const [funnel, setFunnel] = useState<{ connected: number; messaged: number; replied: number } | null>(null);
   const [syncingConn, setSyncingConn] = useState(false);

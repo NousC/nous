@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { ArrowLeft, Trash2, Search, Download, FileText } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { relTime } from "@/components/mind/shared";
@@ -72,6 +72,15 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
   const workspaceId = userData?.workspace?.id ?? "";
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  // Back from a company detail: if we got here by navigating (e.g. clicked the
+  // company link on a person record inside a lead list), go BACK to that origin
+  // so the lead-list / person context is preserved. Only fall back to the
+  // accounts companies list when there's no history to return to (direct load).
+  const goBackFromDetail = () => {
+    if (location.key !== "default") navigate(-1);
+    else { setDetail(null); setCoTab("overview"); }
+  };
 
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(true);
@@ -259,7 +268,7 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
         {/* Header — full width, so the sidebar starts below it (matches People) */}
         <div className="flex-shrink-0 px-8 pt-7 pb-0">
           <div className="flex items-center gap-3 mb-3">
-                <button onClick={() => { setDetail(null); setCoTab("overview"); }}
+                <button onClick={goBackFromDetail}
                   className="inline-flex items-center justify-center h-8 w-8 rounded-lg border border-border text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors">
                   <ArrowLeft className="h-4 w-4" />
                 </button>
