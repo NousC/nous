@@ -271,11 +271,13 @@ contactsApiRouter.get('/:id', verifySupabaseAuth, async (req, res) => {
     const memories = await listNotes(supabase, contact.workspace_id, { entityId: id, limit: 30 });
 
     // Buying signals — signal.* state claims written by signal-scan / record_signal.
-    // One current claim per class; the same claims feed the ICP scorecard as features.
-    // Signals are company-level by nature, so a contact INHERITS its company's
-    // signals (the person rarely carries its own). Query the person entity AND its
-    // company entity, and dedupe per class with the person's own claim winning.
-    const sigEntityIds = contact.company_id ? [id, contact.company_id] : [id];
+    // Signals are COMPANY-LEVEL and live on the company record (see the company
+    // view's Signals tab). The person record shows ONLY the person's own signals
+    // (e.g. their post-level intent from content-scan), NOT the company's — those
+    // are shown on the company, and still feed this person's ICP score via the
+    // scorecard's company-feature inheritance (a separate path). So query the
+    // person entity only.
+    const sigEntityIds = [id];
     const { data: sigRows } = await supabase.from('claims')
       .select('entity_id, property, value, confidence, computed_at')
       .in('entity_id', sigEntityIds).like('property', 'signal.%')
