@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, Trash2, Search, Download } from "lucide-react";
+import { ArrowLeft, Trash2, Search, Download, FileText } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { relTime } from "@/components/mind/shared";
 import { Company, healthColor, stageColor, ActivityIcon, mapContact, buildCompanies, STAGE_ORDER } from "@/components/mind/entities";
@@ -18,7 +18,7 @@ const CO_COL_DEFAULTS: Record<string, number> = {
   lastActivity: 116, contacts: 72, stage: 92,
 };
 
-type CoTab = "overview" | "activity" | "facts" | "signals";
+type CoTab = "overview" | "activity" | "facts" | "signals" | "notes";
 type CoSort = { col: string | null; dir: "asc"|"desc" };
 
 type Stakeholder = {
@@ -43,6 +43,7 @@ type CompanyDetail = {
   activity: any[];
   facts: Claim[];
   signals: any[];
+  notes: any[];
 };
 
 // Freshness is the Mind's "how stale is this belief" axis — green when fresh,
@@ -247,6 +248,7 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
       { id:"overview",  label:"Overview"                          },
       { id:"activity",  label:"Activity",  count:cd?.activity.length ?? 0 },
       { id:"signals",   label:"Signals",   count:cd?.signals?.length ?? 0  },
+      { id:"notes",     label:"Notes",     count:cd?.notes?.length ?? 0    },
       { id:"facts",     label:"Intel",     count:intelFacts.length        },
     ];
     // who-relates-to-whom, keyed by the person the edge starts from
@@ -387,6 +389,27 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
                             </div>
                             <p className="text-[13px] text-foreground/80 leading-relaxed">{s.detected}{s.implies ? ` — ${s.implies}` : ""}</p>
                             {s.angle && <p className="text-[12px] text-muted-foreground italic mt-1">Angle: {s.angle}</p>}
+                          </div>
+                        );
+                      })}
+                    </div>
+              ) : coTab === "notes" ? (
+                (cd?.notes?.length ?? 0) === 0
+                  ? <p className="text-[13px] text-muted-foreground/70 text-center py-12">No notes yet — run signal-scan to save a signal brief on this account</p>
+                  : <div className="divide-y divide-border/60">
+                      {cd!.notes.map((m: any) => {
+                        const when = m.metadata?.date || m.created_at;
+                        return (
+                          <div key={m.id} onClick={() => window.open(`/note/${m.id}`, "_blank")}
+                            title="Open note in a new tab"
+                            className="py-3 flex items-center gap-2.5 cursor-pointer hover:bg-muted/30 -mx-2 px-2 rounded-md transition-colors">
+                            <FileText className="h-4 w-4 text-muted-foreground/70 flex-shrink-0" />
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-baseline gap-2">
+                                <span className="text-[13px] font-medium text-foreground/85 truncate">{m.metadata?.title || m.category || "Note"}</span>
+                                <span className="text-[12px] text-muted-foreground/70 ml-auto flex-shrink-0">{relTime(when)}</span>
+                              </div>
+                            </div>
                           </div>
                         );
                       })}

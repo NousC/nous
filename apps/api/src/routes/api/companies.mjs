@@ -275,6 +275,11 @@ companiesApiRouter.get('/:id/detail', verifySupabaseAuth, async (req, res) => {
       updated_at: s.computed_at,
     }));
 
+    // Notes/documents saved ON the company entity (signal-scan briefs, research,
+    // meeting notes). companies.id IS the entity id, so listNotes by entityId
+    // returns the same docs save_note writes to the account.
+    const notes = await listNotes(supabase, workspaceId, { entityId: id, limit: 50 });
+
     return res.json({
       company,
       icp: icp || null,
@@ -283,6 +288,7 @@ companiesApiRouter.get('/:id/detail', verifySupabaseAuth, async (req, res) => {
       activity,
       facts: account ? Object.values(account.claims) : [],
       signals,
+      notes: notes || [],
       recent_observations: account?.recent_observations ?? [],
     });
   } catch (err) {
