@@ -37,6 +37,7 @@ type DetailTab = "activity" | "emails" | "linkedin" | "slack" | "calls" | "notes
 // ─── PeopleDetail — tabbed contact record ────────────────────────────────────
 
 function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token: string; onBack: () => void }) {
+  const navigate = useNavigate();
   const [tab, setTab] = useState<DetailTab>("activity");
   const [loading, setLoading] = useState(true);
   const [acts, setActs] = useState<any[]>([]);
@@ -192,8 +193,18 @@ function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token:
             )}
             {tab === "company" && (
               <div className="py-4 space-y-1">
-                <div className="text-[15px] font-semibold text-foreground">{contact.companyName ?? raw?.company ?? "—"}</div>
+                {raw?.company_id
+                  ? <button
+                      onClick={() => navigate(`/companies/${raw.company_id}`)}
+                      title="Open company record (signals, contacts, intel)"
+                      className="text-[15px] font-semibold text-foreground hover:text-primary hover:underline underline-offset-2 transition-colors text-left">
+                      {contact.companyName ?? raw?.company ?? "—"}
+                    </button>
+                  : <div className="text-[15px] font-semibold text-foreground">{contact.companyName ?? raw?.company ?? "—"}</div>}
                 {(contact.domain ?? raw?.domain) && <div className="text-[13px] text-muted-foreground">{contact.domain ?? raw?.domain}</div>}
+                {!raw?.company_id && (contact.companyName ?? raw?.company) && (
+                  <div className="text-[12px] text-muted-foreground/60 pt-1">No linked company record yet — add a domain to link signals.</div>
+                )}
               </div>
             )}
             {tab === "notes" && (
