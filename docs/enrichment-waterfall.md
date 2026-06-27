@@ -2,7 +2,7 @@
 
 Enrichment takes a thin contact — a name, a domain, maybe a LinkedIn URL — and fills in the firmographics (title, seniority, department, company, location, phone) and, when missing, a work email. It then re-scores the contact's ICP fit from what it learned.
 
-This document describes the **principle** behind how we enrich and the **exact mechanics** of the deployed code. Read it alongside [Identity Resolution](./identity-resolution.md) (which decides *which* contact a signal belongs to) and [ICP & GTM Context](./icp-and-gtm-context.md) (which decides *how* a contact scores).
+This document describes the **principle** behind how we enrich and the **exact mechanics** of the deployed code. Read it alongside [Identity Resolution](./identity-resolution.md) (which decides *which* contact a signal belongs to) and [ICP Scoring & GTM Context](./icp-scoring.md) (which decides *how* a contact scores).
 
 ---
 
@@ -142,7 +142,7 @@ A discovered **email** is registered as an `entity_identifier` (kind `email`), n
 
 ## Step 5 — Re-score ICP
 
-After every successful enrichment, `scoreICP()` runs (`apps/worker/src/utils/enrichContact.mjs` and the API equivalent). It is gated on having at least one firmographic field (title / seniority / department / company), so **email alone never moves the score** — firmographics do. The contact's `icp_score`, `icp_fit`, and `icp_reasoning` are updated in place. Scoring is its own subsystem; see [ICP & GTM Context](./icp-and-gtm-context.md).
+After every successful enrichment, `scoreICP()` runs (`apps/worker/src/utils/enrichContact.mjs` and the API equivalent). It is gated on having at least one firmographic field (title / seniority / department / company), so **email alone never moves the score** — firmographics do. The contact's `icp_score`, `icp_fit`, and `icp_reasoning` are updated in place. Scoring is its own subsystem; see [ICP Scoring & GTM Context](./icp-scoring.md).
 
 ---
 

@@ -3,9 +3,10 @@
 Grouped by area. Each group has a **start-here** doc; the rest are deep-dives.
 
 ## ICP & GTM Context
-- **[The ICP Model & GTM Context](./icp-and-gtm-context.md)** — the single ICP
-  doc: GTM Context, the Scorecard, enrichment, the Mind learning loop, and
-  build-from-closed-deals.
+- **[ICP Scoring & GTM Context](./icp-scoring.md)** — the single ICP doc: the
+  substrate, the scorer, the three feature layers, the per-person score and its
+  history trail, win/loss resolution, the Mind learning loop, build-from-closed-
+  deals, GTM Context + ICP file symbiosis, and Playbooks.
 
 ## Platform mechanics
 - **[Identity Resolution](./identity-resolution.md)** — how Nous folds every
