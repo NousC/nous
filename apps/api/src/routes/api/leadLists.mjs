@@ -27,6 +27,13 @@ import { listCampaigns, pushLeads, SEQUENCERS } from '../../services/sequencerPu
 
 export const leadListsRouter = Router();
 
+// Free/personal email providers — never inferred as a company domain when
+// deriving the Domain column from a lead's work email.
+const FREE_EMAIL_DOMAINS = new Set([
+  'gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'aol.com', 'icloud.com',
+  'proton.me', 'protonmail.com', 'gmx.com', 'mail.com', 'live.com', 'msn.com',
+]);
+
 // Lead Lists are part of the Cloud team layer — reserved for Nous Cloud and not
 // available on self-host (see CLOUD_ONLY_FEATURES in access.mjs). This router-level
 // guard covers every lead-list route at once, and stashes req.plan for the
@@ -193,6 +200,37 @@ leadListsRouter.get('/:id/leads', async (req, res) => {
       size:        str(size),
       source:      str(source),
     });
+    // Overlay the live ICP model score (and a derived domain) at read time, so
+    // the list shows exactly what the person record shows — the model prediction,
+    // not the stale build-time seed in the leads view. `leads` is a view derived
+    // from the entity substrate, so we never write these back; we read the
+    // prediction (the same source `icpFit`/the record uses) and overlay it.
+    if (leads.length) {
+      const ids = leads.map(l => l.id);
+      const { data: preds } = await supabase.from('predictions')
+        .select('entity_id, predicted_value, predicted_at')
+        .eq('workspace_id', workspaceId).eq('kind', 'icp_fit')
+        .in('entity_id', ids)
+        .order('predicted_at', { ascending: false });
+      // Latest prediction per entity (rows are newest-first).
+      const scoreByEntity = new Map();
+      for (const p of (preds || [])) {
+        if (!scoreByEntity.has(p.entity_id) && p.predicted_value?.score != null) {
+          scoreByEntity.set(p.entity_id, p.predicted_value.score);
+        }
+      }
+      for (const l of leads) {
+        const modelScore = scoreByEntity.get(l.id);
+        if (modelScore != null) l.fields = { ...(l.fields || {}), icp_score: modelScore };
+        // Derive a domain from the work email when the view has none, so the
+        // Domain column fills in even before enrichment writes it.
+        if (!l.domain && l.email && l.email.includes('@')) {
+          const d = l.email.split('@')[1].trim().toLowerCase();
+          if (d && !FREE_EMAIL_DOMAINS.has(d)) l.domain = d;
+        }
+      }
+    }
+
     // Return the ICP counts only when asked (the first page) — saves two
     // count queries on every page turn.
     const icpCounts = counts === '1'
