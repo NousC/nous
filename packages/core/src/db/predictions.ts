@@ -81,13 +81,28 @@ export async function buildEntityFeatures(
     .is('valid_to', null)
     .limit(1);
   const companyId = rels?.[0]?.to_entity_id as string | undefined;
+  // Company signal.<class> claims, inherited by the person as graded numeric
+  // features (signal.<class> = the 0–10 strength) so the scorecard can score on
+  // them. Signals are company-level, so every person at the company inherits them.
+  const companySignals: Record<string, number> = {};
   if (companyId) {
-    const companyClaims = (await getClaims(supabase, workspaceId, companyId))
-      .filter(c => COMPANY_FEATURES.includes(c.property));
-    claims = [...personClaims, ...companyClaims];
+    const allCompanyClaims = await getClaims(supabase, workspaceId, companyId);
+    const companyFeatureClaims = allCompanyClaims.filter(c => COMPANY_FEATURES.includes(c.property));
+    claims = [...personClaims, ...companyFeatureClaims];
+    for (const c of allCompanyClaims) {
+      if (!c.property.startsWith('signal.')) continue;
+      const v = c.value as { score?: unknown } | null;
+      const sc = typeof v?.score === 'number' ? v.score : null;
+      if (sc != null) companySignals[c.property] = sc;
+    }
   }
 
   const { features, snapshot } = buildSnapshot(claims);
+  // Merge the inherited company signals as numeric strength features.
+  for (const [k, v] of Object.entries(companySignals)) {
+    features[k] = v;
+    snapshot[k] = { value: v, confidence: 1 };
+  }
 
   // Pipeline-engagement features — *how the deal is going* (lead source, channel,
   // inbound/outbound, replied, banded meeting/touch counts), derived from the

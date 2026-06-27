@@ -9,6 +9,33 @@ import { listSignals, seedSignals, listNotes } from '@nous/core';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
+// The canonical buying-signal classes signal-scan produces. Any signal.* rule
+// must target one of these and be 'scaled' — otherwise it can never fire.
+const SIGNAL_CLASSES = ['domain', 'friction', 'hiring', 'momentum', 'stack', 'intent'];
+
+// Normalize an LLM-produced rule to the shape the scorer reads. Guards against
+// the two ways a seed has gone wrong: (1) nested `{ feature: { op, value } }`
+// instead of flat `{ feature, op, value }` (silently scored everyone a flat 50),
+// and (2) signal.* features with the wrong op (exists/in never grade, so they
+// don't reflect signal strength). Returns {} for unsalvageable rules.
+export function normalizeScorecardRule(rule) {
+  if (!rule || typeof rule !== 'object') return {};
+  let r = rule;
+  if (!r.feature) {
+    const keys = Object.keys(r);
+    if (keys.length === 1 && r[keys[0]] && typeof r[keys[0]] === 'object' && 'op' in r[keys[0]]) {
+      r = { feature: keys[0], op: r[keys[0]].op, value: r[keys[0]].value };
+    }
+  }
+  if (!r.feature || !r.op) return {};
+  const cls = String(r.feature).replace(/^signal\./, '');
+  if (String(r.feature).startsWith('signal.') || SIGNAL_CLASSES.includes(cls)) {
+    if (!SIGNAL_CLASSES.includes(cls)) return {}; // unknown signal.* — would never fire
+    return { feature: `signal.${cls}`, op: 'scaled', value: typeof r.value === 'number' ? r.value : 5 };
+  }
+  return { feature: r.feature, op: r.op, value: r.value };
+}
+
 export const FEATURE_VOCAB =
   'job_title (string), seniority (one of: c_suite, vp, director, manager, ic), ' +
   'department (string), industry (string), employee_count (number), ' +
@@ -16,13 +43,16 @@ export const FEATURE_VOCAB =
   'size_band (one of: 1-10, 11-50, 51-200, 201-1000, 1000+), ' +
   'funding_stage (one of: bootstrapped, seed, series_a, series_b, series_c_plus, public), ' +
   'country (string), company (string). ' +
-  // Website-derived signals (from the signal extractor) — niche, differentiated:
-  'signal.target_market (b2b|b2c|b2b2c|developer|enterprise|smb), ' +
-  'signal.pricing_model (usage_based|seat_based|flat|freemium|enterprise_contact), ' +
-  'signal.has_api / signal.has_sandbox / signal.self_serve_signup / signal.free_trial / signal.recently_funded (boolean), ' +
-  'signal.tech.<tool> (boolean, e.g. signal.tech.stripe), ' +
-  'signal.hiring.<role> (boolean, e.g. signal.hiring.revops), ' +
-  'signal.compliance.<term> (boolean, e.g. signal.compliance.soc2). ' +
+  // Buying signals from signal-scan — the canonical 6 classes, each a 0–10
+  // STRENGTH. Use op "scaled" (contributes weight × score/10) with value = the
+  // floor (min score to count, typically 4–6). These are the ONLY signal.*
+  // features; never invent other signal.* keys (they would never fire):
+  'signal.domain (0-10, how strongly the company fits the niche/vertical), ' +
+  'signal.friction (0-10, a pain the offer removes), ' +
+  'signal.hiring (0-10, roles/expansion that signal the need), ' +
+  'signal.momentum (0-10, funding/growth/expansion), ' +
+  'signal.stack (0-10, tools/process that signal fit), ' +
+  'signal.intent (0-10, expressed buying intent from their content). ' +
   // Pipeline-engagement (how the deal went), bucketed from the activity log:
   'pipe.lead_source (e.g. inbound_website, outbound_email, inbound_linkedin), ' +
   'pipe.channel (email|linkedin|meeting|website|slack|other), ' +
@@ -74,7 +104,9 @@ export async function seedScorecardFromMemory(supabase, workspaceId, { force = f
     `- rule: how it fires on a lead's features — ` +
     `{ "feature": <name>, "op": <operator>, "value": <value> }\n\n` +
     `Available features: ${FEATURE_VOCAB}\n` +
-    `Operators: ==, !=, >=, <=, >, <, in, exists. For "in", value is an array.\n\n` +
+    `Operators: ==, !=, >=, <=, >, <, in, exists, scaled. For "in", value is an ` +
+    `array. For any signal.* feature ALWAYS use "scaled" with value = the floor ` +
+    `(min 0-10 score to count, e.g. 5); never use exists/in on a signal.* feature.\n\n` +
     `Respond with ONLY a JSON array, no prose.`;
 
   const msg = await anthropic.messages.create({
@@ -101,9 +133,9 @@ export async function seedScorecardFromMemory(supabase, workspaceId, { force = f
       key: String(s.key || '').trim().slice(0, 60),
       label: String(s.label || '').trim().slice(0, 200),
       weight: Math.max(1, Math.min(10, Math.round(Number(s.weight) || 3))),
-      rule: s.rule && typeof s.rule === 'object' ? s.rule : {},
+      rule: normalizeScorecardRule(s.rule),
     }))
-    .filter(s => s.key && s.label);
+    .filter(s => s.key && s.label && s.rule.feature);
 
   if (signals.length === 0) return { status: 'translation_failed', signals: [] };
 

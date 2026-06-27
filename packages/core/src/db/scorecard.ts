@@ -27,6 +27,24 @@ function ruleFires(rule: ScorecardSignalRule | null | undefined, features: Recor
   }
 }
 
+// The weight a rule contributes for a lead. Categorical rules are binary (full
+// weight when they fire, else 0). A 'scaled' rule grades a 0–10 signal feature:
+// it contributes weight × (score/10), gated by an optional floor (rule.value =
+// the min score to count at all). This is what lets a strong signal outrank a
+// weak one instead of both counting the same — the key to ranking inside a tier.
+function ruleContribution(rule: ScorecardSignalRule | null | undefined, weight: number, features: Record<string, unknown>): number {
+  if (!rule || !rule.feature) return 0;
+  if (rule.op === 'scaled') {
+    const raw = features[rule.feature];
+    const n = typeof raw === 'number' ? raw : Number(raw);
+    if (!Number.isFinite(n)) return 0;
+    const floor = typeof rule.value === 'number' ? rule.value : 0;
+    if (n < floor) return 0;
+    return weight * Math.min(1, Math.max(0, n / 10));
+  }
+  return ruleFires(rule, features) ? weight : 0;
+}
+
 export interface ScoreResult {
   score: number;                                  // 0–100
   raw: number;                                    // summed weights, pre-rescale
@@ -46,9 +64,12 @@ export function scoreLead(
   let raw = 0;
   const fired: { key: string; weight: number }[] = [];
   for (const s of active) {
-    if (ruleFires(s.rule, f)) {
-      raw += s.weight;
-      fired.push({ key: s.key, weight: s.weight });
+    const contrib = ruleContribution(s.rule, s.weight, f);
+    if (contrib > 0) {
+      raw += contrib;
+      // Report the rounded contribution so the reason reflects graded strength
+      // (a half-strength signal shows as half its weight), not the nominal weight.
+      fired.push({ key: s.key, weight: Math.round(contrib * 10) / 10 });
     }
   }
 

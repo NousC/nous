@@ -173,7 +173,11 @@ export interface Lead {
 
 export interface ScorecardSignalRule {
   feature: string;
-  op: '==' | '!=' | '>=' | '<=' | '>' | '<' | 'in' | 'exists';
+  // Categorical ops fire binary (full weight or nothing). 'scaled' is for
+  // graded signal features (signal.<class> = a 0–10 strength): it contributes
+  // weight × (score/10), with `value` as an optional floor (min score to count
+  // at all), so a 9/10 signal outranks a 6/10 instead of counting the same.
+  op: '==' | '!=' | '>=' | '<=' | '>' | '<' | 'in' | 'exists' | 'scaled';
   value?: unknown;
 }
 
