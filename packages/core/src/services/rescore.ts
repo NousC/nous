@@ -58,7 +58,7 @@ export async function rescoreOpenPredictions(
     if (p.model_version === version) continue; // already at the current model
 
     const features = featuresFromSnapshot(p.feature_snapshot);
-    const { score, fit, reason } = scoreToPrediction(features, signals);
+    const { score, fit, reason, tier } = scoreToPrediction(features, signals);
     const prev = (p.predicted_value as Record<string, any>) || {};
 
     if (score === prev.score) {
@@ -76,6 +76,7 @@ export async function rescoreOpenPredictions(
     const priorEntry = {
       score: prev.score ?? null,
       fit: prev.fit ?? null,
+      tier: prev.tier ?? null,
       reason: prev.reason ?? null,
       at: prev.rescored_at || p.predicted_at,
       model_version: p.model_version ?? null,
@@ -83,7 +84,7 @@ export async function rescoreOpenPredictions(
     await supabase
       .from('predictions')
       .update({
-        predicted_value: { score, fit, reason, rescored_at: nowIso, history: [priorEntry, ...priorHistory] },
+        predicted_value: { score, fit, reason, tier, rescored_at: nowIso, history: [priorEntry, ...priorHistory] },
         predicted_confidence: score / 100,
         model_version: version,
       })
@@ -145,7 +146,7 @@ export async function rescoreEntityFromClaims(
 
   const version = modelVersion(signals);
   const nowIso = new Date(opts.now ?? Date.now()).toISOString();
-  const { score, fit, reason } = scoreToPrediction(built.features, signals);
+  const { score, fit, reason, tier } = scoreToPrediction(built.features, signals);
   const prev = (open.predicted_value as Record<string, any>) || {};
 
   if (score === prev.score) {
@@ -164,6 +165,7 @@ export async function rescoreEntityFromClaims(
   const priorEntry = {
     score: prev.score ?? null,
     fit: prev.fit ?? null,
+    tier: prev.tier ?? null,
     reason: prev.reason ?? null,
     at: prev.rescored_at || open.predicted_at,
     model_version: open.model_version ?? null,
@@ -171,7 +173,7 @@ export async function rescoreEntityFromClaims(
   await supabase
     .from('predictions')
     .update({
-      predicted_value: { score, fit, reason, rescored_at: nowIso, history: [priorEntry, ...priorHistory] },
+      predicted_value: { score, fit, reason, tier, rescored_at: nowIso, history: [priorEntry, ...priorHistory] },
       predicted_confidence: score / 100,
       feature_snapshot: built.snapshot,
       model_version: version,

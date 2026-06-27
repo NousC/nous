@@ -102,17 +102,47 @@ export function modelVersion(signals: ScorecardSignal[]): string {
 
 // The {score, fit, reason} a staked OR re-scored prediction carries — shared so
 // the stake path and the re-score path produce identical shapes.
+// The ICP tier — the actionable classification on top of the raw score. The
+// tier is what drives the play (Tier 1 worked by hand, Tier 2 queued to
+// automation, Tier 3 nurtured, Not-ICP suppressed). Thresholds are the default
+// bands; a workspace can override them later. Keeping this in one place means
+// the score, the API, and the UI all agree on what a tier is.
+export type IcpTier = 'tier_1' | 'tier_2' | 'tier_3' | 'not_icp';
+
+export interface TierThresholds { tier_1: number; tier_2: number; tier_3: number; }
+export const DEFAULT_TIER_THRESHOLDS: TierThresholds = { tier_1: 85, tier_2: 70, tier_3: 50 };
+
+// Map a 0–100 score to its tier using the given (or default) thresholds.
+export function scoreTier(score: number | null | undefined, t: TierThresholds = DEFAULT_TIER_THRESHOLDS): IcpTier | null {
+  if (score == null || Number.isNaN(Number(score))) return null;
+  const s = Number(score);
+  if (s >= t.tier_1) return 'tier_1';
+  if (s >= t.tier_2) return 'tier_2';
+  if (s >= t.tier_3) return 'tier_3';
+  return 'not_icp';
+}
+
+// Human label + the recommended play for a tier — the single source the UI and
+// the agent read so "what do I do with this account" is never ambiguous.
+export const TIER_META: Record<IcpTier, { label: string; play: string }> = {
+  tier_1:  { label: 'Tier 1',  play: 'Work by hand — deep personalization, 1:1 outreach.' },
+  tier_2:  { label: 'Tier 2',  play: 'Queue to automation — base sequence with variables.' },
+  tier_3:  { label: 'Tier 3',  play: 'Nurture — low-cost touch; watch for a signal to promote.' },
+  not_icp: { label: 'Not ICP', play: 'Suppress — outside the profile, do not spend.' },
+};
+
 export function scoreToPrediction(
   features: Record<string, unknown>,
   signals: ScorecardSignal[],
-): { score: number; fit: boolean; reason: string; fired: number } {
+): { score: number; fit: boolean; reason: string; fired: number; tier: IcpTier } {
   const { score, fired } = scoreLead(features, signals);
   const fit = score >= 70;
+  const tier = scoreTier(score)!;
   const reason = fired.length
     ? `Scorecard: ${fired.length} signal${fired.length === 1 ? '' : 's'} fired — ` +
       fired.slice(0, 4).map(f => f.key).join(', ')
     : 'Scorecard: no signals matched this profile';
-  return { score, fit, reason, fired: fired.length };
+  return { score, fit, reason, fired: fired.length, tier };
 }
 
 // ── Signal queries ────────────────────────────────────────────────────────────

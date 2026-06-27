@@ -153,7 +153,7 @@ export async function scoreAndStake(
   // don't record a hollow 0. It will be picked up once enrichment lands.
   if (!hasScoreableFeature(features)) return null;
 
-  const { score, fit, reason, fired } = scoreToPrediction(features, signals);
+  const { score, fit, reason, fired, tier } = scoreToPrediction(features, signals);
 
   const { data, error } = await supabase
     .from('predictions')
@@ -161,7 +161,7 @@ export async function scoreAndStake(
       workspace_id: workspaceId,
       entity_id: entityId,
       kind: 'icp_fit',
-      predicted_value: { score, fit, reason },
+      predicted_value: { score, fit, reason, tier },
       predicted_confidence: score / 100,
       feature_snapshot: snapshot,
       model_version: modelVersion(signals),

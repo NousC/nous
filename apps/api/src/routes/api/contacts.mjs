@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
-import { getSupabaseClient, listNotes, saveNote, logActivity, collapseMeetingDupes, assertClaims, upsertIdentifier } from '@nous/core';
+import { getSupabaseClient, listNotes, saveNote, logActivity, collapseMeetingDupes, assertClaims, upsertIdentifier, scoreTier } from '@nous/core';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
 import { ensureUserAndTeam } from '../../lib/auth.mjs';
 import { requireEnrichmentQuota } from '../../lib/access.mjs';
@@ -313,6 +313,7 @@ contactsApiRouter.get('/:id', verifySupabaseAuth, async (req, res) => {
     const prediction = predRow ? {
       score:      predRow.predicted_value?.score ?? null,
       fit:        predRow.predicted_value?.fit ?? null,
+      tier:       predRow.predicted_value?.tier ?? scoreTier(predRow.predicted_value?.score),
       reason:     predRow.predicted_value?.reason ?? null,
       history:    Array.isArray(predRow.predicted_value?.history) ? predRow.predicted_value.history : [],
       updated_at: predRow.predicted_value?.rescored_at || predRow.predicted_at,

@@ -60,6 +60,28 @@ export function generateCodename(seed: string): string {
   return `${ADJECTIVES[abs % ADJECTIVES.length]}-of-${NOUNS[(abs >> 8) % NOUNS.length]}-${(abs % 99) + 1}`;
 }
 
+// ── ICP tiers ──────────────────────────────────────────────────────────────
+// The actionable class on top of the raw score. Mirrors the core thresholds
+// (scorecard.ts DEFAULT_TIER_THRESHOLDS) so the UI and the model agree.
+export type IcpTier = "tier_1" | "tier_2" | "tier_3" | "not_icp";
+
+export function tierFromScore(score: number | null | undefined): IcpTier | null {
+  if (score == null || Number.isNaN(Number(score))) return null;
+  const s = Number(score);
+  if (s >= 85) return "tier_1";
+  if (s >= 70) return "tier_2";
+  if (s >= 50) return "tier_3";
+  return "not_icp";
+}
+
+// Label, color, and the recommended play per tier — one source for every tier UI.
+export const TIER_UI: Record<IcpTier, { label: string; color: string; bg: string; play: string }> = {
+  tier_1:  { label: "Tier 1",  color: "#15803d", bg: "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-400",   play: "Work by hand — deep personalization, 1:1 outreach." },
+  tier_2:  { label: "Tier 2",  color: "#ca8a04", bg: "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-400",   play: "Queue to automation — base sequence with variables." },
+  tier_3:  { label: "Tier 3",  color: "#ea580c", bg: "bg-orange-100 text-orange-700 dark:bg-orange-950/50 dark:text-orange-400", play: "Nurture — low-cost touch; watch for a signal to promote." },
+  not_icp: { label: "Not ICP", color: "#6b7280", bg: "bg-gray-100 text-gray-600 dark:bg-gray-800/50 dark:text-gray-400",        play: "Suppress — outside the profile, do not spend." },
+};
+
 // Compact relative-time string ("Today", "3d ago", "Jan 15").
 export function relTime(iso: string | null): string {
   if (!iso) return "—";

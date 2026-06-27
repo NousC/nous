@@ -4,7 +4,7 @@ import { Plus, Upload, RefreshCw, FileText, X, ArrowLeft, Download, Lock, Filter
 import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader } from "@/components/ui/page-header";
 import { parseCSVLine } from "@/components/contacts/PeopleImportModal";
-import { relTime } from "@/components/mind/shared";
+import { relTime, tierFromScore, TIER_UI, type IcpTier } from "@/components/mind/shared";
 import { toast } from "@/components/ui/sonner";
 
 // Lists — the Enterprise lead-list workspace. Each list is a small table the
@@ -149,6 +149,14 @@ function cellValue(lead: Lead, key: string): string {
   if (key === "__icp") {
     const fit = (lead.fields?.icp_score as number | string | null | undefined) ?? lead.scorecard_score;
     return fit == null ? "" : String(fit);
+  }
+  // ICP tier — the actionable class (Tier 1/2/3/Not-ICP). The endpoint overlays
+  // fields.icp_tier from the live prediction; fall back to deriving it from the score.
+  if (key === "__tier") {
+    const t = lead.fields?.icp_tier as string | null | undefined;
+    if (t) return String(t);
+    const sc = (lead.fields?.icp_score as number | null | undefined) ?? lead.scorecard_score;
+    return tierFromScore(sc) ?? "";
   }
   // Lead source — where this lead came from. A system column, always present.
   if (key === "__source") return lead.source ?? "";
@@ -1010,6 +1018,7 @@ export default function Lists() {
     ...FIXED_COLS,
     { key: "__domain", label: "Domain", w: 120 },
     { key: "__icp", label: "ICP", w: 64 },
+    { key: "__tier", label: "Tier", w: 88 },
     ...customCols.map(c => ({ key: c.key, label: c.label, w: CUSTOM_W })),
     { key: "__source", label: "Source", w: 130 },
     { key: "__email_status", label: "Email status", w: 100 },
@@ -1750,6 +1759,10 @@ export default function Lists() {
                               signalTag(l)
                             ) : c.key === "__icp" ? (
                               icpTag(val)
+                            ) : c.key === "__tier" ? (
+                              val && TIER_UI[val as IcpTier]
+                                ? <span title={TIER_UI[val as IcpTier].play} className={`text-[11px] font-semibold px-1.5 py-0.5 rounded ${TIER_UI[val as IcpTier].bg}`}>{TIER_UI[val as IcpTier].label}</span>
+                                : <span className="text-muted-foreground/40">—</span>
                             ) : c.key === "name" ? (
                               <span
                                 onClick={() => { if (nameClickTimer.current) return; nameClickTimer.current = setTimeout(() => { nameClickTimer.current = null; navigate(`/people/${l.id}`, { state: { from: `/lists/${routeListId}` } }); }, 200); }}

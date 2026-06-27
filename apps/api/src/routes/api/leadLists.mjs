@@ -17,6 +17,7 @@ import {
   updateLead,
   assertClaims,
   selectLeadIdsByFilter,
+  scoreTier,
 } from '@nous/core';
 import { hasFeature } from '../../lib/plans.mjs';
 import { requireEnrichmentQuota, requireFeature } from '../../lib/access.mjs';
@@ -213,15 +214,20 @@ leadListsRouter.get('/:id/leads', async (req, res) => {
         .in('entity_id', ids)
         .order('predicted_at', { ascending: false });
       // Latest prediction per entity (rows are newest-first).
-      const scoreByEntity = new Map();
+      const predByEntity = new Map();
       for (const p of (preds || [])) {
-        if (!scoreByEntity.has(p.entity_id) && p.predicted_value?.score != null) {
-          scoreByEntity.set(p.entity_id, p.predicted_value.score);
+        if (!predByEntity.has(p.entity_id) && p.predicted_value?.score != null) {
+          predByEntity.set(p.entity_id, p.predicted_value);
         }
       }
       for (const l of leads) {
-        const modelScore = scoreByEntity.get(l.id);
-        if (modelScore != null) l.fields = { ...(l.fields || {}), icp_score: modelScore };
+        const pv = predByEntity.get(l.id);
+        if (pv?.score != null) {
+          // Overlay the model score and its tier (fall back to deriving the tier
+          // from the score for older predictions written before tiers existed).
+          const tier = pv.tier ?? scoreTier(pv.score);
+          l.fields = { ...(l.fields || {}), icp_score: pv.score, icp_tier: tier };
+        }
         // Derive a domain from the work email when the view has none, so the
         // Domain column fills in even before enrichment writes it.
         if (!l.domain && l.email && l.email.includes('@')) {

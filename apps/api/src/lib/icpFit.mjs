@@ -19,6 +19,7 @@ export async function icpFit(supabase, workspaceId, entityId) {
   return {
     score: pv.score,                 // 0–100 fit score
     fit: pv.fit ?? null,             // boolean: score >= 70
+    tier: pv.tier ?? null,           // tier_1 | tier_2 | tier_3 | not_icp — the actionable class
     reason: pv.reason ?? null,       // which signals fired (or "no signals matched")
     scored_at: data.predicted_at,
     // The score history trail — prior {score, reason, at} entries, newest first,
