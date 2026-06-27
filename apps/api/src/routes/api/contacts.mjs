@@ -303,7 +303,22 @@ contactsApiRouter.get('/:id', verifySupabaseAuth, async (req, res) => {
     }
     const signals = Array.from(byClass.values()).map(({ _own, ...s }) => s);
 
-    return res.json({ contact, activities, company, memories, signals });
+    // ICP prediction + its history trail (the evolving per-person score). The
+    // headline contact.icp_score stays the hybrid (seed until the model trains);
+    // this exposes the live model score + the full trail for the timeline UI.
+    const { data: predRow } = await supabase.from('predictions')
+      .select('predicted_value, predicted_at, model_version')
+      .eq('entity_id', id).eq('kind', 'icp_fit')
+      .order('predicted_at', { ascending: false }).limit(1).maybeSingle();
+    const prediction = predRow ? {
+      score:      predRow.predicted_value?.score ?? null,
+      fit:        predRow.predicted_value?.fit ?? null,
+      reason:     predRow.predicted_value?.reason ?? null,
+      history:    Array.isArray(predRow.predicted_value?.history) ? predRow.predicted_value.history : [],
+      updated_at: predRow.predicted_value?.rescored_at || predRow.predicted_at,
+    } : null;
+
+    return res.json({ contact, activities, company, memories, signals, prediction });
   } catch (err) {
     return res.status(500).json({ error: 'internal_error', ...(process.env.NODE_ENV !== 'production' && { detail: String(err.message) }) });
   }
