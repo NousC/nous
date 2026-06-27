@@ -21,6 +21,10 @@ export async function icpFit(supabase, workspaceId, entityId) {
     fit: pv.fit ?? null,             // boolean: score >= 70
     reason: pv.reason ?? null,       // which signals fired (or "no signals matched")
     scored_at: data.predicted_at,
+    // The score history trail — prior {score, reason, at} entries, newest first,
+    // so an agent can see how the fit evolved and what moved it. Not shown in the
+    // UI (which displays only the current score); this is for agents to read.
+    history: Array.isArray(pv.history) ? pv.history : [],
     // Once the prediction has resolved, the realized outcome (0–1) so an agent
     // can see whether the bet paid off.
     outcome_score: data.resolved_at ? (data.outcome_value?.score ?? null) : null,

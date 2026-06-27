@@ -278,7 +278,9 @@ function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token:
             </div>
             {/* ICP score — read-only, computed by the Scorecard */}
             {(() => {
-              const sc = contact.icpScore;
+              // Show the current (newest) model score when we have a live
+              // prediction; the full score history stays in the data for agents.
+              const sc = prediction?.score ?? contact.icpScore;
               const fit = sc == null ? null : sc >= 85 ? "Strong fit" : sc >= 70 ? "Good fit" : sc >= 50 ? "Potential fit" : "Weak fit";
               const col = sc == null ? "#9ca3af" : sc >= 85 ? "#15803d" : sc >= 70 ? "#ca8a04" : sc >= 50 ? "#ea580c" : "#6b7280";
               return (
@@ -292,37 +294,6 @@ function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token:
                       <span className="text-[12px] text-muted-foreground/70">/ 100 · {fit}</span>
                     </div>
                   )}
-                </div>
-              );
-            })()}
-            {/* ICP score history — the evolving model score + what moved it.
-                Current model score on top, then the trail (newest→oldest). */}
-            {prediction && (prediction.history?.length || prediction.score != null) && (() => {
-              const entries = [
-                { score: prediction.score, reason: prediction.reason, at: prediction.updated_at, current: true },
-                ...(prediction.history ?? []),
-              ].filter(e => e.score != null);
-              if (entries.length === 0) return null;
-              return (
-                <div className="mb-4 pb-3.5 border-b border-border/60">
-                  <div className="text-[11px] font-medium text-muted-foreground/70 mb-2">ICP score history</div>
-                  <div className="space-y-2">
-                    {entries.map((e, i) => {
-                      const older = entries[i + 1];
-                      const delta = older && older.score != null ? e.score - older.score : null;
-                      const dCol = delta == null ? "" : delta > 0 ? "#15803d" : delta < 0 ? "#dc2626" : "#9ca3af";
-                      return (
-                        <div key={i} className="flex items-start gap-2 text-[12px]">
-                          <span className="tabular-nums font-semibold text-foreground/90 w-7 flex-shrink-0">{e.score}</span>
-                          <span className="tabular-nums w-9 flex-shrink-0" style={{ color: dCol }}>
-                            {delta == null ? "" : delta > 0 ? `▲${delta}` : delta < 0 ? `▼${Math.abs(delta)}` : "–"}
-                          </span>
-                          <span className="flex-1 min-w-0 text-muted-foreground/80 leading-snug">{e.reason || "—"}</span>
-                          <span className="text-muted-foreground/50 flex-shrink-0">{e.at ? relTime(e.at) : ""}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
                 </div>
               );
             })()}
