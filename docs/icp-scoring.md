@@ -33,13 +33,26 @@ The score is a pure, deterministic function — `scoreLead` (`packages/core/src/
 // scoreLead — packages/core/src/db/scorecard.ts
 let raw = 0;
 for (const s of signals.filter(s => s.active)) {
-  if (ruleFires(s.rule, features)) { raw += s.weight; fired.push({ key: s.key, weight: s.weight }); }
+  const contrib = ruleContribution(s.rule, s.weight, features); // binary OR graded
+  if (contrib > 0) { raw += contrib; fired.push({ key: s.key, weight: contrib }); }
 }
 // Logistic squash. K=8 maps a single strong signal (±8) to ~73/27; raw 0 → 50.
 const score = Math.round(100 / (1 + Math.exp(-raw / 8)));
 ```
 
-A **signal** is `{ rule: feature OP value, weight: −10..10 }` — e.g. `industry == fintech → +6`, `pipe.touches_band == 10+ → −4`. The supported operators are `exists, ==, !=, >=, <=, >, <, in`. `score >= 70` is the fit threshold (`scoreToPrediction`).
+A **signal** is `{ rule: feature OP value, weight: −10..10 }` — e.g. `industry == fintech → +6`, `pipe.touches_band == 10+ → −4`. The supported operators are `exists, ==, !=, >=, <=, >, <, in, scaled`. `score >= 70` is the fit threshold (`scoreToPrediction`).
+
+### Binary vs graded (`ruleContribution`)
+
+Categorical rules fire **binary** — full weight when the rule matches, nothing otherwise (you either are a founder or you aren't). But a buying **signal** carries a *strength* (a 0–10 score from signal-scan), and a strong signal should outrank a weak one. The `scaled` op grades it: a rule `{ feature: 'signal.friction', op: 'scaled', value: 5 }` contributes
+
+```
+weight × (score / 10)   when score ≥ value (the floor), else 0
+```
+
+So `friction 9/10 @ weight 5` adds `4.5`, `friction 6/10` adds `3.0`, and `friction 4/10` (below the floor) adds nothing. This is what lets the score **rank inside a tier** — without it, every signal above the threshold counts the same and your best-fit accounts pile up indistinguishably. `fired` reports the graded contribution, so the reason trail reflects real strength, not the nominal weight.
+
+> Trade-off to know: the logistic squash compresses the top (raw 24 → 95, raw 36 → 99), so graded signals separate the **middle** of the range cleanly but barely move an already-saturated top-tier account. Ranking the very top further is a logistic-`K` calibration choice, kept separate from the weights.
 
 The logistic squash is deliberate. The earlier version rescaled `raw` against the *sum of every signal's weight in the catalog* — but an account only ever fires a **subset** (you can't be both `bootstrapped` and `series_a`), so each new signal inflated the denominator and deflated every real account's score (the 92→6 collapse). The logistic curve is stable no matter how many signals the catalog holds: one strong signal lands ~73, and signals stack from there.
 
@@ -56,7 +69,7 @@ A good ICP is the intersection of *who they are*, *how they operate*, and *how t
 | Layer | Examples | Source |
 | --- | --- | --- |
 | **A — Firmographics** (who they are) | `industry`, `employee_count`, `size_band`, `funding_stage`, `country`, `company_type` | website extractor + enrichment (Apollo / Prospeo) |
-| **B — Technographic / behavioural** (how they operate) | `signal.target_market`, `signal.pricing_model`, `signal.has_api`, `signal.self_serve_signup`, `signal.tech.*`, `signal.hiring.*`, `signal.compliance.*` | website signal extractor (`websiteSignals.mjs`) |
+| **B — Buying signals** (how they operate / why now) | The canonical 6 classes, each a **0–10 strength**: `signal.domain`, `signal.friction`, `signal.hiring`, `signal.momentum`, `signal.stack`, `signal.intent` | signal-scan + content-scan, recorded on the **company** entity |
 | **C — Pipeline & engagement** (how the deal went) | `pipe.lead_source`, `pipe.channel`, `pipe.inbound`, `pipe.replied`, `pipe.meetings_band`, `pipe.touches_band` | the activity log (`pipelineFeatures`) |
 
 The full vocabulary lives in `FEATURE_VOCAB` (`apps/api/src/lib/scorecardSeed.mjs`) — it is the contract between the signal translator, the discovery engine, and the scorer.
@@ -65,7 +78,9 @@ The full vocabulary lives in `FEATURE_VOCAB` (`apps/api/src/lib/scorecardSeed.mj
 
 Layer A/B start with **enrichment** (`apps/api/src/services/enrichment.mjs`): per contact, Nous tries Apollo BYOK → Prospeo BYOK → the platform Prospeo key for job title, seniority, department, and company info (see [Enrichment Waterfall](./enrichment-waterfall.md)). Enriched attributes are written as **observations tagged with their true source**, never flattened onto the record — so a value's origin survives for the claim engine. Layer C is derived live from the entity's `interaction.*` observations by `pipelineFeatures`.
 
-`buildEntityFeatures` (`packages/core/src/db/predictions.ts`) is the single feature-extraction path shared by the first score and every re-score, so the two never drift. It reads the person's own claims, follows the `works_at` edge to merge the employer's company-level claims, and folds in the pipeline features.
+`buildEntityFeatures` (`packages/core/src/db/predictions.ts`) is the single feature-extraction path shared by the first score and every re-score, so the two never drift. It reads the person's own claims, follows the `works_at` edge to merge the employer's company-level claims, inherits the company's **buying signals** as graded numeric features (each `signal.<class>` claim becomes `signal.<class> = its 0–10 score`), and folds in the pipeline features. Signals live on the **company**, so every person at that company inherits the same signal strength into their own score — score the company's friction once and the whole buying committee re-scores.
+
+The signal taxonomy is **locked**. The six classes above are the only `signal.*` features the model may reference; `normalizeScorecardRule` (`apps/api/src/lib/scorecardSeed.mjs`) enforces this on every seed — it repairs the nested `{ feature: { op, value } }` rule shape to flat `{ feature, op, value }`, forces any `signal.*` rule to the `scaled` op, and drops `signal.*` rules that name an unknown class. This closes the failure mode where a model was seeded with signal keys signal-scan never produces (so no rule ever fired and every account scored a flat 50).
 
 ---
 
@@ -126,7 +141,9 @@ When the score *doesn't* move, the row is **restamped** (model version / snapsho
 
 ### How it surfaces
 
-`icpFit` (`apps/api/src/lib/icpFit.mjs`) returns the head `{ score, fit, reason, scored_at, outcome_score }` to agents through `get_context` / `get_account` — so an agent sees not just *who you sell to* but *whether this specific account is one of them, and how confident*. The full trail renders on the account record's **Trail** tab on the GTM Context page (`apps/frontend/src/pages/Intelligence.tsx`).
+`icpFit` (`apps/api/src/lib/icpFit.mjs`) returns `{ score, fit, reason, scored_at, history, outcome_score }` to agents through `get_context` / `get_account` — so an agent sees not just *who you sell to* but *whether this specific account is one of them, how confident, and how that fit has evolved* (`history` is the full trail of prior `{ score, reason, at }` entries).
+
+The split is deliberate: the **UI shows only the current score** (the person record's headline) — a single, calm number, not a changelog. The **history lives in the data for agents** to read and reason over. An agent prepping outreach can see "was 87, dropped to 75 after 30 days quiet, back to 91 when they hired a RevOps lead" and act on the *trajectory*; the human just sees `91`.
 
 > **In progress.** The `reason` on each entry is currently the signal-list summary from `scoreToPrediction` ("3 signals fired — …"). The richer per-line attribution in the Yusuf trail ("+ signal.friction (9/10)", "title: Founder → Founder & raised seed") is computed from the `feature_snapshot` diff between consecutive entries — surfacing that diff *as* the reason is the active refinement, and the data to produce it (both snapshots) is already stored on every history step.
 
