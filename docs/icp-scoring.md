@@ -141,7 +141,7 @@ When the score *doesn't* move, the row is **restamped** (model version / snapsho
 
 ### How it surfaces
 
-`icpFit` (`apps/api/src/lib/icpFit.mjs`) returns `{ score, fit, reason, scored_at, history, outcome_score }` to agents through `get_context` / `get_account` — so an agent sees not just *who you sell to* but *whether this specific account is one of them, how confident, and how that fit has evolved* (`history` is the full trail of prior `{ score, reason, at }` entries).
+`icpFit` (`apps/api/src/lib/icpFit.mjs`) returns `{ score, fit, tier, reason, scored_at, history, outcome_score }` to agents through `get_context` / `get_account` — so an agent sees not just *who you sell to* but *whether this specific account is one of them, what to do about it* (`tier`, see §5), *how confident, and how that fit has evolved* (`history` is the full trail of prior `{ score, reason, at }` entries).
 
 The split is deliberate: the **UI shows only the current score** (the person record's headline) — a single, calm number, not a changelog. The **history lives in the data for agents** to read and reason over. An agent prepping outreach can see "was 87, dropped to 75 after 30 days quiet, back to 91 when they hired a RevOps lead" and act on the *trajectory*; the human just sees `91`.
 
@@ -149,7 +149,32 @@ The split is deliberate: the **UI shows only the current score** (the person rec
 
 ---
 
-## 5. Win/loss resolution — closing the loop
+## 5. Tiers — the score made actionable
+
+A 0–100 number tells you *how good* an account is; it doesn't tell a rep *what to do*. The **tier** does. It's the thin, decisive layer on top of the score — the same idea behind account-based tiering, but computed per person and kept live. The score is the engine; the tier is the steering wheel.
+
+`scoreTier` (`packages/core/src/db/scorecard.ts`) maps a score to one of four classes against configurable thresholds (`DEFAULT_TIER_THRESHOLDS` = 85 / 70 / 50):
+
+| Tier | Band | The play (`TIER_META`) |
+| --- | --- | --- |
+| **Tier 1** | 85–100 | Work by hand — deep personalization, 1:1 outreach. The accounts you prepare so completely the rep just shows up. |
+| **Tier 2** | 70–84 | Queue to automation — base sequence with the extracted variables. Lighter touch. |
+| **Tier 3** | 50–69 | Nurture — low-cost touch; watch for a buying signal that promotes them. |
+| **Not ICP** | <50 | Suppress — outside the profile, don't spend. |
+
+Three properties make the tier more than a label:
+
+**It's computed once, at the source.** `scoreToPrediction` returns the tier alongside the score, so every prediction write — the first stake, both re-score paths, and each history entry — persists `tier` in `predicted_value`. Predictions written before tiers existed get the tier derived on read (`tier ?? scoreTier(score)`), so nothing is ever blank.
+
+**It's per person, and dynamic.** Because tiers ride on the per-person prediction (§4), a founder and their SDR at the same account land in different tiers — you work the founder by hand and skip the IC. And because the score re-scores on new evidence, a Tier 3 account that posts a buying signal (`signal.intent` from content-scan) crosses the threshold and **auto-promotes to Tier 2** — the continuous loop turned into a queue change, not just a number nudge.
+
+**It drives the motion, everywhere.** The tier surfaces on the person record (a badge + its recommended play), as a column on every lead list, and in the agent surface (`get_context` / `get_account` return it). The `abm-operator` agent routes by it: Tier 1 hand-prepped, Tier 2 drafted and queued, Tier 3 nurtured, Not-ICP suppressed — so "who do I work today, and how" is answered by the same model that scores them.
+
+> **On the roadmap.** Per-workspace threshold overrides (the bands are defaults today), tier-filter chips and tier-sort on the list, and **override-to-learn** — a manual tier change is a labeled training signal with the same plumbing as a closed-won outcome (§6), so correcting the model teaches it.
+
+---
+
+## 6. Win/loss resolution — closing the loop
 
 A staked prediction is a question reality eventually answers. Resolution joins each open prediction to what actually happened and writes the one weighted `outcome_value` the learning loop trains on. This is the **single source of truth** for disposition — `packages/core/src/services/outcomes.ts`, called from two entry points that share `resolveOnePrediction` so the rules never fork:
 
@@ -172,7 +197,7 @@ The qualification bar matters: an account has to have *entered a buying motion* 
 
 ---
 
-## 6. The learning loop — score → resolve → discover → re-score
+## 7. The learning loop — score → resolve → discover → re-score
 
 The compound-intelligence loop, made of real tables (`observations → claims → predictions → scorecard_signals`):
 
@@ -205,7 +230,7 @@ The catalog is capped at 12 active signals, forcing the loop to prune as it lear
 
 ---
 
-## 7. The cold-start — build from closed deals
+## 8. The cold-start — build from closed deals
 
 A brand-new workspace has no resolved predictions, so there is nothing to learn from. The closed-deals flow seeds the loop. Paste won + lost domains; `POST /api/mind/closed-deals` runs the whole cycle per account (`apps/api/src/routes/api/mind.mjs`):
 
@@ -218,7 +243,7 @@ This is also where the model is first **seeded** from your plain-English ICP: `s
 
 ---
 
-## 8. The GTM Context — the system of record the model reads
+## 9. The GTM Context — the system of record the model reads
 
 The model doesn't learn in a vacuum; it starts from what you tell it. The **GTM Context** page (`apps/frontend/src/pages/Intelligence.tsx`, route `/intelligence`, labelled "GTM Context") is the workspace's source of truth about *your* business — ICP, Market, Product, Pricing, Competitors, Positioning, GTM Motion, Notes. Each field is a `claim` carrying a subject slot, a confidence, and a source (`you` edited it, `site` drafted it, `Claude` wrote it back).
 
@@ -236,7 +261,7 @@ The `/playbook` page mirrors the synced ICP read-only. The graph is the runtime-
 
 ---
 
-## 9. Playbooks — the policy layer
+## 10. Playbooks — the policy layer
 
 Facts tell an agent *who* an account is. **Playbooks** tell it *how you operate* — the rules the agent should follow before it acts. They are a thin, deliberate four-kind set (`apps/api/src/routes/v2/playbooks.mjs`):
 
@@ -256,7 +281,7 @@ The `playbooks` table holds one row per `(workspace_id, kind)` with `body_md`, `
 
 ---
 
-## 10. The agent surface
+## 11. The agent surface
 
 What an agent can do with all of this, through the MCP server (`apps/mcp/src/server.js`):
 
@@ -274,7 +299,7 @@ The discipline the org preferences enforce: read `get_gtm_profile` (and the rele
 
 ---
 
-## 11. Honest limits
+## 12. Honest limits
 
 - **The trail reason is signal-list-based today.** Each history entry's `reason` is the "N signals fired — …" summary, not yet the per-claim snapshot-diff attribution shown in the Yusuf trail. The diff data is stored on every step; surfacing it as the reason is the active refinement (§4).
 - **Two "current fit" stores still coexist.** `contacts.icp_score` (v1, for display) and the prediction-based fit. Collapsing them is deferred.
@@ -284,7 +309,7 @@ The discipline the org preferences enforce: read `get_gtm_profile` (and the rele
 
 ---
 
-## 12. The guarantees, and the guards that enforce them
+## 13. The guarantees, and the guards that enforce them
 
 | Guarantee | Guard | Where |
 | --- | --- | --- |
@@ -300,6 +325,6 @@ The discipline the org preferences enforce: read `get_gtm_profile` (and the rele
 
 ---
 
-## 13. What you get
+## 14. What you get
 
 One evolving 0–100 fit score per person, computed from real firmographics, behaviour, and engagement — not a hand-applied tag. A dated trail that shows exactly what moved each score and when. A model that grades its own past bets against real won/lost outcomes and sharpens itself nightly, faithful to the ICP you wrote and the deals you actually close. And a context-and-playbook layer that every agent reads first, so the score, the rules, and the next action all draw on one engineered record instead of scattered guesses.
