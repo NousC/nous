@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
-import { ArrowLeft, Linkedin, Trash2, RefreshCw, Search, Download, Upload, FileText } from "lucide-react";
+import { ArrowLeft, Linkedin, Trash2, RefreshCw, Search, Download, Upload, FileText, Filter, X } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { relTime, eventTime, tierFromScore, TIER_UI, type IcpTier } from "@/components/mind/shared";
 import { PeopleImportModal } from "@/components/contacts/PeopleImportModal";
@@ -408,6 +408,7 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
   const [q, setQ] = useState("");
   const [stage, setStage] = useState("");
   const [source, setSource] = useState("");
+  const [filterOpen, setFilterOpen] = useState(false);
   const [page, setPage] = useState(0);
   const [sortCol, setSortCol] = useState<"lastActivity"|"icp"|null>(null);
   const [sortDir, setSortDir] = useState<"asc"|"desc">("asc");
@@ -505,8 +506,6 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
   const pageRows = sorted.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
   const handleSearch = (v: string) => { setQ(v); setPage(0); };
-  const handleStage  = (s: string) => { setStage(p => p===s ? "" : s); setPage(0); };
-  const handleSource = (s: string) => { setSource(s); setPage(0); };
 
   const handleExport = () => {
     const headers = ["Name","Email","Company","Pipeline Stage","Deal Stage","Segment","ICP","Last Activity","LinkedIn"];
@@ -604,18 +603,57 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
             </div>
           </div>
           <div className="flex items-center gap-1.5 flex-shrink-0">
-            <select value={source} onChange={e => handleSource(e.target.value)}
-              title="Filter by where each person was first contacted"
-              className="h-8 rounded-md border border-border bg-background text-[12px] text-foreground px-2 outline-none focus:border-foreground/40">
-              <option value="">All sources</option>
-              {sourceOptions.map(s => <option key={s} value={s}>{sourceLabel(s)}</option>)}
-            </select>
-            {stages.map(s => (
-              <button key={s} onClick={() => handleStage(s)}
-                className={`text-[12px] px-2.5 py-1 rounded-md border transition-colors capitalize ${stage===s ? "text-foreground border-foreground bg-muted/50 font-medium" : "text-muted-foreground border-border hover:border-foreground/40"}`}>
-                {s}
+            {/* Active filter chips — only the ones in use, removable. */}
+            {stage && (
+              <span className="inline-flex items-center gap-1 h-8 pl-2.5 pr-1 rounded-md text-[12px] font-medium bg-foreground text-background capitalize">
+                Stage: {stage}
+                <button onClick={() => { setStage(""); setPage(0); }} className="rounded p-0.5 hover:bg-background/20" aria-label="Clear stage filter"><X className="h-3 w-3" /></button>
+              </span>
+            )}
+            {source && (
+              <span className="inline-flex items-center gap-1 h-8 pl-2.5 pr-1 rounded-md text-[12px] font-medium bg-foreground text-background">
+                Source: {sourceLabel(source)}
+                <button onClick={() => { setSource(""); setPage(0); }} className="rounded p-0.5 hover:bg-background/20" aria-label="Clear source filter"><X className="h-3 w-3" /></button>
+              </span>
+            )}
+            {/* Filter button + popover — replaces the row of stage chips + sources dropdown. */}
+            <div className="relative">
+              <button onClick={() => setFilterOpen(o => !o)} title="Filter"
+                className={`inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md text-[12px] font-medium border transition-colors ${
+                  filterOpen ? "bg-muted border-border text-foreground" : "bg-background border-border text-muted-foreground hover:text-foreground"
+                }`}>
+                <Filter className="h-3.5 w-3.5" /> Filter
               </button>
-            ))}
+              {filterOpen && (
+                <>
+                  <div className="fixed inset-0 z-20" onClick={() => setFilterOpen(false)} />
+                  <div className="absolute right-0 top-9 z-30 w-64 rounded-lg border border-border bg-background shadow-xl p-3 space-y-3">
+                    <div>
+                      <div className="text-[11px] font-medium text-muted-foreground/70 mb-1.5">Stage</div>
+                      <select value={stage} onChange={e => { setStage(e.target.value); setPage(0); }}
+                        className="h-8 w-full rounded-md border border-border bg-background text-[12px] text-foreground px-2 outline-none focus:border-foreground/40 capitalize">
+                        <option value="">All stages</option>
+                        {stages.map(s => <option key={s} value={s} className="capitalize">{s}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <div className="text-[11px] font-medium text-muted-foreground/70 mb-1.5">Source</div>
+                      <select value={source} onChange={e => { setSource(e.target.value); setPage(0); }}
+                        className="h-8 w-full rounded-md border border-border bg-background text-[12px] text-foreground px-2 outline-none focus:border-foreground/40">
+                        <option value="">All sources</option>
+                        {sourceOptions.map(s => <option key={s} value={s}>{sourceLabel(s)}</option>)}
+                      </select>
+                    </div>
+                    {(stage || source) && (
+                      <button onClick={() => { setStage(""); setSource(""); setPage(0); }}
+                        className="w-full h-8 rounded-md border border-border text-[12px] text-muted-foreground hover:text-foreground transition-colors">
+                        Clear all
+                      </button>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
             <span className="text-[12px] text-muted-foreground/70 ml-1 tabular-nums">{sorted.length} of {contacts.length}</span>
           </div>
         </div>
