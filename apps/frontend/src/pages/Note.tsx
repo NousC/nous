@@ -16,7 +16,6 @@ const pre: React.CSSProperties = {
   fontSize: "14px",
   lineHeight: 1.7,
   color: "#1a1a1a",
-  maxWidth: "860px",
   margin: 0,
   padding: "40px 48px",
 };
