@@ -882,27 +882,3 @@ workspaceStatusV2Router.get('/icp/model', async (req, res) => {
   }
 });
 
-// ── GET /v2/workspace/exclusions ──────────────────────────────────────────────
-// The semantic exclusions a website-reading pass (signal-scan) should classify
-// each account against — the active disqualifying signals bound to an
-// exclusion.<key> feature. Each is { key, feature, description }. signal-scan
-// reads this once, judges every company's site against each description, and
-// records exclusion.<key> on the ones that match (flag_exclusion) so the
-// disqualifier fires and caps them Not-ICP.
-workspaceStatusV2Router.get('/exclusions', async (req, res) => {
-  try {
-    const supabase = getSupabaseClient();
-    const signals = await listSignals(supabase, req.workspaceId, { activeOnly: true });
-    const exclusions = signals
-      .filter(s => s.rule?.disqualify && String(s.rule?.feature || '').startsWith('exclusion.'))
-      .map(s => ({
-        key: String(s.rule.feature).slice('exclusion.'.length),
-        feature: s.rule.feature,
-        description: s.label || s.key,
-      }));
-    return res.json({ exclusions });
-  } catch (err) {
-    console.error('[GET /v2/workspace/exclusions]', err);
-    return res.status(500).json({ error: 'internal_error' });
-  }
-});

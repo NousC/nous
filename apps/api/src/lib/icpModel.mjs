@@ -176,7 +176,14 @@ export function renderIcpBlock(model, { syncedAt } = {}) {
   if (exclusions.length) {
     if (drivers.length) lines.push('');
     lines.push('Not a fit (hard exclusions — capped below Not-ICP):');
-    for (const s of exclusions) lines.push(row(s));
+    // Show each exclusion with its feature key. Semantic exclusions (exclusion.*)
+    // are judged from the website by signal-scan, which reads this block as its
+    // lens and records the verdict on the matching key with the normal `record`
+    // tool — so the key is shown for both the human and that pass to use.
+    for (const s of exclusions) {
+      const feat = s.rule?.feature ? `  \`${s.rule.feature}\`` : '';
+      lines.push(`- ${s.label}${feat}`);
+    }
   }
   if (detractors.length) {
     if (drivers.length || exclusions.length) lines.push('');
