@@ -294,24 +294,12 @@ function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token:
                   <div className="text-[11px] font-medium text-muted-foreground/70 mb-1">ICP Score</div>
                   {sc == null ? (
                     <div className="text-[13px] text-muted-foreground/50 italic">Not scored yet</div>
-                  ) : (() => {
-                    const tier = prediction?.tier ?? tierFromScore(sc);
-                    const tm = tier ? TIER_UI[tier as IcpTier] : null;
-                    return (
-                      <>
-                        <div className="flex items-baseline gap-2">
-                          <span className="text-[22px] font-semibold tabular-nums leading-none" style={{ color: col }}>{sc}</span>
-                          <span className="text-[12px] text-muted-foreground/70">/ 100 · {fit}</span>
-                        </div>
-                        {tm && (
-                          <div className="mt-2 flex items-center gap-2">
-                            <span className={`text-[11px] font-semibold px-1.5 py-0.5 rounded ${tm.bg}`}>{tm.label}</span>
-                            <span className="text-[11px] text-muted-foreground/70 leading-tight">{tm.play}</span>
-                          </div>
-                        )}
-                      </>
-                    );
-                  })()}
+                  ) : (
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-[22px] font-semibold tabular-nums leading-none" style={{ color: col }}>{sc}</span>
+                      <span className="text-[12px] text-muted-foreground/70">/ 100 · {fit}</span>
+                    </div>
+                  )}
                 </div>
               );
             })()}
