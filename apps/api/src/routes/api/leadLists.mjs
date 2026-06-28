@@ -16,6 +16,7 @@ import {
   updateLead,
   assertClaims,
   selectLeadIdsByFilter,
+  selectLeadsLite,
   scoreTier,
 } from '@nous/core';
 import { hasFeature } from '../../lib/plans.mjs';
@@ -236,43 +237,78 @@ leadListsRouter.get('/:id/leads', async (req, res) => {
         }
       }
     };
-    const tierOf = (l) => (l.fields?.icp_tier) ?? scoreTier(l.fields?.icp_score);
     const TIER_RANK = { tier_1: 4, tier_2: 3, tier_3: 2, not_icp: 1 };
+    const effectiveDomain = (l) => {
+      if (l.domain) return l.domain;
+      if (l.email && l.email.includes('@')) {
+        const d = l.email.split('@')[1].trim().toLowerCase();
+        if (d && !FREE_EMAIL_DOMAINS.has(d)) return d;
+      }
+      return null;
+    };
+    const PAGE_COLS = 'id, lead_list_id, workspace_id, email, name, company, linkedin_url, ' +
+      'fields, scorecard_score, reply_outcome, status, created_at, domain, email_status, last_channel, source';
 
     let leads;
     let tierCounts;
     let matchTotal;
-    // Tier filter/sort, the domain (effective) filter, and the counts/total all
-    // need the overlaid values (model tier, derived domain) — so resolve the full
-    // set matching the SQL filters, overlay, then filter/sort/paginate in memory.
-    // Bounded by the 5000 cap; only on such a view or the first page (counts=1).
+    // Tier filter/sort, the effective-domain filter, and the counts/total need the
+    // model tier — but resolving every full lead row + its prediction jsonb was
+    // slow. Instead resolve LIGHT: id+email+domain for the filtered set, and the
+    // tier extracted straight from predictions (no fields jsonb, no history). Then
+    // fetch FULL rows only for the ~50 visible. Fast even across a whole list.
     if (tierFilter || tierSort || domainFilter || counts === '1') {
-      const full = await listLeads(supabase, workspaceId, req.params.id, { ...filterOpts, limit: 5000, offset: 0 });
-      await overlay(full);
-      // Apply the effective-domain filter first, so counts + total reflect it.
-      let base = full;
-      if (domainFilter === 'has') base = base.filter(l => !!l.domain);
-      else if (domainFilter === 'none') base = base.filter(l => !l.domain);
+      const lite = await selectLeadsLite(supabase, workspaceId, req.params.id, filterOpts, 5000);
+      const ids = lite.map(l => l.id);
+      // Latest tier + score per entity, pulled as text (cheap) not the full jsonb.
+      const tierById = new Map();
+      const scoreById = new Map();
+      for (let i = 0; i < ids.length; i += 1000) {
+        const { data: preds } = await supabase.from('predictions')
+          .select('entity_id, tier:predicted_value->>tier, score:predicted_value->>score, predicted_at')
+          .eq('workspace_id', workspaceId).eq('kind', 'icp_fit')
+          .in('entity_id', ids.slice(i, i + 1000))
+          .order('predicted_at', { ascending: false });
+        for (const p of (preds || [])) {
+          if (tierById.has(p.entity_id)) continue;
+          const sc = p.score != null ? Number(p.score) : null;
+          tierById.set(p.entity_id, p.tier ?? scoreTier(sc));
+          scoreById.set(p.entity_id, sc ?? 0);
+        }
+      }
+      const tierOf = (l) => tierById.get(l.id) ?? null;
+
+      // Effective-domain filter first, so counts + total reflect it.
+      let base = lite;
+      if (domainFilter === 'has') base = base.filter(l => !!effectiveDomain(l));
+      else if (domainFilter === 'none') base = base.filter(l => !effectiveDomain(l));
       if (counts === '1') {
         tierCounts = { tier_1: 0, tier_2: 0, tier_3: 0, not_icp: 0 };
         for (const l of base) { const t = tierOf(l); if (t) tierCounts[t]++; }
       }
       let set = tierFilter ? base.filter(l => tierOf(l) === tierFilter) : base;
       if (tierSort) {
-        // Sort by tier rank, then by score within the tier (so the strongest
-        // accounts surface first inside Tier 1). Untiered leads sink to the end.
+        // Sort by tier rank, then by score within the tier (strongest first in
+        // Tier 1). Untiered leads sink to the end.
         const dir = tierSort === 'tier_desc' ? 1 : -1;
         set = [...set].sort((a, b) => {
           const ra = TIER_RANK[tierOf(a)] ?? 0, rb = TIER_RANK[tierOf(b)] ?? 0;
           if (ra !== rb) return (rb - ra) * dir;
-          const sa = Number(a.fields?.icp_score ?? 0), sb = Number(b.fields?.icp_score ?? 0);
-          return (sb - sa) * dir;
+          return ((scoreById.get(b.id) ?? 0) - (scoreById.get(a.id) ?? 0)) * dir;
         });
+      } else if (validSort === 'icp_score_desc' || validSort === 'icp_score_asc') {
+        // ICP-score sort on the model score, kept consistent with the tier path.
+        const dir = validSort === 'icp_score_desc' ? 1 : -1;
+        set = [...set].sort((a, b) => ((scoreById.get(b.id) ?? 0) - (scoreById.get(a.id) ?? 0)) * dir);
       }
-      // The accurate count of records matching every active filter — what the
-      // header shows. Only computed on the resolve path (page 0 / filtered views).
+      // else: 'recent' — selectLeadsLite already returns created_at desc.
       matchTotal = set.length;
-      leads = set.slice(off, off + lim);
+      const pageIds = set.slice(off, off + lim).map(l => l.id);
+      // Full rows for only the visible page; preserve the resolved order.
+      const rows = pageIds.length ? await fetchLeadsByIds(supabase, workspaceId, req.params.id, pageIds, PAGE_COLS) : [];
+      const byId = new Map(rows.map(r => [r.id, r]));
+      leads = pageIds.map(id => byId.get(id)).filter(Boolean);
+      await overlay(leads);
     } else {
       leads = await listLeads(supabase, workspaceId, req.params.id, { ...filterOpts, limit: lim, offset: off });
       await overlay(leads);

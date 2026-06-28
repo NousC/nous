@@ -364,6 +364,26 @@ export async function selectLeadIdsByFilter(
   return ((data || []) as { id: string }[]).map(r => r.id);
 }
 
+// Like selectLeadIdsByFilter but also returns email + domain — the minimum
+// needed to resolve the EFFECTIVE domain and to join predictions for tier
+// counting/filtering, WITHOUT pulling the heavy `fields` jsonb per row. This is
+// what keeps tier counts + the tier/domain filters fast across a whole list.
+export async function selectLeadsLite(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  leadListId: string,
+  filter: LeadFilterOpts = {},
+  cap = 5000,
+): Promise<{ id: string; email: string | null; domain: string | null }[]> {
+  if (!isUUID(leadListId)) return [];
+  let query = supabase.from('leads').select('id, email, domain')
+    .eq('workspace_id', workspaceId).eq('lead_list_id', leadListId);
+  query = applyLeadFilters(query, filter);
+  const { data, error } = await query.order('created_at', { ascending: false }).limit(cap);
+  if (error) throw error;
+  return (data || []) as { id: string; email: string | null; domain: string | null }[];
+}
+
 export async function listLeads(
   supabase: SupabaseClient,
   workspaceId: string,
