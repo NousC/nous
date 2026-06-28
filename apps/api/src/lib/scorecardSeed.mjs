@@ -52,10 +52,14 @@ export function normalizeScorecardRule(rule) {
 
 export const FEATURE_VOCAB =
   'job_title (string), seniority (one of: c_suite, vp, director, manager, ic), ' +
-  'department (string), industry (string), employee_count (number), ' +
-  'company_type (one of: software, agency, services, marketplace, ecommerce, media, hardware), ' +
-  'size_band (one of: 1-10, 11-50, 51-200, 201-1000, 1000+), ' +
-  'funding_stage (one of: bootstrapped, seed, series_a, series_b, series_c_plus, public), ' +
+  'department (string), employee_count (number), ' +
+  // industry is the ONLY extracted company-type/vertical feature — it carries
+  // BOTH the vertical and the kind of company. Bind any "what kind of company"
+  // rule to `industry` (values like: agency, services, software, marketplace,
+  // ecommerce, media, b2b_saas, …). Do NOT emit company_type / size_band /
+  // funding_stage rules — those features are not extracted, so such a rule would
+  // never fire. Use employee_count (number) for size, not size_band.
+  'industry (string — also the company TYPE; e.g. agency, services, software, marketplace, ecommerce, media, b2b_saas), ' +
   'country (string), company (string). ' +
   // Buying signals from signal-scan — the canonical 6 classes, each a 0–10
   // STRENGTH. Use op "scaled" (contributes weight × score/10) with value = the
@@ -116,8 +120,8 @@ export async function seedScorecardFromMemory(supabase, workspaceId, { force = f
     `"disqualify": true. A disqualifier hard-caps the account below Not-ICP no matter ` +
     `what else it fires — so use it only for the genuine "we will not work with them" ` +
     `cases the ICP states, never as a mild preference. It must fire WHEN the bad trait ` +
-    `is present, so use op == or in (never !=). Bind it to a real feature ` +
-    `(industry, company_type, department, country, size_band) — pick the value(s) ` +
+    `is present, so use op == or in (never !=). Bind it to a real EXTRACTED feature ` +
+    `(industry, department, country, employee_count) — pick the value(s) ` +
     `that best capture the named kind of company.\n\n` +
     `CRITICAL — stay faithful to the ICP. A signal must be exactly as narrow as ` +
     `what the ICP states, never broader:\n` +
@@ -133,10 +137,10 @@ export async function seedScorecardFromMemory(supabase, workspaceId, { force = f
     `   • If a firmographic value cleanly isolates the excluded kind WITHOUT ` +
     `catching anyone you include (e.g. exclude a whole country, or an industry you ` +
     `never sell to), bind the disqualifier to that feature (country/industry/` +
-    `company_type/size_band) with == or in.\n` +
+    `employee_count) with == or in.\n` +
     `   • If it CANNOT be separated firmographically because an included kind shares ` +
     `the same firmographics (e.g. ICP excludes "cold-calling agencies" but INCLUDES ` +
-    `"cold-email agencies" — both are company_type=agency / industry=marketing; or ` +
+    `"cold-email agencies" — both are industry=agency; or ` +
     `excludes "pure branding agencies" while including other agencies), DO NOT bind ` +
     `it to a firmographic feature (that would nuke your real ICP). Instead emit a ` +
     `SEMANTIC exclusion: feature "exclusion.<snake_case_key>", op "exists", ` +

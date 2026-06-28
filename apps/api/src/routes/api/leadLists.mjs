@@ -15,6 +15,8 @@ import {
   deleteLeadList,
   updateLead,
   assertClaims,
+  getOrCreateEntity,
+  isFreeEmailDomain,
   selectLeadIdsByFilter,
   selectLeadsLite,
   scoreTier,
@@ -380,6 +382,47 @@ leadListsRouter.get('/:id/operations', async (req, res) => {
 // `importDuplicates` defaults to false: rows whose email or normalized
 // linkedin_url already exists in the workspace are skipped. Set true to
 // force-insert; the response always includes a `duplicate_skipped` count.
+// Persist company firmographics carried on the lead payload (AI-Ark / company-people
+// put employee_count + industry in `fields`) as CLAIMS on the company entity, so the
+// lead scores immediately instead of waiting on the flaky AI-Ark webhook. Deduped by
+// domain, best-effort — never blocks the import. This is the permanent fix for the
+// "person saved, company firmographics dropped" gap. assertClaims pins them as the
+// pipeline already does (epistemic_class='asserted').
+function leadDomain(lead) {
+  const d = (lead?.fields?.domain || lead?.domain || '').toLowerCase().trim();
+  if (d) return d;
+  const e = (lead?.email || '').toLowerCase().trim();
+  return e.includes('@') ? e.split('@')[1] : null;
+}
+async function persistCompanyFirmographics(supabase, workspaceId, leads) {
+  const byDomain = new Map();
+  for (const l of leads || []) {
+    const dom = leadDomain(l);
+    if (!dom || isFreeEmailDomain(dom)) continue;
+    const f = l.fields || {};
+    const industry = f.industry || f.company_type || null;          // company_type → industry (the extracted feature)
+    const empRaw = f.employee_count ?? f.employees ?? null;
+    if (industry == null && empRaw == null) continue;
+    const cur = byDomain.get(dom) || {};
+    if (industry != null && cur.industry == null) cur.industry = String(industry);
+    if (empRaw != null && cur.employee_count == null) {
+      const n = Number(empRaw);
+      if (Number.isFinite(n)) cur.employee_count = n;
+    }
+    byDomain.set(dom, cur);
+  }
+  for (const [dom, vals] of byDomain) {
+    try {
+      const values = {};
+      if (vals.industry != null) values.industry = vals.industry;
+      if (vals.employee_count != null) values.employee_count = vals.employee_count;
+      if (!Object.keys(values).length) continue;
+      const entityId = await getOrCreateEntity(supabase, workspaceId, 'company', [{ kind: 'domain', value: dom }]);
+      await assertClaims(supabase, workspaceId, entityId, { values, source: 'lead_import' });
+    } catch { /* best-effort — firmographics must never block the import */ }
+  }
+}
+
 leadListsRouter.post('/:id/leads', async (req, res) => {
   try {
     const { leads, importDuplicates, source } = req.body;
@@ -404,6 +447,11 @@ leadListsRouter.post('/:id/leads', async (req, res) => {
       importDuplicates: Boolean(importDuplicates),
       defaultSource,
     });
+    // Persist any firmographics on the payload onto the company entity (claims),
+    // so leads score without waiting on the AI-Ark webhook. Best-effort.
+    if (result.inserted) {
+      await persistCompanyFirmographics(supabase, workspaceId, leads);
+    }
     // Tag the import as an operation on this list, with its source — the agent
     // reads these to attribute campaign performance back to where leads came from.
     if (result.inserted) {

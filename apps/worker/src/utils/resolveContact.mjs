@@ -6,6 +6,7 @@ import {
   getSupabaseClient,
   resolveEntity,
   getOrCreateEntity,
+  assertClaims,
   identifiersFromContactData,
   saveNote,
   companyDomainFromEmail,
@@ -16,12 +17,28 @@ import { corroboratesIdentity, emailDomain } from './identityMatch.mjs';
 
 // ── Company upsert ────────────────────────────────────────────────────────────
 
-export async function upsertCompany(supabase, workspaceId, { name, domain }) {
+export async function upsertCompany(supabase, workspaceId, { name, domain, industry, employee_count }) {
   let normalizedDomain = domain?.replace(/^www\./, '').toLowerCase().trim() || null;
   // Never create or key a company on a personal-mailbox domain (gmail.com, …).
   // A free domain isn't an employer — drop it and fall back to name-only.
   if (normalizedDomain && isFreeEmailDomain(normalizedDomain)) normalizedDomain = null;
   if (!name && !normalizedDomain) return null;
+
+  // Persist firmographics as CLAIMS on the company ENTITY (what the ICP scorer
+  // reads) when supplied — not just the v1 companies row. Keyed by domain so it
+  // resolves to the shared company entity. Best-effort; never blocks the upsert.
+  if (normalizedDomain && (industry != null || employee_count != null)) {
+    try {
+      const entityId = await getOrCreateEntity(supabase, workspaceId, 'company', [{ kind: 'domain', value: normalizedDomain }]);
+      const values = {};
+      if (industry != null) values.industry = String(industry);
+      if (employee_count != null) {
+        const n = Number(employee_count);
+        if (Number.isFinite(n)) values.employee_count = n;
+      }
+      if (Object.keys(values).length) await assertClaims(supabase, workspaceId, entityId, { values, source: 'enrichment' });
+    } catch { /* best-effort */ }
+  }
 
   let existing = null;
   if (normalizedDomain) {
