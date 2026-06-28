@@ -30,14 +30,24 @@ const STAKE_FLOOR = 20;   // only stake a claim once intent clears Dormant (Awar
 
 // Signal catalog. weight = max contribution; halfLifeDays = recency decay.
 // website_visit is wired but inert until the Phase-2 pixel writes those obs.
+// The signal catalog — each row tagged by the 2×2 (see docs/intent-score.md):
+// PERSON·INTENT (individual behaviour, NOT inherited) and COMPANY·INTENT (inherited
+// by every person at the company). FIT signals (industry/size/exclusion) do NOT
+// live here — they route to the ICP scorecard, not the intent score.
 export const SIGNALS = {
-  meeting_booked:   { weight: 35, halfLifeDays: 30 },
-  replied:          { weight: 35, halfLifeDays: 30 },
-  linkedin_engaged: { weight: 25, halfLifeDays: 14 },
-  content_intent:   { weight: 20, halfLifeDays: 30 },
-  hiring:           { weight: 18, halfLifeDays: 30 },
-  momentum:         { weight: 12, halfLifeDays: 60 },
-  website_visit:    { weight: 40, halfLifeDays: 7 },   // [Phase 2] needs a visitor pixel
+  // ── person · intent — engaged with US (follow-up triggers) ──
+  meeting_booked:    { weight: 35, halfLifeDays: 30 },
+  replied:           { weight: 35, halfLifeDays: 30 },
+  linkedin_engaged:  { weight: 25, halfLifeDays: 14 },
+  // ── person · intent — in-market BEHAVIOUR (cold-outreach triggers) ──
+  posted_pain:       { weight: 20, halfLifeDays: 21 },   // ← signal.intent from content-scan
+  competitor_engaged:{ weight: 22, halfLifeDays: 14 },   // liked/commented a competitor (content-scan/monitor)
+  creator_like:      { weight: 14, halfLifeDays: 14 },   // engaged a creator/influencer in-category (monitor)
+  job_change:        { weight: 20, halfLifeDays: 45 },   // new role/company (linkedin-monitor, P2) — also re-scores FIT
+  // ── company · intent — inherited by every person at the company ──
+  hiring:            { weight: 18, halfLifeDays: 30 },
+  momentum:          { weight: 12, halfLifeDays: 60 },   // funding / growth / expansion / news / launch
+  website_visit:     { weight: 40, halfLifeDays: 7 },    // [Phase 4] needs a visitor pixel
 };
 const MEANINGFUL = 5;
 
@@ -94,9 +104,24 @@ async function gatherIntent(supabase, ws, persons, now) {
             || P === 'interaction.reply' || P === 'interaction.linkedin_reply') cls = 'replied';
       else if (P === 'interaction.linkedin_message' || P === 'interaction.linkedin_connected'
             || P === 'interaction.linkedin_post_engagement') cls = 'linkedin_engaged';
+      else if (P === 'interaction.competitor_engagement') cls = 'competitor_engaged';
+      else if (P === 'interaction.creator_engagement') cls = 'creator_like';
+      else if (P === 'interaction.job_change') cls = 'job_change';
       else if (P === 'interaction.website_visit') cls = 'website_visit';
       // (meeting_cancelled / enrichment_run / *_sent are deliberately NOT intent)
       if (cls) bump(o.entity_id, cls, o.observed_at);
+    }
+  }
+
+  // person's OWN intent claim (signal.intent, written by content-scan from their
+  // posts) → posted_pain. Distinct from the company signals inherited below.
+  for (const grp of chunk(personIds, 100)) {
+    const cl = (await supabase.from('claims').select('entity_id,value,last_observed_at,computed_at')
+      .eq('workspace_id', ws).in('entity_id', grp).eq('property', 'signal.intent').is('invalid_at', null)).data || [];
+    for (const c of cl) {
+      const sc = (c.value && typeof c.value === 'object') ? c.value.score : null;
+      if (sc != null && sc < 6) continue;
+      bump(c.entity_id, 'posted_pain', c.last_observed_at || c.computed_at);
     }
   }
 
@@ -114,11 +139,11 @@ async function gatherIntent(supabase, ws, persons, now) {
     for (const grp of chunk(coIds, 100)) {
       const cls = (await supabase.from('claims').select('entity_id,property,value,last_observed_at,computed_at')
         .eq('workspace_id', ws).in('entity_id', grp).is('invalid_at', null)
-        .in('property', ['signal.hiring', 'signal.momentum', 'signal.intent'])).data || [];
+        .in('property', ['signal.hiring', 'signal.momentum'])).data || [];
       for (const c of cls) {
         const sc = (c.value && typeof c.value === 'object') ? c.value.score : null;
         if (sc != null && sc < 6) continue;
-        const key = c.property === 'signal.intent' ? 'content_intent' : c.property.split('.')[1];
+        const key = c.property.split('.')[1];   // 'hiring' | 'momentum' (company·intent, inherited)
         const m = coSig.get(c.entity_id) || {};
         (m[key] = m[key] || []).push(c.last_observed_at || c.computed_at);
         coSig.set(c.entity_id, m);

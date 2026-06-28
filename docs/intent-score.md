@@ -50,21 +50,38 @@ A naive intent score is dominated by whatever fires most, so one noisy channel (
 
 ---
 
-## 3. The signal catalog
+## 3. The signal taxonomy — the 2×2
 
-Each signal carries a weight (max contribution) and a half-life (how fast it decays). Mapped to the standard 1st/2nd/3rd-party framing:
+Not all signals are the same kind, and the kind decides how a signal is computed. Every signal sits on **two independent axes**:
 
-| Signal | Weight | Half-life | Source observation | Party |
-| --- | --- | --- | --- | --- |
-| `meeting_booked` | 35 | 30d | `interaction.meeting_scheduled` / `_held` (calendar) | 1st |
-| `replied` | 35 | 30d | `interaction.email_replied` / `positive_reply` / `reply` / `linkedin_reply` | 1st |
-| `linkedin_engaged` | 25 | 14d | `interaction.linkedin_message` / `_connected` / `_post_engagement` | 1st |
-| `content_intent` | 20 | 30d | company `signal.intent` ≥6 (from content-scan, inherited) | 2nd |
-| `hiring` | 18 | 30d | company `signal.hiring` ≥6 (inherited) | 2nd |
-| `momentum` | 12 | 60d | company `signal.momentum` ≥6 (inherited) | 2nd |
-| `website_visit` | 40 | 7d | `interaction.website_visit` — **Phase 2 (needs a visitor pixel)** | 1st |
+- **Fit vs Intent** — *who they are* (durable → the [ICP score](./icp-scoring.md), never decays) vs *are they in-market now* (perishable → this score, decays).
+- **Company vs Person** — shared by everyone at the company (**inherited**) vs that individual's own behaviour (**not inherited**).
 
-Company `signal.*` claims are **inherited by every person at the company** (resolved via the `works_at` edge / domain identifier), so a hiring surge lifts the whole buying committee's intent. Outbound-only events (`*_sent`), `meeting_cancelled`, and `enrichment_run` are deliberately **not** intent.
+|  | **Company** | **Person** |
+| --- | --- | --- |
+| **Fit** → ICP score | industry, employee_count, tech stack, domain, exclusions | title, seniority, role |
+| **Intent** → this score | hiring, momentum (funding / growth / launch / news) — *inherited* | website visit, reply, meeting, posted pain, competitor engaged, creator engaged, **job change** — *individual* |
+
+Three rules fall out of the grid: **(1)** only intent decays; **(2)** company intent inherits to every person, person intent does not; **(3)** the account's intent is the **max of its people**. One signal can fire **both** axes — a **job change** is a person-intent spike *and* triggers a fit re-score (new employer → new firmographics).
+
+### The intent catalog
+
+Each row is weight (max contribution) × half-life (decay). These are the rows the scorer reads (`SIGNALS` in `intentScore.mjs`); Fit signals route to the scorecard, not here.
+
+| Signal | Level | Weight | Half-life | Source observation | Skill |
+| --- | --- | --- | --- | --- | --- |
+| `website_visit` | person | 40 | 7d | `interaction.website_visit` | pixel *(P4)* |
+| `meeting_booked` | person | 35 | 30d | `interaction.meeting_scheduled` / `_held` | have |
+| `replied` | person | 35 | 30d | `interaction.email_replied` / `positive_reply` / `reply` / `linkedin_reply` | have |
+| `linkedin_engaged` | person | 25 | 14d | `interaction.linkedin_message` / `_connected` / `_post_engagement` | have |
+| `competitor_engaged` | person | 22 | 14d | `interaction.competitor_engagement` | content-scan |
+| `posted_pain` | person | 20 | 21d | person `signal.intent` ≥6 | content-scan |
+| `job_change` | person | 20 | 45d | `interaction.job_change` | linkedin-monitor *(P2)* |
+| `creator_like` | person | 14 | 14d | `interaction.creator_engagement` | audience-monitor *(P3)* |
+| `hiring` | company | 18 | 30d | company `signal.hiring` ≥6 *(inherited)* | signal-scan |
+| `momentum` | company | 12 | 60d | company `signal.momentum` ≥6 *(inherited; folds funding / launch / news)* | signal-scan |
+
+The two "engaged with US" rows (reply, meeting) are **follow-up** triggers; the in-market rows (posted_pain, competitor_engaged, creator_like, website_visit) are **cold-outreach** triggers. Both raise "act now," and the corroboration gate means it takes ≥2 of them to reach Hot. Outbound-only events (`*_sent`), `meeting_cancelled`, and `enrichment_run` are deliberately **not** intent.
 
 ---
 
@@ -116,16 +133,54 @@ The same column on every surface means a number that never disagrees across the 
 
 ---
 
-## 7. Honest limits
+## 7. Where the signals come from — skills, not platform polling
 
-- **The website-visit signal is wired but inert** — it needs a de-anonymizing visitor pixel (Phase 2). Until then `website_visit` never fires; the highest-weight 1st-party signal is dormant.
+The engine scores evidence; **skills produce the evidence**, and Nous is where it's saved and scored. Skills are free and run on the user's own keys (BYOK Apify / verifiers); Nous is the system of record and the scorer. Each signal is owned by a skill that calls `record` (an `interaction.*` event) or `record_signal` (a company `signal.*`), and it lights up in the score on the next cycle — **no scoring-code change** to add one.
+
+| Skill | Produces | Status |
+| --- | --- | --- |
+| `signal-scan` | company fit (industry/size/stack/domain, exclusions) **+** company intent (`hiring`, `momentum` — incl. funding / launch / news) | live |
+| `content-scan` | person intent — `posted_pain` (`signal.intent`) **+** `competitor_engaged` from named competitor mentions | live |
+| `linkedin-monitor` | `job_change`, headcount growth, new on-theme post | planned (P2) |
+| `competitor-/creator-audience-monitor` | `competitor_engaged`, `creator_like` from watching a competitor's / creator's own posts | planned (P3) |
+| `news-funding` · `visitor-pixel` · `technographic` | funding/news, `website_visit`, tech-stack | planned (P3–P4) |
+
+### The monitor layer (planned) — delta on snapshot, not blind re-scrape
+
+Most signals aren't one-off enrichment; they're *changes*. Because Nous already stores prior state (the person's title, company, `employee_count`, last post), monitoring is **diff the new read against what Nous already knows, and record a signal only on change** — the difference between "scraping" and "monitoring." The design (Trigify's model: 12h / 24h / weekly / monthly runs):
+
+1. A **watchlist** of entities (and competitors / creators) with a per-entity cadence **tier**.
+2. **Tiered cadence** driven by `icp_tier × intent_band` — hot/Tier-1 daily, cold weekly. Never re-scrape everything daily.
+3. **Cheap-check-first** — re-read the cheapest field (company People-tab *count*, profile headline, latest-post id); deep-scrape only after a delta.
+4. **Diff → record on change** → the engine scores it. You pay for the check, not for reprocessing.
+
+Two leverage moves: monitor a **company's** People-tab count once to lift *every* person there; monitor a **competitor's/creator's** posts once to capture *all* the prospects engaging (intent) plus new ones (discovery).
+
+---
+
+## 8. From signal to outreach — why this exists
+
+The score isn't the product; **the action is**. Fit (the [ICP score](./icp-scoring.md)) tells you *who* belongs in the list; intent tells you *when* a specific person is worth a message *today*. Together they drive the play:
+
+1. **Surface** — filter the list to `Tier-1 + Hot/Warm`: the in-fit people with a live signal. That's the day's work-list, not the whole 2,000.
+2. **Name the trigger** — the signal isn't just a number, it carries the *fact* (the funding round, the competitor they're frustrated with, the pain they posted). The outreach skills (`cold-email`, `linkedin`) read that fact from the record and open with it — *"saw you raised…"*, *"you mentioned switching off…"* — which is why trigger-based outreach outperforms blind sends by a wide margin.
+3. **Time it** — because intent decays, the highest-scoring people are the ones who moved *recently*; reach them while the signal is fresh.
+4. **Re-rank, not re-blast** — as monitors record new signals, the work-list re-sorts itself. The operator (and the `abm-operator` agent) always works the top of a live, decaying queue instead of a static list.
+
+So the loop is: **skills detect signals → Nous scores + decays them → the in-fit, currently-hot people rise → outreach names the trigger → the queue re-ranks.** That is the whole point of the intent axis.
+
+---
+
+## 9. Honest limits
+
+- **The website-visit signal is wired but inert** — it needs a de-anonymizing visitor pixel (a later phase). Until then `website_visit` never fires; the highest-weight 1st-party signal is dormant.
 - **A cold list reads all-Dormant, correctly.** Intent accrues from engagement; a freshly built list has none yet. That is the right answer, not a bug.
 - **No 3rd-party intent** (keyword/competitor research, the "dark funnel") — that needs an external provider and is out of scope.
 - **Engagement must be captured as a per-entity event** to count. The LinkedIn engagement worker emits `interaction.linkedin_post_engagement` per engager; sources that only record list membership don't contribute.
 
 ---
 
-## 8. The guarantees, and the guards that enforce them
+## 10. The guarantees, and the guards that enforce them
 
 - **Intent never fakes readiness from one channel** — guaranteed by the per-signal cap, saturation, and the corroboration gate (a lone signal can't exceed Warm).
 - **Intent never overrides fit** — `Not-ICP` accounts stay suppressed; the score is read alongside the tier, never blended into it.
@@ -134,6 +189,6 @@ The same column on every surface means a number that never disagrees across the 
 
 ---
 
-## 9. What you get
+## 11. What you get
 
 A second, honest axis next to ICP fit: who to sell to *and* when to move. The hot, in-fit accounts surface to the top of every list on their own; the quiet ones wait; the noisy non-fits stay out. Your agents read the band, not a hunch — and act on the cell of the matrix, not a single number.
