@@ -412,13 +412,19 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
   useEffect(() => { load(); }, [load]);
 
   const [q, setQ] = useState("");
-  const [stage, setStage] = useState("");
-  const [source, setSource] = useState("");
+  // One filter builder (same pattern as the lead list) — every filter is a
+  // "Where <field> is <value>" row; multiple stack. Persisted per workspace.
+  const [pplFilters, setPplFilters] = useState<{ field: string; value: string }[]>(() => {
+    try { const v = localStorage.getItem("nous.people.filters"); return v ? JSON.parse(v) : []; }
+    catch { return []; }
+  });
   const [filterOpen, setFilterOpen] = useState(false);
+  const [fbField, setFbField] = useState("stage");
+  const [fbValue, setFbValue] = useState("");
   const [page, setPage] = useState(0);
   const [sortCol, setSortCol] = useState<"lastActivity"|"icp"|"tier"|null>(null);
-  const [tierFilter, setTierFilter] = useState<IcpTier|"">("");
   const [sortDir, setSortDir] = useState<"asc"|"desc">("asc");
+  useEffect(() => { try { localStorage.setItem("nous.people.filters", JSON.stringify(pplFilters)); } catch { /* ignore */ } }, [pplFilters]);
   const { widths, startResize } = useColumnWidths("nous.people.colWidths", PEOPLE_COL_DEFAULTS);
   const colW = (c: string) => widths[c] ?? PEOPLE_COL_DEFAULTS[c];
   // Total content width (all columns + 78px enrich col + px-4 row padding) so the
@@ -428,7 +434,6 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
   const [enriching, setEnriching] = useState<Set<string>>(new Set());
   const [enriched, setEnriched] = useState<Set<string>>(new Set());
   const [enrichErr, setEnrichErr] = useState<Set<string>>(new Set());
-  const stages = ["identified","aware","connected","interested","evaluating","client","lost","disqualified","churned"];
 
   // A lead opened from a list may be a cold lead that the People view hides
   // (un-engaged leads aren't in this list). When the id isn't in the loaded
@@ -491,12 +496,32 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
 
   // Distinct first-contact sources present in the loaded set — powers the filter.
   const sourceOptions = [...new Set(contacts.map(c => c.source).filter(Boolean) as string[])].sort();
+  // The filterable fields — same shape as the lead-list FB_FIELDS. Each carries
+  // its dropdown values AND a client-side matcher, so adding a new column to the
+  // filter is just one more entry here. Built with sourceOptions (dynamic).
+  const PPL_FIELDS: { key: string; label: string; values: { v: string; l: string }[]; match: (c: ContactInfo, v: string) => boolean }[] = [
+    { key: "stage", label: "Stage", values: PIPELINE_STAGES.map(s => ({ v: s, l: s })), match: (c, v) => c.pipelineStage === v },
+    { key: "tier", label: "Tier", values: (["tier_1","tier_2","tier_3","not_icp"] as IcpTier[]).map(t => ({ v: t, l: TIER_UI[t].label })), match: (c, v) => contactTier(c) === v },
+    { key: "icp", label: "ICP score", values: [{ v: "90", l: "90+" }, { v: "80", l: "80+" }, { v: "70", l: "70+" }, { v: "50", l: "50+" }], match: (c, v) => (c.icpScore ?? -1) >= Number(v) },
+    { key: "domain", label: "Domain", values: [{ v: "has", l: "Has domain" }, { v: "none", l: "No domain" }], match: (c, v) => v === "has" ? !!c.domain : !c.domain },
+    { key: "source", label: "Source", values: sourceOptions.map(s => ({ v: s, l: sourceLabel(s) })), match: (c, v) => c.source === v },
+  ];
+  const pplFieldDef = PPL_FIELDS.find(f => f.key === fbField) ?? PPL_FIELDS[0];
+  const pplLabel = (field: string, value: string) => {
+    const f = PPL_FIELDS.find(x => x.key === field);
+    return `${f?.label ?? field}: ${f?.values.find(v => v.v === value)?.l ?? value}`;
+  };
+  const addPplFilter = () => {
+    if (!fbValue) return;
+    setPplFilters(prev => [...prev.filter(f => f.field !== fbField), { field: fbField, value: fbValue }]);
+    setFbValue(""); setFilterOpen(false); setPage(0);
+  };
+  const removePplFilter = (field: string) => { setPplFilters(prev => prev.filter(f => f.field !== field)); setPage(0); };
+
   const filtered = contacts.filter(c => {
     const qs = q.toLowerCase();
-    return (!q || c.name.toLowerCase().includes(qs) || (c.email??"").toLowerCase().includes(qs) || (c.companyName??"").toLowerCase().includes(qs))
-      && (!stage || c.pipelineStage === stage)
-      && (!source || c.source === source)
-      && (!tierFilter || contactTier(c) === tierFilter);
+    if (q && !(c.name.toLowerCase().includes(qs) || (c.email??"").toLowerCase().includes(qs) || (c.companyName??"").toLowerCase().includes(qs))) return false;
+    return pplFilters.every(f => { const def = PPL_FIELDS.find(x => x.key === f.field); return def ? def.match(c, f.value) : true; });
   });
   const sorted = [...filtered].sort((a,b) => {
     if (sortCol === "lastActivity") {
@@ -621,29 +646,17 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
                 className="h-9 w-full rounded-lg border border-border bg-background pl-9 pr-3 text-[13px] text-foreground placeholder:text-muted-foreground/70 focus:border-foreground/40 outline-none" />
             </div>
           </div>
-          <div className="flex items-center gap-1.5 flex-shrink-0">
-            {/* Active filter chips — only the ones in use, removable. */}
-            {stage && (
-              <span className="inline-flex items-center gap-1 h-8 pl-2.5 pr-1 rounded-md text-[12px] font-medium bg-foreground text-background capitalize">
-                Stage: {stage}
-                <button onClick={() => { setStage(""); setPage(0); }} className="rounded p-0.5 hover:bg-background/20" aria-label="Clear stage filter"><X className="h-3 w-3" /></button>
+          <div className="flex items-center gap-1.5 flex-wrap justify-end flex-shrink-0">
+            {/* Active filter chips — one per active filter, removable. */}
+            {pplFilters.map(f => (
+              <span key={f.field} className="inline-flex items-center gap-1 h-8 pl-2.5 pr-1 rounded-md text-[12px] font-medium bg-foreground text-background capitalize">
+                {pplLabel(f.field, f.value)}
+                <button onClick={() => removePplFilter(f.field)} className="rounded p-0.5 hover:bg-background/20" aria-label="Remove filter"><X className="h-3 w-3" /></button>
               </span>
-            )}
-            {source && (
-              <span className="inline-flex items-center gap-1 h-8 pl-2.5 pr-1 rounded-md text-[12px] font-medium bg-foreground text-background">
-                Source: {sourceLabel(source)}
-                <button onClick={() => { setSource(""); setPage(0); }} className="rounded p-0.5 hover:bg-background/20" aria-label="Clear source filter"><X className="h-3 w-3" /></button>
-              </span>
-            )}
-            {tierFilter && (
-              <span className="inline-flex items-center gap-1 h-8 pl-2.5 pr-1 rounded-md text-[12px] font-medium bg-foreground text-background">
-                Tier: {TIER_UI[tierFilter].label}
-                <button onClick={() => { setTierFilter(""); setPage(0); }} className="rounded p-0.5 hover:bg-background/20" aria-label="Clear tier filter"><X className="h-3 w-3" /></button>
-              </span>
-            )}
-            {/* Filter button + popover — replaces the row of stage chips + sources dropdown. */}
+            ))}
+            {/* Filter builder — same "Where <field> is <value>" pattern as the lead list. */}
             <div className="relative">
-              <button onClick={() => setFilterOpen(o => !o)} title="Filter"
+              <button onClick={() => setFilterOpen(o => !o)} title="Add a filter"
                 className={`inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md text-[12px] font-medium border transition-colors ${
                   filterOpen ? "bg-muted border-border text-foreground" : "bg-background border-border text-muted-foreground hover:text-foreground"
                 }`}>
@@ -652,38 +665,29 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
               {filterOpen && (
                 <>
                   <div className="fixed inset-0 z-20" onClick={() => setFilterOpen(false)} />
-                  <div className="absolute right-0 top-9 z-30 w-64 rounded-lg border border-border bg-background shadow-xl p-3 space-y-3">
-                    <div>
-                      <div className="text-[11px] font-medium text-muted-foreground/70 mb-1.5">Tier</div>
-                      <div className="flex flex-wrap gap-1">
-                        {(["tier_1","tier_2","tier_3","not_icp"] as IcpTier[]).map(t => (
-                          <button key={t} onClick={() => { setTierFilter(tierFilter === t ? "" : t); setPage(0); }}
-                            className={`text-[11px] font-semibold px-1.5 py-0.5 rounded border transition-colors ${tierFilter === t ? `${TIER_UI[t].bg} border-transparent` : "border-border text-muted-foreground hover:text-foreground"}`}>
-                            {TIER_UI[t].label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-[11px] font-medium text-muted-foreground/70 mb-1.5">Stage</div>
-                      <select value={stage} onChange={e => { setStage(e.target.value); setPage(0); }}
-                        className="h-8 w-full rounded-md border border-border bg-background text-[12px] text-foreground px-2 outline-none focus:border-foreground/40 capitalize">
-                        <option value="">All stages</option>
-                        {stages.map(s => <option key={s} value={s} className="capitalize">{s}</option>)}
+                  <div className="absolute right-0 top-9 z-30 w-72 rounded-lg border border-border bg-background shadow-xl p-3">
+                    <div className="text-[11px] font-medium text-muted-foreground/70 mb-2">Add a filter</div>
+                    <div className="flex items-center gap-1.5 text-[12px] mb-2">
+                      <span className="text-muted-foreground">Where</span>
+                      <select value={fbField} onChange={e => { setFbField(e.target.value); setFbValue(""); }}
+                        className="h-8 flex-1 rounded-md border border-border bg-background text-[12px] text-foreground px-2 outline-none focus:border-foreground/40">
+                        {PPL_FIELDS.map(f => <option key={f.key} value={f.key}>{f.label}</option>)}
                       </select>
+                      <span className="text-muted-foreground">is</span>
                     </div>
-                    <div>
-                      <div className="text-[11px] font-medium text-muted-foreground/70 mb-1.5">Source</div>
-                      <select value={source} onChange={e => { setSource(e.target.value); setPage(0); }}
-                        className="h-8 w-full rounded-md border border-border bg-background text-[12px] text-foreground px-2 outline-none focus:border-foreground/40">
-                        <option value="">All sources</option>
-                        {sourceOptions.map(s => <option key={s} value={s}>{sourceLabel(s)}</option>)}
-                      </select>
-                    </div>
-                    {(stage || source || tierFilter) && (
-                      <button onClick={() => { setStage(""); setSource(""); setTierFilter(""); setPage(0); }}
-                        className="w-full h-8 rounded-md border border-border text-[12px] text-muted-foreground hover:text-foreground transition-colors">
-                        Clear all
+                    <select value={fbValue} onChange={e => setFbValue(e.target.value)}
+                      className="h-8 w-full rounded-md border border-border bg-background text-[12px] text-foreground px-2 outline-none focus:border-foreground/40 capitalize">
+                      <option value="">Select a value…</option>
+                      {pplFieldDef.values.map(v => <option key={v.v} value={v.v}>{v.l}</option>)}
+                    </select>
+                    <button onClick={addPplFilter} disabled={!fbValue}
+                      className="mt-3 w-full h-8 rounded-md bg-foreground text-background text-[12px] font-semibold hover:opacity-90 transition-opacity disabled:opacity-30">
+                      Add filter
+                    </button>
+                    {pplFilters.length > 0 && (
+                      <button onClick={() => { setPplFilters([]); setPage(0); setFilterOpen(false); }}
+                        className="mt-1.5 w-full h-8 rounded-md border border-border text-[12px] text-muted-foreground hover:text-foreground transition-colors">
+                        Clear all filters
                       </button>
                     )}
                   </div>
