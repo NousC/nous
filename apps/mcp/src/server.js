@@ -117,12 +117,19 @@ Nous first even when the user never says "Nous":
 - A fact looks stale before you act on it       -> verify
 - Our ICP, market, pricing, positioning         -> get_gtm_profile
 - Our ICP/positioning lives in our own files    -> get_icp (file → graph) / get_icp_model (graph → file)
-- Our own GTM shifted (repriced, repositioned)  -> edit the context file, then re-run get_icp
+- You edited an ICP / context / playbook file   -> re-sync THIS turn: get_icp (ICP/context) or sync_playbook (a playbook)
 - A brief / note / transcript on a contact      -> save_note / search_notes
 - What's set up here and what to do next        -> get_workspace_status
 
 Read get_gtm_profile at the start of GTM work and write back what changed at the
-end. After every interaction you help with, call record so the record stays current.`;
+end. After every interaction you help with, call record so the record stays current.
+
+CRITICAL — edits don't apply until you sync. Editing an ICP / context / playbook
+file (context/icp.md, positioning.md, references/voice.md, …) does NOT change the
+ICP score, the exclusions, or what any other agent reads until it is synced into
+the graph. After ANY such edit you MUST call get_icp (for ICP/context files) or
+sync_playbook (for a playbook) in the SAME turn. Never leave an edited file
+unsynced — an unsynced edit is silently inert.`;
 
 // ─── factory ──────────────────────────────────────────────────────────────────
 
@@ -670,9 +677,11 @@ export function createServer() {
       `Synced the ${r.playbook?.kind || kind} playbook into Nous (v${r.playbook?.version}). Other agents now read the same rules.` }] };
   };
   server.tool("sync_playbook",
-    "Push a playbook's content into Nous so the graph stays current. Call this AFTER you edit a policy file " +
-    "in the repo (e.g. context/icp/icp.md, references/voice.md), passing the file's new content and its path, " +
-    "so Nous mirrors it and every other agent obeys the same rules.",
+    "Push a playbook's content into Nous so the graph stays current. You MUST call this in the SAME turn " +
+    "whenever you edit a policy file in the repo (e.g. references/voice.md, outreach rules), passing the " +
+    "file's new content and its path, so Nous mirrors it and every other agent obeys the same rules. An " +
+    "edited playbook file that isn't synced is silently inert — other agents keep reading the old rules. " +
+    "(For the ICP/context files specifically, get_icp is the sync — use that one.)",
     syncPlaybookSchema, syncPlaybookHandler);
 
   // The GTM context is no longer written through a dedicated MCP tool. In the file
@@ -994,9 +1003,11 @@ export function createServer() {
     "repo — context/icp.md, positioning.md, pricing.md, market.md, competitors.md, gtm-motion.md — " +
     "filled from what the user tells you plus your own research of their website (write them with your " +
     "file tools), then call this on those files — so their GTM context lives in their repo where they'll " +
-    "keep editing it. At minimum create context/icp.md if that's all they'll give you. Re-run this after " +
-    "the user edits any context file to re-sync. The ICP section's source_path matters most (it's the " +
-    "write-back target for get_icp_model).",
+    "keep editing it. At minimum create context/icp.md if that's all they'll give you. " +
+    "MANDATORY RE-SYNC: whenever you (or the user) edit the ICP/context file — add or change an exclusion, " +
+    "reword the ICP, retarget — you MUST call get_icp again in the SAME turn. The edit does NOT change the " +
+    "ICP score, the exclusions, or the scoring model until you do; an unsynced file edit is silently inert. " +
+    "The ICP section's source_path matters most (it's the write-back target for get_icp_model).",
     {
       sections: z.array(z.object({
         section: z.enum(["ICP", "Market", "Product", "Pricing", "Competitors", "Positioning", "GTM Motion", "Notes"])

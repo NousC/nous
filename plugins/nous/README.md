@@ -34,7 +34,9 @@ Core MCP tools, all backed by the v2 Context API:
 | `query` | Retrieve + summarise a corpus of observations across many entities |
 | `attention` | Workspace-wide: accounts gone quiet, facts decayed — ranked decisions |
 | `verify` | Re-check one claim before acting — the calibration check |
-| `get_gtm_profile` / `update_gtm_profile` | Read and evolve our own ICP, market, pricing, and positioning |
+| `get_gtm_profile` | Read our own ICP, market, pricing, and positioning |
+| `get_icp` / `get_icp_model` | Sync our ICP/context files into the graph (and the learned model back) — call `get_icp` after any edit |
+| `get_playbook` / `sync_playbook` | Read the policy rules (voice, outreach, ICP, positioning); sync a playbook file after editing it |
 
 …plus `save_note` / `search_notes`, `get_workspace_status`, `coverage`, and the setup tools (`set_workspace_profile`, `build_scoring_model`, `connect_integration`, `configure_crm_sync`, `set_trigger` / `list_triggers`) for operating the workspace.
 

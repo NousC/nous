@@ -1,7 +1,7 @@
 {
   "$schema": "https://code.claude.com/schemas/claude-plugin.json",
   "name": "nous",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Nous — the context graph for agentic GTM. One MCP call returns the full identity-resolved account, and bundled hooks route GTM work through it automatically.",
   "author": {
     "name": "Nous",

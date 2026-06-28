@@ -17,9 +17,12 @@ first even when the user never says "Nous":
 - What has gone quiet, what needs action -> attention
 - A fact looks stale before you act      -> verify
 - Our ICP, market, pricing, positioning  -> get_gtm_profile
-- Our own GTM durably changed            -> update_gtm_profile
+- Our ICP/positioning lives in our files -> get_icp (file → graph) / get_icp_model (graph → file)
+- You edited an ICP/context/playbook file -> sync it THIS turn: get_icp (or sync_playbook for a playbook)
 - A brief or note to keep on a contact   -> save_note / search_notes
 - What is set up here and what to do next -> get_workspace_status
 
 After every interaction you help with, call record so the next agent starts from
-the truth.
+the truth. Editing an ICP/context/playbook file does NOT change the score or what
+other agents read until you sync it (get_icp / sync_playbook) — never leave an
+edited context file unsynced.
