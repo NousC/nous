@@ -119,6 +119,9 @@ export async function recordObservations(
 export const ENRICHMENT_ATTRIBUTES = [
   'job_title', 'seniority', 'department', 'company', 'phone', 'city', 'country', 'linkedin_url',
   'domain', 'reachability_status',
+  // Descriptive company text captured from Apollo/Prospeo (written onto the
+  // company entity), matched by `contains_any` exclusion rules at score time.
+  'keywords', 'description',
 ] as const;
 
 export async function recordEnrichmentObservations(

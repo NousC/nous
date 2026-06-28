@@ -23,6 +23,16 @@ function ruleFires(rule: ScorecardSignalRule | null | undefined, features: Recor
     case '>':      return typeof v === 'number' && v > (rule.value as number);
     case '<':      return typeof v === 'number' && v < (rule.value as number);
     case 'in':     return Array.isArray(rule.value) && rule.value.includes(v);
+    case 'contains_any': {
+      // Keyword/substring match against descriptive enrichment text (a string, or
+      // an array like the company's `keywords`). Joined on newlines so a term
+      // never matches across two separate array entries.
+      if (!Array.isArray(rule.value)) return false;
+      const hay = Array.isArray(v) ? v.join('\n') : (typeof v === 'string' ? v : '');
+      if (!hay) return false;
+      const h = hay.toLowerCase();
+      return (rule.value as unknown[]).some(t => typeof t === 'string' && t !== '' && h.includes(t.toLowerCase()));
+    }
     default:       return false;
   }
 }

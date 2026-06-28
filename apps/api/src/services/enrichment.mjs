@@ -382,7 +382,16 @@ async function enrichContactViaApollo(supabase, contact, apolloKey) {
         apollo_account_id: org.id,
         apollo_raw:     org,
       });
-      if (company) updates.company_id = company.id;
+      if (company) {
+        updates.company_id = company.id;
+        // Capture Apollo's descriptive text/keywords onto the company entity so a
+        // `contains_any` exclusion (e.g. keywords ⊇ "cold calling") can fire at
+        // score time without a website read. Best-effort — never block enrichment.
+        await captureCompanyKeywords(supabase, contact.workspace_id, company.id, 'apollo', {
+          keywords:    org.keywords,
+          description: org.short_description || org.seo_description || null,
+        });
+      }
     }
 
     // Write enriched attributes as observations with the true source (apollo),
@@ -566,6 +575,11 @@ async function enrichContactViaProspeo(supabase, contact, prospeoKey) {
         updates.company_id = company.id;
         updates.company = co.name || contact.company;
         if (rawDomain && !contact.domain) updates.domain = rawDomain;
+        // Descriptive text/keywords for score-time `contains_any` exclusions.
+        await captureCompanyKeywords(supabase, contact.workspace_id, company.id, 'prospeo', {
+          keywords:    co.keywords || co.keyword || null,
+          description: co.description || null,
+        });
 
         // Skip immediate background enrichCompany — person response already contains company fields.
         // A separate manual enrich on the company page can fetch deeper data if needed.
@@ -822,6 +836,26 @@ export async function enrichCompany(supabase, workspaceId, domain) {
 
 
 // ── Company upsert ───────────────────────────────────────────────────────────
+
+// Write descriptive company text (keywords array + description) onto the COMPANY
+// entity as enrichment observations, so a `contains_any` exclusion rule can match
+// it at score time (e.g. keywords ⊇ "cold calling" → cap Not-ICP) without a
+// website read. company.id from upsertCompany IS the entity id (the companies
+// view selects e.id). Normalizes keywords to a clean string array. Best-effort.
+async function captureCompanyKeywords(supabase, workspaceId, companyEntityId, source, { keywords, description }) {
+  try {
+    const facts = {};
+    const kw = Array.isArray(keywords)
+      ? keywords.map(k => String(k).trim()).filter(Boolean)
+      : (typeof keywords === 'string' && keywords.trim() ? keywords.split(',').map(k => k.trim()).filter(Boolean) : null);
+    if (kw && kw.length) facts.keywords = kw;
+    if (typeof description === 'string' && description.trim()) facts.description = description.trim().slice(0, 2000);
+    if (!Object.keys(facts).length) return;
+    await recordEnrichmentObservations(supabase, workspaceId, companyEntityId, source, facts);
+  } catch (e) {
+    console.error('[ENRICH] captureCompanyKeywords failed:', e.message);
+  }
+}
 
 export async function upsertCompany(supabase, workspaceId, data) {
   const { name, domain, industry, employee_count, location, tech_stack,

@@ -46,6 +46,8 @@ export const NON_FEATURE_PROPS = new Set([
   'company', 'linkedin_url', 'what_they_do', 'website', 'avatar_url',
   'enrichment_status', 'enrichment_source', 'icp_score',
   'pipeline_stage', 'deal_stage', 'deal_value', 'total_income', 'lead_source',
+  // Descriptive text matched by contains_any exclusions — never an exact-match signal.
+  'keywords', 'description',
 ]);
 
 // True when a property is identity/metadata/outcome-leaky and must not become a

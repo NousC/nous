@@ -15,7 +15,10 @@ import { pipelineFeatures } from '../services/pipelineFeatures.js';
 
 // Company-level features merged in from the entity's employer. Person-level
 // features are simply every other claim the entity carries.
-const COMPANY_FEATURES = ['industry', 'employee_count'];
+// `keywords` (array) and `description` (text) are the descriptive enrichment
+// fields a `contains_any` exclusion matches on — captured from Apollo/Prospeo —
+// so a "cold-calling" keyword caps the whole company at score time, no website read.
+const COMPANY_FEATURES = ['industry', 'employee_count', 'keywords', 'description'];
 
 // The ICP features a Scorecard actually scores on. If an entity carries none of
 // these, it isn't scoreable yet (unenriched) — staking would record a hollow 0

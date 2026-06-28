@@ -177,7 +177,11 @@ export interface ScorecardSignalRule {
   // graded signal features (signal.<class> = a 0–10 strength): it contributes
   // weight × (score/10), with `value` as an optional floor (min score to count
   // at all), so a 9/10 signal outranks a 6/10 instead of counting the same.
-  op: '==' | '!=' | '>=' | '<=' | '>' | '<' | 'in' | 'exists' | 'scaled';
+  // 'contains_any' is a substring/keyword match: the feature (a text string or an
+  // array of strings like the company's enriched `keywords`) contains ANY of
+  // `value`'s terms (case-insensitive). It's how an exclusion fires on descriptive
+  // enrichment text at score time — no website read — e.g. keywords ⊇ "cold calling".
+  op: '==' | '!=' | '>=' | '<=' | '>' | '<' | 'in' | 'exists' | 'scaled' | 'contains_any';
   value?: unknown;
   // A disqualifier — "who we are NOT". When a disqualifying rule fires the
   // account is hard-capped into Not-ICP no matter how many positive signals it

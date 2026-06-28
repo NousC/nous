@@ -36,6 +36,16 @@ export function normalizeScorecardRule(rule) {
     if (!key) return {};
     return { feature: `exclusion.${key}`, op: 'exists', disqualify: true };
   }
+  // Keyword/text exclusion: match descriptive enrichment text (keywords array or
+  // description string) against discriminating terms at score time — the automatic
+  // layer that needs no website read. Only `contains_any` makes sense here.
+  if (r.feature === 'keywords' || r.feature === 'description') {
+    if (r.op !== 'contains_any') return {};
+    const terms = (Array.isArray(r.value) ? r.value : [r.value])
+      .map(t => String(t).trim().toLowerCase()).filter(Boolean);
+    if (!terms.length) return {};
+    return { feature: r.feature, op: 'contains_any', value: terms, ...(r.disqualify === true ? { disqualify: true } : {}) };
+  }
   const cls = String(r.feature).replace(/^signal\./, '');
   if (String(r.feature).startsWith('signal.') || SIGNAL_CLASSES.includes(cls)) {
     if (!SIGNAL_CLASSES.includes(cls)) return {}; // unknown signal.* — would never fire
@@ -61,6 +71,12 @@ export const FEATURE_VOCAB =
   // never fire. Use employee_count (number) for size, not size_band.
   'industry (string — also the company TYPE; e.g. agency, services, software, marketplace, ecommerce, media, b2b_saas), ' +
   'country (string), company (string). ' +
+  // Descriptive company text from enrichment (Apollo/Prospeo) — the keyword layer
+  // for exclusions: matched with op "contains_any" (value = array of lowercase
+  // terms) at score time, no website read. `keywords` is the richest (Apollo's
+  // own classifier, e.g. "cold calling","telemarketing","brand strategy").
+  'keywords (array of company keyword strings; use op "contains_any"), ' +
+  'description (company description text; use op "contains_any"). ' +
   // Buying signals from signal-scan — the canonical 6 classes, each a 0–10
   // STRENGTH. Use op "scaled" (contributes weight × score/10) with value = the
   // floor (min score to count, typically 4–6). These are the ONLY signal.*
@@ -138,17 +154,25 @@ export async function seedScorecardFromMemory(supabase, workspaceId, { force = f
     `catching anyone you include (e.g. exclude a whole country, or an industry you ` +
     `never sell to), bind the disqualifier to that feature (country/industry/` +
     `employee_count) with == or in.\n` +
-    `   • If it CANNOT be separated firmographically because an included kind shares ` +
-    `the same firmographics (e.g. ICP excludes "cold-calling agencies" but INCLUDES ` +
-    `"cold-email agencies" — both are industry=agency; or ` +
-    `excludes "pure branding agencies" while including other agencies), DO NOT bind ` +
-    `it to a firmographic feature (that would nuke your real ICP). Instead emit a ` +
-    `SEMANTIC exclusion: feature "exclusion.<snake_case_key>", op "exists", ` +
-    `disqualify true, and a label that DESCRIBES the excluded kind precisely (a ` +
-    `website-reading pass classifies each account against that description). ` +
-    `One exclusion.<key> per stated semantic exclusion.\n` +
-    `   A too-broad firmographic disqualifier that nukes your real ICP is far worse ` +
-    `than a semantic one — when in doubt, go semantic.\n\n` +
+    `   • If an included kind shares the same firmographics (e.g. ICP excludes ` +
+    `"cold-calling agencies" but INCLUDES "cold-email agencies" — both industry=agency; ` +
+    `or excludes "pure branding agencies" while including other agencies), do NOT use ` +
+    `a firmographic rule (it would nuke your real ICP). Emit TWO disqualifiers for ` +
+    `that one exclusion:\n` +
+    `       (a) a KEYWORD rule that fires automatically at score time: ` +
+    `feature "keywords", op "contains_any", value = an array of HIGH-PRECISION ` +
+    `lowercase terms that the excluded kind's enrichment keywords carry but the ` +
+    `INCLUDED kind does NOT — e.g. cold-calling → ["cold calling","cold call",` +
+    `"telemarketing","dialer","call center","outbound calling"] (NOT "appointment ` +
+    `setting" or "lead generation", which cold-email shops also use); branding → ` +
+    `["brand strategy","branding","visual identity","logo design","naming"]. ` +
+    `disqualify true. Pick terms precise enough that a hard cap on them is safe.\n` +
+    `       (b) a SEMANTIC backstop: feature "exclusion.<snake_case_key>", op ` +
+    `"exists", disqualify true, label DESCRIBING the excluded kind precisely (a ` +
+    `website read classifies the accounts the keywords miss).\n` +
+    `   The keyword rule catches most automatically; the exclusion.<key> catches the ` +
+    `rest. A too-broad firmographic disqualifier that nukes your real ICP is far ` +
+    `worse than these — when in doubt, use keyword + semantic, never firmographic.\n\n` +
     `Each signal has:\n` +
     `- key: short snake_case id\n- label: one plain sentence that restates the ` +
     `ICP's own specifics (e.g. "1-20 employees", not "small company"; ` +
