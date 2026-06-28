@@ -391,8 +391,8 @@ export default function Lists() {
   });
   // Sort + ICP counts (server-side). Sort is persisted (localStorage) so an ICP
   // sort sticks across navigation + reloads until the user changes it.
-  const [sort, setSort] = useState<"recent" | "icp_score_desc" | "icp_score_asc">(() => {
-    try { return (localStorage.getItem("nous.lists.sort") as "recent" | "icp_score_desc" | "icp_score_asc") || "recent"; }
+  const [sort, setSort] = useState<"recent" | "icp_score_desc" | "icp_score_asc" | "tier_desc" | "tier_asc">(() => {
+    try { return (localStorage.getItem("nous.lists.sort") as "recent" | "icp_score_desc" | "icp_score_asc" | "tier_desc" | "tier_asc") || "recent"; }
     catch { return "recent"; }
   });
   const [counts, setCounts] = useState<{ icp: number; non_icp: number } | null>(null);
@@ -1685,6 +1685,7 @@ export default function Lists() {
                   </div>
                   {allCols.map((c, i) => {
                     const sortable = c.key === "icp_score" || c.key === "__icp";
+                    const tierSortable = c.key === "__tier";
                     return (
                     <div key={c.key}
                       draggable={i !== 0}
@@ -1703,6 +1704,17 @@ export default function Lists() {
                           {c.label}
                           <span className="text-[10px]">
                             {sort === "icp_score_desc" ? "▼" : sort === "icp_score_asc" ? "▲" : "⇅"}
+                          </span>
+                        </button>
+                      ) : tierSortable ? (
+                        <button
+                          onClick={() => setSort(s => (s === "tier_desc" ? "tier_asc" : "tier_desc"))}
+                          title="Sort by tier"
+                          className="inline-flex items-center gap-1 uppercase tracking-wide hover:text-foreground transition-colors"
+                        >
+                          {c.label}
+                          <span className="text-[10px]">
+                            {sort === "tier_desc" ? "▼" : sort === "tier_asc" ? "▲" : "⇅"}
                           </span>
                         </button>
                       ) : (

@@ -186,6 +186,9 @@ leadListsRouter.get('/:id/leads', async (req, res) => {
     if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
     const supabase = getSupabaseClient();
     const validSort = ['recent', 'icp_score_desc', 'icp_score_asc'].includes(sort) ? sort : undefined;
+    // Tier sort rides on the model tier (an overlaid value, not a sortable view
+    // column), so it takes the same full-resolve path as the tier filter.
+    const tierSort = sort === 'tier_desc' || sort === 'tier_asc' ? sort : undefined;
     const str = (v) => (typeof v === 'string' && v ? v : undefined);
     const lim = limit ? parseInt(limit, 10) : 50;
     const off = offset ? parseInt(offset, 10) : 0;
@@ -230,21 +233,33 @@ leadListsRouter.get('/:id/leads', async (req, res) => {
       }
     };
     const tierOf = (l) => (l.fields?.icp_tier) ?? scoreTier(l.fields?.icp_score);
+    const TIER_RANK = { tier_1: 4, tier_2: 3, tier_3: 2, not_icp: 1 };
 
     let leads;
     let tierCounts;
-    // Tier filter / tier counts need the model score, which is overlaid (not a
-    // view column) — so resolve the full matching set, overlay, then filter +
-    // paginate in memory. Bounded by the 5000 cap; only on a tier-filtered view
-    // or the first page (when counts are requested).
-    if (tierFilter || counts === '1') {
+    // Tier filter / tier sort / tier counts all need the model score, which is
+    // overlaid (not a view column) — so resolve the full matching set, overlay,
+    // then filter / sort / paginate in memory. Bounded by the 5000 cap; only on a
+    // tier view or the first page (when counts are requested).
+    if (tierFilter || tierSort || counts === '1') {
       const full = await listLeads(supabase, workspaceId, req.params.id, { ...filterOpts, limit: 5000, offset: 0 });
       await overlay(full);
       if (counts === '1') {
         tierCounts = { tier_1: 0, tier_2: 0, tier_3: 0, not_icp: 0 };
         for (const l of full) { const t = tierOf(l); if (t) tierCounts[t]++; }
       }
-      const set = tierFilter ? full.filter(l => tierOf(l) === tierFilter) : full;
+      let set = tierFilter ? full.filter(l => tierOf(l) === tierFilter) : full;
+      if (tierSort) {
+        // Sort by tier rank, then by score within the tier (so the strongest
+        // accounts surface first inside Tier 1). Untiered leads sink to the end.
+        const dir = tierSort === 'tier_desc' ? 1 : -1;
+        set = [...set].sort((a, b) => {
+          const ra = TIER_RANK[tierOf(a)] ?? 0, rb = TIER_RANK[tierOf(b)] ?? 0;
+          if (ra !== rb) return (rb - ra) * dir;
+          const sa = Number(a.fields?.icp_score ?? 0), sb = Number(b.fields?.icp_score ?? 0);
+          return (sb - sa) * dir;
+        });
+      }
       leads = set.slice(off, off + lim);
     } else {
       leads = await listLeads(supabase, workspaceId, req.params.id, { ...filterOpts, limit: lim, offset: off });
