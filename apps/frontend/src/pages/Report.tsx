@@ -1,11 +1,21 @@
 import { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
-import MarkdownDoc from "@/components/MarkdownDoc";
 
 const apiUrl = import.meta.env.VITE_API_URL ?? "";
 
-const msg: React.CSSProperties = { maxWidth: "880px", margin: "0 auto", padding: "48px 40px", fontFamily: "ui-monospace, Menlo, monospace", fontSize: "14px", color: "#666" };
+// Exactly the browser's raw text/plain view (like opennous.cloud/llms.txt):
+// default monospace at 13px, pure black, full width, 8px margin, literal markdown
+// symbols. No rendering, no design — the content's structure is what reads clean.
+const pre: React.CSSProperties = {
+  whiteSpace: "pre-wrap",
+  overflowWrap: "break-word",
+  fontFamily: "monospace",
+  fontSize: "13px",
+  color: "#000",
+  margin: "8px",
+  padding: 0,
+};
 
 export default function Report() {
   const { id } = useParams();
@@ -28,7 +38,7 @@ export default function Report() {
     })();
   }, [id, token, workspaceId]);
 
-  if (loading) return <div style={msg}>Loading…</div>;
-  if (!report) return <div style={msg}>Report not found.</div>;
-  return <MarkdownDoc>{report.markdown || ""}</MarkdownDoc>;
+  if (loading) return <pre style={pre}>Loading…</pre>;
+  if (!report) return <pre style={pre}>Report not found.</pre>;
+  return <pre style={pre}>{report.markdown || ""}</pre>;
 }

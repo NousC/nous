@@ -1,11 +1,21 @@
 import { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
-import MarkdownDoc from "@/components/MarkdownDoc";
 
 const apiUrl = import.meta.env.VITE_API_URL ?? "";
 
-const msg: React.CSSProperties = { maxWidth: "880px", margin: "0 auto", padding: "48px 40px", fontFamily: "ui-monospace, Menlo, monospace", fontSize: "14px", color: "#666" };
+// Exactly the browser's raw text/plain view (like opennous.cloud/llms.txt):
+// default monospace at 13px, pure black, full width, 8px margin, literal markdown
+// symbols. No rendering, no design — the content's structure is what reads clean.
+const pre: React.CSSProperties = {
+  whiteSpace: "pre-wrap",
+  overflowWrap: "break-word",
+  fontFamily: "monospace",
+  fontSize: "13px",
+  color: "#000",
+  margin: "8px",
+  padding: 0,
+};
 
 export default function Playbook() {
   const { id } = useParams();
@@ -29,7 +39,7 @@ export default function Playbook() {
   }, [id, token, workspaceId]);
 
   if (typeof document !== "undefined" && pb) document.title = pb.title || "Playbook";
-  if (loading) return <div style={msg}>Loading…</div>;
-  if (!pb) return <div style={msg}>Playbook not found.</div>;
-  return <MarkdownDoc>{pb.body_md || ""}</MarkdownDoc>;
+  if (loading) return <pre style={pre}>Loading…</pre>;
+  if (!pb) return <pre style={pre}>Playbook not found.</pre>;
+  return <pre style={pre}>{pb.body_md || ""}</pre>;
 }
