@@ -215,6 +215,12 @@ export async function seedScorecardFromMemory(supabase, workspaceId, { force = f
       // a disqualifier with a non-negative weight is forced negative so it always
       // reads as a detractor even if the model mislabels the sign.
       let weight = Math.max(-10, Math.min(10, Math.round(Number(s.weight) || 3)));
+      // A negative-weight keyword/description rule IS an exclusion — force the hard
+      // disqualifier (chosen policy: keyword matches cap, like a website-read flag).
+      // The LLM is inconsistent about emitting the flag, so we set it deterministically.
+      if ((rule.feature === 'keywords' || rule.feature === 'description') && weight < 0) {
+        rule.disqualify = true;
+      }
       if (rule.disqualify && weight >= 0) weight = -8;
       if (weight === 0) weight = rule.disqualify ? -8 : 1;
       return {
