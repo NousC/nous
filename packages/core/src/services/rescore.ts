@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ScorecardSignal } from '../types.js';
 import { listSignals, scoreToPrediction, modelVersion } from '../db/scorecard.js';
-import { buildEntityFeatures, hasScoreableFeature } from '../db/predictions.js';
+import { buildEntityFeatures, hasScoreableFeature, scoreAndStake } from '../db/predictions.js';
 
 // Re-score-open — keeps the *current fit* fresh as the model evolves.
 //
@@ -180,4 +180,49 @@ export async function rescoreEntityFromClaims(
     })
     .eq('id', open.id);
   return { status: 'rescored', from: prev.score ?? null, to: score };
+}
+
+// Fan a COMPANY-level claim change out to the people who work there. Buying
+// signals and exclusions live on the company, but the SCORES live on its people
+// (companies aren't scored by the loop) — so when one changes, every person at
+// that company must re-score for the new evidence to land. This is what makes an
+// exclusion flag cap the whole buying committee the instant signal-scan records
+// it, instead of waiting for the nightly pass.
+//
+// No-ops when the entity has no people (it's a person, or an unlinked company).
+// Each member: re-score its open prediction, or stake one if it's scoreable and
+// has none yet. Best-effort per member — one failure never blocks the rest.
+export async function rescoreCompanyMembers(
+  supabase: SupabaseClient,
+  workspaceId: string,
+  companyEntityId: string,
+  opts: { signals?: ScorecardSignal[]; now?: number } = {},
+): Promise<{ members: number; rescored: number }> {
+  const { data: rels } = await supabase
+    .from('relationships')
+    .select('from_entity_id')
+    .eq('workspace_id', workspaceId)
+    .eq('to_entity_id', companyEntityId)
+    .eq('type', 'works_at')
+    .is('valid_to', null);
+  const memberIds = [...new Set((rels ?? []).map(r => (r as { from_entity_id: string }).from_entity_id))];
+  if (memberIds.length === 0) return { members: 0, rescored: 0 };
+
+  const signals = opts.signals ?? await listSignals(supabase, workspaceId);
+  if (!signals.some(s => s.active)) return { members: memberIds.length, rescored: 0 };
+
+  let rescored = 0;
+  for (const personId of memberIds) {
+    try {
+      const r = await rescoreEntityFromClaims(supabase, workspaceId, personId, { signals, now: opts.now });
+      if (r.status === 'rescored') { rescored++; continue; }
+      if (r.status === 'no_open_prediction') {
+        const staked = await scoreAndStake(supabase, workspaceId, personId, signals);
+        if (staked) rescored++;
+      }
+    } catch {
+      // best-effort — keep going for the rest of the committee
+    }
+  }
+  return { members: memberIds.length, rescored };
 }

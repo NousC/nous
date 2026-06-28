@@ -8,6 +8,7 @@ import {
   listSignals,
   scoreAndStake,
   rescoreEntityFromClaims,
+  rescoreCompanyMembers,
 } from '@nous/core';
 
 export const observationsV2Router = Router();
@@ -93,17 +94,29 @@ observationsV2Router.post('/', async (req, res) => {
     // exists. Both gate on scoreable features (job_title/seniority/industry/…),
     // so an unenriched lead is correctly skipped (the lead-list fields.icp_score
     // fallback covers its sidebar). Best-effort — never block the write.
+    // exclusion.* is a disqualifier feature, signal.* a buying-signal feature —
+    // both are scorecard inputs, so either changing must (re)score now.
     let icpScored = null;
-    if ([...claimsRecomputed].some(p => p.startsWith('signal.'))) {
+    if ([...claimsRecomputed].some(p => p.startsWith('signal.') || p.startsWith('exclusion.'))) {
       try {
         const signals = await listSignals(supabase, workspaceId);
         if (signals.some(s => s.active)) {
-          const r = await rescoreEntityFromClaims(supabase, workspaceId, entityId, { signals });
-          if (r.status === 'no_open_prediction') {
-            const staked = await scoreAndStake(supabase, workspaceId, entityId, signals);
-            icpScored = staked ? { status: 'staked', score: staked.score } : { status: 'not_scoreable' };
+          // A signal/exclusion recorded on a COMPANY (focus = a domain) drives the
+          // scores of its PEOPLE, not the company itself. Fan out so the whole
+          // buying committee re-scores immediately — an exclusion flag caps every
+          // contact at the account now, not on the next pass.
+          const fan = await rescoreCompanyMembers(supabase, workspaceId, entityId, { signals });
+          if (fan.members) {
+            icpScored = { status: 'committee_rescored', members: fan.members, rescored: fan.rescored };
           } else {
-            icpScored = { status: r.status, score: r.to ?? null };
+            // A person's own signal/intent — re-score (or stake) that person.
+            const r = await rescoreEntityFromClaims(supabase, workspaceId, entityId, { signals });
+            if (r.status === 'no_open_prediction') {
+              const staked = await scoreAndStake(supabase, workspaceId, entityId, signals);
+              icpScored = staked ? { status: 'staked', score: staked.score } : { status: 'not_scoreable' };
+            } else {
+              icpScored = { status: r.status, score: r.to ?? null };
+            }
           }
         }
       } catch (e) {

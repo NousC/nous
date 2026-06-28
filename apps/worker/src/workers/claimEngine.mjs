@@ -6,7 +6,7 @@
 // self-healing loop: a new observation always pulls the belief back toward
 // truth. The derivation logic itself lives in @nous/core (recomputeClaim).
 
-import { getSupabaseClient, recomputeClaim, logWorkerRun, listSignals, rescoreEntityFromClaims } from '@nous/core';
+import { getSupabaseClient, recomputeClaim, logWorkerRun, listSignals, rescoreEntityFromClaims, rescoreCompanyMembers } from '@nous/core';
 
 const BATCH_SIZE = 500;        // jobs pulled per inner sweep
 const CONCURRENCY = 15;        // parallel recomputes within a sweep
@@ -24,7 +24,7 @@ const SCORE_AFFECTING = new Set([
   'pipeline_stage',
 ]);
 const isScoreAffecting = (property) =>
-  SCORE_AFFECTING.has(property) || property.startsWith('signal.');
+  SCORE_AFFECTING.has(property) || property.startsWith('signal.') || property.startsWith('exclusion.');
 
 // Prevent overlapping ticks — a long drain must not collide with the next cron.
 let running = false;
@@ -109,6 +109,11 @@ export async function processClaimJobs() {
       if (!signals.some(s => s.active)) continue; // no Scorecard → nothing to refresh
       for (const entityId of entityIds) {
         try {
+          // If the claim landed on a COMPANY, fan out to the people who work there
+          // (their scores inherit company signals/exclusions); otherwise re-score
+          // the entity itself.
+          const fan = await rescoreCompanyMembers(supabase, workspaceId, entityId, { signals });
+          if (fan.members) { rescored += fan.rescored; continue; }
           const r = await rescoreEntityFromClaims(supabase, workspaceId, entityId, { signals });
           if (r.status === 'rescored') rescored++;
         } catch (err) {
