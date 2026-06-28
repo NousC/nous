@@ -10,7 +10,6 @@ import {
   updateLeadListColumns,
   insertLeads,
   listLeads,
-  countLeadsByIcp,
   countLeadFunnel,
   deleteLeads,
   deleteLeadList,
@@ -279,17 +278,14 @@ leadListsRouter.get('/:id/leads', async (req, res) => {
       await overlay(leads);
     }
 
-    // Return the ICP counts only when asked (the first page) — saves two
-    // count queries on every page turn.
-    const icpCounts = counts === '1'
-      ? await countLeadsByIcp(supabase, workspaceId, req.params.id)
-      : undefined;
     // Connect → message → reply funnel counts (LinkedIn Connections header stat),
-    // only when asked (first page), same saving as the ICP counts.
+    // only when asked (first page). The old ICP true/false segmentation counts
+    // are gone (the ICP chips were replaced by the unified Tier filter), so we no
+    // longer run that query — `total` + `tier_counts` cover the header + dropdown.
     const funnel = req.query.funnel === '1'
       ? await countLeadFunnel(supabase, workspaceId, req.params.id)
       : undefined;
-    return res.json({ leads, counts: icpCounts, tier_counts: tierCounts, total: matchTotal, funnel });
+    return res.json({ leads, tier_counts: tierCounts, total: matchTotal, funnel });
   } catch (err) {
     console.error('[GET /api/lead-lists/:id/leads]', err);
     return res.status(500).json({ error: 'internal_error' });

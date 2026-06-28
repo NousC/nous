@@ -304,7 +304,7 @@ export default function Lists() {
   const firstActiveRef = useRef(true);
   // Per-(list+page+filters) leads cache — stale-while-revalidate so switching
   // back to a list or page shows instantly and only re-fetches in the background.
-  const leadsCache = useRef<Map<string, { leads: Lead[]; counts: { icp: number; non_icp: number } | null }>>(new Map());
+  const leadsCache = useRef<Map<string, { leads: Lead[]; counts: { icp: number; non_icp: number } | null; total?: number | null }>>(new Map());
 
   const jsonHeaders = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
   const authHeaders = { Authorization: `Bearer ${token}` };
@@ -524,8 +524,18 @@ export default function Lists() {
       // Stale-while-revalidate: paint the cached page instantly (no spinner), then
       // refresh in the background. Cold pages show the loading state.
       const cached = leadsCache.current.get(cacheKey);
-      if (cached) { setLeads(cached.leads); if (cached.counts) setCounts(cached.counts); setLeadsLoading(false); }
-      else setLeadsLoading(true);
+      if (cached) {
+        setLeads(cached.leads); if (cached.counts) setCounts(cached.counts); setLeadsLoading(false);
+        // Restore the cached total instantly so the header never shows a stale
+        // number while revalidating (the bug where it kept the previous filter's
+        // count for several seconds).
+        if (pg === 0) setMatchTotal(cached.total ?? null);
+      } else {
+        setLeadsLoading(true);
+        // Cold (uncached) page-0 load: clear the previous filter's total so the
+        // header shows a loading state, never a stale wrong number.
+        if (pg === 0) setMatchTotal(null);
+      }
       try {
         // Ask for the ICP + tier counts only on the first page.
         const countsParam = pg === 0 ? "&counts=1" : "";
@@ -535,13 +545,14 @@ export default function Lists() {
         const d = res.ok ? await res.json() : {};
         const nextLeads: Lead[] = d.leads ?? [];
         const nextCounts = d.counts ?? cached?.counts ?? null;
+        const nextTotal: number | null = typeof d.total === "number" ? d.total : (cached?.total ?? null);
         setLeads(nextLeads);
         if (d.counts) setCounts(d.counts);
         if (d.tier_counts) setTierCounts(d.tier_counts);
         // The server returns an accurate matching total on the first page (and on
         // any filtered view). Keep it for the header + select-all-matching.
-        if (pg === 0 && typeof d.total === "number") setMatchTotal(d.total);
-        leadsCache.current.set(cacheKey, { leads: nextLeads, counts: nextCounts });
+        if (pg === 0) setMatchTotal(nextTotal);
+        leadsCache.current.set(cacheKey, { leads: nextLeads, counts: nextCounts, total: nextTotal });
         // Mirror the most-recent pages to disk so a reload repaints instantly.
         const entries = Array.from(leadsCache.current.entries()).slice(-LEADS_CACHE_CAP);
         ssSet(SS_LEADS(workspaceId), Object.fromEntries(entries));
@@ -1482,7 +1493,9 @@ export default function Lists() {
                 <span className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md text-[12px] font-medium text-muted-foreground">
                   {fbFilters.length > 0 ? "Matching" : "All"}
                   <span className="tabular-nums text-foreground">
-                    {(matchingTotal ?? activeList?.lead_count ?? leads.length).toLocaleString()}
+                    {matchingTotal != null
+                      ? matchingTotal.toLocaleString()
+                      : (fbFilters.length > 0 ? "…" : (activeList?.lead_count ?? leads.length).toLocaleString())}
                   </span>
                 </span>
               )}
