@@ -318,6 +318,7 @@ export interface LeadFilterOpts {
   domain?: string;        // has | none
   size?: string;          // substring match on fields->>company_size
   source?: string;        // free-text substring of the lead's source
+  search?: string;        // free-text substring across name / email / company
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -342,6 +343,12 @@ function applyLeadFilters(query: any, opts: LeadFilterOpts): any {
   if (opts.size) query = query.ilike('fields->>company_size', `%${opts.size}%`);
   // Source: free-text substring match on where the lead came from.
   if (opts.source) query = query.ilike('source', `%${opts.source}%`);
+  // Search: one box across name / email / company. Strip the chars that would
+  // break the PostgREST or() filter (commas, parens, wildcards) before matching.
+  if (opts.search) {
+    const s = opts.search.replace(/[,()%*]/g, ' ').trim();
+    if (s) query = query.or(`name.ilike.%${s}%,email.ilike.%${s}%,company.ilike.%${s}%`);
+  }
   return query;
 }
 

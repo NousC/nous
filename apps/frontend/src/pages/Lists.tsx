@@ -1,6 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useRef } from "react";
 import { useNavigate, useSearchParams, useParams } from "react-router-dom";
-import { Plus, Upload, RefreshCw, FileText, X, ArrowLeft, Download, Lock, Filter, ChevronDown, Linkedin, Coins, Settings2, Calendar } from "lucide-react";
+import { Plus, Upload, RefreshCw, FileText, X, ArrowLeft, Download, Lock, Filter, ChevronDown, Linkedin, Coins, Settings2, Calendar, Search } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { PageHeader } from "@/components/ui/page-header";
 import { parseCSVLine } from "@/components/contacts/PeopleImportModal";
@@ -363,6 +363,14 @@ export default function Lists() {
   const [tierCounts, setTierCounts] = useState<Record<IcpTier, number> | null>(null);
   // Accurate count of records matching the active filters (from the server).
   const [matchTotal, setMatchTotal] = useState<number | null>(null);
+  // Search box — `searchInput` is what the user types; `search` is the debounced
+  // value actually sent to the server (matches name / email / company).
+  const [searchInput, setSearchInput] = useState("");
+  const [search, setSearch] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(searchInput.trim()), 300);
+    return () => clearTimeout(t);
+  }, [searchInput]);
   // The ONE filter builder — every filter (ICP, tier, status, reply, size, email,
   // channel, source, domain) is a "Where <field> is <value>" row here. Multiple
   // filters stack. Persisted so the view survives navigation + reloads.
@@ -526,9 +534,10 @@ export default function Lists() {
       // still cached but never displayed.
       const seq = ++loadSeqRef.current;
       // Every filter is an fbFilters row now (icp/tier/status/reply/size/…), so a
-      // single param string carries them all to the endpoint.
+      // single param string carries them all to the endpoint; search rides along.
       const fbParam = fbFilters.map(f => `&${f.field}=${encodeURIComponent(f.value)}`).join("");
-      const cacheKey = `${listId}|${pg}|${srt}|${fbParam}`;
+      const searchParam = search ? `&search=${encodeURIComponent(search)}` : "";
+      const cacheKey = `${listId}|${pg}|${srt}|${fbParam}|${search}`;
       // Stale-while-revalidate: paint the cached page instantly (no spinner), then
       // refresh in the background. Cold pages show the loading state.
       const cached = leadsCache.current.get(cacheKey);
@@ -548,7 +557,7 @@ export default function Lists() {
         // Ask for the ICP + tier counts only on the first page.
         const countsParam = pg === 0 ? "&counts=1" : "";
         const res = await fetch(
-          `${apiUrl}/api/lead-lists/${listId}/leads?workspaceId=${workspaceId}&limit=${PAGE_SIZE}&offset=${pg * PAGE_SIZE}&sort=${srt}${fbParam}${countsParam}`,
+          `${apiUrl}/api/lead-lists/${listId}/leads?workspaceId=${workspaceId}&limit=${PAGE_SIZE}&offset=${pg * PAGE_SIZE}&sort=${srt}${fbParam}${searchParam}${countsParam}`,
           { headers: authHeaders });
         const d = res.ok ? await res.json() : {};
         const nextLeads: Lead[] = d.leads ?? [];
@@ -569,13 +578,14 @@ export default function Lists() {
         if (pg === 0) setMatchTotal(nextTotal);
       } catch { if (seq === loadSeqRef.current && !cached) setLeads([]); }
       finally { if (seq === loadSeqRef.current) setLeadsLoading(false); }
-    }, [workspaceId, token, fbFilters]);
+    }, [workspaceId, token, fbFilters, search]);
 
   // The active filter set as a query string — every filter lives in fbFilters now,
   // so this is the single source shared by the leads view and full-list fetches.
   const buildFilterQS = useCallback(() =>
     fbFilters.map(f => `&${f.field}=${encodeURIComponent(f.value)}`).join("")
-  , [fbFilters]);
+    + (search ? `&search=${encodeURIComponent(search)}` : "")
+  , [fbFilters, search]);
 
   // Backfill the LinkedIn Connections list from the user's existing connections
   // (Unipile relations). One-time/on-demand; the webhooks keep it current after.
@@ -646,13 +656,14 @@ export default function Lists() {
   useEffect(() => {
     if (!activeId) return;
     setSelected(new Set()); setSelectAllMatching(false); setCounts(null); setMatchTotal(null); setTierCounts(null);
+    setSearchInput(""); setSearch("");
     setEditCell(null); resetImport();
     if (firstActiveRef.current) firstActiveRef.current = false;
     else setPage(0);
   }, [activeId]);
   // Changing any filter or sort goes back to page 1 and clears the selection
   // (the matching set changed, so "all matching" no longer means the same thing).
-  useEffect(() => { setPage(0); setSelected(new Set()); setSelectAllMatching(false); }, [sort, fbFilters]);
+  useEffect(() => { setPage(0); setSelected(new Set()); setSelectAllMatching(false); }, [sort, fbFilters, search]);
 
   // Route param → active list. /lists/:listId selects that list; the bare /lists
   // index (or a stale/unknown id, e.g. after deleting the active list) falls back
@@ -723,7 +734,7 @@ export default function Lists() {
   // guessing — when there are no filters it's the whole list. Drives the header
   // count, the "Select all N matching" affordance, and the scoped export counts.
   const matchingTotal: number | null =
-    matchTotal ?? (fbFilters.length === 0 ? activeList?.lead_count ?? null : null);
+    matchTotal ?? ((fbFilters.length === 0 && !search) ? activeList?.lead_count ?? null : null);
 
   // Row selection. `selectAllMatching` means "every record matching the filters",
   // so a row reads as checked regardless of the per-page `selected` set.
@@ -1502,17 +1513,33 @@ export default function Lists() {
                 // ICP, tier, status, reply are all in the Filter now — the left
                 // side just shows how many records the current filter matches.
                 <span className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md text-[12px] font-medium text-muted-foreground">
-                  {fbFilters.length > 0 ? "Matching" : "All"}
+                  {(fbFilters.length > 0 || search) ? "Matching" : "All"}
                   <span className="tabular-nums text-foreground">
                     {matchingTotal != null
                       ? matchingTotal.toLocaleString()
-                      : (fbFilters.length > 0 ? "…" : (activeList?.lead_count ?? leads.length).toLocaleString())}
+                      : ((fbFilters.length > 0 || search) ? "…" : (activeList?.lead_count ?? leads.length).toLocaleString())}
                   </span>
                 </span>
               )}
             </div>
-            {/* RIGHT — active filter chips + filter builder + status/reply */}
+            {/* RIGHT — search + active filter chips + filter builder */}
             <div className="flex items-center gap-2 flex-wrap justify-end">
+              {/* Search — name / email / company, debounced. */}
+              <div className="relative">
+                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/60 pointer-events-none" />
+                <input
+                  value={searchInput}
+                  onChange={e => setSearchInput(e.target.value)}
+                  placeholder="Search name, email, company…"
+                  className="h-7 w-56 rounded-md border border-border bg-background pl-7 pr-6 text-[12px] text-foreground placeholder:text-muted-foreground/50 outline-none focus:border-muted-foreground"
+                />
+                {searchInput && (
+                  <button onClick={() => setSearchInput("")} title="Clear search"
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground/60 hover:text-foreground">
+                    <X className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
               {/* Active filter-builder chips */}
               {fbFilters.map(f => (
                 <span key={f.field} className="inline-flex items-center gap-1 h-7 pl-2.5 pr-1 rounded-md text-[12px] font-medium bg-foreground text-background">

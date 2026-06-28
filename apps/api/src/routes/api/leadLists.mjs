@@ -184,7 +184,7 @@ leadListsRouter.delete('/:id', async (req, res) => {
 leadListsRouter.get('/:id/leads', async (req, res) => {
   try {
     const { workspaceId, limit, offset, icp, sort, counts, status, reply, verified,
-            channel, emailStatus, domain, size, source, tier } = req.query;
+            channel, emailStatus, domain, size, source, tier, search } = req.query;
     if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
     const supabase = getSupabaseClient();
     const validSort = ['recent', 'icp_score_desc', 'icp_score_asc'].includes(sort) ? sort : undefined;
@@ -205,7 +205,7 @@ leadListsRouter.get('/:id/leads', async (req, res) => {
       sort: validSort,
       status: str(status), reply: str(reply), verified: str(verified),
       channel: str(channel), emailStatus: str(emailStatus),
-      size: str(size), source: str(source),
+      size: str(size), source: str(source), search: str(search),
     };
 
     // Overlay the live ICP model score + tier (and a derived domain) at read
