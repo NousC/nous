@@ -43,10 +43,8 @@ const NEW_COL = "__new__"; // mapping target: create a new column from this head
 // Filter dimensions. Most pick from a fixed value set; `type: "text"` fields
 // (Channel, Source) take a free-typed substring instead — you type what to match.
 const FB_FIELDS: { key: string; label: string; type?: "text"; values: { v: string; l: string }[] }[] = [
-  // ICP fit + tier first — the primary segmentation, folded into the one filter
-  // builder (no separate chips). `icp` is the sales-nav ICP true/false tag; `tier`
-  // is the model tier; status/reply are the outbound lifecycle.
-  { key: "icp", label: "ICP fit", values: [ { v: "true", l: "ICP" }, { v: "false", l: "Non-ICP" } ] },
+  // Tier first — the primary segmentation, folded into the one filter builder
+  // (no separate chips). status/reply are the outbound lifecycle.
   { key: "tier", label: "Tier", values: [
     { v: "tier_1", l: "Tier 1" }, { v: "tier_2", l: "Tier 2" }, { v: "tier_3", l: "Tier 3" }, { v: "not_icp", l: "Not ICP" },
   ] },
@@ -56,18 +54,20 @@ const FB_FIELDS: { key: string; label: string; type?: "text"; values: { v: strin
   { key: "reply", label: "Reply", values: [
     { v: "interested", l: "Interested" }, { v: "objection", l: "Objection" }, { v: "wrong_fit", l: "Wrong fit" }, { v: "unsubscribe", l: "Unsubscribe / DNC" },
   ] },
+  // Email presence + verdict. "Empty (no email)" is the common one — filter the
+  // list down to leads still missing an email (e.g. to enrich them).
+  { key: "emailStatus", label: "Email", values: [
+    { v: "has", l: "Has email" }, { v: "none", l: "Empty (no email)" },
+    { v: "VERIFIED", l: "Verified" }, { v: "RISKY", l: "Risky" }, { v: "UNAVAILABLE", l: "Unavailable" },
+  ] },
+  { key: "domain", label: "Domain", values: [ { v: "has", l: "Has domain" }, { v: "none", l: "No domain" } ] },
   { key: "size", label: "Company size", values: [
     { v: "1 to 10", l: "1–10" }, { v: "11 to 50", l: "11–50" }, { v: "51 to 200", l: "51–200" },
     { v: "201 to 500", l: "201–500" }, { v: "501 to 1,000", l: "501–1,000" },
     { v: "1,001 to 5,000", l: "1,001–5,000" }, { v: "5,001", l: "5,001–10,000" }, { v: "10,001", l: "10,000+" },
   ] },
-  { key: "emailStatus", label: "Email status", values: [
-    { v: "has", l: "Has email" }, { v: "none", l: "No email" },
-    { v: "VERIFIED", l: "Verified" }, { v: "RISKY", l: "Risky" }, { v: "UNAVAILABLE", l: "Unavailable" },
-  ] },
   { key: "channel", label: "Channel", type: "text", values: [] },
   { key: "source", label: "Source", type: "text", values: [] },
-  { key: "domain", label: "Domain", values: [ { v: "has", l: "Has domain" }, { v: "none", l: "No domain" } ] },
 ];
 const fbLabel = (field: string, value: string) => {
   const f = FB_FIELDS.find(x => x.key === field);
@@ -359,6 +359,8 @@ export default function Lists() {
   const [result, setResult] = useState<{ inserted: number; skipped: number } | null>(null);
   // Per-tier counts (for the tier values in the filter dropdown).
   const [tierCounts, setTierCounts] = useState<Record<IcpTier, number> | null>(null);
+  // Accurate count of records matching the active filters (from the server).
+  const [matchTotal, setMatchTotal] = useState<number | null>(null);
   // The ONE filter builder — every filter (ICP, tier, status, reply, size, email,
   // channel, source, domain) is a "Where <field> is <value>" row here. Multiple
   // filters stack. Persisted so the view survives navigation + reloads.
@@ -536,6 +538,9 @@ export default function Lists() {
         setLeads(nextLeads);
         if (d.counts) setCounts(d.counts);
         if (d.tier_counts) setTierCounts(d.tier_counts);
+        // The server returns an accurate matching total on the first page (and on
+        // any filtered view). Keep it for the header + select-all-matching.
+        if (pg === 0 && typeof d.total === "number") setMatchTotal(d.total);
         leadsCache.current.set(cacheKey, { leads: nextLeads, counts: nextCounts });
         // Mirror the most-recent pages to disk so a reload repaints instantly.
         const entries = Array.from(leadsCache.current.entries()).slice(-LEADS_CACHE_CAP);
@@ -618,7 +623,7 @@ export default function Lists() {
   // clobbered back to default on every list open.
   useEffect(() => {
     if (!activeId) return;
-    setSelected(new Set()); setSelectAllMatching(false); setCounts(null);
+    setSelected(new Set()); setSelectAllMatching(false); setCounts(null); setMatchTotal(null); setTierCounts(null);
     setEditCell(null); resetImport();
     if (firstActiveRef.current) firstActiveRef.current = false;
     else setPage(0);
@@ -691,25 +696,12 @@ export default function Lists() {
   const removeFbFilter = (field: string) => setFbFilters(prev => prev.filter(f => f.field !== field));
   const pushApp = SEQUENCER_APPS.find(a => a.id === pushProvider) ?? SEQUENCER_APPS[0];
 
-  // Total records matching the current filters, when it's known from data already
-  // in hand (no extra request). Null when status/reply/filter-builder filters are
-  // active — the exact figure is then resolved at action time. Drives the
-  // "Select all N matching" affordance and the scoped export counts.
+  // Total records matching the current filters. The server returns this exact
+  // figure (it resolves the full filtered set on page 0), so no client-side
+  // guessing — when there are no filters it's the whole list. Drives the header
+  // count, the "Select all N matching" affordance, and the scoped export counts.
   const matchingTotal: number | null =
-    fbFilters.length
-      ? (() => {
-          // When the ONLY active filter is a single ICP/tier segment, we know the
-          // exact count from the counts payload; otherwise resolve at action time.
-          if (fbFilters.length === 1) {
-            const f = fbFilters[0];
-            if (f.field === "icp") return f.value === "true" ? counts?.icp ?? null : counts?.non_icp ?? null;
-            if (f.field === "tier") return tierCounts?.[f.value as IcpTier] ?? null;
-          }
-          return null;
-        })()
-      : hasIcp && counts
-        ? counts.icp + counts.non_icp
-        : activeList?.lead_count ?? null;
+    matchTotal ?? (fbFilters.length === 0 ? activeList?.lead_count ?? null : null);
 
   // Row selection. `selectAllMatching` means "every record matching the filters",
   // so a row reads as checked regardless of the per-page `selected` set.
@@ -1550,11 +1542,9 @@ export default function Lists() {
                       >
                         <option value="">Select a value…</option>
                         {fbFieldDef.values.map(v => {
-                          // Surface the live count for ICP/tier segments so you
-                          // see how many leads each option holds before applying.
-                          let n: number | null = null;
-                          if (fbField === "tier") n = tierCounts?.[v.v as IcpTier] ?? null;
-                          else if (fbField === "icp") n = v.v === "true" ? counts?.icp ?? null : counts?.non_icp ?? null;
+                          // Surface the live count for tier segments so you see how
+                          // many leads each option holds before applying.
+                          const n = fbField === "tier" ? tierCounts?.[v.v as IcpTier] ?? null : null;
                           return <option key={v.v} value={v.v}>{v.l}{n != null ? ` (${n})` : ""}</option>;
                         })}
                       </select>
@@ -1688,25 +1678,23 @@ export default function Lists() {
                       className={`relative px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-shrink-0 ${i !== 0 ? "cursor-grab active:cursor-grabbing" : ""} ${i === 0 ? "sticky left-10 z-30 bg-muted/50 border-r border-border" : ""}`} style={{ width: c.w }}>
                       {sortable ? (
                         <button
-                          onClick={() => setSort(s => (s === "icp_score_desc" ? "icp_score_asc" : "icp_score_desc"))}
+                          // Cycle: off → descending → ascending → off. No idle icon —
+                          // the arrow only shows while this column is the active sort.
+                          onClick={() => setSort(s => s === "icp_score_desc" ? "icp_score_asc" : s === "icp_score_asc" ? "recent" : "icp_score_desc")}
                           title="Sort by ICP score"
                           className="inline-flex items-center gap-1 uppercase tracking-wide hover:text-foreground transition-colors"
                         >
                           {c.label}
-                          <span className="text-[10px]">
-                            {sort === "icp_score_desc" ? "▼" : sort === "icp_score_asc" ? "▲" : "⇅"}
-                          </span>
+                          {sort === "icp_score_desc" ? <span className="text-[10px]">▼</span> : sort === "icp_score_asc" ? <span className="text-[10px]">▲</span> : null}
                         </button>
                       ) : tierSortable ? (
                         <button
-                          onClick={() => setSort(s => (s === "tier_desc" ? "tier_asc" : "tier_desc"))}
+                          onClick={() => setSort(s => s === "tier_desc" ? "tier_asc" : s === "tier_asc" ? "recent" : "tier_desc")}
                           title="Sort by tier"
                           className="inline-flex items-center gap-1 uppercase tracking-wide hover:text-foreground transition-colors"
                         >
                           {c.label}
-                          <span className="text-[10px]">
-                            {sort === "tier_desc" ? "▼" : sort === "tier_asc" ? "▲" : "⇅"}
-                          </span>
+                          {sort === "tier_desc" ? <span className="text-[10px]">▼</span> : sort === "tier_asc" ? <span className="text-[10px]">▲</span> : null}
                         </button>
                       ) : (
                         c.label

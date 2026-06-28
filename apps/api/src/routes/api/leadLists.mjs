@@ -193,11 +193,16 @@ leadListsRouter.get('/:id/leads', async (req, res) => {
     const lim = limit ? parseInt(limit, 10) : 50;
     const off = offset ? parseInt(offset, 10) : 0;
     const tierFilter = ['tier_1', 'tier_2', 'tier_3', 'not_icp'].includes(tier) ? tier : undefined;
+    // Domain has/none filters on the EFFECTIVE domain (stored OR derived from the
+    // work email at overlay time), not the sparse stored `domain` column — so it
+    // runs post-overlay in JS, NOT as a SQL filter (which only saw the ~few stored
+    // domains and matched almost nothing).
+    const domainFilter = domain === 'has' || domain === 'none' ? domain : undefined;
     const filterOpts = {
       icp: icp === 'true' || icp === 'false' ? icp : undefined,
       sort: validSort,
       status: str(status), reply: str(reply), verified: str(verified),
-      channel: str(channel), emailStatus: str(emailStatus), domain: str(domain),
+      channel: str(channel), emailStatus: str(emailStatus),
       size: str(size), source: str(source),
     };
 
@@ -237,18 +242,23 @@ leadListsRouter.get('/:id/leads', async (req, res) => {
 
     let leads;
     let tierCounts;
-    // Tier filter / tier sort / tier counts all need the model score, which is
-    // overlaid (not a view column) — so resolve the full matching set, overlay,
-    // then filter / sort / paginate in memory. Bounded by the 5000 cap; only on a
-    // tier view or the first page (when counts are requested).
-    if (tierFilter || tierSort || counts === '1') {
+    let matchTotal;
+    // Tier filter/sort, the domain (effective) filter, and the counts/total all
+    // need the overlaid values (model tier, derived domain) — so resolve the full
+    // set matching the SQL filters, overlay, then filter/sort/paginate in memory.
+    // Bounded by the 5000 cap; only on such a view or the first page (counts=1).
+    if (tierFilter || tierSort || domainFilter || counts === '1') {
       const full = await listLeads(supabase, workspaceId, req.params.id, { ...filterOpts, limit: 5000, offset: 0 });
       await overlay(full);
+      // Apply the effective-domain filter first, so counts + total reflect it.
+      let base = full;
+      if (domainFilter === 'has') base = base.filter(l => !!l.domain);
+      else if (domainFilter === 'none') base = base.filter(l => !l.domain);
       if (counts === '1') {
         tierCounts = { tier_1: 0, tier_2: 0, tier_3: 0, not_icp: 0 };
-        for (const l of full) { const t = tierOf(l); if (t) tierCounts[t]++; }
+        for (const l of base) { const t = tierOf(l); if (t) tierCounts[t]++; }
       }
-      let set = tierFilter ? full.filter(l => tierOf(l) === tierFilter) : full;
+      let set = tierFilter ? base.filter(l => tierOf(l) === tierFilter) : base;
       if (tierSort) {
         // Sort by tier rank, then by score within the tier (so the strongest
         // accounts surface first inside Tier 1). Untiered leads sink to the end.
@@ -260,6 +270,9 @@ leadListsRouter.get('/:id/leads', async (req, res) => {
           return (sb - sa) * dir;
         });
       }
+      // The accurate count of records matching every active filter — what the
+      // header shows. Only computed on the resolve path (page 0 / filtered views).
+      matchTotal = set.length;
       leads = set.slice(off, off + lim);
     } else {
       leads = await listLeads(supabase, workspaceId, req.params.id, { ...filterOpts, limit: lim, offset: off });
@@ -276,7 +289,7 @@ leadListsRouter.get('/:id/leads', async (req, res) => {
     const funnel = req.query.funnel === '1'
       ? await countLeadFunnel(supabase, workspaceId, req.params.id)
       : undefined;
-    return res.json({ leads, counts: icpCounts, tier_counts: tierCounts, funnel });
+    return res.json({ leads, counts: icpCounts, tier_counts: tierCounts, total: matchTotal, funnel });
   } catch (err) {
     console.error('[GET /api/lead-lists/:id/leads]', err);
     return res.status(500).json({ error: 'internal_error' });
