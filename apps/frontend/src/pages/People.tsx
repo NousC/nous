@@ -291,23 +291,65 @@ function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token:
               <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">Record Details</span>
               {saving && <span className="text-[11px] text-muted-foreground/70">saving…</span>}
             </div>
-            {/* ICP score — read-only, computed by the Scorecard */}
+            {/* ICP score — read-only, computed by the Scorecard. Shows the current
+                score + tier + why, and the dated history trail of how it moved. */}
             {(() => {
-              // Show the current (newest) model score when we have a live
-              // prediction; the full score history stays in the data for agents.
               const sc = prediction?.score ?? contact.icpScore;
               const fit = sc == null ? null : sc >= 85 ? "Strong fit" : sc >= 70 ? "Good fit" : sc >= 50 ? "Potential fit" : "Weak fit";
               const col = sc == null ? "#9ca3af" : sc >= 85 ? "#15803d" : sc >= 70 ? "#ca8a04" : sc >= 50 ? "#ea580c" : "#6b7280";
+              const tier = (prediction?.tier ?? tierFromScore(sc)) as IcpTier | null;
+              const fmtD = (iso: string | null) => iso ? new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
+              // Full trail, newest-first: the current head, then each prior entry
+              // from predicted_value.history (every rescore that MOVED the score).
+              const hist = Array.isArray(prediction?.history) ? prediction.history : [];
+              const head = prediction?.score != null
+                ? [{ score: prediction.score, tier: prediction.tier, reason: prediction.reason, at: prediction.updated_at }]
+                : [];
+              const trail = [...head, ...hist];
+              const shown = trail.slice(0, 6);
               return (
                 <div className="mb-4 pb-3.5 border-b border-border/60">
                   <div className="text-[11px] font-medium text-muted-foreground/70 mb-1">ICP Score</div>
                   {sc == null ? (
                     <div className="text-[13px] text-muted-foreground/50 italic">Not scored yet</div>
                   ) : (
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-[22px] font-semibold tabular-nums leading-none" style={{ color: col }}>{sc}</span>
-                      <span className="text-[12px] text-muted-foreground/70">/ 100 · {fit}</span>
-                    </div>
+                    <>
+                      <div className="flex items-baseline gap-2 flex-wrap">
+                        <span className="text-[22px] font-semibold tabular-nums leading-none" style={{ color: col }}>{sc}</span>
+                        <span className="text-[12px] text-muted-foreground/70">/ 100 · {fit}</span>
+                        {tier && (
+                          <span title={TIER_UI[tier].play}
+                            className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${TIER_UI[tier].bg}`}>{TIER_UI[tier].label}</span>
+                        )}
+                      </div>
+                      {prediction?.reason && (
+                        <div className="text-[11px] text-muted-foreground/70 mt-1 leading-snug">{prediction.reason}</div>
+                      )}
+                      {trail.length > 1 && (
+                        <div className="mt-2.5">
+                          <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/50 mb-1">History</div>
+                          <div className="space-y-1">
+                            {shown.map((h: any, i: number) => {
+                              const older = trail[i + 1];
+                              const delta = older && h.score != null && older.score != null ? h.score - older.score : null;
+                              return (
+                                <div key={i} className="flex items-center gap-1.5 text-[11px] leading-tight">
+                                  <span className="text-muted-foreground/55 tabular-nums flex-shrink-0" style={{ width: 42 }}>{fmtD(h.at)}</span>
+                                  <span className="tabular-nums font-medium text-foreground/80 flex-shrink-0" style={{ width: 20 }}>{h.score}</span>
+                                  {delta != null && delta !== 0
+                                    ? <span className={`tabular-nums flex-shrink-0 ${delta > 0 ? "text-emerald-600" : "text-red-500"}`} style={{ width: 26 }}>{delta > 0 ? `▲${delta}` : `▼${Math.abs(delta)}`}</span>
+                                    : <span className="flex-shrink-0" style={{ width: 26 }} />}
+                                  <span className="text-muted-foreground/55 truncate min-w-0" title={h.reason ?? ""}>{h.reason ?? ""}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                          {trail.length > shown.length && (
+                            <div className="text-[10px] text-muted-foreground/45 mt-1">+{trail.length - shown.length} earlier</div>
+                          )}
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               );
