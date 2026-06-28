@@ -147,14 +147,37 @@ The engine scores evidence; **skills produce the evidence**, and Nous is where i
 
 ### The monitor layer (planned) — delta on snapshot, not blind re-scrape
 
-Most signals aren't one-off enrichment; they're *changes*. Because Nous already stores prior state (the person's title, company, `employee_count`, last post), monitoring is **diff the new read against what Nous already knows, and record a signal only on change** — the difference between "scraping" and "monitoring." The design (Trigify's model: 12h / 24h / weekly / monthly runs):
+Most signals aren't one-off enrichment; they're *changes over time*. Because Nous already stores prior state (the person's title, company, `employee_count`, last post), monitoring is **diff the new read against what Nous already knows, and record a signal only on change** — that's the line between "scraping" and "monitoring." Four parts:
 
-1. A **watchlist** of entities (and competitors / creators) with a per-entity cadence **tier**.
-2. **Tiered cadence** driven by `icp_tier × intent_band` — hot/Tier-1 daily, cold weekly. Never re-scrape everything daily.
-3. **Cheap-check-first** — re-read the cheapest field (company People-tab *count*, profile headline, latest-post id); deep-scrape only after a delta.
-4. **Diff → record on change** → the engine scores it. You pay for the check, not for reprocessing.
+**1 · The watchlist (scope the world down first).** You never "monitor LinkedIn" — you monitor *these* entities. The watchlist is assembled from what the workspace already has:
+- saved/ICP-qualified **people** (the lead lists, the Tier-1/2 set),
+- **tracked companies** (the account list),
+- **tracked titles / keywords** (boolean watches for new matches),
+- **competitors** and **creators** (whose audiences you watch — see the leverage move),
+so a run is "re-check these 20,000," never "crawl everything."
 
-Two leverage moves: monitor a **company's** People-tab count once to lift *every* person there; monitor a **competitor's/creator's** posts once to capture *all* the prospects engaging (intent) plus new ones (discovery).
+**2 · Two-dimensional cadence (the refinement).** Frequency is a function of **account priority × signal volatility** — not a single tier. A high-value account isn't checked uniformly; *fast-moving* signals on it are checked often, *slow* ones rarely.
+
+| | Tier-1 / Hot account | Normal account | Cold / low-priority |
+| --- | --- | --- | --- |
+| **fast signals** (new post, engagement) | 1–3h | 12–24h | 2–7d |
+| **medium** (hiring, headcount) | daily | 2–3×/wk | weekly |
+| **slow** (job change, funding) | daily–2d | weekly | 2–4wk |
+
+The volatility tracks the signal's own half-life — a `linkedin_engaged` (14d) post is worth checking far more often than a `job_change` (45d). So each signal class carries both a weight + half-life (for scoring) **and** a base poll interval (for monitoring), then the account's priority scales it.
+
+**3 · The diff engine (the actual magic).** Each watched entity has a **last-known state** (stored as claims). On each run, snapshot → compare → emit a signal *only on a real change*:
+```
+Run N:    Person A  company=OpenAI     title=GTM Engineer
+Run N+1:  Person A  company=Anthropic  title=Founding GTM Engineer
+DIFF →    company changed  → interaction.job_change (intent + fit re-score)
+          title changed    → interaction.job_change
+```
+Same for `employee_count` ↑ → headcount/hiring, a new `last_post_id` → new-post, a new name in a competitor's engagers → competitor_engaged. The signal is the *delta*, not the value.
+
+**4 · Cheap-check-first.** Re-read the cheapest field (a company's People-tab *count*, a profile headline, the latest-post id) before any deep scrape; deep-scrape only *after* a delta is detected. You pay for the check, not for reprocessing.
+
+Two leverage moves: monitor a **company's** People-tab count once to lift *every* person there; monitor a **competitor's/creator's** posts once to capture *all* the prospects engaging (intent) plus brand-new ones (discovery).
 
 ---
 
