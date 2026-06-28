@@ -156,15 +156,18 @@ Most signals aren't one-off enrichment; they're *changes over time*. Because Nou
 - **competitors** and **creators** (whose audiences you watch — see the leverage move),
 so a run is "re-check these 20,000," never "crawl everything."
 
-**2 · Two-dimensional cadence (the refinement).** Frequency is a function of **account priority × signal volatility** — not a single tier. A high-value account isn't checked uniformly; *fast-moving* signals on it are checked often, *slow* ones rarely.
+**2 · Cadence — per scrape-source, tiered by account, slow by default.** The unit of scheduling is the **scrape**, not the signal: *one* profile re-scrape yields `job_change` + "new post exists" + headline change; *one* company-page scrape yields `headcount` + `hiring` for everyone there. So there are ~5 monitor jobs, each with its own cadence, and the account's priority scales it. The numbers are **slow by default, fast only for the hot subset** — on a 5,000-record list you check the ~300–500 active accounts often and the cold majority weekly.
 
-| | Tier-1 / Hot account | Normal account | Cold / low-priority |
+| Scrape source → signals | Cold (the bulk) | Warm / Tier-2 | Hot / Tier-1 |
 | --- | --- | --- | --- |
-| **fast signals** (new post, engagement) | 1–3h | 12–24h | 2–7d |
-| **medium** (hiring, headcount) | daily | 2–3×/wk | weekly |
-| **slow** (job change, funding) | daily–2d | weekly | 2–4wk |
+| **person profile** → job_change, new-post-exists, headline | every 2wk | weekly | 48h |
+| **person posts/activity** → engagement, competitor, pain | skip until ICP-qualified | weekly | 24h |
+| **company page** → headcount, hiring | weekly (per company) | weekly | 2–3d |
+| **news source** → funding, news | daily (cheap, all) | daily | daily |
+| **competitor/creator posts** → audience | 12–24h (few targets) | — | — |
+| **website pixel** → visit | realtime push (no poll) | — | — |
 
-The volatility tracks the signal's own half-life — a `linkedin_engaged` (14d) post is worth checking far more often than a `job_change` (45d). So each signal class carries both a weight + half-life (for scoring) **and** a base poll interval (for monitoring), then the account's priority scales it.
+The cadence tracks the signal's half-life (a 14d engagement is worth checking far more often than a 45d job change), but cost is the real governor. **The production math (Apify BYOK, ~$0.004/light profile):** checking all 5,000 hourly ≈ **$14k/mo** (never); every 24h ≈ $600; **weekly ≈ $87**. So all-in continuous monitoring of 5,000 records lands at **~$150–250/mo** — weekly baseline + a small hot subset + company-level checks that scale by *company* count (~1,500), not people count. Funding/news come from a **news source, not a scrape** (cheaper, near-realtime).
 
 **3 · The diff engine (the actual magic).** Each watched entity has a **last-known state** (stored as claims). On each run, snapshot → compare → emit a signal *only on a real change*:
 ```
