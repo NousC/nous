@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import { getSupabaseClient, listNotes, saveNote, logActivity, collapseMeetingDupes, assertClaims, upsertIdentifier, scoreTier } from '@nous/core';
+import { fetchIcpByEntity } from '../../lib/icpFit.mjs';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
 import { ensureUserAndTeam } from '../../lib/auth.mjs';
 import { requireEnrichmentQuota } from '../../lib/access.mjs';
@@ -98,7 +99,18 @@ contactsApiRouter.get('/', verifySupabaseAuth, async (req, res) => {
     const { data: raw, error } = await query;
     if (error) throw error;
 
-    return res.json({ contacts: raw || [], limit: lim, offset: off });
+    // Overlay the live ICP model score + tier from the prediction (the SAME source
+    // the lead list and the person record use), so the People page stops showing
+    // the stale v1 contacts.icp_score and gains the actionable tier. Contacts
+    // without a prediction keep their existing value (no tier).
+    const rows = raw || [];
+    const icpMap = await fetchIcpByEntity(supabase, workspaceId, rows.map(c => c.id));
+    const contacts = rows.map(c => {
+      const ov = icpMap.get(c.id);
+      return ov ? { ...c, icp_score: ov.score, icp_tier: ov.tier } : c;
+    });
+
+    return res.json({ contacts, limit: lim, offset: off });
   } catch (err) {
     return res.status(500).json({ error: 'internal_error', ...(process.env.NODE_ENV !== 'production' && { detail: String(err.message) }) });
   }

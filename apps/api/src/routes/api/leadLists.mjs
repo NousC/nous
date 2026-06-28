@@ -21,6 +21,7 @@ import {
   selectLeadsLite,
   scoreTier,
 } from '@nous/core';
+import { fetchIcpByEntity } from '../../lib/icpFit.mjs';
 import { hasFeature } from '../../lib/plans.mjs';
 import { requireEnrichmentQuota, requireFeature } from '../../lib/access.mjs';
 import { enrichContact, getApolloEnrichmentKey, getFindymailEnrichmentKey, getProspeoEnrichmentKey } from '../../services/enrichment.mjs';
@@ -216,23 +217,12 @@ leadListsRouter.get('/:id/leads', async (req, res) => {
     // effective tier = the prediction's, else derived from its (seed) score.
     const overlay = async (rows) => {
       if (!rows.length) return;
-      const ids = rows.map(l => l.id);
-      const { data: preds } = await supabase.from('predictions')
-        .select('entity_id, predicted_value, predicted_at')
-        .eq('workspace_id', workspaceId).eq('kind', 'icp_fit')
-        .in('entity_id', ids)
-        .order('predicted_at', { ascending: false });
-      const predByEntity = new Map();
-      for (const p of (preds || [])) {
-        if (!predByEntity.has(p.entity_id) && p.predicted_value?.score != null) {
-          predByEntity.set(p.entity_id, p.predicted_value);
-        }
-      }
+      // Shared with the People page (fetchIcpByEntity) so the two surfaces never
+      // show a different ICP score/tier for the same entity.
+      const icpMap = await fetchIcpByEntity(supabase, workspaceId, rows.map(l => l.id));
       for (const l of rows) {
-        const pv = predByEntity.get(l.id);
-        if (pv?.score != null) {
-          l.fields = { ...(l.fields || {}), icp_score: pv.score, icp_tier: pv.tier ?? scoreTier(pv.score) };
-        }
+        const ov = icpMap.get(l.id);
+        if (ov) l.fields = { ...(l.fields || {}), icp_score: ov.score, icp_tier: ov.tier };
         if (!l.domain && l.email && l.email.includes('@')) {
           const d = l.email.split('@')[1].trim().toLowerCase();
           if (d && !FREE_EMAIL_DOMAINS.has(d)) l.domain = d;

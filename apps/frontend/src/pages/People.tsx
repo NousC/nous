@@ -17,9 +17,15 @@ const PIPELINE_STAGES = ["identified", "aware", "connected", "interested", "eval
 // Persisted per user in localStorage; see useColumnWidths.
 const PEOPLE_COL_DEFAULTS: Record<string, number> = {
   name: 170, company: 115, source: 96, domain: 100, li: 40, stage: 88,
-  icp: 42, lastActivity: 130,
+  icp: 42, tier: 76, lastActivity: 130,
 };
-const PEOPLE_COL_KEYS = ["name","company","domain","li","stage","icp","lastActivity","source"];
+const PEOPLE_COL_KEYS = ["name","company","domain","li","stage","icp","tier","lastActivity","source"];
+
+// Tier rank for sorting (best first). Mirrors the lead list.
+const TIER_RANK: Record<IcpTier, number> = { tier_1: 4, tier_2: 3, tier_3: 2, not_icp: 1 };
+// The tier a contact effectively has: the model's, else derived from the score.
+const contactTier = (c: { icpTier: IcpTier | null; icpScore: number | null }): IcpTier | null =>
+  c.icpTier ?? tierFromScore(c.icpScore);
 
 // Pretty labels for the first-contact source — the channel a person first came in
 // through (LinkedIn / Instantly / Gmail / …). Falls back to a capitalized form.
@@ -410,7 +416,8 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
   const [source, setSource] = useState("");
   const [filterOpen, setFilterOpen] = useState(false);
   const [page, setPage] = useState(0);
-  const [sortCol, setSortCol] = useState<"lastActivity"|"icp"|null>(null);
+  const [sortCol, setSortCol] = useState<"lastActivity"|"icp"|"tier"|null>(null);
+  const [tierFilter, setTierFilter] = useState<IcpTier|"">("");
   const [sortDir, setSortDir] = useState<"asc"|"desc">("asc");
   const { widths, startResize } = useColumnWidths("nous.people.colWidths", PEOPLE_COL_DEFAULTS);
   const colW = (c: string) => widths[c] ?? PEOPLE_COL_DEFAULTS[c];
@@ -476,7 +483,7 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
 
   // firstDir = the direction the first click applies. Cycle: off → firstDir →
   // opposite → off. ICP passes "desc" so the first click puts the best fits on top.
-  const cycleSort = (col: "lastActivity"|"icp", firstDir: "asc"|"desc" = "asc") => {
+  const cycleSort = (col: "lastActivity"|"icp"|"tier", firstDir: "asc"|"desc" = "asc") => {
     if (sortCol !== col) { setSortCol(col); setSortDir(firstDir); }
     else if (sortDir === firstDir) setSortDir(firstDir === "asc" ? "desc" : "asc");
     else { setSortCol(null); setPage(0); }
@@ -488,7 +495,8 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
     const qs = q.toLowerCase();
     return (!q || c.name.toLowerCase().includes(qs) || (c.email??"").toLowerCase().includes(qs) || (c.companyName??"").toLowerCase().includes(qs))
       && (!stage || c.pipelineStage === stage)
-      && (!source || c.source === source);
+      && (!source || c.source === source)
+      && (!tierFilter || contactTier(c) === tierFilter);
   });
   const sorted = [...filtered].sort((a,b) => {
     if (sortCol === "lastActivity") {
@@ -500,6 +508,13 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
       const av = a.icpScore ?? -1, bv = b.icpScore ?? -1;
       return sortDir === "asc" ? av - bv : bv - av;
     }
+    if (sortCol === "tier") {
+      // By tier rank, then score within the tier; untiered sink to the bottom.
+      const ra = TIER_RANK[contactTier(a) as IcpTier] ?? 0, rb = TIER_RANK[contactTier(b) as IcpTier] ?? 0;
+      if (ra !== rb) return sortDir === "asc" ? ra - rb : rb - ra;
+      const av = a.icpScore ?? -1, bv = b.icpScore ?? -1;
+      return sortDir === "asc" ? av - bv : bv - av;
+    }
     return (b.lastActivityAt??"").localeCompare(a.lastActivityAt??"");
   });
   const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
@@ -508,13 +523,17 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
   const handleSearch = (v: string) => { setQ(v); setPage(0); };
 
   const handleExport = () => {
-    const headers = ["Name","Email","Company","Pipeline Stage","Deal Stage","Segment","ICP","Last Activity","LinkedIn"];
-    const rows = contacts.map(c => [
-      c.name, c.email??"", c.companyName??"", c.pipelineStage,
-      c.dealStage??"", c.segmentLabel??"",
-      c.icpScore!=null?String(c.icpScore):"",
-      c.lastActivityAt??"", c.linkedinUrl??""
-    ]);
+    const headers = ["Name","Email","Company","Pipeline Stage","Deal Stage","Segment","ICP","Tier","Last Activity","LinkedIn"];
+    const rows = contacts.map(c => {
+      const t = contactTier(c);
+      return [
+        c.name, c.email??"", c.companyName??"", c.pipelineStage,
+        c.dealStage??"", c.segmentLabel??"",
+        c.icpScore!=null?String(c.icpScore):"",
+        t ? TIER_UI[t].label : "",
+        c.lastActivityAt??"", c.linkedinUrl??""
+      ];
+    });
     const csv = [headers,...rows].map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(",")).join("\n");
     const url = URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
     const a = document.createElement("a"); a.href=url; a.download="contacts.csv"; a.click();
@@ -524,7 +543,7 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
   // Sortable + resizable header cell (fixed-width columns). The relative wrapper
   // anchors the drag handle to the cell's right edge; widthKey ties the width to
   // the persisted store (defaults to the sort column name).
-  const SortBtn = ({ col, label, widthKey, firstDir = "asc" }: { col:"icp"; label:string; widthKey?:string; firstDir?:"asc"|"desc" }) => {
+  const SortBtn = ({ col, label, widthKey, firstDir = "asc" }: { col:"icp"|"tier"; label:string; widthKey?:string; firstDir?:"asc"|"desc" }) => {
     const wk = widthKey ?? col;
     return (
       <div className="relative flex items-center flex-shrink-0 overflow-hidden" style={{width: colW(wk)}}>
@@ -616,6 +635,12 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
                 <button onClick={() => { setSource(""); setPage(0); }} className="rounded p-0.5 hover:bg-background/20" aria-label="Clear source filter"><X className="h-3 w-3" /></button>
               </span>
             )}
+            {tierFilter && (
+              <span className="inline-flex items-center gap-1 h-8 pl-2.5 pr-1 rounded-md text-[12px] font-medium bg-foreground text-background">
+                Tier: {TIER_UI[tierFilter].label}
+                <button onClick={() => { setTierFilter(""); setPage(0); }} className="rounded p-0.5 hover:bg-background/20" aria-label="Clear tier filter"><X className="h-3 w-3" /></button>
+              </span>
+            )}
             {/* Filter button + popover — replaces the row of stage chips + sources dropdown. */}
             <div className="relative">
               <button onClick={() => setFilterOpen(o => !o)} title="Filter"
@@ -628,6 +653,17 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
                 <>
                   <div className="fixed inset-0 z-20" onClick={() => setFilterOpen(false)} />
                   <div className="absolute right-0 top-9 z-30 w-64 rounded-lg border border-border bg-background shadow-xl p-3 space-y-3">
+                    <div>
+                      <div className="text-[11px] font-medium text-muted-foreground/70 mb-1.5">Tier</div>
+                      <div className="flex flex-wrap gap-1">
+                        {(["tier_1","tier_2","tier_3","not_icp"] as IcpTier[]).map(t => (
+                          <button key={t} onClick={() => { setTierFilter(tierFilter === t ? "" : t); setPage(0); }}
+                            className={`text-[11px] font-semibold px-1.5 py-0.5 rounded border transition-colors ${tierFilter === t ? `${TIER_UI[t].bg} border-transparent` : "border-border text-muted-foreground hover:text-foreground"}`}>
+                            {TIER_UI[t].label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                     <div>
                       <div className="text-[11px] font-medium text-muted-foreground/70 mb-1.5">Stage</div>
                       <select value={stage} onChange={e => { setStage(e.target.value); setPage(0); }}
@@ -644,8 +680,8 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
                         {sourceOptions.map(s => <option key={s} value={s}>{sourceLabel(s)}</option>)}
                       </select>
                     </div>
-                    {(stage || source) && (
-                      <button onClick={() => { setStage(""); setSource(""); setPage(0); }}
+                    {(stage || source || tierFilter) && (
+                      <button onClick={() => { setStage(""); setSource(""); setTierFilter(""); setPage(0); }}
                         className="w-full h-8 rounded-md border border-border text-[12px] text-muted-foreground hover:text-foreground transition-colors">
                         Clear all
                       </button>
@@ -674,6 +710,7 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
             <PlainHdr label="LI"      widthKey="li" />
             <PlainHdr label="Stage"   widthKey="stage" />
             <SortBtn  col="icp"  label="ICP"  firstDir="desc" />
+            <SortBtn  col="tier" label="Tier" firstDir="desc" />
             <SortBtnFlex col="lastActivity" label="Last Interaction" />
             <PlainHdr label="Source"  widthKey="source" />
             {/* Trailing filler — grows only on wide screens, shrinks to 0 (then the
@@ -702,6 +739,11 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
               </div>
               <button onClick={() => setDetail(c)} className="text-[13px] pr-2 flex-shrink-0 text-left capitalize" style={{width:colW("stage"),color:stageColor(c.pipelineStage)}}>{c.pipelineStage}</button>
               <button onClick={() => setDetail(c)} className="text-[13px] text-muted-foreground pr-2 flex-shrink-0 text-left tabular-nums" style={{width:colW("icp")}}>{c.icpScore != null ? c.icpScore : "—"}</button>
+              <button onClick={() => setDetail(c)} className="flex-shrink-0 pr-2 text-left" style={{width:colW("tier")}}>
+                {(() => { const t = contactTier(c); return t
+                  ? <span title={TIER_UI[t].play} className={`text-[11px] font-semibold px-1.5 py-0.5 rounded ${TIER_UI[t].bg}`}>{TIER_UI[t].label}</span>
+                  : <span className="text-muted-foreground/50 text-[12px]">—</span>; })()}
+              </button>
               <button onClick={() => setDetail(c)} className="text-[13px] text-muted-foreground flex-shrink-0 truncate pr-2 text-left" style={{width:colW("lastActivity")}}>{relTime(c.lastActivityAt)}</button>
               <span className="text-[13px] text-muted-foreground/70 truncate pr-2 flex-shrink-0" style={{width:colW("source")}}>{sourceLabel(c.source)}</span>
               <div className="flex-1 min-w-0" />

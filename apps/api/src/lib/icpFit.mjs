@@ -1,3 +1,30 @@
+import { scoreTier } from '@nous/core';
+
+// Batch ICP overlay for LIST endpoints: the latest icp_fit prediction per entity
+// → { score, tier }. This is the ONE source the lead list and the people list both
+// overlay at read time, so the two surfaces can never show a different ICP number
+// or tier than the person record. Batched IN() in chunks of 100 — a 500+-UUID IN
+// makes a URL the PostgREST gateway can truncate (silently dropping rows).
+export async function fetchIcpByEntity(supabase, workspaceId, entityIds) {
+  const out = new Map();
+  const ids = [...new Set((entityIds || []).filter(Boolean))];
+  for (let i = 0; i < ids.length; i += 100) {
+    const { data } = await supabase.from('predictions')
+      .select('entity_id, predicted_value, predicted_at')
+      .eq('workspace_id', workspaceId).eq('kind', 'icp_fit')
+      .in('entity_id', ids.slice(i, i + 100))
+      .order('predicted_at', { ascending: false });
+    for (const p of (data || [])) {
+      if (out.has(p.entity_id)) continue;        // first = latest (ordered desc)
+      const sc = p.predicted_value?.score;
+      if (sc == null) continue;
+      const score = Number(sc);
+      out.set(p.entity_id, { score, tier: p.predicted_value.tier ?? scoreTier(score) });
+    }
+  }
+  return out;
+}
+
 // The latest ICP fit score for an entity, shaped for the agent-facing record.
 // Lets get_context / get_account return not just *who you sell to* (workspace
 // facts) but *whether this specific account is one of them, and how confident* —

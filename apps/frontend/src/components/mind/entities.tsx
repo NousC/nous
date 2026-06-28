@@ -2,6 +2,7 @@
 // People / Companies / Integrations pages (extracted from Mind.tsx).
 
 import { Phone, FileText, MessageSquare } from "lucide-react";
+import type { IcpTier } from "@/components/mind/shared";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -12,6 +13,7 @@ export interface ContactInfo {
   title: string | null;
   pipelineStage: string;
   icpScore: number | null;
+  icpTier: IcpTier | null;
   icpFit: boolean | null;
   seniority: string | null;
   companyId: string | null;
@@ -221,6 +223,7 @@ export function mapContact(c: any): ContactInfo {
     title: c.job_title ?? null,
     pipelineStage: c.pipeline_stage ?? "identified",
     icpScore: c.icp_score ?? null,
+    icpTier: c.icp_tier ?? null,
     icpFit: c.icp_fit ?? null,
     seniority: c.seniority ?? null,
     companyId: c.company_id ?? null,
