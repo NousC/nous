@@ -1087,7 +1087,6 @@ export default function Lists() {
     ...customCols.map(c => ({ key: c.key, label: c.label, w: CUSTOM_W })),
     { key: "__source", label: "Source", w: 130 },
     { key: "__email_status", label: "Email status", w: 100 },
-    { key: "__signal", label: "Signal", w: 110 },
     { key: "__channel", label: "Channel", w: 84 },
     { key: "__added", label: activeList?.source === "linkedin_engagement" ? "Engaged" : activeList?.source === "linkedin_connections" ? "Connected" : "Added", w: 96 },
   ];
