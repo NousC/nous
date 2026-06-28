@@ -661,7 +661,7 @@ export function createServer() {
 
   const syncPlaybookSchema = {
     kind: z.enum(["voice", "outreach", "icp", "positioning"]).describe("Which playbook to update."),
-    body_md: z.string().describe("The full markdown content of the playbook."),
+    body_md: z.string().describe("The full markdown content of the playbook. Follow the Nous document house style so every playbook reads like a clean text file: a '# Title' line, a '> ' one-paragraph lede, an optional plain 'Key: value' block, a '---' divider, then '## Title-case' sections with plain '- ' bullets. Keep it markdown, no decorative formatting."),
     file_path: z.string().optional().describe("The repo file this mirrors, e.g. 'context/icp/icp.md'. Pass it when syncing a Claude Code file so the source is recorded as the file."),
   };
   const syncPlaybookHandler = async ({ kind, body_md, file_path }) => {
