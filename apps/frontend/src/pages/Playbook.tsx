@@ -1,22 +1,11 @@
 import { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import MarkdownDoc from "@/components/MarkdownDoc";
 
 const apiUrl = import.meta.env.VITE_API_URL ?? "";
 
-// Raw source view of a playbook (the policy doc agents read). Styled to read like
-// a served .txt file (llms.txt): a comfortable monospace, real padding, a readable
-// measure — not a cramped <pre>. Same treatment as notes and reports.
-const pre: React.CSSProperties = {
-  whiteSpace: "pre-wrap",
-  wordBreak: "break-word",
-  fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
-  fontSize: "14px",
-  lineHeight: 1.7,
-  color: "#1a1a1a",
-  margin: 0,
-  padding: "40px 48px",
-};
+const msg: React.CSSProperties = { maxWidth: "880px", margin: "0 auto", padding: "48px 40px", fontFamily: "ui-monospace, Menlo, monospace", fontSize: "14px", color: "#666" };
 
 export default function Playbook() {
   const { id } = useParams();
@@ -40,7 +29,7 @@ export default function Playbook() {
   }, [id, token, workspaceId]);
 
   if (typeof document !== "undefined" && pb) document.title = pb.title || "Playbook";
-  if (loading) return <pre style={pre}>Loading…</pre>;
-  if (!pb) return <pre style={pre}>Playbook not found.</pre>;
-  return <pre style={pre}>{pb.body_md || ""}</pre>;
+  if (loading) return <div style={msg}>Loading…</div>;
+  if (!pb) return <div style={msg}>Playbook not found.</div>;
+  return <MarkdownDoc>{pb.body_md || ""}</MarkdownDoc>;
 }

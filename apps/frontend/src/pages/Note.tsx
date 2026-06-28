@@ -1,24 +1,11 @@
 import { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import MarkdownDoc from "@/components/MarkdownDoc";
 
 const apiUrl = import.meta.env.VITE_API_URL ?? "";
 
-// No rendering, no styling, no design — just the raw file contents dumped into a
-// bare <pre>, exactly as the agent wrote it. Notes are agent artifacts, not human
-// documents. The only non-default applied is pre-wrap so long lines don't overflow.
-// Clean raw-text view, styled to read like a served .txt file (llms.txt): a
-// comfortable monospace, real padding, a readable measure — not a cramped <pre>.
-const pre: React.CSSProperties = {
-  whiteSpace: "pre-wrap",
-  wordBreak: "break-word",
-  fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
-  fontSize: "14px",
-  lineHeight: 1.7,
-  color: "#1a1a1a",
-  margin: 0,
-  padding: "40px 48px",
-};
+const msg: React.CSSProperties = { maxWidth: "880px", margin: "0 auto", padding: "48px 40px", fontFamily: "ui-monospace, Menlo, monospace", fontSize: "14px", color: "#666" };
 
 export default function Note() {
   const { id } = useParams();
@@ -41,7 +28,7 @@ export default function Note() {
     })();
   }, [id, token, workspaceId]);
 
-  if (loading) return <pre style={pre}>Loading…</pre>;
-  if (!note) return <pre style={pre}>Note not found.</pre>;
-  return <pre style={pre}>{note.content || ""}</pre>;
+  if (loading) return <div style={msg}>Loading…</div>;
+  if (!note) return <div style={msg}>Note not found.</div>;
+  return <MarkdownDoc>{note.content || ""}</MarkdownDoc>;
 }
