@@ -45,6 +45,8 @@ export interface Company {
   contactCount: number;
   contacts: ContactInfo[];
   icpScore: number | null;
+  intentScore: number | null;    // highest-intent person at the account (the one to act on now)
+  intentBand: string | null;
   stage: string | null;          // furthest pipeline stage across the account's contacts
   lastActivityAt: string | null;
   employeeCount: number | null;
@@ -276,6 +278,13 @@ export function buildCompanies(rawCompanies: any[], contacts: ContactInfo[]): Co
       .map(c => c.icpScore)
       .filter((s): s is number => s != null);
     const bestContactIcp = contactIcps.length ? Math.max(...contactIcps) : null;
+    // Intent rolls up max-of-people too — the account is as "hot" as its hottest
+    // person (the one you'd reach out to now). The band follows that person's score.
+    const intentScore = coContacts.reduce<number | null>(
+      (best, c) => (c.intentScore != null && (best == null || c.intentScore > best)) ? c.intentScore : best, null);
+    const intentBand = intentScore == null ? null
+      : intentScore >= 85 ? 'Red-hot' : intentScore >= 70 ? 'Hot' : intentScore >= 50 ? 'Warm'
+      : intentScore >= 20 ? 'Aware' : 'Dormant';
     return {
       id: co.id,
       name: co.name,
@@ -286,6 +295,8 @@ export function buildCompanies(rawCompanies: any[], contacts: ContactInfo[]): Co
       contactCount: coContacts.length,
       contacts: coContacts,
       icpScore: bestContactIcp ?? co.icp_score ?? null,
+      intentScore,
+      intentBand,
       stage,
       lastActivityAt,
       employeeCount: co.employee_count ?? co.employees ?? null,
