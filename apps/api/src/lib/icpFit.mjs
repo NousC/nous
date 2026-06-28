@@ -25,6 +25,31 @@ export async function fetchIcpByEntity(supabase, workspaceId, entityIds) {
   return out;
 }
 
+// Batch INTENT overlay for LIST endpoints — the sibling of fetchIcpByEntity, but
+// for the "reach out NOW?" axis. Reads the `intent_score`/`intent_band` claims the
+// intent worker stakes (see apps/worker/src/intentScore.mjs). One source the lead
+// list and people list both overlay, so intent never disagrees across surfaces.
+// Entities with no claim default to score 0 / band 'Dormant' at the call site.
+export async function fetchIntentByEntity(supabase, workspaceId, entityIds) {
+  const out = new Map();
+  const ids = [...new Set((entityIds || []).filter(Boolean))];
+  for (let i = 0; i < ids.length; i += 100) {
+    const { data } = await supabase.from('claims')
+      .select('entity_id, property, value')
+      .eq('workspace_id', workspaceId)
+      .in('entity_id', ids.slice(i, i + 100))
+      .in('property', ['intent_score', 'intent_band'])
+      .is('invalid_at', null);
+    for (const c of (data || [])) {
+      const row = out.get(c.entity_id) || { score: 0, band: 'Dormant' };
+      if (c.property === 'intent_score') row.score = Number(c.value) || 0;
+      else if (c.property === 'intent_band') row.band = c.value || 'Dormant';
+      out.set(c.entity_id, row);
+    }
+  }
+  return out;
+}
+
 // The latest ICP fit score for an entity, shaped for the agent-facing record.
 // Lets get_context / get_account return not just *who you sell to* (workspace
 // facts) but *whether this specific account is one of them, and how confident* —

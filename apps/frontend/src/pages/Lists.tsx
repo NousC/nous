@@ -171,6 +171,10 @@ function cellValue(lead: Lead, key: string): string {
     const sc = (lead.fields?.icp_score as number | null | undefined) ?? lead.scorecard_score;
     return tierFromScore(sc) ?? "";
   }
+  // Intent — the "reach out now?" axis (decaying), distinct from ICP fit. The
+  // endpoint overlays fields.intent_band/intent_score from the intent claim;
+  // defaults to Dormant until the intent worker stakes one.
+  if (key === "__intent") return (lead.fields?.intent_band as string | null | undefined) ?? "Dormant";
   // Lead source — where this lead came from. A system column, always present.
   if (key === "__source") return lead.source ?? "";
   const v = lead.fields?.[key];
@@ -199,6 +203,21 @@ function icpTag(val: string | number | null | undefined) {
   if (n == null || Number.isNaN(n)) return <span className="text-muted-foreground/40">—</span>;
   const col = n >= 85 ? "#15803d" : n >= 70 ? "#ca8a04" : n >= 50 ? "#ea580c" : "#6b7280";
   return <span className="text-[12px] font-semibold tabular-nums" style={{ color: col }}>{n}</span>;
+}
+// Intent band as a colored pill (the "reach out now?" axis). Hot/Red-hot pop;
+// Dormant is muted so the live ones stand out.
+const INTENT_TAG: Record<string, string> = {
+  "Red-hot": "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-400",
+  Hot:       "bg-orange-100 text-orange-700 dark:bg-orange-950/50 dark:text-orange-400",
+  Warm:      "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-400",
+  Aware:     "bg-sky-100 text-sky-700 dark:bg-sky-950/50 dark:text-sky-400",
+  Dormant:   "bg-zinc-100 text-zinc-500 dark:bg-zinc-800/60 dark:text-zinc-500",
+};
+function intentTag(val: string | null | undefined) {
+  const band = val || "Dormant";
+  if (band === "Dormant") return <span className="text-muted-foreground/40">—</span>;
+  const cls = INTENT_TAG[band] ?? INTENT_TAG.Dormant;
+  return <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-medium ${cls}`}>{band}</span>;
 }
 function emailStatusTag(status: string | null) {
   if (!status) return <span className="text-muted-foreground/40">—</span>;
@@ -1064,6 +1083,7 @@ export default function Lists() {
     { key: "__domain", label: "Domain", w: 120 },
     { key: "__icp", label: "ICP", w: 64 },
     { key: "__tier", label: "Tier", w: 88 },
+    { key: "__intent", label: "Intent", w: 96 },
     ...customCols.map(c => ({ key: c.key, label: c.label, w: CUSTOM_W })),
     { key: "__source", label: "Source", w: 130 },
     { key: "__email_status", label: "Email status", w: 100 },
@@ -1844,6 +1864,8 @@ export default function Lists() {
                               val && TIER_UI[val as IcpTier]
                                 ? <span title={TIER_UI[val as IcpTier].play} className={`text-[11px] font-semibold px-1.5 py-0.5 rounded ${TIER_UI[val as IcpTier].bg}`}>{TIER_UI[val as IcpTier].label}</span>
                                 : <span className="text-muted-foreground/40">—</span>
+                            ) : c.key === "__intent" ? (
+                              intentTag(val)
                             ) : c.key === "name" ? (
                               <span
                                 onClick={() => { if (nameClickTimer.current) return; nameClickTimer.current = setTimeout(() => { nameClickTimer.current = null; navigate(`/people/${l.id}`, { state: { from: `/lists/${routeListId}` } }); }, 200); }}

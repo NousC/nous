@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import { getSupabaseClient, listNotes, saveNote, logActivity, collapseMeetingDupes, assertClaims, upsertIdentifier, scoreTier } from '@nous/core';
-import { fetchIcpByEntity } from '../../lib/icpFit.mjs';
+import { fetchIcpByEntity, fetchIntentByEntity } from '../../lib/icpFit.mjs';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
 import { ensureUserAndTeam } from '../../lib/auth.mjs';
 import { requireEnrichmentQuota } from '../../lib/access.mjs';
@@ -104,10 +104,19 @@ contactsApiRouter.get('/', verifySupabaseAuth, async (req, res) => {
     // the stale v1 contacts.icp_score and gains the actionable tier. Contacts
     // without a prediction keep their existing value (no tier).
     const rows = raw || [];
-    const icpMap = await fetchIcpByEntity(supabase, workspaceId, rows.map(c => c.id));
+    const ids = rows.map(c => c.id);
+    const icpMap = await fetchIcpByEntity(supabase, workspaceId, ids);
+    const intentMap = await fetchIntentByEntity(supabase, workspaceId, ids);
     const contacts = rows.map(c => {
       const ov = icpMap.get(c.id);
-      return ov ? { ...c, icp_score: ov.score, icp_tier: ov.tier } : c;
+      const iv = intentMap.get(c.id);
+      // Intent overlay (reach-out-now axis) — defaults Dormant/0 until staked.
+      return {
+        ...c,
+        ...(ov ? { icp_score: ov.score, icp_tier: ov.tier } : {}),
+        intent_score: iv?.score ?? 0,
+        intent_band: iv?.band ?? 'Dormant',
+      };
     });
 
     return res.json({ contacts, limit: lim, offset: off });

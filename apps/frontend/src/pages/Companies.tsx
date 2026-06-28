@@ -14,8 +14,17 @@ const PAGE_SIZE = 100;
 // is flex-1 and not listed here — it absorbs the leftover space. Persisted per
 // user in localStorage; see useColumnWidths.
 const CO_COL_DEFAULTS: Record<string, number> = {
-  name: 190, domain: 100, topContacts: 150, icp: 46, industry: 84, location: 104,
+  name: 190, domain: 100, topContacts: 150, icp: 46, intent: 92, industry: 84, location: 104,
   lastActivity: 116, contacts: 72, stage: 92,
+};
+
+// Intent band → pill classes (account = max-of-people). Mirrors People/Lists.
+const INTENT_TAG: Record<string, string> = {
+  "Red-hot": "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-400",
+  Hot:       "bg-orange-100 text-orange-700 dark:bg-orange-950/50 dark:text-orange-400",
+  Warm:      "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-400",
+  Aware:     "bg-sky-100 text-sky-700 dark:bg-sky-950/50 dark:text-sky-400",
+  Dormant:   "bg-zinc-100 text-zinc-500 dark:bg-zinc-800/60 dark:text-zinc-500",
 };
 
 type CoTab = "overview" | "activity" | "facts" | "signals" | "notes";
@@ -122,7 +131,7 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
   const colW = (c: string) => widths[c] ?? CO_COL_DEFAULTS[c];
   // Total content width (columns + 28px delete col + px-4 row padding) so the
   // table scrolls horizontally instead of squeezing columns to a fixed width.
-  const CO_COL_KEYS = ["name","stage","topContacts","icp","industry","location","lastActivity","contacts"];
+  const CO_COL_KEYS = ["name","stage","topContacts","icp","intent","industry","location","lastActivity","contacts"];
   const ROW_MIN = CO_COL_KEYS.reduce((s,k)=>s+colW(k),0) + 28 + 32;
 
   const deleteCompany = async (cid: string, e: React.MouseEvent) => {
@@ -549,6 +558,7 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
             <SortHdr col="stage"        label="Stage"     firstDir="desc" />
             <PlainHdr label="Top Contacts" widthKey="topContacts" />
             <SortHdr col="icp"          label="ICP"       firstDir="desc" />
+            <PlainHdr label="Intent" widthKey="intent" />
             <SortHdr col="industry"     label="Industry" />
             <SortHdr col="location"     label="Location" />
             <SortHdr col="lastActivity" label="Last Interaction" firstDir="desc" />
@@ -572,6 +582,11 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
               <button onClick={()=>setDetail(co)} className="text-[13px] text-muted-foreground flex-shrink-0 truncate pr-2 text-left" style={{width:colW("topContacts")}}>{topContacts||"—"}</button>
               <span className="text-[13px] flex-shrink-0 tabular-nums" style={{width:colW("icp"),color:co.icpScore!=null?icpColor(co.icpScore):""}}>
                 {co.icpScore!=null?co.icpScore:"—"}
+              </span>
+              <span className="flex-shrink-0" style={{width:colW("intent")}}>
+                {co.intentBand && co.intentBand !== "Dormant"
+                  ? <span className={`text-[11px] font-medium px-1.5 py-0.5 rounded ${INTENT_TAG[co.intentBand] ?? INTENT_TAG.Dormant}`}>{co.intentBand}</span>
+                  : <span className="text-muted-foreground/50 text-[12px]">—</span>}
               </span>
               <span className="text-[13px] text-muted-foreground flex-shrink-0 truncate pr-2" style={{width:colW("industry")}}>{co.industry??"—"}</span>
               <span className="text-[13px] text-muted-foreground flex-shrink-0 truncate pr-2" style={{width:colW("location")}}>{co.location??"—"}</span>

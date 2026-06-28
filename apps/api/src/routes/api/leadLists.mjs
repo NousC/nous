@@ -21,7 +21,7 @@ import {
   selectLeadsLite,
   scoreTier,
 } from '@nous/core';
-import { fetchIcpByEntity } from '../../lib/icpFit.mjs';
+import { fetchIcpByEntity, fetchIntentByEntity } from '../../lib/icpFit.mjs';
 import { hasFeature } from '../../lib/plans.mjs';
 import { requireEnrichmentQuota, requireFeature } from '../../lib/access.mjs';
 import { enrichContact, getApolloEnrichmentKey, getFindymailEnrichmentKey, getProspeoEnrichmentKey } from '../../services/enrichment.mjs';
@@ -219,10 +219,16 @@ leadListsRouter.get('/:id/leads', async (req, res) => {
       if (!rows.length) return;
       // Shared with the People page (fetchIcpByEntity) so the two surfaces never
       // show a different ICP score/tier for the same entity.
-      const icpMap = await fetchIcpByEntity(supabase, workspaceId, rows.map(l => l.id));
+      const ids = rows.map(l => l.id);
+      const icpMap = await fetchIcpByEntity(supabase, workspaceId, ids);
+      const intentMap = await fetchIntentByEntity(supabase, workspaceId, ids);
       for (const l of rows) {
         const ov = icpMap.get(l.id);
         if (ov) l.fields = { ...(l.fields || {}), icp_score: ov.score, icp_tier: ov.tier };
+        // Intent overlay (the "reach out now?" axis) — defaults to Dormant/0 when
+        // no intent claim has been staked yet. Same read source as the People page.
+        const iv = intentMap.get(l.id);
+        l.fields = { ...(l.fields || {}), intent_score: iv?.score ?? 0, intent_band: iv?.band ?? 'Dormant' };
         if (!l.domain && l.email && l.email.includes('@')) {
           const d = l.email.split('@')[1].trim().toLowerCase();
           if (d && !FREE_EMAIL_DOMAINS.has(d)) l.domain = d;

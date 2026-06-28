@@ -21,6 +21,7 @@ import { runScorecardLoop } from './workers/scorecardLoop.mjs';
 import { processClaimJobs } from './workers/claimEngine.mjs';
 import { processBulkLeadJobs } from './workers/bulkLeadJobs.mjs';
 import { scoreEntities } from './workers/scoreEntities.mjs';
+import { scoreIntentCron } from './intentScore.mjs';
 import { processEmbeddings } from './workers/embeddings.mjs';
 import { runCrmAutoSync } from './workers/crmSync.mjs';
 import { runCrmHygieneSweep } from './workers/crmHygiene.mjs';
@@ -236,6 +237,14 @@ console.log('[WORKER] Bulk enrich/verify jobs — every 20 seconds');
 // become a prediction the outcome job later grades. See workers/scoreEntities.mjs.
 cron.schedule('*/10 * * * *', scoreEntities);
 console.log('[WORKER] Scorecard prediction-write — every 10 minutes');
+
+// ── Intent score — every 6 hours ─────────────────────────────────────────────
+// The second axis: stakes a decaying `intent_score`/`intent_band` claim on every
+// entity with recent behavioural engagement (the "reach out NOW?" signal, separate
+// from ICP fit). Anti-over-prioritized so no single channel fakes readiness. See
+// intentScore.mjs.
+cron.schedule('15 */6 * * *', () => scoreIntentCron().catch(e => console.error('[INTENT]', e.message)));
+console.log('[WORKER] Intent score — every 6 hours');
 
 // ── Embedding worker — every 2 minutes ───────────────────────────────────────
 // Fills claim embeddings so semantic search (the Context API retrieve step)
