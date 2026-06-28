@@ -43,6 +43,19 @@ const NEW_COL = "__new__"; // mapping target: create a new column from this head
 // Filter dimensions. Most pick from a fixed value set; `type: "text"` fields
 // (Channel, Source) take a free-typed substring instead — you type what to match.
 const FB_FIELDS: { key: string; label: string; type?: "text"; values: { v: string; l: string }[] }[] = [
+  // ICP fit + tier first — the primary segmentation, folded into the one filter
+  // builder (no separate chips). `icp` is the sales-nav ICP true/false tag; `tier`
+  // is the model tier; status/reply are the outbound lifecycle.
+  { key: "icp", label: "ICP fit", values: [ { v: "true", l: "ICP" }, { v: "false", l: "Non-ICP" } ] },
+  { key: "tier", label: "Tier", values: [
+    { v: "tier_1", l: "Tier 1" }, { v: "tier_2", l: "Tier 2" }, { v: "tier_3", l: "Tier 3" }, { v: "not_icp", l: "Not ICP" },
+  ] },
+  { key: "status", label: "Status", values: [
+    { v: "pending", l: "Pending" }, { v: "sent", l: "Sent" }, { v: "replied", l: "Replied" }, { v: "bounced", l: "Bounced" },
+  ] },
+  { key: "reply", label: "Reply", values: [
+    { v: "interested", l: "Interested" }, { v: "objection", l: "Objection" }, { v: "wrong_fit", l: "Wrong fit" }, { v: "unsubscribe", l: "Unsubscribe / DNC" },
+  ] },
   { key: "size", label: "Company size", values: [
     { v: "1 to 10", l: "1–10" }, { v: "11 to 50", l: "11–50" }, { v: "51 to 200", l: "51–200" },
     { v: "201 to 500", l: "201–500" }, { v: "501 to 1,000", l: "501–1,000" },
@@ -313,6 +326,9 @@ export default function Lists() {
   const blankCreates = useRef<Map<string, Promise<string | null>>>(new Map());
   const [addingCol, setAddingCol] = useState(false);
   const [newColLabel, setNewColLabel] = useState("");
+  // Column header context menu (right-click a custom column → rename / delete).
+  const [colMenu, setColMenu] = useState<{ key: string; label: string; x: number; y: number } | null>(null);
+  const [colMenuRename, setColMenuRename] = useState<string | null>(null); // the key being renamed inline
 
   // Manage panel for the auto-managed "LinkedIn Engagers" list.
   type EngagementInfo = {
@@ -341,24 +357,15 @@ export default function Lists() {
   // list's own source; the user can override it per import.
   const [importSource, setImportSource] = useState("");
   const [result, setResult] = useState<{ inserted: number; skipped: number } | null>(null);
-  // ICP segmentation filter — sales-nav-builder tags each lead fields.icp true/false.
-  // Persisted (localStorage) so the choice survives navigation + reloads until changed.
-  const [icpFilter, setIcpFilter] = useState<"all" | "icp" | "non">(() => {
-    try { return (localStorage.getItem("nous.lists.icpFilter") as "all" | "icp" | "non") || "all"; }
-    catch { return "all"; }
-  });
-  // ICP tier filter — Tier 1/2/3/Not-ICP (or "all"). Server-side (the endpoint
-  // resolves the model tier per lead). Persisted like the other view prefs.
-  const [tierFilter, setTierFilter] = useState<"all" | IcpTier>(() => {
-    try { return (localStorage.getItem("nous.lists.tierFilter") as "all" | IcpTier) || "all"; }
-    catch { return "all"; }
-  });
+  // Per-tier counts (for the tier values in the filter dropdown).
   const [tierCounts, setTierCounts] = useState<Record<IcpTier, number> | null>(null);
-  // Outbound filters — by lifecycle status and reply outcome.
-  const [statusFilter, setStatusFilter] = useState("");
-  const [replyFilter, setReplyFilter] = useState("");
-  // Filter builder — extra "Where <column> is <value>" filters (size/email/channel/domain).
-  const [fbFilters, setFbFilters] = useState<{ field: string; value: string }[]>([]);
+  // The ONE filter builder — every filter (ICP, tier, status, reply, size, email,
+  // channel, source, domain) is a "Where <field> is <value>" row here. Multiple
+  // filters stack. Persisted so the view survives navigation + reloads.
+  const [fbFilters, setFbFilters] = useState<{ field: string; value: string }[]>(() => {
+    try { const v = localStorage.getItem("nous.lists.fbFilters"); return v ? JSON.parse(v) : []; }
+    catch { return []; }
+  });
   const [fbOpen, setFbOpen] = useState(false);
   const [fbField, setFbField] = useState(FB_FIELDS[0].key);
   const [fbValue, setFbValue] = useState("");
@@ -396,10 +403,9 @@ export default function Lists() {
     catch { return "recent"; }
   });
   const [counts, setCounts] = useState<{ icp: number; non_icp: number } | null>(null);
-  // Persist sort + ICP filter so they survive navigation and reloads until changed.
+  // Persist sort + the filter set so they survive navigation and reloads.
   useEffect(() => { try { localStorage.setItem("nous.lists.sort", sort); } catch { /* ignore */ } }, [sort]);
-  useEffect(() => { try { localStorage.setItem("nous.lists.icpFilter", icpFilter); } catch { /* ignore */ } }, [icpFilter]);
-  useEffect(() => { try { localStorage.setItem("nous.lists.tierFilter", tierFilter); } catch { /* ignore */ } }, [tierFilter]);
+  useEffect(() => { try { localStorage.setItem("nous.lists.fbFilters", JSON.stringify(fbFilters)); } catch { /* ignore */ } }, [fbFilters]);
   // Connect → message → reply funnel counts for the native LinkedIn Connections list.
   const [funnel, setFunnel] = useState<{ connected: number; messaged: number; replied: number } | null>(null);
   const [syncingConn, setSyncingConn] = useState(false);
@@ -508,12 +514,11 @@ export default function Lists() {
 
   const PAGE_SIZE = 50;
   const loadLeads = useCallback(
-    async (listId: string, pg: number, filt: "all" | "icp" | "non", srt: string) => {
-      const icpParam = filt === "all" ? "" : `&icp=${filt === "icp" ? "true" : "false"}`;
-      const tierParam = tierFilter === "all" ? "" : `&tier=${tierFilter}`;
-      const outParam = `${statusFilter ? `&status=${statusFilter}` : ""}${replyFilter ? `&reply=${replyFilter}` : ""}`;
+    async (listId: string, pg: number, srt: string) => {
+      // Every filter is an fbFilters row now (icp/tier/status/reply/size/…), so a
+      // single param string carries them all to the endpoint.
       const fbParam = fbFilters.map(f => `&${f.field}=${encodeURIComponent(f.value)}`).join("");
-      const cacheKey = `${listId}|${pg}|${filt}|${tierFilter}|${srt}|${outParam}|${fbParam}`;
+      const cacheKey = `${listId}|${pg}|${srt}|${fbParam}`;
       // Stale-while-revalidate: paint the cached page instantly (no spinner), then
       // refresh in the background. Cold pages show the loading state.
       const cached = leadsCache.current.get(cacheKey);
@@ -523,7 +528,7 @@ export default function Lists() {
         // Ask for the ICP + tier counts only on the first page.
         const countsParam = pg === 0 ? "&counts=1" : "";
         const res = await fetch(
-          `${apiUrl}/api/lead-lists/${listId}/leads?workspaceId=${workspaceId}&limit=${PAGE_SIZE}&offset=${pg * PAGE_SIZE}&sort=${srt}${icpParam}${tierParam}${outParam}${fbParam}${countsParam}`,
+          `${apiUrl}/api/lead-lists/${listId}/leads?workspaceId=${workspaceId}&limit=${PAGE_SIZE}&offset=${pg * PAGE_SIZE}&sort=${srt}${fbParam}${countsParam}`,
           { headers: authHeaders });
         const d = res.ok ? await res.json() : {};
         const nextLeads: Lead[] = d.leads ?? [];
@@ -537,17 +542,13 @@ export default function Lists() {
         ssSet(SS_LEADS(workspaceId), Object.fromEntries(entries));
       } catch { if (!cached) setLeads([]); }
       finally { setLeadsLoading(false); }
-    }, [workspaceId, token, statusFilter, replyFilter, fbFilters, tierFilter]);
+    }, [workspaceId, token, fbFilters]);
 
-  // The active filter set as a query string (icp + status/reply + filter-builder),
-  // shared by the leads view and by full-list fetches so they always agree.
-  const buildFilterQS = useCallback(() => {
-    const icpParam = icpFilter === "all" ? "" : `&icp=${icpFilter === "icp" ? "true" : "false"}`;
-    const tierParam = tierFilter === "all" ? "" : `&tier=${tierFilter}`;
-    const outParam = `${statusFilter ? `&status=${statusFilter}` : ""}${replyFilter ? `&reply=${replyFilter}` : ""}`;
-    const fbParam = fbFilters.map(f => `&${f.field}=${encodeURIComponent(f.value)}`).join("");
-    return `${icpParam}${tierParam}${outParam}${fbParam}`;
-  }, [icpFilter, tierFilter, statusFilter, replyFilter, fbFilters]);
+  // The active filter set as a query string — every filter lives in fbFilters now,
+  // so this is the single source shared by the leads view and full-list fetches.
+  const buildFilterQS = useCallback(() =>
+    fbFilters.map(f => `&${f.field}=${encodeURIComponent(f.value)}`).join("")
+  , [fbFilters]);
 
   // Backfill the LinkedIn Connections list from the user's existing connections
   // (Unipile relations). One-time/on-demand; the webhooks keep it current after.
@@ -566,7 +567,7 @@ export default function Lists() {
       toast.success(`Synced ${Number(d.synced ?? 0).toLocaleString()} connections from LinkedIn.`);
       clearLeadsCache();
       await loadLists();
-      await loadLeads(activeId, 0, "all", "recent");
+      await loadLeads(activeId, 0, "recent");
     } catch { toast("Couldn't sync connections — try again."); }
     finally { setSyncingConn(false); }
   };
@@ -590,9 +591,9 @@ export default function Lists() {
   }, [activeId, workspaceId, token, buildFilterQS]);
 
   useEffect(() => {
-    if (activeId) loadLeads(activeId, page, icpFilter, sort);
+    if (activeId) loadLeads(activeId, page, sort);
     else setLeads([]);
-  }, [activeId, page, icpFilter, tierFilter, sort, statusFilter, replyFilter, loadLeads]);
+  }, [activeId, page, sort, loadLeads]);
 
   // Connect → message → reply funnel counts — fetched only for the native
   // LinkedIn Connections list (its header stat), so it never adds count queries
@@ -617,14 +618,14 @@ export default function Lists() {
   // clobbered back to default on every list open.
   useEffect(() => {
     if (!activeId) return;
-    setStatusFilter(""); setReplyFilter(""); setFbFilters([]); setSelected(new Set()); setSelectAllMatching(false); setCounts(null);
+    setSelected(new Set()); setSelectAllMatching(false); setCounts(null);
     setEditCell(null); resetImport();
     if (firstActiveRef.current) firstActiveRef.current = false;
     else setPage(0);
   }, [activeId]);
   // Changing any filter or sort goes back to page 1 and clears the selection
   // (the matching set changed, so "all matching" no longer means the same thing).
-  useEffect(() => { setPage(0); setSelected(new Set()); setSelectAllMatching(false); }, [icpFilter, tierFilter, sort, statusFilter, replyFilter, fbFilters]);
+  useEffect(() => { setPage(0); setSelected(new Set()); setSelectAllMatching(false); }, [sort, fbFilters]);
 
   // Route param → active list. /lists/:listId selects that list; the bare /lists
   // index (or a stale/unknown id, e.g. after deleting the active list) falls back
@@ -669,8 +670,11 @@ export default function Lists() {
     // already shows the fit score (and is the sortable one), so a custom
     // `icp`/`icp_score` column would render a duplicate "ICP" header.
     const stored = (activeList?.columns ?? []).filter(c => c.key !== "icp" && c.key !== "icp_score");
-    const have = new Set(stored.map(c => c.key));
-    return [...stored, ...DEFAULT_CUSTOM_COLS.filter(d => !have.has(d.key))];
+    // A list that has never had columns configured gets the default set. Once it
+    // HAS a stored set, respect it exactly — so a user can delete a column (incl.
+    // a former default) and have it stay gone, instead of being re-injected.
+    if (stored.length === 0) return [...DEFAULT_CUSTOM_COLS];
+    return stored;
   })();
   // ICP is a default segmentation on every list, so the All / ICP / Non-ICP
   // filter is always shown — never gated on whether the list was scored yet.
@@ -692,15 +696,20 @@ export default function Lists() {
   // active — the exact figure is then resolved at action time. Drives the
   // "Select all N matching" affordance and the scoped export counts.
   const matchingTotal: number | null =
-    statusFilter || replyFilter || fbFilters.length
-      ? null
-      : icpFilter === "icp"
-        ? counts?.icp ?? null
-        : icpFilter === "non"
-          ? counts?.non_icp ?? null
-          : hasIcp && counts
-            ? counts.icp + counts.non_icp
-            : activeList?.lead_count ?? null;
+    fbFilters.length
+      ? (() => {
+          // When the ONLY active filter is a single ICP/tier segment, we know the
+          // exact count from the counts payload; otherwise resolve at action time.
+          if (fbFilters.length === 1) {
+            const f = fbFilters[0];
+            if (f.field === "icp") return f.value === "true" ? counts?.icp ?? null : counts?.non_icp ?? null;
+            if (f.field === "tier") return tierCounts?.[f.value as IcpTier] ?? null;
+          }
+          return null;
+        })()
+      : hasIcp && counts
+        ? counts.icp + counts.non_icp
+        : activeList?.lead_count ?? null;
 
   // Row selection. `selectAllMatching` means "every record matching the filters",
   // so a row reads as checked regardless of the per-page `selected` set.
@@ -769,7 +778,7 @@ export default function Lists() {
           body: JSON.stringify({ workspaceId, ids: batch }),
         });
       }
-      await loadLeads(activeId, page, icpFilter, sort);
+      await loadLeads(activeId, page, sort);
       await loadLists();
     } catch { /* silent */ }
     finally { setBusy(false); }
@@ -796,7 +805,7 @@ export default function Lists() {
       }
       clearSelection();
       clearLeadsCache();
-      await loadLeads(activeId, page, icpFilter, sort);
+      await loadLeads(activeId, page, sort);
     } catch { toast("Couldn't enrich — try again."); }
     finally { setBusy(false); }
   }
@@ -823,7 +832,7 @@ export default function Lists() {
       }
       clearSelection();
       clearLeadsCache();
-      await loadLeads(activeId, page, icpFilter, sort);
+      await loadLeads(activeId, page, sort);
     } catch { toast("Couldn't verify — try again."); }
     finally { setBusy(false); }
   }
@@ -953,7 +962,7 @@ export default function Lists() {
         if (job.status === "complete" || job.status === "failed") {
           clearInterval(t);
           clearLeadsCache();
-          await loadLeads(activeId, page, icpFilter, sort);
+          await loadLeads(activeId, page, sort);
           if (job.status === "complete") {
             setOpResult(buildResult(job.kind as "enrich" | "verify", job.result || {}));
           } else {
@@ -1019,7 +1028,7 @@ export default function Lists() {
         toast.success(`Pushed ${pushed} to ${app?.label || "campaign"} · ${camp?.name || "campaign"}${skipped ? ` · ${skipped} skipped (${missing})` : ""}`);
         setPushOpen(false); clearSelection();
         clearLeadsCache();
-        await loadLeads(activeId, page, icpFilter, sort);
+        await loadLeads(activeId, page, sort);
       }
     } catch { toast("Push failed — try again."); }
     finally { setPushing(false); }
@@ -1132,7 +1141,7 @@ export default function Lists() {
       toast.success(`Exported ${rows.length} lead${rows.length === 1 ? "" : "s"} · tagged channel “${channel}”`);
       setCsvOpen(false); setCsvName("");
       if (exportScope === "selected") clearSelection();
-      if (activeId) await loadLeads(activeId, page, icpFilter, sort);
+      if (activeId) await loadLeads(activeId, page, sort);
     } catch { toast("Export failed — try again."); }
     finally { setCsvBusy(false); }
   };
@@ -1158,6 +1167,42 @@ export default function Lists() {
       await loadLists();
     } catch { /* keep the optimistic column */ }
     finally { setBusy(false); }
+  };
+
+  // A column is user-editable (rename / delete) when it's a custom data column —
+  // i.e. NOT one of the fixed columns (name/email/company/linkedin) and NOT a
+  // system "__" column (ICP, Tier, Source, …). Those are the columns we spec and
+  // are protected; everything the user (or list creation) added is editable.
+  const FIXED_KEYS = new Set(FIXED_COLS.map(c => c.key));
+  const isCustomCol = (key: string) => !key.startsWith("__") && !FIXED_KEYS.has(key);
+
+  // Persist the list's custom columns (the source for customCols), optimistically.
+  const persistColumns = async (columns: { key: string; label: string }[]) => {
+    if (!activeList) return;
+    const listId = activeList.id;
+    setBusy(true);
+    setLists(prev => prev.map(l => l.id === listId ? { ...l, columns } : l));
+    try {
+      await fetch(`${apiUrl}/api/lead-lists/${listId}`, {
+        method: "PATCH", headers: jsonHeaders,
+        body: JSON.stringify({ workspaceId, columns }),
+      });
+      await loadLists();
+    } catch { /* keep the optimistic state */ }
+    finally { setBusy(false); }
+  };
+
+  const deleteColumn = (key: string) => {
+    if (!isCustomCol(key)) return;
+    persistColumns(customCols.filter(c => c.key !== key));
+    setColMenu(null);
+  };
+
+  const renameColumn = (key: string, label: string) => {
+    const l = label.trim();
+    if (!isCustomCol(key) || !l) { setColMenu(null); return; }
+    persistColumns(customCols.map(c => c.key === key ? { ...c, label: l } : c));
+    setColMenu(null);
   };
 
   // Airtable-style "+ add row" — drops a blank row at the bottom INSTANTLY (temp
@@ -1313,7 +1358,7 @@ export default function Lists() {
       setImporting(false); setImportStep("upload");
       setCsvHeaders([]); setCsvRows([]); setMapping({});
       clearLeadsCache();
-      loadLeads(activeId, page, icpFilter, sort);
+      loadLeads(activeId, page, sort);
       loadLists();
     } catch { /* silent */ }
     finally { setBusy(false); }
@@ -1379,13 +1424,6 @@ export default function Lists() {
           title={activeList?.name ?? "Lists"}
           actions={
             <>
-              <button
-                onClick={() => navigate("/lists/clean")}
-                className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-background border border-border text-foreground/80 text-[13px] font-semibold hover:bg-muted/50 transition-colors"
-                title="Pre-flight dedup any list against the workspace's engagement history"
-              >
-                Clean a list →
-              </button>
               {activeList?.source === "linkedin_engagement" && (
                 <button onClick={openEngagement} title="Manage this auto-updating list"
                   className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-background border border-border text-foreground/80 text-[13px] font-semibold hover:bg-muted/50 transition-colors">
@@ -1446,51 +1484,15 @@ export default function Lists() {
                   <RefreshCw className={`h-3.5 w-3.5 ${syncingConn ? "animate-spin" : ""}`} /> {syncingConn ? "Syncing…" : "Sync from LinkedIn"}
                 </button>
                 </>
-              ) : hasIcp && ([
-                ["all", "All", activeList?.lead_count ?? (counts ? counts.icp + counts.non_icp : null)],
-                ["icp", "ICP", counts?.icp ?? null],
-                ["non", "Non-ICP", counts?.non_icp ?? null],
-              ] as const).map(([key, label, n]) => (
-                <button
-                  key={key}
-                  onClick={() => setIcpFilter(key)}
-                  className={`inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md text-[12px] font-medium border transition-colors ${
-                    icpFilter === key
-                      ? "bg-foreground text-background border-foreground"
-                      : "bg-background text-muted-foreground border-border hover:text-foreground"
-                  }`}
-                >
-                  {label}
-                  {n !== null ? <span className="tabular-nums opacity-70">{n}</span> : null}
-                </button>
-              ))}
-              {/* Tier chips — Tier 1/2/3/Not-ICP, the actionable class. Shown once
-                  any lead in the list has a tier; "All" clears the tier filter. */}
-              {hasIcp && tierCounts && (tierCounts.tier_1 + tierCounts.tier_2 + tierCounts.tier_3 + tierCounts.not_icp) > 0 && (
-                <>
-                  <span className="mx-1 h-4 w-px bg-border self-center" />
-                  {([
-                    ["all", "All tiers", null],
-                    ["tier_1", TIER_UI.tier_1.label, tierCounts.tier_1],
-                    ["tier_2", TIER_UI.tier_2.label, tierCounts.tier_2],
-                    ["tier_3", TIER_UI.tier_3.label, tierCounts.tier_3],
-                    ["not_icp", TIER_UI.not_icp.label, tierCounts.not_icp],
-                  ] as const).map(([key, label, n]) => (
-                    <button
-                      key={key}
-                      onClick={() => setTierFilter(key)}
-                      title={key !== "all" ? TIER_UI[key as IcpTier].play : "Show every tier"}
-                      className={`inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md text-[12px] font-medium border transition-colors ${
-                        tierFilter === key
-                          ? "bg-foreground text-background border-foreground"
-                          : "bg-background text-muted-foreground border-border hover:text-foreground"
-                      }`}
-                    >
-                      {label}
-                      {n !== null ? <span className="tabular-nums opacity-70">{n}</span> : null}
-                    </button>
-                  ))}
-                </>
+              ) : (
+                // ICP, tier, status, reply are all in the Filter now — the left
+                // side just shows how many records the current filter matches.
+                <span className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md text-[12px] font-medium text-muted-foreground">
+                  {fbFilters.length > 0 ? "Matching" : "All"}
+                  <span className="tabular-nums text-foreground">
+                    {(matchingTotal ?? activeList?.lead_count ?? leads.length).toLocaleString()}
+                  </span>
+                </span>
               )}
             </div>
             {/* RIGHT — active filter chips + filter builder + status/reply */}
@@ -1547,7 +1549,14 @@ export default function Lists() {
                         className="h-8 w-full rounded-md border border-border bg-background text-[12px] text-foreground px-2 outline-none focus:border-muted-foreground"
                       >
                         <option value="">Select a value…</option>
-                        {fbFieldDef.values.map(v => <option key={v.v} value={v.v}>{v.l}</option>)}
+                        {fbFieldDef.values.map(v => {
+                          // Surface the live count for ICP/tier segments so you
+                          // see how many leads each option holds before applying.
+                          let n: number | null = null;
+                          if (fbField === "tier") n = tierCounts?.[v.v as IcpTier] ?? null;
+                          else if (fbField === "icp") n = v.v === "true" ? counts?.icp ?? null : counts?.non_icp ?? null;
+                          return <option key={v.v} value={v.v}>{v.l}{n != null ? ` (${n})` : ""}</option>;
+                        })}
                       </select>
                     )}
                     <button
@@ -1562,26 +1571,6 @@ export default function Lists() {
               )}
             </div>
             <div className="flex items-center gap-2 flex-shrink-0">
-              <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
-                className="h-7 rounded-md border border-border bg-background text-[12px] text-foreground px-2 outline-none focus:border-muted-foreground">
-                <option value="">All statuses</option>
-                <option value="pending">Pending</option>
-                <option value="sent">Sent</option>
-                <option value="replied">Replied</option>
-                <option value="bounced">Bounced</option>
-              </select>
-              <select value={replyFilter} onChange={e => setReplyFilter(e.target.value)}
-                className="h-7 rounded-md border border-border bg-background text-[12px] text-foreground px-2 outline-none focus:border-muted-foreground">
-                <option value="">Any reply</option>
-                <option value="interested">Interested</option>
-                <option value="objection">Objection</option>
-                <option value="wrong_fit">Wrong fit</option>
-                <option value="unsubscribe">Unsubscribe / DNC</option>
-              </select>
-              {(statusFilter || replyFilter) && (
-                <button onClick={() => { setStatusFilter(""); setReplyFilter(""); }}
-                  className="text-[12px] text-muted-foreground hover:text-foreground">Clear</button>
-              )}
               {/* Enrich / Verify live on the filter line — disabled until you
                   select leads, so there's no separate action row. */}
               <div className="h-5 w-px bg-border mx-0.5" />
@@ -1686,6 +1675,7 @@ export default function Lists() {
                   {allCols.map((c, i) => {
                     const sortable = c.key === "icp_score" || c.key === "__icp";
                     const tierSortable = c.key === "__tier";
+                    const editable = isCustomCol(c.key);
                     return (
                     <div key={c.key}
                       draggable={i !== 0}
@@ -1693,7 +1683,8 @@ export default function Lists() {
                       onDragOver={e => { if (i !== 0 && dragColRef.current && dragColRef.current !== c.key) e.preventDefault(); }}
                       onDrop={e => { e.preventDefault(); if (dragColRef.current) moveColumn(dragColRef.current, c.key); dragColRef.current = null; }}
                       onDragEnd={() => { dragColRef.current = null; }}
-                      title={i !== 0 ? "Drag to reorder" : undefined}
+                      onContextMenu={editable ? (e => { e.preventDefault(); setColMenuRename(null); setColMenu({ key: c.key, label: c.label, x: e.clientX, y: e.clientY }); }) : undefined}
+                      title={editable ? "Drag to reorder · right-click to rename or delete" : (i !== 0 ? "Drag to reorder" : undefined)}
                       className={`relative px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70 flex-shrink-0 ${i !== 0 ? "cursor-grab active:cursor-grabbing" : ""} ${i === 0 ? "sticky left-10 z-30 bg-muted/50 border-r border-border" : ""}`} style={{ width: c.w }}>
                       {sortable ? (
                         <button
@@ -1879,6 +1870,35 @@ export default function Lists() {
             </button>
           </div>
         )}
+
+      {/* Column header context menu — rename / delete a custom column */}
+      {colMenu && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => { setColMenu(null); setColMenuRename(null); }} onContextMenu={e => { e.preventDefault(); setColMenu(null); setColMenuRename(null); }} />
+          <div className="fixed z-50 w-52 rounded-lg border border-border bg-background shadow-xl p-1" style={{ left: Math.min(colMenu.x, window.innerWidth - 220), top: Math.min(colMenu.y, window.innerHeight - 120) }}>
+            {colMenuRename === colMenu.key ? (
+              <input
+                autoFocus
+                defaultValue={colMenu.label}
+                onKeyDown={e => { if (e.key === "Enter") renameColumn(colMenu.key, (e.target as HTMLInputElement).value); if (e.key === "Escape") { setColMenuRename(null); setColMenu(null); } }}
+                onBlur={e => renameColumn(colMenu.key, e.target.value)}
+                className="w-full h-8 rounded-md border border-border bg-background text-[13px] text-foreground px-2 outline-none focus:border-muted-foreground"
+              />
+            ) : (
+              <>
+                <button onClick={() => setColMenuRename(colMenu.key)}
+                  className="w-full text-left px-2.5 py-1.5 rounded-md text-[13px] text-foreground hover:bg-muted/60 transition-colors">
+                  Rename column
+                </button>
+                <button onClick={() => deleteColumn(colMenu.key)}
+                  className="w-full text-left px-2.5 py-1.5 rounded-md text-[13px] text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors">
+                  Delete column
+                </button>
+              </>
+            )}
+          </div>
+        </>
+      )}
 
       {/* Import CSV modal — drag-and-drop upload, then column mapping */}
       {importing && activeList && (

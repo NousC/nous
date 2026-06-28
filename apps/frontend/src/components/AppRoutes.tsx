@@ -57,7 +57,6 @@ const Reports         = lazyWithErrorBoundary(() => import("@/pages/Reports"));
 const Note            = lazyWithErrorBoundary(() => import("@/pages/Note"));
 const ReportView      = lazyWithErrorBoundary(() => import("@/pages/Report"));
 const PlaybookView    = lazyWithErrorBoundary(() => import("@/pages/Playbook"));
-const CleanList       = lazyWithErrorBoundary(() => import("@/pages/CleanList"));
 const NotFound        = lazyWithErrorBoundary(() => import("@/pages/NotFound"));
 const ConnectGate     = lazyWithErrorBoundary(() => import("@/pages/ConnectGate"));
 
@@ -185,9 +184,7 @@ export function AppRoutes() {
             <Route path="/integrations"  element={<Suspense fallback={<MinimalLoader />}><Integrations /></Suspense>} />
             <Route path="/lists"         element={<CloudOnly><Suspense fallback={<MinimalLoader />}><Lists /></Suspense></CloudOnly>} />
             <Route path="/reports"       element={<CloudOnly><Suspense fallback={<MinimalLoader />}><Reports /></Suspense></CloudOnly>} />
-            <Route path="/lists/clean"   element={<CloudOnly><Suspense fallback={<MinimalLoader />}><CleanList /></Suspense></CloudOnly>} />
-            {/* Each list on its own page — /lists/:listId. (Static /lists/clean
-                above wins over this param route in React Router v6.) */}
+            {/* Each list on its own page — /lists/:listId. */}
             <Route path="/lists/:listId" element={<CloudOnly><Suspense fallback={<MinimalLoader />}><Lists /></Suspense></CloudOnly>} />
             <Route path="/playbooks"     element={<Suspense fallback={<MinimalLoader />}><Intelligence /></Suspense>} />
             <Route path="/icp"           element={<Navigate to="/playbooks" replace />} />
