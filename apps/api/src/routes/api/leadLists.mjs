@@ -182,59 +182,73 @@ leadListsRouter.delete('/:id', async (req, res) => {
 leadListsRouter.get('/:id/leads', async (req, res) => {
   try {
     const { workspaceId, limit, offset, icp, sort, counts, status, reply, verified,
-            channel, emailStatus, domain, size, source } = req.query;
+            channel, emailStatus, domain, size, source, tier } = req.query;
     if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' });
     const supabase = getSupabaseClient();
     const validSort = ['recent', 'icp_score_desc', 'icp_score_asc'].includes(sort) ? sort : undefined;
     const str = (v) => (typeof v === 'string' && v ? v : undefined);
-    const leads = await listLeads(supabase, workspaceId, req.params.id, {
-      limit: limit ? parseInt(limit, 10) : undefined,
-      offset: offset ? parseInt(offset, 10) : undefined,
+    const lim = limit ? parseInt(limit, 10) : 50;
+    const off = offset ? parseInt(offset, 10) : 0;
+    const tierFilter = ['tier_1', 'tier_2', 'tier_3', 'not_icp'].includes(tier) ? tier : undefined;
+    const filterOpts = {
       icp: icp === 'true' || icp === 'false' ? icp : undefined,
       sort: validSort,
-      status:      str(status),
-      reply:       str(reply),
-      verified:    str(verified),
-      channel:     str(channel),
-      emailStatus: str(emailStatus),
-      domain:      str(domain),
-      size:        str(size),
-      source:      str(source),
-    });
-    // Overlay the live ICP model score (and a derived domain) at read time, so
-    // the list shows exactly what the person record shows — the model prediction,
-    // not the stale build-time seed in the leads view. `leads` is a view derived
-    // from the entity substrate, so we never write these back; we read the
-    // prediction (the same source `icpFit`/the record uses) and overlay it.
-    if (leads.length) {
-      const ids = leads.map(l => l.id);
+      status: str(status), reply: str(reply), verified: str(verified),
+      channel: str(channel), emailStatus: str(emailStatus), domain: str(domain),
+      size: str(size), source: str(source),
+    };
+
+    // Overlay the live ICP model score + tier (and a derived domain) at read
+    // time, so the list shows exactly what the person record shows — the model
+    // prediction, not the stale build-time seed. `leads` is a view derived from
+    // the entity substrate, so we never write these back; we read the prediction
+    // (the same source `icpFit`/the record uses) and overlay it. The lead's
+    // effective tier = the prediction's, else derived from its (seed) score.
+    const overlay = async (rows) => {
+      if (!rows.length) return;
+      const ids = rows.map(l => l.id);
       const { data: preds } = await supabase.from('predictions')
         .select('entity_id, predicted_value, predicted_at')
         .eq('workspace_id', workspaceId).eq('kind', 'icp_fit')
         .in('entity_id', ids)
         .order('predicted_at', { ascending: false });
-      // Latest prediction per entity (rows are newest-first).
       const predByEntity = new Map();
       for (const p of (preds || [])) {
         if (!predByEntity.has(p.entity_id) && p.predicted_value?.score != null) {
           predByEntity.set(p.entity_id, p.predicted_value);
         }
       }
-      for (const l of leads) {
+      for (const l of rows) {
         const pv = predByEntity.get(l.id);
         if (pv?.score != null) {
-          // Overlay the model score and its tier (fall back to deriving the tier
-          // from the score for older predictions written before tiers existed).
-          const tier = pv.tier ?? scoreTier(pv.score);
-          l.fields = { ...(l.fields || {}), icp_score: pv.score, icp_tier: tier };
+          l.fields = { ...(l.fields || {}), icp_score: pv.score, icp_tier: pv.tier ?? scoreTier(pv.score) };
         }
-        // Derive a domain from the work email when the view has none, so the
-        // Domain column fills in even before enrichment writes it.
         if (!l.domain && l.email && l.email.includes('@')) {
           const d = l.email.split('@')[1].trim().toLowerCase();
           if (d && !FREE_EMAIL_DOMAINS.has(d)) l.domain = d;
         }
       }
+    };
+    const tierOf = (l) => (l.fields?.icp_tier) ?? scoreTier(l.fields?.icp_score);
+
+    let leads;
+    let tierCounts;
+    // Tier filter / tier counts need the model score, which is overlaid (not a
+    // view column) — so resolve the full matching set, overlay, then filter +
+    // paginate in memory. Bounded by the 5000 cap; only on a tier-filtered view
+    // or the first page (when counts are requested).
+    if (tierFilter || counts === '1') {
+      const full = await listLeads(supabase, workspaceId, req.params.id, { ...filterOpts, limit: 5000, offset: 0 });
+      await overlay(full);
+      if (counts === '1') {
+        tierCounts = { tier_1: 0, tier_2: 0, tier_3: 0, not_icp: 0 };
+        for (const l of full) { const t = tierOf(l); if (t) tierCounts[t]++; }
+      }
+      const set = tierFilter ? full.filter(l => tierOf(l) === tierFilter) : full;
+      leads = set.slice(off, off + lim);
+    } else {
+      leads = await listLeads(supabase, workspaceId, req.params.id, { ...filterOpts, limit: lim, offset: off });
+      await overlay(leads);
     }
 
     // Return the ICP counts only when asked (the first page) — saves two
@@ -247,7 +261,7 @@ leadListsRouter.get('/:id/leads', async (req, res) => {
     const funnel = req.query.funnel === '1'
       ? await countLeadFunnel(supabase, workspaceId, req.params.id)
       : undefined;
-    return res.json({ leads, counts: icpCounts, funnel });
+    return res.json({ leads, counts: icpCounts, tier_counts: tierCounts, funnel });
   } catch (err) {
     console.error('[GET /api/lead-lists/:id/leads]', err);
     return res.status(500).json({ error: 'internal_error' });

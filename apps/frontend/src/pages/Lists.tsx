@@ -347,6 +347,13 @@ export default function Lists() {
     try { return (localStorage.getItem("nous.lists.icpFilter") as "all" | "icp" | "non") || "all"; }
     catch { return "all"; }
   });
+  // ICP tier filter — Tier 1/2/3/Not-ICP (or "all"). Server-side (the endpoint
+  // resolves the model tier per lead). Persisted like the other view prefs.
+  const [tierFilter, setTierFilter] = useState<"all" | IcpTier>(() => {
+    try { return (localStorage.getItem("nous.lists.tierFilter") as "all" | IcpTier) || "all"; }
+    catch { return "all"; }
+  });
+  const [tierCounts, setTierCounts] = useState<Record<IcpTier, number> | null>(null);
   // Outbound filters — by lifecycle status and reply outcome.
   const [statusFilter, setStatusFilter] = useState("");
   const [replyFilter, setReplyFilter] = useState("");
@@ -392,6 +399,7 @@ export default function Lists() {
   // Persist sort + ICP filter so they survive navigation and reloads until changed.
   useEffect(() => { try { localStorage.setItem("nous.lists.sort", sort); } catch { /* ignore */ } }, [sort]);
   useEffect(() => { try { localStorage.setItem("nous.lists.icpFilter", icpFilter); } catch { /* ignore */ } }, [icpFilter]);
+  useEffect(() => { try { localStorage.setItem("nous.lists.tierFilter", tierFilter); } catch { /* ignore */ } }, [tierFilter]);
   // Connect → message → reply funnel counts for the native LinkedIn Connections list.
   const [funnel, setFunnel] = useState<{ connected: number; messaged: number; replied: number } | null>(null);
   const [syncingConn, setSyncingConn] = useState(false);
@@ -502,41 +510,44 @@ export default function Lists() {
   const loadLeads = useCallback(
     async (listId: string, pg: number, filt: "all" | "icp" | "non", srt: string) => {
       const icpParam = filt === "all" ? "" : `&icp=${filt === "icp" ? "true" : "false"}`;
+      const tierParam = tierFilter === "all" ? "" : `&tier=${tierFilter}`;
       const outParam = `${statusFilter ? `&status=${statusFilter}` : ""}${replyFilter ? `&reply=${replyFilter}` : ""}`;
       const fbParam = fbFilters.map(f => `&${f.field}=${encodeURIComponent(f.value)}`).join("");
-      const cacheKey = `${listId}|${pg}|${filt}|${srt}|${outParam}|${fbParam}`;
+      const cacheKey = `${listId}|${pg}|${filt}|${tierFilter}|${srt}|${outParam}|${fbParam}`;
       // Stale-while-revalidate: paint the cached page instantly (no spinner), then
       // refresh in the background. Cold pages show the loading state.
       const cached = leadsCache.current.get(cacheKey);
       if (cached) { setLeads(cached.leads); if (cached.counts) setCounts(cached.counts); setLeadsLoading(false); }
       else setLeadsLoading(true);
       try {
-        // Ask for the ICP counts only on the first page.
+        // Ask for the ICP + tier counts only on the first page.
         const countsParam = pg === 0 ? "&counts=1" : "";
         const res = await fetch(
-          `${apiUrl}/api/lead-lists/${listId}/leads?workspaceId=${workspaceId}&limit=${PAGE_SIZE}&offset=${pg * PAGE_SIZE}&sort=${srt}${icpParam}${outParam}${fbParam}${countsParam}`,
+          `${apiUrl}/api/lead-lists/${listId}/leads?workspaceId=${workspaceId}&limit=${PAGE_SIZE}&offset=${pg * PAGE_SIZE}&sort=${srt}${icpParam}${tierParam}${outParam}${fbParam}${countsParam}`,
           { headers: authHeaders });
         const d = res.ok ? await res.json() : {};
         const nextLeads: Lead[] = d.leads ?? [];
         const nextCounts = d.counts ?? cached?.counts ?? null;
         setLeads(nextLeads);
         if (d.counts) setCounts(d.counts);
+        if (d.tier_counts) setTierCounts(d.tier_counts);
         leadsCache.current.set(cacheKey, { leads: nextLeads, counts: nextCounts });
         // Mirror the most-recent pages to disk so a reload repaints instantly.
         const entries = Array.from(leadsCache.current.entries()).slice(-LEADS_CACHE_CAP);
         ssSet(SS_LEADS(workspaceId), Object.fromEntries(entries));
       } catch { if (!cached) setLeads([]); }
       finally { setLeadsLoading(false); }
-    }, [workspaceId, token, statusFilter, replyFilter, fbFilters]);
+    }, [workspaceId, token, statusFilter, replyFilter, fbFilters, tierFilter]);
 
   // The active filter set as a query string (icp + status/reply + filter-builder),
   // shared by the leads view and by full-list fetches so they always agree.
   const buildFilterQS = useCallback(() => {
     const icpParam = icpFilter === "all" ? "" : `&icp=${icpFilter === "icp" ? "true" : "false"}`;
+    const tierParam = tierFilter === "all" ? "" : `&tier=${tierFilter}`;
     const outParam = `${statusFilter ? `&status=${statusFilter}` : ""}${replyFilter ? `&reply=${replyFilter}` : ""}`;
     const fbParam = fbFilters.map(f => `&${f.field}=${encodeURIComponent(f.value)}`).join("");
-    return `${icpParam}${outParam}${fbParam}`;
-  }, [icpFilter, statusFilter, replyFilter, fbFilters]);
+    return `${icpParam}${tierParam}${outParam}${fbParam}`;
+  }, [icpFilter, tierFilter, statusFilter, replyFilter, fbFilters]);
 
   // Backfill the LinkedIn Connections list from the user's existing connections
   // (Unipile relations). One-time/on-demand; the webhooks keep it current after.
@@ -581,7 +592,7 @@ export default function Lists() {
   useEffect(() => {
     if (activeId) loadLeads(activeId, page, icpFilter, sort);
     else setLeads([]);
-  }, [activeId, page, icpFilter, sort, statusFilter, replyFilter, loadLeads]);
+  }, [activeId, page, icpFilter, tierFilter, sort, statusFilter, replyFilter, loadLeads]);
 
   // Connect → message → reply funnel counts — fetched only for the native
   // LinkedIn Connections list (its header stat), so it never adds count queries
@@ -613,7 +624,7 @@ export default function Lists() {
   }, [activeId]);
   // Changing any filter or sort goes back to page 1 and clears the selection
   // (the matching set changed, so "all matching" no longer means the same thing).
-  useEffect(() => { setPage(0); setSelected(new Set()); setSelectAllMatching(false); }, [icpFilter, sort, statusFilter, replyFilter, fbFilters]);
+  useEffect(() => { setPage(0); setSelected(new Set()); setSelectAllMatching(false); }, [icpFilter, tierFilter, sort, statusFilter, replyFilter, fbFilters]);
 
   // Route param → active list. /lists/:listId selects that list; the bare /lists
   // index (or a stale/unknown id, e.g. after deleting the active list) falls back
@@ -1453,6 +1464,34 @@ export default function Lists() {
                   {n !== null ? <span className="tabular-nums opacity-70">{n}</span> : null}
                 </button>
               ))}
+              {/* Tier chips — Tier 1/2/3/Not-ICP, the actionable class. Shown once
+                  any lead in the list has a tier; "All" clears the tier filter. */}
+              {hasIcp && tierCounts && (tierCounts.tier_1 + tierCounts.tier_2 + tierCounts.tier_3 + tierCounts.not_icp) > 0 && (
+                <>
+                  <span className="mx-1 h-4 w-px bg-border self-center" />
+                  {([
+                    ["all", "All tiers", null],
+                    ["tier_1", TIER_UI.tier_1.label, tierCounts.tier_1],
+                    ["tier_2", TIER_UI.tier_2.label, tierCounts.tier_2],
+                    ["tier_3", TIER_UI.tier_3.label, tierCounts.tier_3],
+                    ["not_icp", TIER_UI.not_icp.label, tierCounts.not_icp],
+                  ] as const).map(([key, label, n]) => (
+                    <button
+                      key={key}
+                      onClick={() => setTierFilter(key)}
+                      title={key !== "all" ? TIER_UI[key as IcpTier].play : "Show every tier"}
+                      className={`inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md text-[12px] font-medium border transition-colors ${
+                        tierFilter === key
+                          ? "bg-foreground text-background border-foreground"
+                          : "bg-background text-muted-foreground border-border hover:text-foreground"
+                      }`}
+                    >
+                      {label}
+                      {n !== null ? <span className="tabular-nums opacity-70">{n}</span> : null}
+                    </button>
+                  ))}
+                </>
+              )}
             </div>
             {/* RIGHT — active filter chips + filter builder + status/reply */}
             <div className="flex items-center gap-2 flex-wrap justify-end">
