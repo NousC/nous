@@ -15,6 +15,8 @@ export interface ContactInfo {
   icpScore: number | null;
   icpTier: IcpTier | null;
   icpFit: boolean | null;
+  intentScore: number | null;
+  intentBand: string | null;
   seniority: string | null;
   companyId: string | null;
   companyName: string | null;
@@ -225,6 +227,8 @@ export function mapContact(c: any): ContactInfo {
     icpScore: c.icp_score ?? null,
     icpTier: c.icp_tier ?? null,
     icpFit: c.icp_fit ?? null,
+    intentScore: c.intent_score ?? null,
+    intentBand: c.intent_band ?? null,
     seniority: c.seniority ?? null,
     companyId: c.company_id ?? null,
     companyName: c.company ?? null,

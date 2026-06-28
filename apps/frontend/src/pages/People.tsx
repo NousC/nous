@@ -17,9 +17,18 @@ const PIPELINE_STAGES = ["identified", "aware", "connected", "interested", "eval
 // Persisted per user in localStorage; see useColumnWidths.
 const PEOPLE_COL_DEFAULTS: Record<string, number> = {
   name: 170, company: 115, source: 96, domain: 100, li: 40, stage: 88,
-  icp: 42, tier: 76, lastActivity: 130,
+  icp: 42, tier: 76, intent: 92, lastActivity: 130,
 };
-const PEOPLE_COL_KEYS = ["name","company","domain","li","stage","icp","tier","lastActivity","source"];
+const PEOPLE_COL_KEYS = ["name","company","domain","li","stage","icp","tier","intent","lastActivity","source"];
+
+// Intent band → pill classes (the "reach out now?" axis). Mirrors Lists.tsx.
+const INTENT_TAG: Record<string, string> = {
+  "Red-hot": "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-400",
+  Hot:       "bg-orange-100 text-orange-700 dark:bg-orange-950/50 dark:text-orange-400",
+  Warm:      "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-400",
+  Aware:     "bg-sky-100 text-sky-700 dark:bg-sky-950/50 dark:text-sky-400",
+  Dormant:   "bg-zinc-100 text-zinc-500 dark:bg-zinc-800/60 dark:text-zinc-500",
+};
 
 // Tier rank for sorting (best first). Mirrors the lead list.
 const TIER_RANK: Record<IcpTier, number> = { tier_1: 4, tier_2: 3, tier_3: 2, not_icp: 1 };
@@ -491,6 +500,7 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
     { key: "stage", label: "Stage", values: PIPELINE_STAGES.map(s => ({ v: s, l: s })), match: (c, v) => c.pipelineStage === v },
     { key: "tier", label: "Tier", values: (["tier_1","tier_2","tier_3","not_icp"] as IcpTier[]).map(t => ({ v: t, l: TIER_UI[t].label })), match: (c, v) => contactTier(c) === v },
     { key: "icp", label: "ICP score", values: [{ v: "90", l: "90+" }, { v: "80", l: "80+" }, { v: "70", l: "70+" }, { v: "50", l: "50+" }], match: (c, v) => (c.icpScore ?? -1) >= Number(v) },
+    { key: "intent", label: "Intent", values: [{ v: "Red-hot", l: "Red-hot" }, { v: "Hot", l: "Hot" }, { v: "Warm", l: "Warm" }, { v: "Aware", l: "Aware" }], match: (c, v) => (c.intentBand ?? "Dormant") === v },
     { key: "domain", label: "Domain", values: [{ v: "has", l: "Has domain" }, { v: "none", l: "No domain" }], match: (c, v) => v === "has" ? !!c.domain : !c.domain },
     { key: "source", label: "Source", values: sourceOptions.map(s => ({ v: s, l: sourceLabel(s) })), match: (c, v) => c.source === v },
   ];
@@ -703,6 +713,7 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
             <PlainHdr label="Stage"   widthKey="stage" />
             <SortBtn  col="icp"  label="ICP"  firstDir="desc" />
             <SortBtn  col="tier" label="Tier" firstDir="desc" />
+            <PlainHdr label="Intent"  widthKey="intent" />
             <SortBtnFlex col="lastActivity" label="Last Interaction" />
             <PlainHdr label="Source"  widthKey="source" />
             {/* Trailing filler — grows only on wide screens, shrinks to 0 (then the
@@ -734,6 +745,11 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
               <button onClick={() => setDetail(c)} className="flex-shrink-0 pr-2 text-left" style={{width:colW("tier")}}>
                 {(() => { const t = contactTier(c); return t
                   ? <span title={TIER_UI[t].play} className={`text-[11px] font-semibold px-1.5 py-0.5 rounded ${TIER_UI[t].bg}`}>{TIER_UI[t].label}</span>
+                  : <span className="text-muted-foreground/50 text-[12px]">—</span>; })()}
+              </button>
+              <button onClick={() => setDetail(c)} className="flex-shrink-0 pr-2 text-left" style={{width:colW("intent")}}>
+                {(() => { const b = c.intentBand; return b && b !== "Dormant"
+                  ? <span className={`text-[11px] font-medium px-1.5 py-0.5 rounded ${INTENT_TAG[b] ?? INTENT_TAG.Dormant}`}>{b}</span>
                   : <span className="text-muted-foreground/50 text-[12px]">—</span>; })()}
               </button>
               <button onClick={() => setDetail(c)} className="text-[13px] text-muted-foreground flex-shrink-0 truncate pr-2 text-left" style={{width:colW("lastActivity")}}>{relTime(c.lastActivityAt)}</button>
