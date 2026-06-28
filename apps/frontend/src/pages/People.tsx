@@ -9,7 +9,7 @@ import { useColumnWidths, ColResizer } from "@/components/mind/resizableColumns"
 import { PageHeader } from "@/components/ui/page-header";
 
 const apiUrl = import.meta.env.VITE_API_URL ?? "";
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 100;
 const PIPELINE_STAGES = ["identified", "aware", "connected", "interested", "evaluating", "client", "lost", "disqualified", "churned"];
 
 // Default widths for the resizable columns. "Last Int." is the elastic flex-1

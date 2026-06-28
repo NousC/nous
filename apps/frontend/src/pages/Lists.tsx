@@ -516,7 +516,7 @@ export default function Lists() {
     try { sessionStorage.removeItem(SS_LEADS(workspaceId)); } catch { /* ignore */ }
   }, [workspaceId]);
 
-  const PAGE_SIZE = 50;
+  const PAGE_SIZE = 100;
   const loadLeads = useCallback(
     async (listId: string, pg: number, srt: string) => {
       // Request-ordering guard. Changing a filter fires a new load; responses can

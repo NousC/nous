@@ -8,7 +8,7 @@ import { useColumnWidths, ColResizer } from "@/components/mind/resizableColumns"
 import { PageHeader } from "@/components/ui/page-header";
 
 const apiUrl = import.meta.env.VITE_API_URL ?? "";
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 100;
 
 // Default widths for the resizable columns. The elastic "Top Contacts" column
 // is flex-1 and not listed here — it absorbs the leftover space. Persisted per
