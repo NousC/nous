@@ -261,14 +261,18 @@ leadListsRouter.get('/:id/leads', async (req, res) => {
       const lite = await selectLeadsLite(supabase, workspaceId, req.params.id, filterOpts, 5000);
       const ids = lite.map(l => l.id);
       // Latest tier + score per entity, pulled as text (cheap) not the full jsonb.
+      // Batch the IN() small (100) — a 500+-UUID IN makes a ~19KB URL that the
+      // PostgREST gateway can reject/truncate, which would silently drop tiers and
+      // make a tier filter return 0. Small batches keep every request reliable.
       const tierById = new Map();
       const scoreById = new Map();
-      for (let i = 0; i < ids.length; i += 1000) {
-        const { data: preds } = await supabase.from('predictions')
+      for (let i = 0; i < ids.length; i += 100) {
+        const { data: preds, error: predErr } = await supabase.from('predictions')
           .select('entity_id, tier:predicted_value->>tier, score:predicted_value->>score, predicted_at')
           .eq('workspace_id', workspaceId).eq('kind', 'icp_fit')
-          .in('entity_id', ids.slice(i, i + 1000))
+          .in('entity_id', ids.slice(i, i + 100))
           .order('predicted_at', { ascending: false });
+        if (predErr) throw predErr; // surface, don't silently produce empty tiers
         for (const p of (preds || [])) {
           if (tierById.has(p.entity_id)) continue;
           const sc = p.score != null ? Number(p.score) : null;

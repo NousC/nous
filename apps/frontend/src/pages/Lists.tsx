@@ -305,6 +305,8 @@ export default function Lists() {
   // Per-(list+page+filters) leads cache — stale-while-revalidate so switching
   // back to a list or page shows instantly and only re-fetches in the background.
   const leadsCache = useRef<Map<string, { leads: Lead[]; counts: { icp: number; non_icp: number } | null; total?: number | null }>>(new Map());
+  // Monotonic counter so only the latest leads request paints state (drops races).
+  const loadSeqRef = useRef(0);
 
   const jsonHeaders = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
   const authHeaders = { Authorization: `Bearer ${token}` };
@@ -517,6 +519,12 @@ export default function Lists() {
   const PAGE_SIZE = 50;
   const loadLeads = useCallback(
     async (listId: string, pg: number, srt: string) => {
+      // Request-ordering guard. Changing a filter fires a new load; responses can
+      // come back OUT OF ORDER (a slower earlier request landing after a faster
+      // later one), which made the count + rows oscillate (431 → 0 → 527…). Stamp
+      // each call and only let the LATEST one paint state — stale results are
+      // still cached but never displayed.
+      const seq = ++loadSeqRef.current;
       // Every filter is an fbFilters row now (icp/tier/status/reply/size/…), so a
       // single param string carries them all to the endpoint.
       const fbParam = fbFilters.map(f => `&${f.field}=${encodeURIComponent(f.value)}`).join("");
@@ -546,18 +554,21 @@ export default function Lists() {
         const nextLeads: Lead[] = d.leads ?? [];
         const nextCounts = d.counts ?? cached?.counts ?? null;
         const nextTotal: number | null = typeof d.total === "number" ? d.total : (cached?.total ?? null);
+        // Always cache (keyed by this request's own filter), even if it's now
+        // stale — so a later toggle back to it is instant.
+        leadsCache.current.set(cacheKey, { leads: nextLeads, counts: nextCounts, total: nextTotal });
+        const entries = Array.from(leadsCache.current.entries()).slice(-LEADS_CACHE_CAP);
+        ssSet(SS_LEADS(workspaceId), Object.fromEntries(entries));
+        // …but only PAINT if this is still the latest request.
+        if (seq !== loadSeqRef.current) return;
         setLeads(nextLeads);
         if (d.counts) setCounts(d.counts);
         if (d.tier_counts) setTierCounts(d.tier_counts);
         // The server returns an accurate matching total on the first page (and on
         // any filtered view). Keep it for the header + select-all-matching.
         if (pg === 0) setMatchTotal(nextTotal);
-        leadsCache.current.set(cacheKey, { leads: nextLeads, counts: nextCounts, total: nextTotal });
-        // Mirror the most-recent pages to disk so a reload repaints instantly.
-        const entries = Array.from(leadsCache.current.entries()).slice(-LEADS_CACHE_CAP);
-        ssSet(SS_LEADS(workspaceId), Object.fromEntries(entries));
-      } catch { if (!cached) setLeads([]); }
-      finally { setLeadsLoading(false); }
+      } catch { if (seq === loadSeqRef.current && !cached) setLeads([]); }
+      finally { if (seq === loadSeqRef.current) setLeadsLoading(false); }
     }, [workspaceId, token, fbFilters]);
 
   // The active filter set as a query string — every filter lives in fbFilters now,
