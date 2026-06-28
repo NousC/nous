@@ -28,12 +28,26 @@ export function normalizeScorecardRule(rule) {
     }
   }
   if (!r.feature || !r.op) return {};
+  // Semantic exclusion feature (exclusion.<key>): a website-read disqualifier set
+  // by signal-scan, for "who we are NOT" that firmographics can't isolate (e.g. a
+  // cold-CALLING agency vs the cold-EMAIL agencies we want). Always exists+disqualify.
+  if (String(r.feature).startsWith('exclusion.')) {
+    const key = String(r.feature).slice('exclusion.'.length).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+    if (!key) return {};
+    return { feature: `exclusion.${key}`, op: 'exists', disqualify: true };
+  }
   const cls = String(r.feature).replace(/^signal\./, '');
   if (String(r.feature).startsWith('signal.') || SIGNAL_CLASSES.includes(cls)) {
     if (!SIGNAL_CLASSES.includes(cls)) return {}; // unknown signal.* — would never fire
+    // signal.* is always a graded positive inclusion — a buying signal can't be a
+    // hard disqualifier, so the disqualify flag never rides on one.
     return { feature: `signal.${cls}`, op: 'scaled', value: typeof r.value === 'number' ? r.value : 5 };
   }
-  return { feature: r.feature, op: r.op, value: r.value };
+  // Exclusions fire WHEN the bad trait is present, so they must use a positive
+  // match op (==, in, exists). A disqualifier on != would fire on everyone else
+  // and suppress the whole list — drop the flag if the op can't express "is one".
+  const disqualify = r.disqualify === true && ['==', 'in', 'exists'].includes(r.op);
+  return { feature: r.feature, op: r.op, value: r.value, ...(disqualify ? { disqualify: true } : {}) };
 }
 
 export const FEATURE_VOCAB =
@@ -57,7 +71,13 @@ export const FEATURE_VOCAB =
   'pipe.lead_source (e.g. inbound_website, outbound_email, inbound_linkedin), ' +
   'pipe.channel (email|linkedin|meeting|website|slack|other), ' +
   'pipe.inbound (boolean), pipe.replied (boolean), ' +
-  'pipe.meetings_band (0|1|2|3+), pipe.touches_band (1-2|3-5|6-10|10+)';
+  'pipe.meetings_band (0|1|2|3+), pipe.touches_band (1-2|3-5|6-10|10+). ' +
+  // Semantic exclusion flags, set by a website-reading enrichment pass
+  // (signal-scan), for "who we are NOT" that firmographics can't separate — e.g.
+  // a cold-CALLING agency vs the cold-EMAIL agencies you want. Name one per stated
+  // exclusion: exclusion.<snake_case_key>. Always op "exists" with disqualify true.
+  'exclusion.<snake_case_key> (a semantic "not a fit" flag set from a website read, ' +
+  'e.g. exclusion.cold_calling_agency, exclusion.branding_agency — op "exists", disqualify true).';
 
 /**
  * Build (or rebuild) the ICP scoring model from the workspace's GTM memory.
@@ -86,8 +106,19 @@ export async function seedScorecardFromMemory(supabase, workspaceId, { force = f
     `Translate this Ideal Customer Profile into a Scorecard — a list of ` +
     `weighted signals that score how well a lead fits.\n\n` +
     `ICP: """${icpText}"""\n\n` +
-    `Produce 4 to 8 signals. Each is an inclusion criterion, so every weight ` +
-    `is positive — the system learns negative signals later from real replies.\n\n` +
+    `Produce 4 to 8 INCLUSION signals (who we sell to) plus an exclusion signal ` +
+    `for EACH "not a fit / we don't work with / avoid / exclude" statement the ICP ` +
+    `makes. Inclusions have a positive weight; the learning loop later sharpens them ` +
+    `and adds soft negatives from real replies.\n\n` +
+    `EXCLUSIONS — "who we are NOT". When the ICP explicitly names a kind of company ` +
+    `it does not want (e.g. "not cold-calling agencies", "no pure branding/messaging ` +
+    `marketing agencies"), emit a signal with a NEGATIVE weight (-6 to -10) AND ` +
+    `"disqualify": true. A disqualifier hard-caps the account below Not-ICP no matter ` +
+    `what else it fires — so use it only for the genuine "we will not work with them" ` +
+    `cases the ICP states, never as a mild preference. It must fire WHEN the bad trait ` +
+    `is present, so use op == or in (never !=). Bind it to a real feature ` +
+    `(industry, company_type, department, country, size_band) — pick the value(s) ` +
+    `that best capture the named kind of company.\n\n` +
     `CRITICAL — stay faithful to the ICP. A signal must be exactly as narrow as ` +
     `what the ICP states, never broader:\n` +
     `- Preserve stated numbers exactly. "1-20 employees" becomes employee_count ` +
@@ -96,17 +127,38 @@ export async function seedScorecardFromMemory(supabase, workspaceId, { force = f
     `businesses and agencies" becomes industry in the specific terms given, NOT ` +
     `a vague "operates in the AI space".\n` +
     `- Do not invent criteria the ICP never mentions, and do not generalize a ` +
-    `narrow, niche ICP into a broad one. If the ICP is narrow, the signals are narrow.\n\n` +
+    `narrow, niche ICP into a broad one. If the ICP is narrow, the signals are narrow.\n` +
+    `- Only emit an exclusion the ICP actually states. Do not invent disqualifiers.\n` +
+    `- FIRMOGRAPHIC vs SEMANTIC exclusion — pick the right feature:\n` +
+    `   • If a firmographic value cleanly isolates the excluded kind WITHOUT ` +
+    `catching anyone you include (e.g. exclude a whole country, or an industry you ` +
+    `never sell to), bind the disqualifier to that feature (country/industry/` +
+    `company_type/size_band) with == or in.\n` +
+    `   • If it CANNOT be separated firmographically because an included kind shares ` +
+    `the same firmographics (e.g. ICP excludes "cold-calling agencies" but INCLUDES ` +
+    `"cold-email agencies" — both are company_type=agency / industry=marketing; or ` +
+    `excludes "pure branding agencies" while including other agencies), DO NOT bind ` +
+    `it to a firmographic feature (that would nuke your real ICP). Instead emit a ` +
+    `SEMANTIC exclusion: feature "exclusion.<snake_case_key>", op "exists", ` +
+    `disqualify true, and a label that DESCRIBES the excluded kind precisely (a ` +
+    `website-reading pass classifies each account against that description). ` +
+    `One exclusion.<key> per stated semantic exclusion.\n` +
+    `   A too-broad firmographic disqualifier that nukes your real ICP is far worse ` +
+    `than a semantic one — when in doubt, go semantic.\n\n` +
     `Each signal has:\n` +
     `- key: short snake_case id\n- label: one plain sentence that restates the ` +
-    `ICP's own specifics (e.g. "1-20 employees", not "small company")\n` +
-    `- weight: integer 1-10, higher = more predictive of fit\n` +
+    `ICP's own specifics (e.g. "1-20 employees", not "small company"; ` +
+    `"cold-calling agencies — not a fit" for an exclusion)\n` +
+    `- weight: integer -10..10. Positive = inclusion (higher = more predictive of ` +
+    `fit). Negative = exclusion.\n` +
+    `- disqualify: true ONLY on a hard exclusion (omit otherwise)\n` +
     `- rule: how it fires on a lead's features — ` +
     `{ "feature": <name>, "op": <operator>, "value": <value> }\n\n` +
     `Available features: ${FEATURE_VOCAB}\n` +
     `Operators: ==, !=, >=, <=, >, <, in, exists, scaled. For "in", value is an ` +
     `array. For any signal.* feature ALWAYS use "scaled" with value = the floor ` +
-    `(min 0-10 score to count, e.g. 5); never use exists/in on a signal.* feature.\n\n` +
+    `(min 0-10 score to count, e.g. 5); never use exists/in on a signal.* feature, ` +
+    `and never put disqualify on a signal.* feature.\n\n` +
     `Respond with ONLY a JSON array, no prose.`;
 
   const msg = await anthropic.messages.create({
@@ -129,12 +181,21 @@ export async function seedScorecardFromMemory(supabase, workspaceId, { force = f
 
   const signals = (Array.isArray(parsed) ? parsed : [])
     .slice(0, 12)
-    .map(s => ({
-      key: String(s.key || '').trim().slice(0, 60),
-      label: String(s.label || '').trim().slice(0, 200),
-      weight: Math.max(1, Math.min(10, Math.round(Number(s.weight) || 3))),
-      rule: normalizeScorecardRule(s.rule),
-    }))
+    .map(s => {
+      const rule = normalizeScorecardRule(s.rule);
+      // Allow negatives now (exclusions). Default to a positive inclusion weight;
+      // a disqualifier with a non-negative weight is forced negative so it always
+      // reads as a detractor even if the model mislabels the sign.
+      let weight = Math.max(-10, Math.min(10, Math.round(Number(s.weight) || 3)));
+      if (rule.disqualify && weight >= 0) weight = -8;
+      if (weight === 0) weight = rule.disqualify ? -8 : 1;
+      return {
+        key: String(s.key || '').trim().slice(0, 60),
+        label: String(s.label || '').trim().slice(0, 200),
+        weight,
+        rule,
+      };
+    })
     .filter(s => s.key && s.label && s.rule.feature);
 
   if (signals.length === 0) return { status: 'translation_failed', signals: [] };

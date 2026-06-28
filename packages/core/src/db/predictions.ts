@@ -84,22 +84,38 @@ export async function buildEntityFeatures(
   // Company signal.<class> claims, inherited by the person as graded numeric
   // features (signal.<class> = the 0–10 strength) so the scorecard can score on
   // them. Signals are company-level, so every person at the company inherits them.
+  // exclusion.<key> claims ride the same rails — a semantic disqualifier set by
+  // signal-scan (e.g. "this is a cold-calling agency") that firmographics can't
+  // express. Inherited as a present feature so the disqualifier's `exists` rule
+  // fires and caps the whole buying committee out, not just one person.
   const companySignals: Record<string, number> = {};
+  const companyExclusions: Record<string, unknown> = {};
   if (companyId) {
     const allCompanyClaims = await getClaims(supabase, workspaceId, companyId);
     const companyFeatureClaims = allCompanyClaims.filter(c => COMPANY_FEATURES.includes(c.property));
     claims = [...personClaims, ...companyFeatureClaims];
     for (const c of allCompanyClaims) {
-      if (!c.property.startsWith('signal.')) continue;
-      const v = c.value as { score?: unknown } | null;
-      const sc = typeof v?.score === 'number' ? v.score : null;
-      if (sc != null) companySignals[c.property] = sc;
+      if (c.property.startsWith('signal.')) {
+        const v = c.value as { score?: unknown } | null;
+        const sc = typeof v?.score === 'number' ? v.score : null;
+        if (sc != null) companySignals[c.property] = sc;
+      } else if (c.property.startsWith('exclusion.')) {
+        // Only a positive match excludes — a `matched:false` claim (an explicit
+        // "checked, not excluded") must NOT make the `exists` rule fire.
+        const v = c.value as { matched?: unknown } | null;
+        if (v?.matched !== false) companyExclusions[c.property] = c.value ?? true;
+      }
     }
   }
 
   const { features, snapshot } = buildSnapshot(claims);
   // Merge the inherited company signals as numeric strength features.
   for (const [k, v] of Object.entries(companySignals)) {
+    features[k] = v;
+    snapshot[k] = { value: v, confidence: 1 };
+  }
+  // Merge inherited exclusion flags — present = the disqualifier fires.
+  for (const [k, v] of Object.entries(companyExclusions)) {
     features[k] = v;
     snapshot[k] = { value: v, confidence: 1 };
   }

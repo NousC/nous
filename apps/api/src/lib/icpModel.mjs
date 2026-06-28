@@ -150,7 +150,11 @@ export function renderIcpBlock(model, { syncedAt } = {}) {
   }
 
   const drivers = model.signals.filter(s => s.weight > 0).sort((a, b) => b.weight - a.weight);
-  const detractors = model.signals.filter(s => s.weight < 0).sort((a, b) => a.weight - b.weight);
+  // Hard exclusions ("who we are NOT") are pulled out of the detractors so they
+  // read as a distinct, decisive list in the user's file — not lumped with the
+  // soft loss-drivers the learning loop discovers.
+  const exclusions = model.signals.filter(s => s.rule?.disqualify);
+  const detractors = model.signals.filter(s => s.weight < 0 && !s.rule?.disqualify).sort((a, b) => a.weight - b.weight);
   const n = model.calibration?.won != null ? (model.calibration.won + model.calibration.lost) : 0;
   const dealsNote = model.has_outcomes ? `, ${n} closed deal${n === 1 ? '' : 's'}` : '';
 
@@ -169,8 +173,13 @@ export function renderIcpBlock(model, { syncedAt } = {}) {
     lines.push('Win drivers:');
     for (const s of drivers) lines.push(row(s));
   }
-  if (detractors.length) {
+  if (exclusions.length) {
     if (drivers.length) lines.push('');
+    lines.push('Not a fit (hard exclusions — capped below Not-ICP):');
+    for (const s of exclusions) lines.push(row(s));
+  }
+  if (detractors.length) {
+    if (drivers.length || exclusions.length) lines.push('');
     lines.push('Loss drivers:');
     for (const s of detractors) lines.push(row(s));
   }

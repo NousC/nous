@@ -45,15 +45,22 @@ function ruleContribution(rule: ScorecardSignalRule | null | undefined, weight: 
   return ruleFires(rule, features) ? weight : 0;
 }
 
+// A disqualified account is hard-capped here — unambiguously below the Not-ICP
+// floor (tier_3 = 50) so an excluded account never lands in a worked tier no
+// matter how strong its positive signals are. Kept low (not 0) so the score
+// still reads as "scored, and excluded" rather than "never scored".
+export const EXCLUDED_SCORE_CEILING = 15;
+
 export interface ScoreResult {
   score: number;                                  // 0–100
   raw: number;                                    // summed weights, pre-rescale
-  fired: { key: string; weight: number }[];       // the signals that fired
+  fired: { key: string; weight: number }[];       // the signals that fired (+ or −)
+  excluded: { key: string }[];                    // disqualifying rules that fired
 }
 
 // Deterministic score: sum the weights of every active signal whose rule fires
-// on the lead's features, then rescale the catalog's [minRaw, maxRaw] span onto
-// 0–100. Pure — no DB, no model call.
+// on the lead's features (inclusions add, exclusions subtract), squash to 0–100,
+// then hard-cap if any disqualifier fired. Pure — no DB, no model call.
 export function scoreLead(
   features: Record<string, unknown> | null | undefined,
   signals: ScorecardSignal[],
@@ -63,13 +70,20 @@ export function scoreLead(
 
   let raw = 0;
   const fired: { key: string; weight: number }[] = [];
+  const excluded: { key: string }[] = [];
   for (const s of active) {
     const contrib = ruleContribution(s.rule, s.weight, f);
-    if (contrib > 0) {
+    // Fire on ANY non-zero contribution, not just positive ones — a negative
+    // signal (learned loss-driver, or an authored exclusion) has to be able to
+    // pull the score DOWN. The old `> 0` guard silently discarded every negative
+    // weight, so no detractor — discovered or authored — ever did anything.
+    if (contrib !== 0) {
       raw += contrib;
       // Report the rounded contribution so the reason reflects graded strength
       // (a half-strength signal shows as half its weight), not the nominal weight.
       fired.push({ key: s.key, weight: Math.round(contrib * 10) / 10 });
+      // A disqualifier that fired marks the account "not a fit" outright.
+      if (s.rule?.disqualify) excluded.push({ key: s.key });
     }
   }
 
@@ -79,9 +93,13 @@ export function scoreLead(
   // be both `bootstrapped` and `series_a`) — so each new signal inflated the
   // denominator and deflated every real account's score (the 92→6 collapse).
   // K=8 maps a single strong signal (±8) to ~73/27 and stacks from there; raw 0 → 50.
-  const score = Math.round(100 / (1 + Math.exp(-raw / 8)));
+  let score = Math.round(100 / (1 + Math.exp(-raw / 8)));
 
-  return { score: Math.max(0, Math.min(100, score)), raw, fired };
+  // Hard exclusion overrides the math: "who we are NOT" wins over any stack of
+  // positive signals. A disqualified account is pinned below the Not-ICP floor.
+  if (excluded.length) score = Math.min(score, EXCLUDED_SCORE_CEILING);
+
+  return { score: Math.max(0, Math.min(100, score)), raw, fired, excluded };
 }
 
 // A short, stable fingerprint of the active scoring model — the set of active
@@ -92,7 +110,7 @@ export function scoreLead(
 export function modelVersion(signals: ScorecardSignal[]): string {
   const active = signals
     .filter(s => s.active)
-    .map(s => `${s.key}:${s.weight}:${s.rule?.feature ?? ''}:${s.rule?.op ?? ''}:${JSON.stringify(s.rule?.value ?? null)}`)
+    .map(s => `${s.key}:${s.weight}:${s.rule?.feature ?? ''}:${s.rule?.op ?? ''}:${JSON.stringify(s.rule?.value ?? null)}:${s.rule?.disqualify ? 'x' : ''}`)
     .sort();
   let h = 5381;
   const str = active.join('|');
@@ -135,13 +153,17 @@ export function scoreToPrediction(
   features: Record<string, unknown>,
   signals: ScorecardSignal[],
 ): { score: number; fit: boolean; reason: string; fired: number; tier: IcpTier } {
-  const { score, fired } = scoreLead(features, signals);
+  const { score, fired, excluded } = scoreLead(features, signals);
   const fit = score >= 70;
   const tier = scoreTier(score)!;
-  const reason = fired.length
-    ? `Scorecard: ${fired.length} signal${fired.length === 1 ? '' : 's'} fired — ` +
-      fired.slice(0, 4).map(f => f.key).join(', ')
-    : 'Scorecard: no signals matched this profile';
+  // An excluded account leads with WHY it's out — the exclusion is the headline,
+  // not buried among the positives it also happened to fire.
+  const reason = excluded.length
+    ? `Excluded — not a fit: ${excluded.slice(0, 3).map(e => e.key).join(', ')}`
+    : fired.length
+      ? `Scorecard: ${fired.length} signal${fired.length === 1 ? '' : 's'} fired — ` +
+        fired.slice(0, 4).map(f => f.key).join(', ')
+      : 'Scorecard: no signals matched this profile';
   return { score, fit, reason, fired: fired.length, tier };
 }
 
@@ -171,14 +193,20 @@ export interface SeedSignalInput {
   rule: ScorecardSignalRule;
 }
 
-// Replace the whole Scorecard with a freshly translated seed set. Used at
-// cold-start; clobbers any existing signals, so the caller must gate this.
+// Re-seed the Scorecard from a freshly translated ICP. This replaces the
+// SEED-ORIGIN signals (added_in IS NULL) but PRESERVES what the learning loop
+// discovered (added_in set) — so editing the ICP (e.g. adding an exclusion) and
+// re-syncing never wipes the negatives/positives learned from real closed deals.
+// Upserts by key so a re-seeded signal that collides with a learned key updates
+// in place instead of erroring on the unique (workspace_id, key) constraint.
 export async function seedSignals(
   supabase: SupabaseClient,
   workspaceId: string,
   signals: SeedSignalInput[],
 ): Promise<ScorecardSignal[]> {
-  await supabase.from('scorecard_signals').delete().eq('workspace_id', workspaceId);
+  // Clear only prior seed-origin signals; learned ones (added_in not null) stay.
+  await supabase.from('scorecard_signals')
+    .delete().eq('workspace_id', workspaceId).is('added_in', null);
   if (signals.length === 0) return [];
 
   const payload = signals.map(s => ({
@@ -188,10 +216,11 @@ export async function seedSignals(
     weight: Math.round(s.weight),
     rule: s.rule ?? {},
     added_in: null,
+    active: true,
   }));
   const { data, error } = await supabase
     .from('scorecard_signals')
-    .insert(payload)
+    .upsert(payload, { onConflict: 'workspace_id,key' })
     .select(SIGNAL_COLUMNS);
   if (error) throw error;
   return (data || []) as unknown as ScorecardSignal[];

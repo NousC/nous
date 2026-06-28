@@ -179,6 +179,12 @@ export interface ScorecardSignalRule {
   // at all), so a 9/10 signal outranks a 6/10 instead of counting the same.
   op: '==' | '!=' | '>=' | '<=' | '>' | '<' | 'in' | 'exists' | 'scaled';
   value?: unknown;
+  // A disqualifier — "who we are NOT". When a disqualifying rule fires the
+  // account is hard-capped into Not-ICP no matter how many positive signals it
+  // also fires (a branding agency that happens to be 2–20 people is still out).
+  // Authored from the ICP's exclusions, not learned. Carries a negative weight
+  // too, but the cap — not the weight — is what makes it decisive.
+  disqualify?: boolean;
 }
 
 export interface ScorecardSignal {

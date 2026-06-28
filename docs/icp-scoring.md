@@ -172,6 +172,21 @@ Three properties make the tier more than a label:
 
 > **On the roadmap.** Per-workspace threshold overrides (the bands are defaults today), tier-filter chips and tier-sort on the list, and **override-to-learn** — a manual tier change is a labeled training signal with the same plumbing as a closed-won outcome (§6), so correcting the model teaches it.
 
+### Exclusions — "who we are NOT"
+
+Inclusions say who you sell to; **exclusions** say who you refuse, and they have to *win* over a strong-looking profile. A 2–20-person agency that also happens to be a pure branding/messaging shop matches your firmographics and would score high on positives alone — but if "no branding agencies" is part of your ICP, it must come out **Not-ICP regardless**.
+
+That is what a **disqualifier** does. An exclusion is an ordinary scorecard signal carrying `disqualify: true` on its rule and a negative weight. When its rule fires, `scoreLead` (`scorecard.ts`) **hard-caps the score at `EXCLUDED_SCORE_CEILING` (15)** — below the Not-ICP floor — no matter how many positive signals also fired, and the prediction's reason leads with *why* ("Excluded — not a fit: …"). The cap, not the weight, is what makes it decisive.
+
+Two design points:
+
+- **Negatives actually subtract now.** The scorer sums every firing signal's contribution whether positive *or* negative (the earlier `contrib > 0` guard silently discarded all negatives, so neither an authored exclusion nor a learned loss-driver ever moved a score). A non-disqualifying negative weight is the *soft* version — it pulls the score down but can be outvoted; a disqualifier is the *hard* version that caps.
+- **Exclusions are authored, from the ICP prose.** Unlike the loss-drivers the loop *learns* from outcomes (§7), exclusions are stated by you. `seedScorecardFromMemory` (`scorecardSeed.mjs`) reads any "not a fit / we don't work with / avoid" language in your ICP and emits a disqualifying signal per stated exclusion. It picks the binding by separability:
+  - **Firmographic exclusion** — when a feature value cleanly isolates the excluded kind (a whole `country`, an `industry` you never sell to), bind to that feature with `==`/`in`. Reliable wherever enrichment populates the feature.
+  - **Semantic exclusion** — when an *included* kind shares the same firmographics (the canonical trap: exclude **cold-calling** agencies while **cold-email** agencies are your lead ICP — both are `company_type=agency` / `industry=marketing`), a firmographic rule would nuke your real ICP. So the seed binds instead to a semantic feature **`exclusion.<key>`** (op `exists`, `disqualify`), and the disqualifier stays dormant until a website read decides it.
+
+  The semantic layer closes the loop: **`get_exclusions`** serves the active `exclusion.*` disqualifiers (key + description) to **signal-scan**, which reads each company's site, judges it against each description, and records `exclusion.<key>` on the **company** via **`flag_exclusion`** when it genuinely matches. That claim is inherited by every person at the company (the same rail as `signal.*` in `buildEntityFeatures`), so the `exists` rule fires and the whole buying committee is capped Not-ICP — a cold-caller is out, a cold-emailer keeps its score. Exclusions render in the write-back block (§9) under **"Not a fit (hard exclusions)"**, so the file you maintain shows who you've ruled out. And re-seeding is non-destructive — `seedSignals` clears only seed-origin rows (`added_in IS NULL`) and upserts, so editing your exclusions never wipes what the loop learned from real deals.
+
 ---
 
 ## 6. Win/loss resolution — closing the loop
@@ -239,7 +254,7 @@ A brand-new workspace has no resolved predictions, so there is nothing to learn 
 3. **Discover** — contrastive lift over the cohort; or, when there are too few deals for lift to mean anything, a winner-signal fallback proposes what your winners share (with an honest "sharpens as more deals close" note).
 4. **Surface** — the closed-deal companies are scored and resolved, so they appear in the analyzed table as real won/lost rows.
 
-This is also where the model is first **seeded** from your plain-English ICP: `seedScorecardFromMemory` (`apps/api/src/lib/scorecardSeed.mjs`) translates your GTM Context (ICP / Market / Product / Pricing / Positioning) into 4–8 weighted inclusion signals via Haiku, under a strict prompt — *preserve stated numbers exactly* ("1–20 employees" → `employee_count <= 20`, never loosened), map descriptors to the tightest faithful rule, invent nothing. The learning loop then sharpens that seed and adds the negative signals from real outcomes.
+This is also where the model is first **seeded** from your plain-English ICP: `seedScorecardFromMemory` (`apps/api/src/lib/scorecardSeed.mjs`) translates your GTM Context (ICP / Market / Product / Pricing / Positioning) into 4–8 weighted inclusion signals — *plus a disqualifying exclusion for each "not a fit" the ICP states* (§5) — via Haiku, under a strict prompt: *preserve stated numbers exactly* ("1–20 employees" → `employee_count <= 20`, never loosened), map descriptors to the tightest faithful rule, invent nothing (including: never invent an exclusion the ICP didn't state). The learning loop then sharpens that seed and adds the *soft* negative signals it discovers from real outcomes.
 
 ---
 

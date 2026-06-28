@@ -399,6 +399,79 @@ export function createServer() {
   );
 
   // ===========================================================================
+  // TOOL: get_exclusions  —  GET /v2/workspace/exclusions
+  // The workspace's SEMANTIC exclusions ("who we are NOT") that a website read has
+  // to judge — the cases firmographics can't separate (a cold-CALLING agency vs the
+  // cold-EMAIL agencies we want). signal-scan reads this once, classifies each
+  // company's site against every description, and flags the matches.
+  // ===========================================================================
+  server.tool(
+    "get_exclusions",
+    "List the workspace's semantic exclusions — the 'not a fit' kinds of company that must be judged from " +
+    "their website (firmographics can't tell them apart from the ICP, e.g. a cold-calling agency vs a " +
+    "cold-email agency). Each is { key, description }. signal-scan calls this ONCE, then for each account " +
+    "decides whether the company matches each description and calls flag_exclusion on the matches — which " +
+    "caps that account's ICP score to Not-ICP. Returns nothing if the ICP states no semantic exclusions.",
+    {},
+    async () => {
+      const r = await get("/v2/workspace/exclusions");
+      const ex = r.exclusions ?? [];
+      if (!ex.length) {
+        return { content: [{ type: "text", text:
+          "No semantic exclusions set. (The ICP states none, or its exclusions are firmographic and already " +
+          "scored directly.) Nothing to classify — scan signals as usual." }] };
+      }
+      const lines = [
+        `${ex.length} exclusion${ex.length === 1 ? "" : "s"} to judge each account against — if a company matches one, call flag_exclusion(focus=<domain>, key=<key>, matched=true, …):`,
+        ...ex.map(e => `  • ${e.key} — ${e.description}`),
+      ];
+      return { content: [{ type: "text", text: lines.join("\n") }] };
+    }
+  );
+
+  // ===========================================================================
+  // TOOL: flag_exclusion  —  records an exclusion.<key> claim on the COMPANY
+  // The semantic counterpart of record_signal: a website-read verdict that the
+  // company IS (or is not) one of the "not a fit" kinds. A match caps every person
+  // at that company to Not-ICP (the exclusion is inherited like a company signal).
+  // ===========================================================================
+  server.tool(
+    "flag_exclusion",
+    "Record whether a company matches one of the workspace's semantic exclusions (from get_exclusions), " +
+    "judged from its website. Writes an exclusion.<key> fact on the COMPANY (focus = the DOMAIN, not a " +
+    "person), inherited by everyone there: a match (matched=true) HARD-CAPS their ICP score to Not-ICP no " +
+    "matter how well they fit otherwise. Only flag a genuine match — be conservative, since this suppresses " +
+    "the whole account. Pass matched=false to explicitly clear a prior wrong flag. Give the evidence you saw.",
+    {
+      focus: z.string().describe("The company DOMAIN (e.g. acme.com) or company entity UUID — never a person email."),
+      key: z.string().describe("The exclusion key from get_exclusions (e.g. cold_calling_agency)."),
+      matched: z.boolean().describe("true = the company IS this excluded kind (caps it Not-ICP); false = explicitly not (clears any prior flag)."),
+      confidence: z.number().min(0).max(10).optional().describe("How sure you are, 0-10."),
+      evidence: z.string().optional().describe("The specific website evidence for the verdict, e.g. 'homepage sells cold-call/dialer campaigns, no email'."),
+    },
+    async ({ focus, key, matched, confidence, evidence }) => {
+      const cleanKey = String(key).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+      const result = await post("/v2/observations", {
+        focus,
+        observations: [{
+          kind: "state",
+          property: `exclusion.${cleanKey}`,
+          value: { matched, confidence: confidence ?? null, evidence: evidence ?? null },
+          source: "signal-scan",
+        }],
+      });
+      return {
+        content: [{
+          type: "text",
+          text: matched
+            ? `Flagged ${result.entity_id || focus} as EXCLUDED (${cleanKey}) — capped to Not-ICP.`
+            : `Cleared exclusion ${cleanKey} on ${result.entity_id || focus}.`,
+        }],
+      };
+    }
+  );
+
+  // ===========================================================================
   // TOOL: query  —  POST /v2/query
   // Retrieve a corpus of activity across many people. You do the analysis.
   // ===========================================================================
@@ -986,6 +1059,10 @@ export function createServer() {
     "If one file holds several sections under headers, split it by header into multiple entries. " +
     "Nous keeps a served copy of the prose and rebuilds the ICP scoring model from it; " +
     "the recorded source_path is what get_icp_model writes the learned model back into. " +
+    "INCLUDE EXCLUSIONS: if the ICP names who they will NOT work with (e.g. 'not cold-calling " +
+    "agencies', 'no pure branding/messaging shops'), keep that text IN the ICP section — Nous turns " +
+    "each stated exclusion into a hard disqualifier that caps those accounts below Not-ICP, even when " +
+    "they also match the firmographics. So a 'Not a fit' list in icp.md actively lowers their score. " +
     "IF NO ICP FILES EXIST: don't invent context in Nous. Offer to SCAFFOLD a context/ folder in their " +
     "repo — context/icp.md, positioning.md, pricing.md, market.md, competitors.md, gtm-motion.md — " +
     "filled from what the user tells you plus your own research of their website (write them with your " +
