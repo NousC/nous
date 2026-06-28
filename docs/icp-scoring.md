@@ -34,13 +34,18 @@ The score is a pure, deterministic function — `scoreLead` (`packages/core/src/
 let raw = 0;
 for (const s of signals.filter(s => s.active)) {
   const contrib = ruleContribution(s.rule, s.weight, features); // binary OR graded
-  if (contrib > 0) { raw += contrib; fired.push({ key: s.key, weight: contrib }); }
+  if (contrib !== 0) {                       // fire on ANY non-zero — negatives subtract
+    raw += contrib; fired.push({ key: s.key, weight: contrib });
+    if (s.rule.disqualify) excluded.push({ key: s.key });
+  }
 }
 // Logistic squash. K=8 maps a single strong signal (±8) to ~73/27; raw 0 → 50.
-const score = Math.round(100 / (1 + Math.exp(-raw / 8)));
+let score = Math.round(100 / (1 + Math.exp(-raw / 8)));
+// A fired disqualifier hard-caps the account below Not-ICP (§5), positives notwithstanding.
+if (excluded.length) score = Math.min(score, EXCLUDED_SCORE_CEILING); // 15
 ```
 
-A **signal** is `{ rule: feature OP value, weight: −10..10 }` — e.g. `industry == fintech → +6`, `pipe.touches_band == 10+ → −4`. The supported operators are `exists, ==, !=, >=, <=, >, <, in, scaled`. `score >= 70` is the fit threshold (`scoreToPrediction`).
+A **signal** is `{ rule: feature OP value, weight: −10..10 }` — e.g. `industry == fintech → +6`, `pipe.touches_band == 10+ → −4`. The supported operators are `exists, ==, !=, >=, <=, >, <, in, scaled, contains_any` (the last matches exclusion terms against the `keywords`/`description` text). A rule may carry `disqualify: true` to hard-cap rather than just subtract (§5). `score >= 70` is the fit threshold (`scoreToPrediction`). The guard is `contrib !== 0`, not the old `> 0` — that bug silently discarded every negative weight, so no detractor (learned *or* authored) ever moved a score.
 
 ### Binary vs graded (`ruleContribution`)
 
@@ -68,9 +73,10 @@ A good ICP is the intersection of *who they are*, *how they operate*, and *how t
 
 | Layer | Examples | Source |
 | --- | --- | --- |
-| **A — Firmographics** (who they are) | `industry`, `employee_count`, `size_band`, `funding_stage`, `country`, `company_type` | website extractor + enrichment (Apollo / Prospeo) |
+| **A — Firmographics** (who they are) | `job_title`, `seniority`, `department`, `industry` (which carries the company *type* too), `employee_count`, `country` — plus the descriptive text `keywords` (array) + `description` that exclusions match with `contains_any` | website extractor + enrichment (Apollo / Prospeo) |
 | **B — Buying signals** (how they operate / why now) | The canonical 6 classes, each a **0–10 strength**: `signal.domain`, `signal.friction`, `signal.hiring`, `signal.momentum`, `signal.stack`, `signal.intent` | signal-scan + content-scan, recorded on the **company** entity |
 | **C — Pipeline & engagement** (how the deal went) | `pipe.lead_source`, `pipe.channel`, `pipe.inbound`, `pipe.replied`, `pipe.meetings_band`, `pipe.touches_band` | the activity log (`pipelineFeatures`) |
+| **(D) — Exclusion flags** (who we are NOT) | `exclusion.<key>` — a semantic disqualifier set by a website read (signal-scan) | recorded on the **company**, inherited like a signal (§5) |
 
 The full vocabulary lives in `FEATURE_VOCAB` (`apps/api/src/lib/scorecardSeed.mjs`) — it is the contract between the signal translator, the discovery engine, and the scorer.
 
@@ -78,7 +84,7 @@ The full vocabulary lives in `FEATURE_VOCAB` (`apps/api/src/lib/scorecardSeed.mj
 
 Layer A/B start with **enrichment** (`apps/api/src/services/enrichment.mjs`): per contact, Nous tries Apollo BYOK → Prospeo BYOK → the platform Prospeo key for job title, seniority, department, and company info (see [Enrichment Waterfall](./enrichment-waterfall.md)). Enriched attributes are written as **observations tagged with their true source**, never flattened onto the record — so a value's origin survives for the claim engine. Layer C is derived live from the entity's `interaction.*` observations by `pipelineFeatures`.
 
-`buildEntityFeatures` (`packages/core/src/db/predictions.ts`) is the single feature-extraction path shared by the first score and every re-score, so the two never drift. It reads the person's own claims, follows the `works_at` edge to merge the employer's company-level claims, inherits the company's **buying signals** as graded numeric features (each `signal.<class>` claim becomes `signal.<class> = its 0–10 score`), and folds in the pipeline features. Signals live on the **company**, so every person at that company inherits the same signal strength into their own score — score the company's friction once and the whole buying committee re-scores.
+`buildEntityFeatures` (`packages/core/src/db/predictions.ts`) is the single feature-extraction path shared by the first score and every re-score, so the two never drift. It reads the person's own claims, follows the `works_at` edge to merge the employer's company-level claims, inherits the company's **buying signals** as graded numeric features (each `signal.<class>` claim becomes `signal.<class> = its 0–10 score`), inherits its **`keywords` / `description` text and any `exclusion.*` flag**, and folds in the pipeline features. These all live on the **company**, so every person at that company inherits them — score the company's friction (or flag its exclusion) once and the whole buying committee re-scores (§5).
 
 The signal taxonomy is **locked**. The six classes above are the only `signal.*` features the model may reference; `normalizeScorecardRule` (`apps/api/src/lib/scorecardSeed.mjs`) enforces this on every seed — it repairs the nested `{ feature: { op, value } }` rule shape to flat `{ feature, op, value }`, forces any `signal.*` rule to the `scaled` op, and drops `signal.*` rules that name an unknown class. This closes the failure mode where a model was seeded with signal keys signal-scan never produces (so no rule ever fired and every account scored a flat 50).
 
@@ -143,7 +149,7 @@ When the score *doesn't* move, the row is **restamped** (model version / snapsho
 
 `icpFit` (`apps/api/src/lib/icpFit.mjs`) returns `{ score, fit, tier, reason, scored_at, history, outcome_score }` to agents through `get_context` / `get_account` — so an agent sees not just *who you sell to* but *whether this specific account is one of them, what to do about it* (`tier`, see §5), *how confident, and how that fit has evolved* (`history` is the full trail of prior `{ score, reason, at }` entries).
 
-The split is deliberate: the **UI shows only the current score** (the person record's headline) — a single, calm number, not a changelog. The **history lives in the data for agents** to read and reason over. An agent prepping outreach can see "was 87, dropped to 75 after 30 days quiet, back to 91 when they hired a RevOps lead" and act on the *trajectory*; the human just sees `91`.
+Both the human and the agent see the trajectory. The **contact record** (`PeopleDetail`, `People.tsx`) renders, under the headline score, the **tier badge + recommended play**, the **reason** the score is what it is ("Excluded — not a fit: …" / "3 signals fired — …"), and the **dated history trail** with per-step deltas — read straight from `prediction.history` (the `/api/contacts/:id` endpoint already returns it). The list surfaces stay calm — a single number + tier — but on the record you can see "was 87, dropped to 75 after 30 days quiet, back to 91 when they hired a RevOps lead" and act on the *trajectory*; the agent reads the same trail via `get_account`.
 
 > **In progress.** The `reason` on each entry is currently the signal-list summary from `scoreToPrediction` ("3 signals fired — …"). The richer per-line attribution in the Yusuf trail ("+ signal.friction (9/10)", "title: Founder → Founder & raised seed") is computed from the `feature_snapshot` diff between consecutive entries — surfacing that diff *as* the reason is the active refinement, and the data to produce it (both snapshots) is already stored on every history step.
 
@@ -168,9 +174,9 @@ Three properties make the tier more than a label:
 
 **It's per person, and dynamic.** Because tiers ride on the per-person prediction (§4), a founder and their SDR at the same account land in different tiers — you work the founder by hand and skip the IC. And because the score re-scores on new evidence, a Tier 3 account that posts a buying signal (`signal.intent` from content-scan) crosses the threshold and **auto-promotes to Tier 2** — the continuous loop turned into a queue change, not just a number nudge.
 
-**It drives the motion, everywhere.** The tier surfaces on the person record (a badge + its recommended play), as a column on every lead list, and in the agent surface (`get_context` / `get_account` return it). The `abm-operator` agent routes by it: Tier 1 hand-prepped, Tier 2 drafted and queued, Tier 3 nurtured, Not-ICP suppressed — so "who do I work today, and how" is answered by the same model that scores them.
+**It drives the motion, everywhere.** The tier surfaces on the person record (a badge + its recommended play), as a column — with tier-filter chips and tier-sort — on both the **lead list** *and* the **People / Accounts page**, and in the agent surface (`get_context` / `get_account` return it). All three read **one source**: `fetchIcpByEntity` (`icpFit.mjs`) overlays the live prediction's `score` + `tier` at read time, so no surface can show a different number than the record (it replaced the stale v1 `contacts.icp_score` the People page used to read). The `abm-operator` agent routes by it: Tier 1 hand-prepped, Tier 2 drafted and queued, Tier 3 nurtured, Not-ICP suppressed — so "who do I work today, and how" is answered by the same model that scores them.
 
-> **On the roadmap.** Per-workspace threshold overrides (the bands are defaults today), tier-filter chips and tier-sort on the list, and **override-to-learn** — a manual tier change is a labeled training signal with the same plumbing as a closed-won outcome (§6), so correcting the model teaches it.
+> **On the roadmap.** Per-workspace threshold overrides (the bands are defaults today), server-side tier filter/sort across the *whole* contact book (the People page filters the loaded set today, like its other filters), and **override-to-learn** — a manual tier change is a labeled training signal with the same plumbing as a closed-won outcome (§6), so correcting the model teaches it.
 
 ### Exclusions — "who we are NOT"
 
@@ -181,11 +187,12 @@ That is what a **disqualifier** does. An exclusion is an ordinary scorecard sign
 Two design points:
 
 - **Negatives actually subtract now.** The scorer sums every firing signal's contribution whether positive *or* negative (the earlier `contrib > 0` guard silently discarded all negatives, so neither an authored exclusion nor a learned loss-driver ever moved a score). A non-disqualifying negative weight is the *soft* version — it pulls the score down but can be outvoted; a disqualifier is the *hard* version that caps.
-- **Exclusions are authored, from the ICP prose.** Unlike the loss-drivers the loop *learns* from outcomes (§7), exclusions are stated by you. `seedScorecardFromMemory` (`scorecardSeed.mjs`) reads any "not a fit / we don't work with / avoid" language in your ICP and emits a disqualifying signal per stated exclusion. It picks the binding by separability:
-  - **Firmographic exclusion** — when a feature value cleanly isolates the excluded kind (a whole `country`, an `industry` you never sell to), bind to that feature with `==`/`in`. Reliable wherever enrichment populates the feature.
-  - **Semantic exclusion** — when an *included* kind shares the same firmographics (the canonical trap: exclude **cold-calling** agencies while **cold-email** agencies are your lead ICP — both are `company_type=agency` / `industry=marketing`), a firmographic rule would nuke your real ICP. So the seed binds instead to a semantic feature **`exclusion.<key>`** (op `exists`, `disqualify`), and the disqualifier stays dormant until a website read decides it.
+- **Exclusions are authored, from the ICP prose.** Unlike the loss-drivers the loop *learns* from outcomes (§7), exclusions are stated by you. `seedScorecardFromMemory` (`scorecardSeed.mjs`) reads any "not a fit / we don't work with / avoid" language in your ICP and emits a disqualifying signal per stated exclusion. It picks the binding cheapest-first, a **three-tier ladder**:
+  - **1. Firmographic** — when a feature value cleanly isolates the excluded kind (a whole `country`, an `industry` you never sell to), bind to that feature with `==`/`in`. Fires at score time, no extra work, wherever enrichment populates the feature.
+  - **2. Keyword / text** — when an *included* kind shares the same firmographics (the canonical trap: exclude **cold-calling** agencies while **cold-email** agencies are your lead ICP — both are `industry=agency`), a firmographic rule would nuke your real ICP. So the seed emits a **`keywords contains_any [terms]`** disqualifier instead: high-precision terms the excluded kind's enrichment text carries but the included kind doesn't (`cold calling`, `telemarketing`, `dialer` — not `appointment setting`). This is the **automatic** layer: it fires at score time off the descriptive `keywords`/`description` text **Apollo/Prospeo already return** (we now capture it onto the company entity — `captureCompanyKeywords` in `enrichment.mjs` — having previously dropped it), so most cold-callers are caught with **no website read**.
+  - **3. Semantic (website read)** — the backstop for what keywords miss. The seed also emits a **`exclusion.<key>`** (op `exists`, `disqualify`) that stays dormant until **signal-scan** reads the site, judges it against the exclusion's description (shown in the `get_icp_model` write-back block under "Not a fit"), and on a genuine match records `exclusion.<key>` on the company with the ordinary **`record`** tool — **no new MCP tools**.
 
-  The semantic layer closes the loop **without any new tools** — it rides the ones already there. The learned-model write-back block (§9, `get_icp_model`) renders each exclusion under **"Not a fit (hard exclusions)"** with its `exclusion.<key>` shown. **signal-scan** already loads that block as its lens, so it reads the exclusions from there, judges each company's site against each description, and when one genuinely matches it records `exclusion.<key>` on the **company** with the ordinary **`record`** tool (`{kind:'state', property:'exclusion.<key>', value:{matched:true}}`). That claim is inherited by every person at the company (the same rail as `signal.*` in `buildEntityFeatures`), so the `exists` rule fires and the whole buying committee is capped Not-ICP — a cold-caller is out, a cold-emailer keeps its score. The same block is how you **see** your exclusions in the file you maintain. And re-seeding is non-destructive — `seedSignals` clears only seed-origin rows (`added_in IS NULL`) and upserts, so editing your exclusions never wipes what the loop learned from real deals.
+  `contains_any` (a new operator in `scoreLead`) and `exclusion.*` claims are both **inherited from the company to every person** (the same `works_at` rail as `signal.*` in `buildEntityFeatures`), so a flagged cold-caller caps the whole buying committee — and because a signal/exclusion on the company drives the *people's* scores, recording one now **fans out and re-scores every person at that company immediately** (`rescoreCompanyMembers`, wired into the sync write-path and the claim-engine worker), not on the next nightly pass. The chosen policy is that a keyword match **hard-caps** (the seed forces `disqualify` on any negative `keywords` rule, since the LLM emits it inconsistently). Re-seeding is non-destructive — `seedSignals` clears only seed-origin rows (`added_in IS NULL`) and upserts, so editing your exclusions never wipes what the loop learned from real deals. The honest limit: a semantic/keyword exclusion only *acts* once an account is enriched (keywords) or scanned (website) — already-scored accounts drop on their next enrichment/scan, because "is this a cold-caller?" doesn't exist in the data until something reads it.
 
 ---
 
@@ -263,7 +270,7 @@ This is also where the model is first **seeded** from your plain-English ICP: `s
 The model doesn't learn in a vacuum; it starts from what you tell it. The **GTM Context** page (`apps/frontend/src/pages/Intelligence.tsx`, route `/intelligence`, labelled "GTM Context") is the workspace's source of truth about *your* business — ICP, Market, Product, Pricing, Competitors, Positioning, GTM Motion, Notes. Each field is a `claim` carrying a subject slot, a confidence, and a source (`you` edited it, `site` drafted it, `Claude` wrote it back).
 
 - **It evolves, it doesn't pile up.** Re-stating a fact in a slot *supersedes* the old value (kept as history) rather than duplicating. Stale or AI-drafted fields are flagged "worth revisiting."
-- **Agents read and write it both ways.** `get_gtm_profile` / `get_context` read it; `update_gtm_profile` writes durable changes back. The Context is the seed for the ICP model (§7).
+- **Agents read and write it both ways.** `get_gtm_profile` / `get_context` read it; durable changes are written back by syncing the user's own files — **`get_icp`** for ICP/context, **`sync_playbook`** for a playbook, **`set_workspace_profile`** at onboarding (the old `update_gtm_profile` tool was retired in favour of the file-sync model). The Context is the seed for the ICP model (§7).
 
 ### ICP file symbiosis
 
@@ -273,6 +280,8 @@ A Claude Code user already keeps an `icp.md` (or `positioning.md`, `pricing.md`)
 - **`get_icp_model`** writes the *learned* model **back** into their file as a fenced `nous:icp` block (graph → file) — so the model the loop discovered lives in their repo, next to the ICP they wrote.
 
 The `/playbook` page mirrors the synced ICP read-only. The graph is the runtime-agnostic source of truth; the Claude Code file is an optional mirror.
+
+**An edit is inert until synced.** Editing `icp.md` does not change the score, the exclusions, or what other agents read until `get_icp` runs — the model is rebuilt *on sync*, not on file save. This is enforced two ways so an agent reliably does it: the `get_icp` / `sync_playbook` tool descriptions and the workspace guidance state it as a hard rule ("after ANY edit you MUST call `get_icp` this turn"), and the Nous Claude Code plugin ships a `PostToolUse` hook that fires on any edit of a context/ICP/playbook file and injects a sync reminder.
 
 ---
 
@@ -304,11 +313,10 @@ What an agent can do with all of this, through the MCP server (`apps/mcp/src/ser
 | --- | --- |
 | `get_context` / `get_account` | read an account's facts **plus** its ICP fit head (`icpFit`) |
 | `get_gtm_profile` | the workspace's ICP, market, pricing, positioning |
-| `update_gtm_profile` | write a durable GTM change back |
-| `get_icp` / `get_icp_model` | sync the user's ICP file in / write the learned model out |
+| `get_icp` / `get_icp_model` | sync the user's ICP file in (rebuilds the model) / write the learned model out |
 | `build_scoring_model` | translate GTM context into the weighted scorecard |
 | `get_playbook` / `sync_playbook` | read the policy rules / push a file edit up |
-| `record` / `record_signal` / `record_closed_deals` | feed evidence and outcomes back into the loop |
+| `record` / `record_signal` / `record_closed_deals` | feed evidence and outcomes back into the loop (an `exclusion.*` claim via `record` flags a semantic exclusion) |
 
 The discipline the org preferences enforce: read `get_gtm_profile` (and the relevant playbook) at the *start* of GTM work, act on the engineered record's ICP fit rather than a guess, and `record` what happened *after* — so the next score, and the next agent, start from the truth.
 
@@ -317,7 +325,8 @@ The discipline the org preferences enforce: read `get_gtm_profile` (and the rele
 ## 12. Honest limits
 
 - **The trail reason is signal-list-based today.** Each history entry's `reason` is the "N signals fired — …" summary, not yet the per-claim snapshot-diff attribution shown in the Yusuf trail. The diff data is stored on every step; surfacing it as the reason is the active refinement (§4).
-- **Two "current fit" stores still coexist.** `contacts.icp_score` (v1, for display) and the prediction-based fit. Collapsing them is deferred.
+- **Two "current fit" stores still coexist underneath.** The v1 `contacts.icp_score` column still exists, but every *read* surface (lead list, People page, contact record, agent tools) now overlays the prediction-based fit via `fetchIcpByEntity`, so the v1 column is no longer what anyone sees. Fully removing the column is deferred; the displayed score is unified.
+- **A semantic/keyword exclusion only acts once the account is enriched or scanned.** "Is this a cold-caller?" doesn't exist in the data until enrichment lands the keywords or signal-scan reads the site, so an already-scored account drops on its next enrichment/scan, not the instant you add the exclusion. Firmographic exclusions apply at score time with no such wait.
 - **Companies are scored only via the closed-deals flow** today, not by a general company-scoring worker; people are scored by `scoreEntities` and rolled up to the company as the max.
 - **Single-mention `signal.tech.*` is noisy at low deal counts** — the ≥4-deal threshold and volume weighting are what tame it as deals accumulate.
 - **Live vs. closed engagement differ.** Engagement features in a *live* prediction reflect engagement-so-far (frozen at scoring time); in a closed-deal episode they reflect the whole deal. The time-held-back calibration gate guards the difference.
@@ -337,9 +346,13 @@ The discipline the org preferences enforce: read `get_gtm_profile` (and the rele
 | Going quiet isn't mistaken for a loss | `no_opportunity` below the `interested` bar, excluded from learning | `outcomes.ts` |
 | A seeded model stays faithful to the stated ICP | strict "never loosen a threshold" translation prompt | `scorecardSeed.mjs` |
 | A change ships only if it generalises | accuracy gap + LLM carry-over, both fail-closed | `scorecardLoop.mjs` |
+| An authored exclusion wins over any stack of positives | a fired `disqualify` rule caps the score at `EXCLUDED_SCORE_CEILING` | `scorecard.ts` |
+| An exclusion never nukes a look-alike you *want* | seed binds it keyword/semantic (not firmographic) when an included kind shares the firmographics | `scorecardSeed.mjs` |
+| Editing your exclusions never wipes learned signals | re-seed clears only `added_in IS NULL` (seed-origin) rows | `scorecard.ts` (`seedSignals`) |
+| Every read surface shows the same fit as the record | one `fetchIcpByEntity` overlay feeds list + page + agent | `icpFit.mjs` |
 
 ---
 
 ## 14. What you get
 
-One evolving 0–100 fit score per person, computed from real firmographics, behaviour, and engagement — not a hand-applied tag. A dated trail that shows exactly what moved each score and when. A model that grades its own past bets against real won/lost outcomes and sharpens itself nightly, faithful to the ICP you wrote and the deals you actually close. And a context-and-playbook layer that every agent reads first, so the score, the rules, and the next action all draw on one engineered record instead of scattered guesses.
+One evolving 0–100 fit score per person — and its tier — computed from real firmographics, behaviour, and engagement, not a hand-applied tag. Who you sell to *and* who you refuse: exclusions you state in plain English become hard disqualifiers that cap the wrong accounts Not-ICP, caught firmographically, by enrichment keyword, or by a website read. A dated trail, on the record and to the agent, that shows exactly what moved each score and when. A model that grades its own past bets against real won/lost outcomes and sharpens itself nightly, faithful to the ICP you wrote and the deals you actually close. And one overlay feeding every surface, so the lead list, the People page, the contact record, and the agent all act on the same number.
