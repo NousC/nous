@@ -20,9 +20,3 @@ Grouped by area. Each group has a **start-here** doc; the rest are deep-dives.
 - [Claims (Intel)](./claims.md) — the durable claims Nous extracts from
   conversations: the controlled GTM taxonomy, the extraction pipeline, what is
   stored per claim, and how claims roll up into patterns across accounts.
-- [Claude org preferences](./claude-org-preferences.md) — route GTM work through
-  your Nous workspace by default.
-
-## Decisions (ADRs)
-- [0001 — Empower the agent, not the interface](./decisions/0001-empower-the-agent-not-the-interface.md)
-- [0002 — v1 tables as views over the v2 substrate](./decisions/0002-v1-tables-as-views-over-v2-substrate.md)

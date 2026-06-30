@@ -80,9 +80,3 @@ Each extracted claim is a row in `claims` with `property = note.<uuid>` and a JS
 ## 5. Querying claims
 
 The point of a controlled taxonomy is the questions it answers across accounts: which accounts share a pain, which champions prefer which channel, which accounts run a given competitor. As the taxonomy and entity tagging deepen, these become first-class filters on the `query` surface (see [Context Graph](./context-graph.md)).
-
----
-
-## 6. Where this is going
-
-Shipped today: the controlled taxonomy and `about`, enforced at extraction and on the manual write path, with the quality gate and dedup. On the roadmap, tracked internally: a first-class claim status (canonical, superseded, corroborated, synthesized), a real "became true" date rather than the record time, multi-entity mentions on a claim, a structural evidence chain from each claim back to the source observation, synthesized claims that fuse multiple sources, and cross-account pattern queries by category and mentioned entity.

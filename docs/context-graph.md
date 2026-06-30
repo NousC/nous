@@ -187,4 +187,3 @@ The loop closes through `record`. A reply, an open, a closed-won, a closed-lost 
 - [Claims (Intel)](./claims.md), the controlled GTM claim taxonomy and the extraction pipeline.
 - [ICP Scoring](./icp-scoring.md), the deterministic scorer and the learning loop.
 - [Intent Score](./intent-score.md), the second, decaying axis.
-- [Decisions (ADRs)](./decisions/), why the agent is empowered over the interface, and why v1 tables are views over the v2 substrate.
