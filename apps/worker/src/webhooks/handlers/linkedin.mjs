@@ -6,6 +6,7 @@
 import {
   getSupabaseClient, countActivities,
   resolveEntity, getOrCreateEntity, upsertIdentifier, isMemberUrnLinkedInUrl,
+  connectedLinkedinOwner, attributeRelationship, isEntityInternal,
 } from '@nous/core';
 import { logActivity } from '../../utils/activity.mjs';
 import { enqueueForRetry } from '../../utils/webhookInbox.mjs';
@@ -303,6 +304,7 @@ async function backfillLinkedInMessages(supabase, workspaceId, contactId, { link
     console.log(`[LINKEDIN_BACKFILL] fetched ${messages.length} messages for contact=${contactId}`);
 
     let logged = 0;
+    let maxAt = null;
     for (const msg of messages) {
       const msgId = msg.id || msg.provider_id || msg.message_id;
       if (!msgId) continue;
@@ -322,8 +324,18 @@ async function backfillLinkedInMessages(supabase, workspaceId, contactId, { link
         summary:     content.summary,
       });
       logged++;
+      if (!maxAt || occurredAt > maxAt) maxAt = occurredAt;
     }
     console.log(`[LINKEDIN_BACKFILL] done — contact=${contactId} logged=${logged}/${messages.length}`);
+
+    // Attribute the relationship to the rep whose LinkedIn this is (once for the
+    // whole chat, using the most recent message). Skip if the contact is internal.
+    if (logged > 0) {
+      const ownerUserId = await connectedLinkedinOwner(supabase, workspaceId, accountId);
+      if (ownerUserId && !(await isEntityInternal(supabase, workspaceId, contactId))) {
+        await attributeRelationship(supabase, workspaceId, contactId, ownerUserId, { at: maxAt || new Date().toISOString() });
+      }
+    }
   } catch (e) {
     console.error('[LINKEDIN_BACKFILL] error:', e.message);
   }
@@ -426,6 +438,19 @@ export async function handleLinkedIn(req, res, workspaceId) {
     return res.json({ ok: true, skipped: eventType });
   }
 
+  // Which rep's LinkedIn account this workspace is acting through — so every
+  // connect/message attributes the relationship to that member. Resolved once;
+  // null if no owner is set on the connection. Skips internal counterparts.
+  const liAccountId   = await getUnipileAccountId(supabase, workspaceId);
+  const liOwnerUserId = await connectedLinkedinOwner(supabase, workspaceId, liAccountId);
+  const attributeLI = async (contactId, at) => {
+    if (!liOwnerUserId || !contactId) return;
+    try {
+      if (await isEntityInternal(supabase, workspaceId, contactId)) return;
+      await attributeRelationship(supabase, workspaceId, contactId, liOwnerUserId, { at });
+    } catch (e) { console.warn('[LINKEDIN_WEBHOOK] attribute failed', e.message); }
+  };
+
   // Fall back to shape-detection for older webhook configs without explicit event field
   const isMessage  = eventType === 'message_received' || (!eventType && !!(body.message_id || body.chat_id));
   const isRelation = eventType === 'new_relation'     || (!eventType && !!(body.user_profile_url || body.user_full_name));
@@ -475,6 +500,7 @@ export async function handleLinkedIn(req, res, workspaceId) {
       rawData:     body,
       description: 'Connected on LinkedIn',
     });
+    await attributeLI(contact.id, body.timestamp ? new Date(body.timestamp).toISOString() : new Date().toISOString());
 
     // Update channels.linkedin.state = connected
     const { data: chRow } = await supabase.from('contacts').select('channels').eq('id', contact.id).single();
@@ -551,6 +577,7 @@ export async function handleLinkedIn(req, res, workspaceId) {
       description: content.description,
       summary:     content.summary,
     });
+    await attributeLI(contact.id, occurredAt);
 
     // channels.linkedin update — fire-and-forget
     setImmediate(async () => {

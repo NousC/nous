@@ -8,7 +8,7 @@
 // (The previous version read participants straight out of req.body, so every
 // real webhook AND every test event short-circuited to a silent no-op.)
 
-import { getSupabaseClient, saveDocument } from '@nous/core';
+import { getSupabaseClient, saveDocument, connectedAccountOwnerByEmail, attributeRelationship, isEntityInternal } from '@nous/core';
 import { logActivity } from '../../utils/activity.mjs';
 import { resolveMeetingContacts } from '../../utils/resolveMeeting.mjs';
 import { parseActionItems, recordActionItems } from '../../utils/actionItems.mjs';
@@ -188,6 +188,10 @@ export async function reprocessFireflies(supabase, workspaceId, body) {
     source:         'fireflies',
   });
 
+  // Which rep hosted this call — so each external attendee's relationship
+  // attributes to them. Resolved from the meeting host/organizer email.
+  const meetingOwnerUserId = await connectedAccountOwnerByEmail(supabase, workspaceId, hostEmail);
+
   let logged = 0;
   for (const contact of contacts) {
     const result = await logActivity(supabase, {
@@ -204,6 +208,15 @@ export async function reprocessFireflies(supabase, workspaceId, body) {
     });
     if (result) {
       logged++;
+      // Attribute the relationship to the hosting rep (skip internal attendees —
+      // a teammate on the call is not a relationship of the host).
+      if (meetingOwnerUserId) {
+        try {
+          if (!(await isEntityInternal(supabase, workspaceId, contact.id))) {
+            await attributeRelationship(supabase, workspaceId, contact.id, meetingOwnerUserId, { at: occurredAt });
+          }
+        } catch (e) { console.warn('[fireflies] attribute failed', e.message); }
+      }
       // ONE "Meeting notes" document per call: the digest (summary + action items
       // + keywords) on top, the full word-for-word transcript below. Kept in the
       // Notes tab, out of the timeline. Gated on `result` so webhook retries don't

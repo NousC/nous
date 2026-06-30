@@ -3,7 +3,7 @@
 // Update-only — never creates new contacts from meeting invitees.
 
 import { createHmac } from 'crypto';
-import { getSupabaseClient, saveDocument } from '@nous/core';
+import { getSupabaseClient, saveDocument, connectedAccountOwnerByEmail, attributeRelationship, isEntityInternal } from '@nous/core';
 import { logActivity } from '../../utils/activity.mjs';
 import { resolveMeetingContacts } from '../../utils/resolveMeeting.mjs';
 import { enqueueForRetry } from '../../utils/webhookInbox.mjs';
@@ -45,6 +45,11 @@ export async function reprocessFathom(supabase, workspaceId, payload) {
     .filter(i => i.is_external !== false)
     .map(i => ({ email: i.email, name: i.name || null }));
 
+  // The host is the internal invitee Fathom flags is_external:false — recover it
+  // so each external attendee's relationship attributes to the hosting rep.
+  const hostEmail = invitees.find(i => i.is_external === false)?.email || null;
+  const meetingOwnerUserId = await connectedAccountOwnerByEmail(supabase, workspaceId, hostEmail);
+
   const contacts = await resolveMeetingContacts(supabase, workspaceId, {
     startTime:      occurredAt,
     title,
@@ -74,6 +79,13 @@ export async function reprocessFathom(supabase, workspaceId, payload) {
     });
     if (result) {
       logged++;
+      if (meetingOwnerUserId) {
+        try {
+          if (!(await isEntityInternal(supabase, workspaceId, contact.id))) {
+            await attributeRelationship(supabase, workspaceId, contact.id, meetingOwnerUserId, { at: occurredAt });
+          }
+        } catch (e) { console.warn('[fathom] attribute failed', e.message); }
+      }
       // Keep the FULL notes as a document on the contact — the activity summary
       // is truncated to 500 chars. Gated on `result` so retries (which dedup the
       // activity) don't duplicate the document.
