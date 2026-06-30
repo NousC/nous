@@ -36,6 +36,9 @@ export interface Note {
   content: string;
   source: string;
   metadata: Record<string, unknown>;
+  /** The source observation(s) this claim was extracted/derived from. The
+   *  structural evidence chain back to the raw activity. Empty on manual/legacy rows. */
+  supporting_observation_ids: string[];
   /** Confidence in this fact, 0–1. 1 = user-asserted; <1 = inferred/drafted. */
   confidence: number;
   /** Stable slot a fact belongs to (e.g. 'playbook.pricing'); lets a new fact
@@ -53,7 +56,8 @@ export interface Note {
 
 const COLUMNS =
   'id, workspace_id, entity_id, property, value, ' +
-  'confidence, epistemic_class, freshness, valid_from, invalid_at, computed_at';
+  'confidence, epistemic_class, freshness, valid_from, invalid_at, computed_at, ' +
+  'supporting_observation_ids';
 
 function noteFromClaim(c: Record<string, unknown>): Note {
   const v = (c.value as Record<string, unknown> | null) ?? {};
@@ -67,6 +71,7 @@ function noteFromClaim(c: Record<string, unknown>): Note {
     content: (v.content as string) ?? '',
     source: (v.source as string) ?? 'manual',
     metadata: meta,
+    supporting_observation_ids: (c.supporting_observation_ids as string[]) ?? [],
     confidence: typeof c.confidence === 'number' ? (c.confidence as number) : 1,
     subject: (meta.subject as string) ?? null,
     superseded_by: (meta.superseded_by as string) ?? null,
@@ -147,6 +152,8 @@ export interface SaveNoteParams {
   metadata?: Record<string, unknown>;
   /** Stable slot this fact belongs to, so it can be superseded later. */
   subject?: string;
+  /** Source observation id(s) this claim was extracted from — the evidence chain. */
+  supportingObservationIds?: string[];
   /** 0–1. Defaults to 1 (user-asserted). Lower it for inferred/drafted facts. */
   confidence?: number;
 }
@@ -183,6 +190,7 @@ export async function saveNote(
       freshness: 'fresh',
       valid_from: now,
       computed_at: now,
+      supporting_observation_ids: params.supportingObservationIds ?? [],
     })
     .select(COLUMNS)
     .single();

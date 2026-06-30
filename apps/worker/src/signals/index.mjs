@@ -305,6 +305,9 @@ If nothing meaningful: []` }],
           category: normalizeClaimCategory(fact.category),
           content:  fact.content,
           source:   'signal_extraction',
+          // The structural evidence chain: this claim points back to the source
+          // activity observation it was extracted from (claims.supporting_observation_ids).
+          supportingObservationIds: activityId ? [activityId] : undefined,
           metadata: {
             about:              normalizeClaimAbout(fact.about),
             signal_type:        type,
