@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
-import { getSupabaseClient, listNotes, saveNote, logActivity, collapseMeetingDupes, assertClaims, upsertIdentifier, scoreTier } from '@nous/core';
+import { getSupabaseClient, listNotes, saveNote, logActivity, collapseMeetingDupes, assertClaims, upsertIdentifier, scoreTier, normalizeFactCategory, normalizeFactAbout } from '@nous/core';
 import { fetchIcpByEntity, fetchIntentByEntity } from '../../lib/icpFit.mjs';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
 import { ensureUserAndTeam } from '../../lib/auth.mjs';
@@ -514,7 +514,7 @@ contactsApiRouter.post('/:id/memories', verifySupabaseAuth, async (req, res) => 
   try {
     const supabase = getSupabaseClient();
     const { id } = req.params;
-    const { content, category = 'General' } = req.body;
+    const { content, category, about } = req.body;
     const { user } = await ensureUserAndTeam(req.user);
     if (!UUID.test(id)) return res.status(400).json({ error: 'invalid_contact_id' });
     if (!content?.trim()) return res.status(400).json({ error: 'content required' });
@@ -527,9 +527,10 @@ contactsApiRouter.post('/:id/memories', verifySupabaseAuth, async (req, res) => 
 
     const mem = await saveNote(supabase, contact.workspace_id, {
       entityId: id,
-      category,
+      category: normalizeFactCategory(category),
       content: content.trim(),
       source: 'manual',
+      metadata: { about: normalizeFactAbout(about) },
     });
     return res.json({ memory: mem });
   } catch (err) {

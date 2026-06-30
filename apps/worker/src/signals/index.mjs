@@ -4,7 +4,8 @@
 // Graph edges (REPORTS_TO, BUDGET_HOLDER_AT, etc.) extracted from each fact → workspace_graph_edges.
 
 import Anthropic, { setUser } from 'useleak';
-import { listNotes, saveNote, updateNote, searchClaims, listActivities, recordObservation } from '@nous/core';
+import { listNotes, saveNote, updateNote, searchClaims, listActivities, recordObservation,
+  normalizeFactCategory, normalizeFactAbout, factCategoryPromptBlock, FACT_CATEGORY_KEYS } from '@nous/core';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -260,21 +261,19 @@ NEVER record (noise, or it already lives elsewhere in the CRM):
 - Generic sentiment, small talk, greetings, pleasantries.
 - Anything true today but meaningless next week.
 
-Categories, each with a good example:
-- Budget — "Mansoor owns the GTM-tooling budget at Clay; spend over $50k needs his VP's sign-off"
-- Timeline — a BUYING or PROJECT timeline tied to a business reason: "Wants to consolidate enrichment vendors before end of Q3, driven by a budget review" (NOT meeting times)
-- Pain Points — "Clay's outbound on Apollo and Instantly is bottlenecked by manual list-building"
-- Objections — "Worried that switching tools mid-quarter will disrupt live campaigns"
-- Preferences — "Strongly prefers tools with a native API over no-code builders"
-- Relationships — "Reports to the VP of Growth, who holds final vendor sign-off"
-- General — durable context that fits none of the above: "Plans to hire 2 SDRs once the team passes $50k MRR"
+Tag each fact with exactly one category, and whether it is about the person or their company.
+
+Categories:
+${factCategoryPromptBlock()}
 
 Rules:
 - Each fact is one self-contained sentence naming ${contactName} explicitly (no pronouns).
+- Set "category" to exactly one of: ${FACT_CATEGORY_KEYS.join(', ')}.
+- Set "about" to "person" for a fact about ${contactName}, or "company" for a fact about their company.
 - Prefer fewer, sharper facts over more. If nothing clears all three bars, return [].
 - Maximum ${maxFacts} facts.
 
-Output ONLY valid JSON: [{"content": "...", "category": "Budget|Timeline|Pain Points|Objections|Preferences|Relationships|General"}]
+Output ONLY valid JSON: [{"content": "...", "category": "<one category key>", "about": "person|company"}]
 If nothing meaningful: []` }],
     });
 
@@ -303,10 +302,11 @@ If nothing meaningful: []` }],
       try {
         newMem = await saveNote(supabase, workspaceId, {
           entityId: contactId,
-          category: fact.category || 'General',
+          category: normalizeFactCategory(fact.category),
           content:  fact.content,
           source:   'signal_extraction',
           metadata: {
+            about:              normalizeFactAbout(fact.about),
             signal_type:        type,
             extraction_source:  source,
             source_activity_id: activityId || null,

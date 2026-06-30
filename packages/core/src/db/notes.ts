@@ -30,6 +30,9 @@ export interface Note {
   workspace_id: string;
   entity_id: string;
   category: string;
+  /** Whether the fact is about the person or their company. From the controlled
+   *  fact taxonomy (see factCategories.ts). Null on legacy/document rows. */
+  about: string | null;
   content: string;
   source: string;
   metadata: Record<string, unknown>;
@@ -60,6 +63,7 @@ function noteFromClaim(c: Record<string, unknown>): Note {
     workspace_id: c.workspace_id as string,
     entity_id: c.entity_id as string,
     category: (v.category as string) ?? 'General',
+    about: (meta.about as string) ?? null,
     content: (v.content as string) ?? '',
     source: (v.source as string) ?? 'manual',
     metadata: meta,

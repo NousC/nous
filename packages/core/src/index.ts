@@ -7,6 +7,7 @@ export * from './db/crmWriteState.js';
 export * from './db/claims.js';
 export * from './db/predictions.js';
 export * from './db/notes.js';
+export * from './db/factCategories.js';
 export * from './db/search.js';
 export * from './context.js';
 export * from './query.js';
