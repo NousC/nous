@@ -6,6 +6,31 @@ This document describes the actual infrastructure: the data model, the resolutio
 
 ---
 
+## Why resolution comes first
+
+A context graph is only as good as its identity layer. Senzing, a company that builds nothing but entity resolution, puts it bluntly: without resolution a knowledge graph is just disconnected facts, and every score computed on top of it is wrong. The same holds here. If `jane@acme.com` and `j.doe@acme.com` live as two records, an agent reasoning over either one is reasoning over half a person, and the ICP score, the timeline, and the next action are all computed on a fragment. Resolution is not data cleanup that runs before the graph. It is the precondition for the graph being a graph at all.
+
+This is also the part you cannot prompt your way around. A model knows selling in general. It does not know that the Jane in a Fireflies transcript is the Jane in your CRM under a different address, or that a LinkedIn DM from an unseen handle belongs to a person you have spoken to for months. That knowledge is not in any model's weights. It exists only once something resolves the fragments into one entity and keeps them resolved as new signals arrive. At the scale of thousands of accounts times contacts times signals, that is not a prompt, it is infrastructure.
+
+Two principles, borrowed from the resolution incumbents and enforced throughout the code below, make the layer trustworthy:
+
+- **Full attribution.** Every source system and record key is preserved through a merge. The graph never forgets where a fact came from.
+- **Explainable resolution.** When two records link, you can see why, and when the evidence is not strong enough, the system surfaces the ambiguity for a human instead of guessing.
+
+```mermaid
+flowchart TD
+  E1[Gmail reply: jane@acme.com] -->|identifier| EN{Resolve to entity}
+  E2[HubSpot row: Jane Doe] -->|identifier| EN
+  E3[LinkedIn DM: in/janedoe] -->|identifier| EN
+  E4[Fireflies transcript: Jane] -->|co-attendance| EN
+  E5[Apollo export: j.doe@acme.com] -->|identifier| EN
+  EN -->|one anchor| P[Person entity]
+  P -->|carries| ID[entity_identifiers: every email, URL, CRM id]
+  P -->|derives| CL[claims: title and company, with confidence and freshness]
+```
+
+---
+
 ## 1. The substrate
 
 Identity resolution sits on four tables. Everything else is built from them.
@@ -53,6 +78,17 @@ Member URN URLs (`/in/ACoAA…`) are explicitly **not** accepted as a `linkedin_
 ## 2. The resolution waterfall
 
 The canonical resolver is `getOrCreateEntity` (`packages/core/src/db/entities.ts`). Every ingestion path ends here. It tries the strongest evidence first and only ever creates a new entity when nothing confident matches.
+
+```mermaid
+flowchart TD
+  IN[Incoming contact: identifiers plus name hint] --> S1{Step 1: stable identifier match}
+  S1 -->|hit| A[Attach remaining identifiers, return entity]
+  S1 -->|miss, person with name| S2{Step 2: corroborated name fallback}
+  S2 -->|unique strong or weak match| A
+  S2 -->|ambiguous or none| S3[Step 3: create new entity]
+  A --> DONE[One resolved entity]
+  S3 --> DONE
+```
 
 ```
 getOrCreateEntity(workspaceId, type, identifiers[], { nameHint? })
@@ -273,6 +309,15 @@ The return value is load bearing: `true` means the identifier is now active on t
 ## 9. Merge: the reversible cure
 
 Prevention is not perfect, so duplicates get cured by `mergeEntities` (`packages/core/src/db/entities.ts`), which is lossless and reversible. The caller chooses the survivor (`keep`) and the duplicate to fold in (`drop`).
+
+```mermaid
+flowchart TD
+  D1[Duplicate entity A] -->|mergeEntities, keep wins| M{Merge}
+  D2[Survivor entity B] --> M
+  M -->|move identifiers, claims, observations, edges| B[Survivor holds all history]
+  M -->|soft tombstone: status merged, merged_into| T[Duplicate retired, reversible]
+  B -->|future signal on either side resolves here| B
+```
 
 What moves, with a keep-wins conflict policy throughout:
 
