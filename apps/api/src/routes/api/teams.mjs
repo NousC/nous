@@ -210,9 +210,13 @@ teamsRouter.get('/:teamId/invitations', verifySupabaseAuth, async (req, res) => 
     const membership = await checkTeamMembership(user.id, teamId, ['founder', 'owner', 'admin']);
     if (!membership) return res.status(403).json({ error: 'insufficient_permissions' });
 
+    // Only PENDING invites belong in the "Pending invitations" list. Without this
+    // filter, cancelled/accepted/expired rows kept coming back and the UI (which
+    // hardcodes a "Pending" label) showed them as still pending — so a cancel
+    // looked like it did nothing even though the status had flipped to cancelled.
     const { data: invitations } = await supabase.from('team_invitations')
       .select('*, invited_by:invited_by_user_id(id, name, email)')
-      .eq('team_id', teamId).order('created_at', { ascending: false });
+      .eq('team_id', teamId).eq('status', 'pending').order('created_at', { ascending: false });
     return res.json({ invitations: invitations || [] });
   } catch (err) {
     return res.status(500).json({ error: 'internal_error', ...(process.env.NODE_ENV !== 'production' && { detail: String(err.message) }) });
