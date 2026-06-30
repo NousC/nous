@@ -58,32 +58,29 @@ All DB access goes through `packages/core/src/db/`. Never write raw Supabase que
 
 ## MCP tools (apps/mcp)
 
-24 tools — registered in `apps/mcp/src/server.js` (the canonical `createServer()` factory; `index.js` is the stdio bin, `http.js` the hosted variant). The header comment in `server.js` is the authoritative catalog. The tools are thin clients of the `/v2` Context API. The agent observes; Nous derives — there is no "update" verb on the substrate.
+The server registers ~30 tools (`apps/mcp/src/server.js`; the canonical `createServer()` factory, `index.js` is the stdio bin, `http.js` the hosted variant). The header comment in `server.js` is the authoritative catalog. The tools are thin clients of the `/v2` Context API. The agent observes; Nous derives, there is no "update" verb on the substrate. The public docs split them into Overview tools (daily) and Setup tools (see `docs.opennous.cloud/mcp`); the lead-list tools still ship but are not in the daily docs.
 
-Read:
-- `get_context` — engineered, intent-shaped context for a task (draft_email, follow_up, meeting_prep, …): ranked facts with confidence + freshness, timeline, stakeholders, predictions, and the ICP fit score
+Overview tools (daily):
+- `get_context` — engineered, intent-shaped context for a task (draft_email, follow_up, meeting_prep, …): ranked claims with confidence + freshness, timeline, stakeholders, predictions, the ICP fit score
 - `get_account` — the full account record: every claim + the activity timeline
 - `query` — retrieve and summarise activity across many people (group by entity, subtract sets, value rollups)
-- `attention` — what needs attention now (accounts gone quiet, facts decayed)
-- `verify` — re-check a single fact before acting on it
-- `get_playbook` — the user's OWN GTM profile (ICP, market, product, pricing, competitors, positioning)
-- `search_notes` — semantic search over saved notes & documents on contacts
-- `get_workspace_status` — what's set up in this workspace + a ranked `next_steps` list (call first in a session)
-- `list_triggers` — the workspace's event triggers + the catalog of available event names
-- `lead_list_operations` — the operations trail of a lead list (imports / enrich / push / replies), filterable
-- `coverage` — pre-spend coverage: an exact per-lead check (pass identifiers) or an attribute estimate (pass title/keyword, "how many agency founders do we have, by freshness")
+- `attention` — what needs attention now (accounts gone quiet, claims decayed)
+- `record` — record what happened or what you learned; the single write verb
+- `save_note` / `search_notes` — keep / semantically search a doc on a contact
+- `get_playbook` — read the user's own rules: the `voice`, `outreach`, `icp`, `positioning` playbooks (backed by `/v2/playbooks`). The "our GTM" read. Replaced and removed `get_gtm_profile`.
+- `merge_contacts` — fold two duplicate records into one (lossless, reversible)
 
-Write:
-- `record` — record what happened or what you learned (events and state observations); the single write verb
-- `update_gtm_profile` — evolve a section of the user's own GTM profile (keeps prior versions as history)
-- `save_note` — attach a note/document (meeting brief, transcript, prep) to a contact
+Setup tools (agent-driven, the agent runs the workspace):
+- `get_workspace_status` — what's set up + a ranked `next_steps` list (call first in a session)
+- `set_workspace_profile` — onboarding: name, site, type, ICP
+- `build_scoring_model` — build/rebuild the ICP scoring model from recorded context
+- `record_closed_deals` — train the ICP model on real closed-won/lost deals (contrastive lift)
+- `sync_icp` — sync the user's ICP/context files into the graph (file → graph). Renamed from `get_icp`.
+- `export_icp_model` — write the learned ICP model back into the user's file (graph → file). Renamed from `get_icp_model`.
+- `sync_playbook` — push an edited playbook file into the graph
+- `connect_integration` · `configure_crm_sync` · `sync_crm_now` · `set_trigger` · `list_triggers` · `get_routing_preferences`
 
-Operate (agent-driven setup — the agent runs the workspace, the human watches):
-- `set_workspace_profile` — onboarding: set the workspace's name, site, type, ICP
-- `build_scoring_model` — build/rebuild the ICP scoring model from the recorded GTM context
-- `connect_integration` — connect a key-based integration (Apollo, Prospeo, HubSpot, …)
-- `configure_crm_sync` — set CRM sync rules (auto-sync, create policy, hygiene cadence)
-- `set_trigger` — create an outbound event trigger (webhook); pair with `list_triggers`
+Still ship, not in the daily docs: lead-list tools (`lead_list_operations`, `coverage`, `enrich_leads`, `verify_leads`), plus `record_signal`, `get_action_items`, `verify`, `scrape_engagers`.
 
 ## REST API routes (apps/api)
 
@@ -94,12 +91,27 @@ The public surface is the `/v2` Context API (key-authed via `verifyApiKey`). The
 - `POST /v2/query` — retrieve/summarise activity across many entities (backs `query`)
 - `GET  /v2/attention` — what needs attention (backs `attention`)
 - `POST /v2/verify` — re-derive a single fact (backs `verify`)
-- `GET  /v2/workspace/facts` / `POST /v2/workspace/facts` — read/evolve the GTM profile (back `get_playbook` / `update_gtm_profile`)
+- `GET /v2/playbooks` / `POST /v2/playbooks/:kind` — read / sync the user's playbooks (back `get_playbook` / `sync_playbook`)
+- `POST /v2/workspace/icp/import` / `GET /v2/workspace/icp/model` — sync ICP files in / export the learned model (back `sync_icp` / `export_icp_model`)
+- `GET|POST /v2/workspace/facts` — workspace GTM facts; used by the web playground agent (the MCP `get_gtm_profile` tool was removed in favour of `get_playbook`)
 - `POST /v2/notes` / `POST /v2/notes/search` — save / semantically search notes (back `save_note` / `search_notes`)
 
 Workspace setup/operate routes (back the operate + status tools): `GET /v2/workspace/status`, `POST /v2/workspace/onboarding`, `POST /v2/workspace/scoring-model`, `POST /v2/workspace/integrations`, `POST /v2/workspace/crm-sync`, `GET|POST /v2/workspace/triggers`.
 
 Cloud-only routes also mounted under `/v2` include `/v2/people`, `/v2/leads`, `/v2/signals`, and `/v2/dedup` (the last two back the `coverage` tool — `/v2/dedup` for the exact identifier check, `/v2/people/coverage` for the attribute estimate). The browser app's own routes live under `/api/*` and are session-authed, not part of the agent-facing surface.
+
+## Documentation
+
+The public docs are a separate Mintlify repo (`docs.opennous.cloud`). The in-repo `docs/` folder is the deep-dive set, written in one voice (plain, em-dash-free, every diagram validated through the Mermaid-to-Excalidraw converter):
+- `docs/context-graph.md` — the overview: the problem (two clocks, fragmentation), why memory and RAG fail, the operational and decision layers, the substrate, the serve layer, and why it is graph-first not RAG. Start here.
+- `docs/identity-resolution.md` — the resolution waterfall and the four-table substrate (entities, entity_identifiers, observations, claims).
+- `docs/claims.md` — extracted claims (the Intel tab): the controlled GTM claim taxonomy and the extraction pipeline.
+- `docs/icp-scoring.md` / `docs/intent-score.md` — the deterministic scorers and the learning loop.
+
+Recent substrate + surface work (2026-06-30):
+- **Controlled claim taxonomy** in `packages/core/src/db/claimCategories.ts` (status_quo, goal, pain, objection, authority, budget, timeline, preference, competitor, relationship, general), each tagged `about: person|company`, enforced at extraction (`apps/worker/src/signals/index.mjs`) and the manual write path so claims roll up into cross-account patterns.
+- **Structural evidence chain**: each extracted claim now sets `supporting_observation_ids` back to the source observation (`saveNote` in `packages/core/src/db/notes.ts`).
+- **MCP surface refactor**: renamed `get_icp → sync_icp` and `get_icp_model → export_icp_model`; removed `get_gtm_profile` (read our GTM via `get_playbook`); docs split into Overview vs Setup. Breaking change to `@opennous/mcp` (needs a version bump + republish).
 
 ## Plans & feature gating
 
