@@ -27,18 +27,18 @@ const SYSTEM_PROMPT = [
   "You are the Nous Playground assistant. The user is exploring what their Nous workspace knows — try their questions out before they integrate the API into their own agent.",
   "",
   "You have seven READ-ONLY tools for inspecting the workspace. Pick the smallest set that answers the question:",
-  "  • get_gtm_profile — workspace-level facts the user has explicitly recorded: ICP, target market, product details, pricing, competitors, playbooks. ALWAYS use this for 'what's our ICP', 'who do we target', 'what's our pricing', 'what differentiates us'.",
+  "  • get_playbook — workspace-level facts the user has explicitly recorded: ICP, target market, product details, pricing, competitors, playbooks. ALWAYS use this for 'what's our ICP', 'who do we target', 'what's our pricing', 'what differentiates us'.",
   "  • get_context         — engineered context block for a task about one entity + intent. Best for 'help me draft', 'what should I do about', 'prep me for'.",
   "  • get_account         — the full Account Record (every claim with epistemics + recent observation timeline). Best for 'what do we know about', 'tell me about', 'show me' for ONE PERSON OR COMPANY.",
-  "  • query               — retrieve+summarise observations across many entities for a corpus question. Best for 'across all', 'last 30 days', 'which segments'. NOT for workspace-level facts — those are in get_gtm_profile.",
+  "  • query               — retrieve+summarise observations across many entities for a corpus question. Best for 'across all', 'last 30 days', 'which segments'. NOT for workspace-level facts — those are in get_playbook.",
   "  • attention           — workspace-wide: who's gone quiet, what facts have decayed. Best for 'what needs attention', 'who should I follow up with'.",
   "  • verify              — re-check one claim against current observations. Best for 'is X still true', 'verify that'.",
   "  • classify            — cross-list dedup for cold-outbound — net_new vs engaged vs bounced. Best for 'have I touched these leads', 'pre-flight check'.",
   "",
   "WHERE THINGS LIVE — important distinction:",
-  "  - Workspace-level facts (ICP, market, pricing, product, competitors, playbooks) → get_gtm_profile",
+  "  - Workspace-level facts (ICP, market, pricing, product, competitors, playbooks) → get_playbook",
   "  - Per-person/per-company claims (title, stage, intent, sentiment, observations) → get_account or get_context",
-  "If asked about the user's OWN business (what we sell, who we target, how we price), reach for get_gtm_profile FIRST.",
+  "If asked about the user's OWN business (what we sell, who we target, how we price), reach for get_playbook FIRST.",
   "",
   "Focus identifiers are universal: pass an email, domain, LinkedIn URL, entity UUID, or a name. If a name returns ambiguous, surface the candidates and ask the user to pick.",
   "",
@@ -58,7 +58,7 @@ const SYSTEM_PROMPT = [
   "     - N who held a meeting",
   "  3. Identify conversion gaps: e.g., '23 new connections but 0 meetings = top-funnel drop-off'.",
   "  4. Surface 3-5 named entities driving the most activity — by reply recency or message count.",
-  "  5. If the user has the pipeline_stage claim set on meaningful subsets (you'll see it in a get_gtm_profile or query result), mention it too. Otherwise, present the activity-derived funnel as THE answer — don't apologise for missing pipeline_stage data.",
+  "  5. If the user has the pipeline_stage claim set on meaningful subsets (you'll see it in a get_playbook or query result), mention it too. Otherwise, present the activity-derived funnel as THE answer — don't apologise for missing pipeline_stage data.",
   "",
   "Rules:",
   "  1. Ground every claim you make in tool output. If a tool returns nothing, say so plainly — never invent.",
@@ -71,7 +71,7 @@ const SYSTEM_PROMPT = [
 
 const TOOLS = [
   {
-    name: 'get_gtm_profile',
+    name: 'get_playbook',
     description: "Workspace-level facts the user has explicitly recorded about THEIR OWN business — ICP, target market, product, pricing, competitors, playbooks. These are NOT facts about individual people or companies; they are the user's own playbook. Use this for any question about the user's ICP, target buyer, pricing, market, or differentiators. Optional category filter (common categories: 'ICP', 'Market', 'Product', 'Pricing', 'Competitors').",
     input_schema: {
       type: 'object',
@@ -173,7 +173,7 @@ const TOOLS = [
 
 async function executeTool(supabase, workspaceId, name, input) {
   switch (name) {
-    case 'get_gtm_profile': {
+    case 'get_playbook': {
       const workspaceEntityId = await getWorkspaceEntityId(supabase, workspaceId);
       if (!workspaceEntityId) {
         return { facts: [], note: 'No workspace entity yet — no facts have been recorded.' };
