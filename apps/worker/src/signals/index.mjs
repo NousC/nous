@@ -5,7 +5,7 @@
 
 import Anthropic, { setUser } from 'useleak';
 import { listNotes, saveNote, updateNote, searchClaims, listActivities, recordObservation,
-  normalizeFactCategory, normalizeFactAbout, factCategoryPromptBlock, FACT_CATEGORY_KEYS } from '@nous/core';
+  normalizeClaimCategory, normalizeClaimAbout, claimCategoryPromptBlock, CLAIM_CATEGORY_KEYS } from '@nous/core';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -264,11 +264,11 @@ NEVER record (noise, or it already lives elsewhere in the CRM):
 Tag each fact with exactly one category, and whether it is about the person or their company.
 
 Categories:
-${factCategoryPromptBlock()}
+${claimCategoryPromptBlock()}
 
 Rules:
 - Each fact is one self-contained sentence naming ${contactName} explicitly (no pronouns).
-- Set "category" to exactly one of: ${FACT_CATEGORY_KEYS.join(', ')}.
+- Set "category" to exactly one of: ${CLAIM_CATEGORY_KEYS.join(', ')}.
 - Set "about" to "person" for a fact about ${contactName}, or "company" for a fact about their company.
 - Prefer fewer, sharper facts over more. If nothing clears all three bars, return [].
 - Maximum ${maxFacts} facts.
@@ -302,11 +302,11 @@ If nothing meaningful: []` }],
       try {
         newMem = await saveNote(supabase, workspaceId, {
           entityId: contactId,
-          category: normalizeFactCategory(fact.category),
+          category: normalizeClaimCategory(fact.category),
           content:  fact.content,
           source:   'signal_extraction',
           metadata: {
-            about:              normalizeFactAbout(fact.about),
+            about:              normalizeClaimAbout(fact.about),
             signal_type:        type,
             extraction_source:  source,
             source_activity_id: activityId || null,

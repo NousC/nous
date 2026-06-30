@@ -12,7 +12,7 @@ An agent has no memory and no intuition. It reasons only over the context you ha
 
 Two structural problems make that hard, and both are GTM problems.
 
-**The two clocks.** Every system keeps a state clock, what is true right now, and needs an event clock, what happened, in what order, and why. The stack built elaborate infrastructure for the state clock and almost nothing for the event clock. Your CRM says Acme is Closed Lost, 150K, last quarter. It does not say you were the second choice, that the feature that beat you ships next quarter, or that your champion was reorganized two weeks before the deal died. State overwrites. Events have to append. The reasoning that connects a signal to an action was never treated as data.
+**The two clocks.** Every system keeps a state clock, what is true right now, and needs an event clock, what happened, in what order, and why. The stack built elaborate infrastructure for the state clock and almost nothing for the event clock. Your CRM says Acme is Closed Lost, 150K, last quarter. It does not say you were the second choice, that the feature that beat you ships next quarter, or that your champion was reorganized two weeks before the deal died. State overwrites. Events have to append. The reasoning that connects a signal to an action was never treated as data. The state-clock-versus-event-clock framing comes from Foundation Capital's [How do you build a context graph](https://www.linkedin.com/pulse/how-do-you-build-context-graph-jaya-gupta-xicwe/) and Graphlit's [Building the Event Clock](https://www.linkedin.com/pulse/building-event-clock-kirk-marple-ksnsc/), the clearest external writeups of why this layer has to exist.
 
 **The fragmentation tax.** One account lives in a dozen systems: the record in the CRM, the engagement in the outbound tool, the conversation in the inbox, the meeting in the call recording, the intent in the marketing platform. A human paid this tax invisibly by rebuilding the account from memory. Hand the decision to an agent and the tax comes due in full, because the agent has nothing to rebuild from.
 
@@ -40,7 +40,7 @@ This is also our honest answer to "why can't I build this in Claude Code." You c
 
 A context graph represents your market the way a good rep reasons about it: as entities (this account, this buyer), relationships (champion, blocker, owner), claims (what is true, with how sure we are), and signals (what is happening right now). Not as tables and joins.
 
-Nous is the context graph for GTM specifically. The entities are accounts, people, and deals. The relationships are buying groups and employment. The claims are titles, seniority, budget cycles, and deal state. The signals are hiring, funding, tech-stack moves, and intent. It is wired to the one job GTM teams actually run, which is why it ships the GTM model pre-built instead of handing you a blank graph to define.
+Nous is the context graph for GTM specifically. The entities are accounts, people, and deals. The relationships are buying groups and employment. The claims run from structured properties like title, seniority, and deal stage to the durable intel extracted from conversations: a goal, a pain, an objection, who the champion is, the competitor they run today. The signals are hiring, funding, tech-stack moves, and intent. It is wired to the one job GTM teams actually run, which is why it ships the GTM model pre-built instead of handing you a blank graph to define.
 
 One design stance matters and we hold it deliberately: the graph is **graph-first, not RAG-first.** The retrieval that serves an agent is a structured query over resolved entities and derived claims, not a vector similarity search over text chunks. Embeddings exist in the system as an optional convenience, but the load-bearing path is the graph. We say more on this in section 8.
 
@@ -84,7 +84,9 @@ The substrate header in `supabase/schema.sql` states the thesis in one line: sto
 
 **3. Entities derive claims.** Each observation enqueues a recompute job (`claim_jobs`), drained every minute by `claimEngine.mjs`, which calls `recomputeClaim` and `deriveClaim` (`packages/core/src/db/claims.ts`). A claim is the current best belief for one property, carrying `confidence`, an `epistemic_class` (observed, inferred, predicted, asserted), a `freshness` state (fresh, aging, suspect, expired), `decays_at`, a `valid_from` and an `invalid_at`, and the `supporting_observation_ids` it was derived from. Claims are a regenerable cache: throw them away, replay the observations, and the whole belief layer rebuilds. A value you set by hand is written as an asserted claim with full confidence, and the engine refuses to overwrite it.
 
-Signals are where this gets GTM-specific. A funding event, a hiring spike, or a tech-stack change arrives as a `signal.*` observation and becomes a graded feature that feeds scoring (section 7). Claims tell the agent what is true. Signals tell it what is happening now.
+Two kinds of claims live here, and the difference is GTM-specific. **Structured claims** (title, seniority, deal stage) are derived from observations as above. **Extracted claims** are the durable intel pulled from a contact's own words across email, LinkedIn, and meetings: a goal, a pain, an objection, the champion, the competitor they run today. Each extracted claim carries a controlled category (`pain`, `goal`, `competitor`, `authority`, and so on) and an `about` (person or company), so claims roll up into patterns across accounts rather than sitting as loose notes. The taxonomy and the extraction pipeline have their own deep-dive: see [Claims (Intel)](./claims.md).
+
+Signals are the third thing, and they are separate from claims. A funding event, a hiring spike, or a tech-stack change arrives as a `signal.*` observation and becomes a graded feature that feeds scoring (section 7). Claims tell the agent what is true. Signals tell it what is happening now.
 
 ---
 
@@ -179,14 +181,10 @@ The loop closes through `record`. A reply, an open, a closed-won, a closed-lost 
 
 ---
 
-## Where this is going
-
-We are honest about what is built and what is next. Built and working today: the observation-to-claim derivation engine, deterministic identity resolution with strong anti-false-merge corroboration, lossless reversible merge, the on-the-fly context assembler, the constrained query surface, deterministic logistic ICP scoring with a real prediction-and-outcome learning loop, a separate decaying intent score, and around 25 connectors. On the roadmap, and flagged as such in the code: richer claim derivation (truth-discovery, calibration, and per-fact-type decay beyond today's policy), a deeper buying-committee relationship graph, and precedent retrieval in the decision layer.
-
 ## Further reading
 
 - [Identity Resolution](./identity-resolution.md), the substrate and the resolution waterfall in depth.
-- [Facts (Intel)](./facts.md), the controlled GTM fact taxonomy and the extraction pipeline.
+- [Claims (Intel)](./claims.md), the controlled GTM claim taxonomy and the extraction pipeline.
 - [ICP Scoring](./icp-scoring.md), the deterministic scorer and the learning loop.
 - [Intent Score](./intent-score.md), the second, decaying axis.
 - [Decisions (ADRs)](./decisions/), why the agent is empowered over the interface, and why v1 tables are views over the v2 substrate.

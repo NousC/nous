@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
-import { getSupabaseClient, listNotes, saveNote, logActivity, collapseMeetingDupes, assertClaims, upsertIdentifier, scoreTier, normalizeFactCategory, normalizeFactAbout } from '@nous/core';
+import { getSupabaseClient, listNotes, saveNote, logActivity, collapseMeetingDupes, assertClaims, upsertIdentifier, scoreTier, normalizeClaimCategory, normalizeClaimAbout } from '@nous/core';
 import { fetchIcpByEntity, fetchIntentByEntity } from '../../lib/icpFit.mjs';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
 import { ensureUserAndTeam } from '../../lib/auth.mjs';
@@ -527,10 +527,10 @@ contactsApiRouter.post('/:id/memories', verifySupabaseAuth, async (req, res) => 
 
     const mem = await saveNote(supabase, contact.workspace_id, {
       entityId: id,
-      category: normalizeFactCategory(category),
+      category: normalizeClaimCategory(category),
       content: content.trim(),
       source: 'manual',
-      metadata: { about: normalizeFactAbout(about) },
+      metadata: { about: normalizeClaimAbout(about) },
     });
     return res.json({ memory: mem });
   } catch (err) {

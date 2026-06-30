@@ -1,21 +1,25 @@
-// The controlled GTM fact taxonomy.
+// The controlled GTM claim taxonomy.
 //
-// Every extracted or asserted Intel fact carries exactly one of these category
+// Every extracted or asserted Intel claim carries exactly one of these category
 // keys plus an `about` (person or company). A controlled taxonomy is what turns
-// facts from pretty notes into queryable patterns across accounts: "every
+// claims from pretty notes into queryable patterns across accounts: "every
 // account whose pain is fragmented tooling", "every champion who prefers
 // LinkedIn". Free-form LLM categories cannot roll up; these can.
 //
-// Signals (scoring features: hiring, funding, tech-stack, intent) are a SEPARATE
-// system. They feed the ICP and intent scores. They are not facts and they are
-// not in this taxonomy. Preferences are ONE category here, not their own system.
+// Two kinds of claims live in the graph. Structured claims (job_title, industry)
+// are DERIVED from observations by the claim engine. The claims below are
+// EXTRACTED from a contact's own words in conversations and carry one of these
+// categories. Signals (scoring features: hiring, funding, tech-stack, intent)
+// are a SEPARATE system that feeds the ICP and intent scores; they are not
+// claims and are not in this taxonomy. Preferences are ONE category here, not a
+// system of their own.
 
-export interface FactCategoryDef {
+export interface ClaimCategoryDef {
   /** The canonical, queryable key. Lowercase, snake_case. */
   key: string;
   /** Human label for display. */
   label: string;
-  /** Whether the fact is usually about the person, the company, or either. */
+  /** Whether the claim is usually about the person, the company, or either. */
   about: 'person' | 'company' | 'either';
   /** One-line definition, used in the extractor prompt. */
   description: string;
@@ -23,7 +27,7 @@ export interface FactCategoryDef {
   example: string;
 }
 
-export const FACT_CATEGORIES: FactCategoryDef[] = [
+export const CLAIM_CATEGORIES: ClaimCategoryDef[] = [
   {
     key: 'status_quo',
     label: 'Status Quo',
@@ -103,9 +107,9 @@ export const FACT_CATEGORIES: FactCategoryDef[] = [
   },
 ];
 
-export const FACT_CATEGORY_KEYS: string[] = FACT_CATEGORIES.map(c => c.key);
+export const CLAIM_CATEGORY_KEYS: string[] = CLAIM_CATEGORIES.map(c => c.key);
 
-const KEY_SET = new Set(FACT_CATEGORY_KEYS);
+const KEY_SET = new Set(CLAIM_CATEGORY_KEYS);
 
 // Legacy and natural-language aliases mapped onto the canonical keys, so old
 // rows (Title-Case labels) and loose LLM output still normalize cleanly.
@@ -133,7 +137,7 @@ const ALIASES: Record<string, string> = {
 };
 
 /** Coerce any input to a canonical category key. Unknown values fall back to 'general'. */
-export function normalizeFactCategory(input?: string | null): string {
+export function normalizeClaimCategory(input?: string | null): string {
   if (!input) return 'general';
   const raw = String(input).trim().toLowerCase();
   if (KEY_SET.has(raw)) return raw;
@@ -144,16 +148,16 @@ export function normalizeFactCategory(input?: string | null): string {
 }
 
 /** Coerce any input to a canonical `about` value. Defaults to 'person'. */
-export function normalizeFactAbout(input?: string | null): 'person' | 'company' {
+export function normalizeClaimAbout(input?: string | null): 'person' | 'company' {
   return String(input ?? '').trim().toLowerCase() === 'company' ? 'company' : 'person';
 }
 
-export function isValidFactCategory(input?: string | null): boolean {
+export function isValidClaimCategory(input?: string | null): boolean {
   return !!input && KEY_SET.has(String(input).trim().toLowerCase());
 }
 
-export function factCategoryLabel(key: string): string {
-  return FACT_CATEGORIES.find(c => c.key === key)?.label ?? 'General';
+export function claimCategoryLabel(key: string): string {
+  return CLAIM_CATEGORIES.find(c => c.key === key)?.label ?? 'General';
 }
 
 /**
@@ -161,6 +165,6 @@ export function factCategoryLabel(key: string): string {
  * taxonomy so the prompt and the validator never drift. One line per category:
  * `- key — description e.g. "example"`.
  */
-export function factCategoryPromptBlock(): string {
-  return FACT_CATEGORIES.map(c => `- ${c.key} — ${c.description} e.g. "${c.example}"`).join('\n');
+export function claimCategoryPromptBlock(): string {
+  return CLAIM_CATEGORIES.map(c => `- ${c.key} — ${c.description} e.g. "${c.example}"`).join('\n');
 }

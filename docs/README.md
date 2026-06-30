@@ -17,9 +17,9 @@ Grouped by area. Each group has a **start-here** doc; the rest are deep-dives.
   signal into one record per person: one person many identifiers, how a match is
   made, meetings via the calendar, enrich-don't-erase, and the bias against false
   merges.
-- [Facts (Intel)](./facts.md) — the durable facts Nous extracts from
+- [Claims (Intel)](./claims.md) — the durable claims Nous extracts from
   conversations: the controlled GTM taxonomy, the extraction pipeline, what is
-  stored per fact, and how facts roll up into patterns across accounts.
+  stored per claim, and how claims roll up into patterns across accounts.
 - [Claude org preferences](./claude-org-preferences.md) — route GTM work through
   your Nous workspace by default.
 
