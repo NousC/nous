@@ -124,6 +124,11 @@ workflowProvidersRouter.post('/connections', verifySupabaseAuth, async (req, res
       }
     }
 
+    // Capture the send-from address PLAINTEXT (the blob is encrypted, so we can't
+    // read it back) and the owner, so emails through this mailbox attribute to
+    // the right rep. Mirrors workspace_linkedin_connections.owner_user_id.
+    const accountEmail = (credentials?.email || credentials?.username || '').trim().toLowerCase() || null;
+
     // Upsert so re-saving the same provider doesn't 23505 on the unique
     // (workspace_id, provider_id, name) constraint. Honour is_verified from
     // the body when the client has just passed a test connection.
@@ -135,6 +140,8 @@ workflowProvidersRouter.post('/connections', verifySupabaseAuth, async (req, res
         name: name || 'Connection',
         encrypted_credentials,
         created_by: req.internalUserId,
+        owner_user_id: req.internalUserId,
+        account_email: accountEmail,
         is_verified: is_verified === true,
         last_test_at: is_verified === true ? new Date().toISOString() : null,
       }, { onConflict: 'workspace_id,provider_id,name' })

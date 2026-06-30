@@ -4,7 +4,7 @@
 // Dedup via externalId (gmail_MSGID).
 
 import { google } from 'googleapis';
-import { getSupabaseClient } from '@nous/core';
+import { getSupabaseClient, connectedAccountOwnerByEmail, attributeRelationship, getInternalEntityIds } from '@nous/core';
 import { logActivity } from '../utils/activity.mjs';
 import { refreshGoogleToken } from '../utils/googleOAuth.mjs';
 import { isTokenRevoked, markGoogleConnectionRevoked } from '../utils/connectionHealth.mjs';
@@ -123,6 +123,12 @@ async function pollWorkspace(supabase, conn) {
       const contactByEmail = new Map((contacts || []).map(c => [c.email.toLowerCase(), c]));
 
       if (contactByEmail.size > 0) {
+        // Whose mailbox is this, and which contacts are teammates — so each email
+        // attributes the relationship to the right rep, and we never attribute an
+        // internal-to-internal thread.
+        const ownerUserId = await connectedAccountOwnerByEmail(supabase, conn.workspace_id, ownerEmail);
+        const internalIds = await getInternalEntityIds(supabase, conn.workspace_id);
+
         for (const msg of msgDetails) {
           const headers  = msg.payload?.headers || [];
           const fromAddr = parseAddresses(extractHeader(headers, 'From'))[0] || null;
@@ -160,6 +166,14 @@ async function pollWorkspace(supabase, conn) {
               },
             });
             if (result) logged++;
+
+            // Attribute the relationship to the rep whose mailbox this is — unless
+            // the counterpart is itself a teammate (internal-to-internal email).
+            if (ownerUserId && !internalIds.has(contact.id)) {
+              try {
+                await attributeRelationship(supabase, conn.workspace_id, contact.id, ownerUserId, { at: occurredAt });
+              } catch (e) { console.warn('[gmail] attribute failed', e.message); }
+            }
           }
         }
       }

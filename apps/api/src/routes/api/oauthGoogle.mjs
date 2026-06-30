@@ -98,6 +98,8 @@ oauthGoogleRouter.get('/callback', async (req, res) => {
           name: stateData.connectionName,
           is_verified: true,
           last_test_at: new Date().toISOString(),
+          owner_user_id: stateData.userId,
+          account_email: userInfo.email?.toLowerCase() ?? null,
         })
         .eq('id', existing.id)
         .select('id')
@@ -114,6 +116,8 @@ oauthGoogleRouter.get('/callback', async (req, res) => {
           name: stateData.connectionName,
           encrypted_credentials: credentials,
           created_by: stateData.userId,
+          owner_user_id: stateData.userId,
+          account_email: userInfo.email?.toLowerCase() ?? null,
           is_verified: true,
           last_test_at: new Date().toISOString(),
         })
