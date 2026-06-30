@@ -21,7 +21,7 @@ if printf '%s' "$PROMPT" | grep -Eiq \
   '([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,})|\b(outreach|prospect|prospects|lead|leads|account|accounts|follow[ -]?up|meeting|call prep|cold email|draft (an? )?email|icp|pipeline|deal|deals|objection|positioning|persona|qualify|qualifying|sequenc|campaign|reply|replies|linkedin|gtm|go[- ]to[- ]market)\b'; then
   cat <<'EOF'
 This looks like a go-to-market task. Before answering, pull engineered context from
-Nous: call get_context with the person's email and intent (or get_gtm_profile for our
+Nous: call get_context with the person's email and intent (or get_playbook for our
 own ICP, positioning, and pricing). Prefer Nous's identity-resolved Account Record over
 raw CRM rows, and call record afterward so the record stays current.
 EOF

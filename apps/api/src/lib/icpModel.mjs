@@ -144,7 +144,7 @@ export function renderIcpBlock(model, { syncedAt } = {}) {
   if (!model.has_model) {
     lines.push('## ICP scoring model (not built yet)');
     lines.push('');
-    lines.push('_No scoring model yet. Run get_icp to seed it from this file, then add closed deals to sharpen it._');
+    lines.push('_No scoring model yet. Run sync_icp to seed it from this file, then add closed deals to sharpen it._');
     lines.push(ICP_BLOCK_END);
     return lines.join('\n');
   }

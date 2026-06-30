@@ -39,7 +39,7 @@ export function findSupersedable(active, subject) {
 // into a single living belief (old versions kept as history); in "append" mode
 // it logs a new entry. `sourcePath` records the file this section was synced
 // FROM (e.g. "context/icp.md"), persisted in note metadata so the write-back
-// (get_icp_model) knows which file to update. If a later edit doesn't carry the
+// (export_icp_model) knows which file to update. If a later edit doesn't carry the
 // path, it's preserved from the fact being superseded so provenance stays sticky.
 export async function writeWorkspaceFact(supabase, workspaceId, opts = {}) {
   const { section, category, content, mode, subject, supersedes, confidence, source, sourcePath, syncedHash } = opts;

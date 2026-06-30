@@ -2,7 +2,7 @@
 # Nous — PostToolUse hook.
 # After an ICP / context / playbook FILE is edited, remind Claude to sync it into
 # Nous THIS turn. An unsynced edit is silently inert — it does NOT change the ICP
-# score, the exclusions, or what any other agent reads until get_icp / sync_playbook
+# score, the exclusions, or what any other agent reads until sync_icp / sync_playbook
 # runs. This is the deterministic backstop to the tool-description instruction: it
 # fires every time such a file is written, so an edit can't slip through unsynced.
 # Never blocks (always exits 0); silent on every non-context file.
@@ -26,8 +26,8 @@ case "$FILE" in
     ;;
 esac
 
-# ICP/context files sync with get_icp; voice/outreach policy files with sync_playbook.
-TOOL="get_icp"
+# ICP/context files sync with sync_icp; voice/outreach policy files with sync_playbook.
+TOOL="sync_icp"
 case "$FILE" in
   *voice*.md|*outreach*.md) TOOL="sync_playbook" ;;
 esac

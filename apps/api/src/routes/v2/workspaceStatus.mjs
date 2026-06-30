@@ -157,8 +157,8 @@ workspaceStatusV2Router.get('/status', async (req, res) => {
     }).length;
 
     // ── ICP file sync — the two-way symbiosis drift state. If the ICP was synced
-    // from a repo file (get_icp), surface where, and whether the model has evolved
-    // since the last sync (so the agent re-runs get_icp_model to update the file).
+    // from a repo file (sync_icp), surface where, and whether the model has evolved
+    // since the last sync (so the agent re-runs export_icp_model to update the file).
     const icpSourceNote = icpNotes.find((n) => n?.metadata?.source_path);
     let icpSync = null;
     if (icpSourceNote) {
@@ -171,7 +171,7 @@ workspaceStatusV2Router.get('/status', async (req, res) => {
         synced_hash: icpSourceNote.metadata?.synced_hash ?? null,
         model_version: currentMv,
         // The model has learned new signals since the file was last written → the
-        // file is stale, run get_icp_model. Null synced version (legacy import) → unknown.
+        // file is stale, run export_icp_model. Null synced version (legacy import) → unknown.
         model_changed: !!(syncedMv && currentMv && syncedMv !== currentMv),
       };
     }
@@ -227,8 +227,8 @@ workspaceStatusV2Router.get('/status', async (req, res) => {
     }
 
     // 2. Context files — the ICP symbiosis. The user's ICP / positioning / pricing
-    // live in their OWN repo files; the agent syncs them in with get_icp (and the
-    // learned model is written back with get_icp_model). If they have no such
+    // live in their OWN repo files; the agent syncs them in with sync_icp (and the
+    // learned model is written back with export_icp_model). If they have no such
     // files, the agent scaffolds a context/ folder. Comes right after the profile
     // because the scoring model is seeded from this. Claude Code only — other
     // clients have no filesystem, so the ICP is captured in set_workspace_profile.
@@ -238,9 +238,9 @@ workspaceStatusV2Router.get('/status', async (req, res) => {
         title: 'Sync the ICP & GTM context from the user\'s files (or scaffold them)',
         why: 'The ICP scoring model is seeded from the user\'s own ICP/positioning/pricing. Keeping it in their repo means they edit it in one place and Nous learns from it — no second copy to maintain.',
         how: 'CLAUDE CODE: first SCAN the project for existing context — folders like context/, .claude/, gtm/ and files named icp*, positioning*, pricing*, competitors*, market*. '
-          + 'If found, read them and call get_icp with each file mapped to a section (and its source_path). '
-          + 'If NONE exist, SCAFFOLD a context/ folder — icp.md, positioning.md, pricing.md, market.md, competitors.md, gtm-motion.md — filled from the profile research you already did plus a short interview, then call get_icp on them. '
-          + 'get_icp builds the scoring model on first sync, so after this accounts start getting scored. '
+          + 'If found, read them and call sync_icp with each file mapped to a section (and its source_path). '
+          + 'If NONE exist, SCAFFOLD a context/ folder — icp.md, positioning.md, pricing.md, market.md, competitors.md, gtm-motion.md — filled from the profile research you already did plus a short interview, then call sync_icp on them. '
+          + 'sync_icp builds the scoring model on first sync, so after this accounts start getting scored. '
           + 'OTHER CLIENTS (Codex / claude.ai, no repo): skip the files — the ICP you set in set_workspace_profile is enough to seed the model; build_scoring_model from there.',
       });
     }
@@ -341,18 +341,18 @@ workspaceStatusV2Router.get('/status', async (req, res) => {
 
     // 6. GTM playbook — once the context is synced, turn it into a scoring model
     // and sharpen it on real outcomes. The context itself comes from the files
-    // synced in step 2 (get_icp); this step is the model on top of it.
+    // synced in step 2 (sync_icp); this step is the model on top of it.
     if (onboardingDone && !playbookDone) {
       next_steps.push({
         id: 'gtm_playbook',
         title: 'Build the ICP scoring model and sharpen it on real outcomes',
         why: 'No ICP scoring model yet, so accounts are not scored for fit. This is what makes Nous prioritise — and it is only as good as the context behind it.',
-        how: 'The GTM context comes from the user\'s files (step 2, get_icp), which usually builds the model on first sync. If it has not, OR to make it real: '
-          + '(1) CONTEXT: make sure their context files are filled and synced (get_icp) — a one-line ICP is not enough. Do REAL research of their website (home, product, pricing, about, case studies) to fill any gaps before syncing. '
+        how: 'The GTM context comes from the user\'s files (step 2, sync_icp), which usually builds the model on first sync. If it has not, OR to make it real: '
+          + '(1) CONTEXT: make sure their context files are filled and synced (sync_icp) — a one-line ICP is not enough. Do REAL research of their website (home, product, pricing, about, case studies) to fill any gaps before syncing. '
           + '(2) CONFIRM: show the user the drafted context and let them correct it BEFORE you build anything — never build silently off your own guesses. '
           + '(3) OUTCOMES (ask EARLY): get a handful of closed-WON and closed-LOST customer domains and call record_closed_deals — a model trained on real outcomes beats one from a description, and the won-vs-lost contrast sharpens the ICP. '
           + '(4) BUILD: if no model exists yet, call build_scoring_model. '
-          + '(5) WRITE BACK: call get_icp_model and write the learned model into the user\'s context/icp.md so their file reflects what Nous learned.',
+          + '(5) WRITE BACK: call export_icp_model and write the learned model into the user\'s context/icp.md so their file reflects what Nous learned.',
       });
     }
 
@@ -363,7 +363,7 @@ workspaceStatusV2Router.get('/status', async (req, res) => {
         id: 'icp_writeback',
         title: 'Write the updated ICP model back to the file',
         why: `The scoring model has evolved since ${icpSync.synced_from} was last synced — the learned block in that file is out of date.`,
-        how: `Call get_icp_model and write the returned block into ${icpSync.synced_from} (replace the existing block between the nous:icp markers). If the user has edited that file, re-run get_icp first to pull their changes back in.`,
+        how: `Call export_icp_model and write the returned block into ${icpSync.synced_from} (replace the existing block between the nous:icp markers). If the user has edited that file, re-run sync_icp first to pull their changes back in.`,
       });
     }
 
@@ -531,7 +531,7 @@ workspaceStatusV2Router.post('/onboarding', async (req, res) => {
 // ── POST /v2/workspace/scoring-model ─────────────────────────────────────────
 // Agent-callable: build (or rebuild) the ICP scoring model from the GTM context
 // the workspace has recorded. This is the second half of building the GTM
-// playbook — the agent syncs the context from the user's files with get_icp, then
+// playbook — the agent syncs the context from the user's files with sync_icp, then
 // calls this to turn it into a weighted scoring model. Pass force:true to rebuild over
 // an existing model. Shares its implementation with the human web route.
 workspaceStatusV2Router.post('/scoring-model', requireFeature('icpScoring'), async (req, res) => {
@@ -550,7 +550,7 @@ workspaceStatusV2Router.post('/scoring-model', requireFeature('icpScoring'), asy
     if (r.status === 'no_icp_memory') {
       return res.status(400).json({
         error: 'no_gtm_context',
-        message: 'No GTM context yet. Sync the user\'s ICP/context files with get_icp first (or scaffold context/icp.md, then get_icp), then build the model.',
+        message: 'No GTM context yet. Sync the user\'s ICP/context files with sync_icp first (or scaffold context/icp.md, then sync_icp), then build the model.',
       });
     }
     if (r.status === 'translation_failed') {
@@ -784,7 +784,7 @@ workspaceStatusV2Router.post('/closed-deals', async (req, res) => {
 });
 
 // ── POST /v2/workspace/icp/import ─────────────────────────────────────────────
-// The file→Nous direction of the ICP symbiosis (get_icp). The agent reads the
+// The file→Nous direction of the ICP symbiosis (sync_icp). The agent reads the
 // user's EXISTING ICP/positioning files (context/icp.md, etc.) and posts each
 // section's content + the file it came from. Nous mirrors each section as a GTM
 // context fact (recording source_path so the write-back knows the target file),
@@ -855,7 +855,7 @@ workspaceStatusV2Router.post('/icp/import', requireFeature('icpScoring'), async 
 });
 
 // ── GET /v2/workspace/icp/model ───────────────────────────────────────────────
-// The Nous→file direction of the ICP symbiosis (get_icp_model). Returns the
+// The Nous→file direction of the ICP symbiosis (export_icp_model). Returns the
 // learned scoring model (signals + lift + calibration) rendered as the fenced
 // <!-- nous:icp --> block, plus the target file path Nous recorded at import.
 // The agent writes the block back into that file with its native editor.

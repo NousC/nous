@@ -584,7 +584,7 @@ export default function Intelligence() {
   const needsSetup = !playbookDone && !hasModel;
 
   // Does the ICP live in the user's own repo? When any section was synced from a
-  // file (get_icp records source_path), the file is the source of truth and this
+  // file (sync_icp records source_path), the file is the source of truth and this
   // page is a READ-ONLY mirror — editing happens in their repo, not here. We show
   // provenance and drop the in-app edit controls so there's one place to author.
   const syncedPaths = [...new Set(icpFacts.map(f => f.source_path).filter((p): p is string => !!p))];

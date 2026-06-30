@@ -66,7 +66,7 @@ Read:
 - `query` — retrieve and summarise activity across many people (group by entity, subtract sets, value rollups)
 - `attention` — what needs attention now (accounts gone quiet, facts decayed)
 - `verify` — re-check a single fact before acting on it
-- `get_gtm_profile` — the user's OWN GTM profile (ICP, market, product, pricing, competitors, positioning)
+- `get_playbook` — the user's OWN GTM profile (ICP, market, product, pricing, competitors, positioning)
 - `search_notes` — semantic search over saved notes & documents on contacts
 - `get_workspace_status` — what's set up in this workspace + a ranked `next_steps` list (call first in a session)
 - `list_triggers` — the workspace's event triggers + the catalog of available event names
@@ -94,7 +94,7 @@ The public surface is the `/v2` Context API (key-authed via `verifyApiKey`). The
 - `POST /v2/query` — retrieve/summarise activity across many entities (backs `query`)
 - `GET  /v2/attention` — what needs attention (backs `attention`)
 - `POST /v2/verify` — re-derive a single fact (backs `verify`)
-- `GET  /v2/workspace/facts` / `POST /v2/workspace/facts` — read/evolve the GTM profile (back `get_gtm_profile` / `update_gtm_profile`)
+- `GET  /v2/workspace/facts` / `POST /v2/workspace/facts` — read/evolve the GTM profile (back `get_playbook` / `update_gtm_profile`)
 - `POST /v2/notes` / `POST /v2/notes/search` — save / semantically search notes (back `save_note` / `search_notes`)
 
 Workspace setup/operate routes (back the operate + status tools): `GET /v2/workspace/status`, `POST /v2/workspace/onboarding`, `POST /v2/workspace/scoring-model`, `POST /v2/workspace/integrations`, `POST /v2/workspace/crm-sync`, `GET|POST /v2/workspace/triggers`.

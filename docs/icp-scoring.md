@@ -210,7 +210,7 @@ Two design points:
 - **Exclusions are authored, from the ICP prose.** Unlike the loss-drivers the loop *learns* from outcomes (§7), exclusions are stated by you. `seedScorecardFromMemory` (`scorecardSeed.mjs`) reads any "not a fit / we don't work with / avoid" language in your ICP and emits a disqualifying signal per stated exclusion. It picks the binding cheapest-first, a **three-tier ladder**:
   - **1. Firmographic.** When a feature value cleanly isolates the excluded kind (a whole `country`, an `industry` you never sell to), bind to that feature with `==`/`in`. Fires at score time, no extra work, wherever enrichment populates the feature.
   - **2. Keyword / text.** When an *included* kind shares the same firmographics (the canonical trap: exclude **cold-calling** agencies while **cold-email** agencies are your lead ICP, both are `industry=agency`), a firmographic rule would nuke your real ICP. So the seed emits a **`keywords contains_any [terms]`** disqualifier instead: high-precision terms the excluded kind's enrichment text carries but the included kind doesn't (`cold calling`, `telemarketing`, `dialer`, not `appointment setting`). This is the **automatic** layer: it fires at score time off the descriptive `keywords`/`description` text **Apollo/Prospeo already return** (we now capture it onto the company entity, `captureCompanyKeywords` in `enrichment.mjs`, having previously dropped it), so most cold-callers are caught with **no website read**.
-  - **3. Semantic (website read).** The backstop for what keywords miss. The seed also emits a **`exclusion.<key>`** (op `exists`, `disqualify`) that stays dormant until **signal-scan** reads the site, judges it against the exclusion's description (shown in the `get_icp_model` write-back block under "Not a fit"), and on a genuine match records `exclusion.<key>` on the company with the ordinary **`record`** tool, **no new MCP tools**.
+  - **3. Semantic (website read).** The backstop for what keywords miss. The seed also emits a **`exclusion.<key>`** (op `exists`, `disqualify`) that stays dormant until **signal-scan** reads the site, judges it against the exclusion's description (shown in the `export_icp_model` write-back block under "Not a fit"), and on a genuine match records `exclusion.<key>` on the company with the ordinary **`record`** tool, **no new MCP tools**.
 
   `contains_any` (a new operator in `scoreLead`) and `exclusion.*` claims are both **inherited from the company to every person** (the same `works_at` rail as `signal.*` in `buildEntityFeatures`), so a flagged cold-caller caps the whole buying committee. And because a signal/exclusion on the company drives the *people's* scores, recording one now **fans out and re-scores every person at that company immediately** (`rescoreCompanyMembers`, wired into the sync write-path and the claim-engine worker), not on the next nightly pass. The chosen policy is that a keyword match **hard-caps** (the seed forces `disqualify` on any negative `keywords` rule, since the LLM emits it inconsistently). Re-seeding is non-destructive: `seedSignals` clears only seed-origin rows (`added_in IS NULL`) and upserts, so editing your exclusions never wipes what the loop learned from real deals. The honest limit: a semantic/keyword exclusion only *acts* once an account is enriched (keywords) or scanned (website), because already-scored accounts drop on their next enrichment/scan, since "is this a cold-caller?" doesn't exist in the data until something reads it.
 
@@ -309,18 +309,18 @@ This is also where the model is first **seeded** from your plain-English ICP. `s
 The model doesn't learn in a vacuum. It starts from what you tell it. The **GTM Context** page (`apps/frontend/src/pages/Intelligence.tsx`, route `/intelligence`, labelled "GTM Context") is the workspace's source of truth about *your* business: ICP, Market, Product, Pricing, Competitors, Positioning, GTM Motion, Notes. Each field is a `claim` carrying a subject slot, a confidence, and a source (`you` edited it, `site` drafted it, `Claude` wrote it back).
 
 - **It evolves, it doesn't pile up.** Re-stating a fact in a slot *supersedes* the old value (kept as history) rather than duplicating. Stale or AI-drafted fields are flagged "worth revisiting."
-- **Agents read and write it both ways.** `get_gtm_profile` / `get_context` read it. Durable changes are written back by syncing the user's own files: **`get_icp`** for ICP/context, **`sync_playbook`** for a playbook, **`set_workspace_profile`** at onboarding (the old `update_gtm_profile` tool was retired in favour of the file-sync model). The Context is the seed for the ICP model (§7).
+- **Agents read and write it both ways.** `get_playbook` / `get_context` read it. Durable changes are written back by syncing the user's own files: **`sync_icp`** for ICP/context, **`sync_playbook`** for a playbook, **`set_workspace_profile`** at onboarding (the old `update_gtm_profile` tool was retired in favour of the file-sync model). The Context is the seed for the ICP model (§7).
 
 ### ICP file symbiosis
 
 A Claude Code user already keeps an `icp.md` (or `positioning.md`, `pricing.md`) in their own repo. Rather than fork a second ICP in the web UI, Nous reads and writes *their* file:
 
-- **`get_icp`** syncs the user's existing ICP/positioning files **into** the graph (file → graph), recording the source path. First sync usually builds the scoring model.
-- **`get_icp_model`** writes the *learned* model **back** into their file as a fenced `nous:icp` block (graph → file), so the model the loop discovered lives in their repo, next to the ICP they wrote.
+- **`sync_icp`** syncs the user's existing ICP/positioning files **into** the graph (file → graph), recording the source path. First sync usually builds the scoring model.
+- **`export_icp_model`** writes the *learned* model **back** into their file as a fenced `nous:icp` block (graph → file), so the model the loop discovered lives in their repo, next to the ICP they wrote.
 
 The `/playbook` page mirrors the synced ICP read-only. The graph is the runtime-agnostic source of truth. The Claude Code file is an optional mirror.
 
-**An edit is inert until synced.** Editing `icp.md` does not change the score, the exclusions, or what other agents read until `get_icp` runs, because the model is rebuilt *on sync*, not on file save. This is enforced two ways so an agent reliably does it: the `get_icp` / `sync_playbook` tool descriptions and the workspace guidance state it as a hard rule ("after ANY edit you MUST call `get_icp` this turn"), and the Nous Claude Code plugin ships a `PostToolUse` hook that fires on any edit of a context/ICP/playbook file and injects a sync reminder.
+**An edit is inert until synced.** Editing `icp.md` does not change the score, the exclusions, or what other agents read until `sync_icp` runs, because the model is rebuilt *on sync*, not on file save. This is enforced two ways so an agent reliably does it: the `sync_icp` / `sync_playbook` tool descriptions and the workspace guidance state it as a hard rule ("after ANY edit you MUST call `sync_icp` this turn"), and the Nous Claude Code plugin ships a `PostToolUse` hook that fires on any edit of a context/ICP/playbook file and injects a sync reminder.
 
 ---
 
@@ -351,13 +351,13 @@ What an agent can do with all of this, through the MCP server (`apps/mcp/src/ser
 | Tool | Purpose |
 | --- | --- |
 | `get_context` / `get_account` | read an account's facts **plus** its ICP fit head (`icpFit`) |
-| `get_gtm_profile` | the workspace's ICP, market, pricing, positioning |
-| `get_icp` / `get_icp_model` | sync the user's ICP file in (rebuilds the model) / write the learned model out |
+| `get_playbook` | the workspace's ICP, market, pricing, positioning |
+| `sync_icp` / `export_icp_model` | sync the user's ICP file in (rebuilds the model) / write the learned model out |
 | `build_scoring_model` | translate GTM context into the weighted scorecard |
 | `get_playbook` / `sync_playbook` | read the policy rules / push a file edit up |
 | `record` / `record_signal` / `record_closed_deals` | feed evidence and outcomes back into the loop (an `exclusion.*` claim via `record` flags a semantic exclusion) |
 
-The discipline the workspace guidance enforces: read `get_gtm_profile` (and the relevant playbook) at the *start* of GTM work, act on the engineered record's ICP fit rather than a guess, and `record` what happened *after*, so the next score, and the next agent, start from the truth.
+The discipline the workspace guidance enforces: read `get_playbook` (and the relevant playbook) at the *start* of GTM work, act on the engineered record's ICP fit rather than a guess, and `record` what happened *after*, so the next score, and the next agent, start from the truth.
 
 ---
 

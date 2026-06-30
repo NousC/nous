@@ -123,7 +123,7 @@ The brain. Never metered, never gated, because it costs us ~$0:
 
 - **ICP scoring** — deterministic scorecard math, $0/lead.
 - **Context assembly** — `get_context`, `get_account` — deterministic retrieval, $0.
-- **GTM profile** — `get_gtm_profile`, `update_gtm_profile` — pure data layer, $0.
+- **GTM profile** — `get_playbook`, `update_gtm_profile` — pure data layer, $0.
 - **The Mind self-improving loop** — nightly, ~$0.004/workspace Haiku, amortized into base.
 - **All read/reasoning MCP tools** — `query`, `attention`, `verify`, `coverage`,
   `save_note`, `search_notes`.
@@ -172,7 +172,7 @@ exceptions (cloud-only, profile-gated, BYOK-cost) are called out.
   freshness & confidence · reply classification · stage derivation.
 
 ### Agent surface — MCP / SDK / CLI / REST (always available; calls draw ops)
-- `get_context`, `get_account`, `record`, `query`, `attention`, `verify`, `get_gtm_profile`,
+- `get_context`, `get_account`, `record`, `query`, `attention`, `verify`, `get_playbook`,
   `update_gtm_profile`, `get_workspace_status`, `set_workspace_profile`, `build_scoring_model`,
   `record_closed_deals`, `save_note`, `search_notes`, `coverage`,
   `lead_list_operations`, `connect_integration`, `configure_crm_sync`, `set_trigger`,

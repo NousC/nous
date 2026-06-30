@@ -18,15 +18,15 @@
  *   query                — retrieve + summarise a corpus of activity across many people
  *   attention            — what needs your attention (accounts gone quiet, facts decayed)
  *   verify               — re-check a fact before acting on it
- *   get_gtm_profile      — the user's GTM profile (ICP, market, pricing, product, competitors)
+ *   get_playbook         — read the user's own rules: voice, outreach, icp, positioning
  *   save_note            — attach a note/document (meeting brief, transcript, prep) to a contact
  *   search_notes         — semantic search over saved notes & documents
  *   get_workspace_status — what's set up in this workspace + a ranked next_steps list (call first)
  *   set_workspace_profile— agent-driven onboarding: set the workspace's name, site, type, ICP
  *   build_scoring_model  — build/rebuild the ICP scoring model from the recorded GTM context
  *   record_closed_deals  — build the ICP model from real closed-won/lost deals (contrastive lift)
- *   get_icp              — sync the user's EXISTING ICP/positioning files into Nous (file → graph)
- *   get_icp_model        — get the learned ICP model as a block to write back into their ICP file (graph → file)
+ *   sync_icp              — sync the user's EXISTING ICP/positioning files into Nous (file → graph)
+ *   export_icp_model        — get the learned ICP model as a block to write back into their ICP file (graph → file)
  *   connect_integration  — connect a key-based integration (Apollo, Prospeo, HubSpot, …)
  *   configure_crm_sync   — set CRM sync rules (auto-sync, create policy, hygiene cadence)
  *   sync_crm_now         — run an immediate incremental/full CRM pull (don't wait for the daily cron)
@@ -115,19 +115,20 @@ Nous first even when the user never says "Nous":
 - What needs attention, what has gone quiet     -> attention
 - Your action items / what you owe an account    -> get_action_items
 - A fact looks stale before you act on it       -> verify
-- Our ICP, market, pricing, positioning         -> get_gtm_profile
-- Our ICP/positioning lives in our own files    -> get_icp (file → graph) / get_icp_model (graph → file)
-- You edited an ICP / context / playbook file   -> re-sync THIS turn: get_icp (ICP/context) or sync_playbook (a playbook)
+- Our own rules: ICP, positioning, voice, outreach -> get_playbook
+- Our ICP/positioning lives in our own files    -> sync_icp (file → graph) / export_icp_model (graph → file)
+- You edited an ICP / context / playbook file   -> re-sync THIS turn: sync_icp (ICP/context) or sync_playbook (a playbook)
 - A brief / note / transcript on a contact      -> save_note / search_notes
 - What's set up here and what to do next        -> get_workspace_status
 
-Read get_gtm_profile at the start of GTM work and write back what changed at the
-end. After every interaction you help with, call record so the record stays current.
+Read get_playbook at the start of GTM work for the user's own rules (voice,
+outreach, icp, positioning). After every interaction you help with, call record so
+the record stays current.
 
 CRITICAL — edits don't apply until you sync. Editing an ICP / context / playbook
 file (context/icp.md, positioning.md, references/voice.md, …) does NOT change the
 ICP score, the exclusions, or what any other agent reads until it is synced into
-the graph. After ANY such edit you MUST call get_icp (for ICP/context files) or
+the graph. After ANY such edit you MUST call sync_icp (for ICP/context files) or
 sync_playbook (for a playbook) in the SAME turn. Never leave an edited file
 unsynced — an unsynced edit is silently inert.`;
 
@@ -586,53 +587,9 @@ export function createServer() {
     }
   );
 
-  // ===========================================================================
-  // TOOL: get_gtm_profile  —  GET /v2/workspace/facts
-  // The user's OWN GTM profile: ICP, market, product, pricing, competitors.
-  // Use this for any question about the user's business — NOT get_account.
-  // ===========================================================================
-  const gtmProfileDescription =
-    "Get the user's OWN GTM profile — their ICP, target market, product, pricing, " +
-    "competitors, and positioning. These are NOT facts about a person or company; they are " +
-    "the user's own business profile. Use this for any question about the user's ICP, target " +
-    "buyer, pricing, market, or differentiators. ALWAYS prefer this over query/get_account " +
-    "when the question is about the user's business.";
-  const gtmProfileSchema = {
-    categories: z.array(z.string()).optional()
-      .describe("Optional category filter, e.g. ['ICP'] or ['Pricing','Competitors']. Omit for all."),
-    limit: z.number().min(1).max(500).optional()
-      .describe("Max facts to return (default 50)"),
-  };
-  const gtmProfileHandler = async ({ categories, limit }) => {
-    const params = {};
-    if (categories?.length) params.categories = categories.join(",");
-    if (limit != null) params.limit = limit;
-    const r = await get("/v2/workspace/facts", params);
-    if (!r.facts?.length) {
-      return { content: [{ type: "text", text:
-        "No GTM profile recorded yet. The user can set it up in the GTM Context tab." }] };
-    }
-    const groups = {};
-    for (const f of r.facts) (groups[f.category] ??= []).push(f);
-    const lines = [];
-    for (const [cat, facts] of Object.entries(groups)) {
-      lines.push(`${cat.toUpperCase()} (${facts.length}):`);
-      for (const f of facts) {
-        // Flag AI-drafted facts (confidence < 1) and ones not confirmed in a long
-        // time, so the agent treats them as provisional and prefers fresh,
-        // user-confirmed facts when they conflict.
-        const ageDays = f.recorded_at ? Math.floor((Date.now() - new Date(f.recorded_at).getTime()) / 86400000) : 0;
-        const tags = [];
-        if (typeof f.confidence === "number" && f.confidence < 1) tags.push("inferred");
-        if (ageDays >= 90) tags.push("stale");
-        const tag = tags.length ? ` (${tags.join(", ")})` : "";
-        lines.push(`  ${f.content}${tag}  [${relAge(f.recorded_at)}]`);
-      }
-      lines.push("");
-    }
-    return { content: [{ type: "text", text: lines.join("\n").trim() }] };
-  };
-  server.tool("get_gtm_profile", gtmProfileDescription, gtmProfileSchema, gtmProfileHandler);
+  // get_gtm_profile removed: the user's GTM lives in their files, mirrored into
+  // the graph as playbooks (get_playbook) plus the learned ICP model. Read
+  // get_playbook for the user's own rules, ICP, and positioning.
 
   // ===========================================================================
   // TOOLS: get_playbook / sync_playbook  —  the POLICY layer (vs. facts).
@@ -681,13 +638,13 @@ export function createServer() {
     "whenever you edit a policy file in the repo (e.g. references/voice.md, outreach rules), passing the " +
     "file's new content and its path, so Nous mirrors it and every other agent obeys the same rules. An " +
     "edited playbook file that isn't synced is silently inert — other agents keep reading the old rules. " +
-    "(For the ICP/context files specifically, get_icp is the sync — use that one.)",
+    "(For the ICP/context files specifically, sync_icp is the sync — use that one.)",
     syncPlaybookSchema, syncPlaybookHandler);
 
   // The GTM context is no longer written through a dedicated MCP tool. In the file
   // symbiosis model the user's own files (context/icp.md, positioning.md, …) are
   // the source of truth: the agent edits those with its own file tools and calls
-  // `get_icp` to sync them into the graph (and `get_icp_model` to write the learned
+  // `sync_icp` to sync them into the graph (and `export_icp_model` to write the learned
   // model back). The shared POST /v2/workspace/facts route still backs that import.
 
   // ===========================================================================
@@ -706,7 +663,7 @@ export function createServer() {
     "Notes are append-only and dated, so a contact builds a record across meetings — later you can " +
     "read the last few and see what changed. This is NOT for logging that an interaction happened " +
     "(use `record` with an interaction.* event for that), and NOT for the user's own GTM profile " +
-    "(that lives in their context files — sync it with `get_icp`). Put the full text in `content` — it's kept for agents to read; the " +
+    "(that lives in their context files — sync it with `sync_icp`). Put the full text in `content` — it's kept for agents to read; the " +
     "UI shows the title and date, not the whole body.",
     {
       focus: z.string().describe("Who to attach it to — an email, LinkedIn URL, domain, or entity UUID (not a bare name)."),
@@ -799,7 +756,7 @@ export function createServer() {
       lines.push(`  ${mark(setup.gtm_playbook?.done)} GTM playbook${setup.gtm_playbook?.model ? " (scoring model live)" : ""}${setup.gtm_playbook?.stale_facts ? ` · ${setup.gtm_playbook.stale_facts} stale fact(s)` : ""}`);
       if (setup.icp_sync) {
         const sy = setup.icp_sync;
-        lines.push(`  ⟳ ICP synced from ${sy.synced_from} (${relAge(sy.synced_at)})${sy.model_changed ? " · model has CHANGED since — run get_icp_model to refresh the file" : ""}`);
+        lines.push(`  ⟳ ICP synced from ${sy.synced_from} (${relAge(sy.synced_at)})${sy.model_changed ? " · model has CHANGED since — run export_icp_model to refresh the file" : ""}`);
       }
       const ints = setup.integrations?.connected ?? [];
       lines.push(`  ${mark((setup.integrations?.count ?? 0) > 0)} Integrations (${setup.integrations?.count ?? 0})${ints.length ? `: ${ints.map((i) => i.name).join(", ")}` : ""}`);
@@ -851,12 +808,12 @@ export function createServer() {
     "changing. " +
     "IMPORTANT for the ICP: before asking the user to describe their ICP from scratch, if you're in " +
     "Claude Code, look for an ICP they ALREADY wrote — folders like context/, .claude/, gtm/ and files " +
-    "named icp*, positioning*, pricing*, competitors*. If you find them, read them and call get_icp to " +
+    "named icp*, positioning*, pricing*, competitors*. If you find them, read them and call sync_icp to " +
     "sync them (don't retype the ICP here); if none exists, scaffold a context/ folder (icp.md, " +
     "positioning.md, pricing.md, market.md, competitors.md, gtm-motion.md) from the conversation + your " +
-    "site research, then get_icp it — so their ICP lives in their repo. (Not in Claude Code? Capture a " +
+    "site research, then sync_icp it — so their ICP lives in their repo. (Not in Claude Code? Capture a " +
     "first cut in the `icp` field here instead.) " +
-    "After this, the next step is the context files: call get_icp to sync them into the graph.",
+    "After this, the next step is the context files: call sync_icp to sync them into the graph.",
     {
       name: z.string().optional().describe("The user's company / workspace name."),
       website: z.string().optional().describe("The company website (used to seed the GTM context)."),
@@ -880,14 +837,14 @@ export function createServer() {
       ].filter(Boolean);
       return { content: [{ type: "text", text:
         `Workspace profile saved.${set.length ? ` ${set.join(" · ")}.` : ""}\n` +
-        `Next: call get_workspace_status to see what to set up next (usually syncing the ICP/context files with get_icp).` }] };
+        `Next: call get_workspace_status to see what to set up next (usually syncing the ICP/context files with sync_icp).` }] };
     }
   );
 
   // ===========================================================================
   // TOOL: build_scoring_model  —  POST /v2/workspace/scoring-model
   // The second half of building the GTM playbook. The agent syncs the GTM context
-  // from the user's files with get_icp, then calls this to turn it into a weighted
+  // from the user's files with sync_icp, then calls this to turn it into a weighted
   // ICP scoring model. After this, accounts get scored for fit and
   // get_workspace_status shows the playbook as done.
   // ===========================================================================
@@ -895,11 +852,11 @@ export function createServer() {
     "build_scoring_model",
     "Build (or rebuild) the user's ICP scoring model from their synced GTM context. This is " +
     "the second half of setting up the GTM playbook: first sync the user's ICP/positioning/pricing " +
-    "files with get_icp, then call this to translate that context into a weighted set of scoring " +
-    "signals so accounts get scored for fit. (get_icp usually builds the model on first sync, so you " +
+    "files with sync_icp, then call this to translate that context into a weighted set of scoring " +
+    "signals so accounts get scored for fit. (sync_icp usually builds the model on first sync, so you " +
     "often won't need this directly.) If a model already exists it is left alone unless you " +
     "pass force:true (use that when the context files have changed and the model should be rebuilt). If " +
-    "it reports no GTM context yet, sync the user's context files with get_icp first, then call this again. " +
+    "it reports no GTM context yet, sync the user's context files with sync_icp first, then call this again. " +
     "STRONGER than this tool: if the user can name a few closed-WON and closed-LOST customer domains, " +
     "call record_closed_deals instead (or as well) — it trains the model on real outcomes via " +
     "contrastive lift, which beats a model inferred from a description.",
@@ -921,7 +878,7 @@ export function createServer() {
         const msg = String(e?.message ?? e);
         if (msg.includes("no_gtm_context")) {
           return { content: [{ type: "text", text:
-            "No GTM context yet. Sync the user's ICP/context files with get_icp first (or scaffold context/icp.md, then get_icp), then build the model." }] };
+            "No GTM context yet. Sync the user's ICP/context files with sync_icp first (or scaffold context/icp.md, then sync_icp), then build the model." }] };
         }
         if (msg.includes("model_exists")) {
           return { content: [{ type: "text", text:
@@ -974,16 +931,16 @@ export function createServer() {
   );
 
   // ===========================================================================
-  // TOOL: get_icp  —  POST /v2/workspace/icp/import
+  // TOOL: sync_icp  —  POST /v2/workspace/icp/import
   // The file→Nous half of the ICP symbiosis. In Claude Code the user often
   // already keeps their ICP/positioning as markdown (context/icp.md, etc.). Don't
   // make them re-author it in Nous — READ those files and sync them here. Nous
-  // mirrors each section and remembers the file path so get_icp_model can write
+  // mirrors each section and remembers the file path so export_icp_model can write
   // the learned model back into the same file. Their file stays the source of
   // truth for the prose; Nous owns the learned scoring half.
   // ===========================================================================
   server.tool(
-    "get_icp",
+    "sync_icp",
     "Sync the user's EXISTING ICP/positioning files into Nous, instead of making them re-author their " +
     "ICP in a second place. CLAUDE CODE flow: when onboarding (or whenever their ICP files change), look " +
     "in the project for an existing GTM setup — folders like context/, .claude/, gtm/, and files named " +
@@ -994,7 +951,7 @@ export function createServer() {
     "Market, messaging.md -> Notes) — one entry per file, do NOT dump several files' content into ICP. " +
     "If one file holds several sections under headers, split it by header into multiple entries. " +
     "Nous keeps a served copy of the prose and rebuilds the ICP scoring model from it; " +
-    "the recorded source_path is what get_icp_model writes the learned model back into. " +
+    "the recorded source_path is what export_icp_model writes the learned model back into. " +
     "INCLUDE EXCLUSIONS: if the ICP names who they will NOT work with (e.g. 'not cold-calling " +
     "agencies', 'no pure branding/messaging shops'), keep that text IN the ICP section — Nous turns " +
     "each stated exclusion into a hard disqualifier that caps those accounts below Not-ICP, even when " +
@@ -1005,9 +962,9 @@ export function createServer() {
     "file tools), then call this on those files — so their GTM context lives in their repo where they'll " +
     "keep editing it. At minimum create context/icp.md if that's all they'll give you. " +
     "MANDATORY RE-SYNC: whenever you (or the user) edit the ICP/context file — add or change an exclusion, " +
-    "reword the ICP, retarget — you MUST call get_icp again in the SAME turn. The edit does NOT change the " +
+    "reword the ICP, retarget — you MUST call sync_icp again in the SAME turn. The edit does NOT change the " +
     "ICP score, the exclusions, or the scoring model until you do; an unsynced file edit is silently inert. " +
-    "The ICP section's source_path matters most (it's the write-back target for get_icp_model).",
+    "The ICP section's source_path matters most (it's the write-back target for export_icp_model).",
     {
       sections: z.array(z.object({
         section: z.enum(["ICP", "Market", "Product", "Pricing", "Competitors", "Positioning", "GTM Motion", "Notes"])
@@ -1029,11 +986,11 @@ export function createServer() {
         const sig = r.signals ?? [];
         if (r.model_status === "created" && sig.length) {
           lines.push("", `Built the ICP scoring model — ${sig.length} signal${sig.length === 1 ? "" : "s"}.`);
-          lines.push("Next: if the user can name a few closed-won + closed-lost domains, call record_closed_deals to sharpen it on real outcomes, then call get_icp_model to write the learned model back into their ICP file.");
+          lines.push("Next: if the user can name a few closed-won + closed-lost domains, call record_closed_deals to sharpen it on real outcomes, then call export_icp_model to write the learned model back into their ICP file.");
         } else if (r.model_status === "no_icp_memory") {
           lines.push("", "Synced, but there wasn't enough ICP content to build a scoring model — make sure the ICP section has real content.");
         } else {
-          lines.push("", "Context synced. Call get_icp_model when you want to write the learned model back into their ICP file.");
+          lines.push("", "Context synced. Call export_icp_model when you want to write the learned model back into their ICP file.");
         }
         return { content: [{ type: "text", text: lines.join("\n").trim() }] };
       } catch (e) {
@@ -1049,7 +1006,7 @@ export function createServer() {
   );
 
   // ===========================================================================
-  // TOOL: get_icp_model  —  GET /v2/workspace/icp/model
+  // TOOL: export_icp_model  —  GET /v2/workspace/icp/model
   // The Nous→file half of the ICP symbiosis. Nous learns which signals actually
   // predict a win (lift + calibration) from real outcomes; this returns that
   // learned model as a ready-to-write fenced block, which the agent writes back
@@ -1057,11 +1014,11 @@ export function createServer() {
   // block so the format is controlled centrally — the agent just persists it.
   // ===========================================================================
   server.tool(
-    "get_icp_model",
+    "export_icp_model",
     "Get the LEARNED ICP scoring model (which signals predict a win, their weight, lift, and the " +
     "calibration gap) as a ready-to-write markdown block, and write it back into the user's own ICP " +
     "file. This is the payoff of the symbiosis: their file keeps the words, Nous keeps the model, and " +
-    "this writes the model under their words. CLAUDE CODE flow: call this after get_icp or after " +
+    "this writes the model under their words. CLAUDE CODE flow: call this after sync_icp or after " +
     "record_closed_deals, then with your file tools open `target_path`, and if the file already has a " +
     "block between '<!-- nous:icp start -->' and '<!-- nous:icp end -->' REPLACE that whole block with " +
     "the returned `block`; if not, append the returned `block` (e.g. replacing a '## [To refine]' " +
@@ -1072,7 +1029,7 @@ export function createServer() {
       const r = await get("/v2/workspace/icp/model");
       if (!r.has_model) {
         return { content: [{ type: "text", text:
-          "No ICP scoring model yet. Sync the user's ICP file with get_icp first (or build one with " +
+          "No ICP scoring model yet. Sync the user's ICP file with sync_icp first (or build one with " +
           "build_scoring_model / record_closed_deals), then call this to write it back." }] };
       }
       const note = r.has_outcomes
