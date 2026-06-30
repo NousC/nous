@@ -3,6 +3,7 @@ import type { ScorecardSignal } from '../types.js';
 import type { Claim } from './claims.js';
 import { scoreToPrediction, modelVersion } from './scorecard.js';
 import { getClaims } from './claims.js';
+import { getInternalEntityIds, isEntityInternal } from './teamMembers.js';
 import { pipelineFeatures } from '../services/pipelineFeatures.js';
 
 // The prediction-write half of the compound-intelligence loop.
@@ -163,6 +164,11 @@ export async function scoreAndStake(
   entityId: string,
   signals: ScorecardSignal[],
 ): Promise<StakeResult | null> {
+  // Team members are operators, not the market. entitiesNeedingScore already
+  // filters them out; this guards the other scoring callers (rescore, enrichment)
+  // so an internal account can never get a hollow ICP prediction staked.
+  if (await isEntityInternal(supabase, workspaceId, entityId)) return null;
+
   const built = await buildEntityFeatures(supabase, workspaceId, entityId);
   if (!built) return null;
   const { features, snapshot } = built;
@@ -228,8 +234,10 @@ export async function entitiesNeedingScore(
   if (scored.error) throw new Error(`failed to list predictions: ${scored.error.message}`);
 
   const alreadyScored = new Set((scored.data ?? []).map(p => p.entity_id as string));
+  // Team members are operators, not the market — never stake an ICP score on them.
+  const internal = await getInternalEntityIds(supabase, workspaceId);
   return (people.data ?? [])
     .map(p => p.id as string)
-    .filter(id => !alreadyScored.has(id))
+    .filter(id => !alreadyScored.has(id) && !internal.has(id))
     .slice(0, limit);
 }

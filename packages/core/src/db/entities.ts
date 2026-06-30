@@ -293,6 +293,22 @@ export async function getOrCreateEntity(
   if (error || !data) throw new Error(`failed to create entity: ${error?.message}`);
 
   await attachIdentifiers(supabase, workspaceId, data.id, identifiers);
+
+  // A brand-new person whose email is a workspace member is internal — a teammate,
+  // not a prospect. Flag them the moment they enter the graph so they never get
+  // scored or pushed. Best-effort: a hiccup here must not fail ingestion.
+  if (type === 'person') {
+    const email = identifiers.find(i => i.kind === 'email')?.value;
+    if (email) {
+      try {
+        const { isEmailInternal, markEntityInternal } = await import('./teamMembers.js');
+        if (await isEmailInternal(supabase, workspaceId, email)) {
+          await markEntityInternal(supabase, workspaceId, data.id);
+        }
+      } catch { /* recognition is best-effort; the score worker is the backstop */ }
+    }
+  }
+
   return data.id;
 }
 

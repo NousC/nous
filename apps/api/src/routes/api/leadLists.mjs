@@ -20,6 +20,8 @@ import {
   selectLeadIdsByFilter,
   selectLeadsLite,
   scoreTier,
+  recogniseTeamMembers,
+  getInternalEntityIds,
 } from '@nous/core';
 import { fetchIcpByEntity, fetchIntentByEntity } from '../../lib/icpFit.mjs';
 import { hasFeature } from '../../lib/plans.mjs';
@@ -939,7 +941,12 @@ leadListsRouter.post('/:id/push', async (req, res) => {
     const { data: rows } = await supabase
       .from('leads').select('id, email, linkedin_url, name, company')
       .eq('workspace_id', workspaceId).eq('lead_list_id', req.params.id).in('id', ids);
-    const leads = (rows || []).map(l => {
+    // Never push a team member into outreach. leads.id == entity_id, so the
+    // internal set filters the push directly. Recognise first so a member just
+    // added to the workspace is caught even before the score worker runs.
+    await recogniseTeamMembers(supabase, workspaceId);
+    const internal = await getInternalEntityIds(supabase, workspaceId);
+    const leads = (rows || []).filter(l => !internal.has(l.id)).map(l => {
       const [first, ...rest] = (l.name || '').trim().split(' ');
       return { id: l.id, email: l.email, linkedin_url: l.linkedin_url, first_name: first || null, last_name: rest.join(' ') || null, company: l.company };
     });

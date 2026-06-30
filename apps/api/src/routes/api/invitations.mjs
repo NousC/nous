@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getSupabaseClient } from '@nous/core';
+import { getSupabaseClient, recogniseTeamMembers } from '@nous/core';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
 import { ensureUserAndTeam } from '../../lib/auth.mjs';
 
@@ -63,6 +63,10 @@ invitationsRouter.post('/:token/accept', verifySupabaseAuth, async (req, res) =>
     if (allWorkspaces?.length) {
       const wsRole = ['founder', 'owner', 'admin'].includes(memberRole) ? 'admin' : memberRole === 'member' ? 'member' : 'viewer';
       await Promise.allSettled(allWorkspaces.map(ws => supabase.from('workspace_members').insert({ workspace_id: ws.id, user_id: user.id, role: wsRole }).select().single()));
+      // A new teammate is an operator, not a prospect. Flag them internal on every
+      // workspace they just joined so their emails and your internal meetings are
+      // never treated as leads. Best-effort: a hiccup here must not fail the accept.
+      await Promise.allSettled(allWorkspaces.map(ws => recogniseTeamMembers(supabase, ws.id)));
     }
 
     if (user.team_id !== invitation.team_id) {

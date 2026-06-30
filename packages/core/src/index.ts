@@ -5,6 +5,7 @@ export * from './db/entities.js';
 export * from './db/observations.js';
 export * from './db/crmWriteState.js';
 export * from './db/claims.js';
+export * from './db/teamMembers.js';
 export * from './db/predictions.js';
 export * from './db/notes.js';
 export * from './db/claimCategories.js';

@@ -11,6 +11,7 @@ import {
   listSignals,
   scoreAndStake,
   entitiesNeedingScore,
+  recogniseTeamMembers,
   logWorkerRun,
 } from '@nous/core';
 
@@ -45,6 +46,11 @@ export async function scoreEntities() {
     for (const workspaceId of workspaceIds) {
       const signals = await listSignals(supabase, workspaceId, { activeOnly: true });
       if (signals.length === 0) continue;
+
+      // Flag team members before scoring so operators never get an ICP score.
+      // Idempotent and cheap; the first run backfills everyone already in the graph.
+      try { await recogniseTeamMembers(supabase, workspaceId); }
+      catch (err) { console.warn(`[SCORE_ENTITIES] team recognition ${workspaceId}:`, err.message); }
 
       const entityIds = await entitiesNeedingScore(supabase, workspaceId, PER_WORKSPACE_LIMIT);
 
