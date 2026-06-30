@@ -232,10 +232,13 @@ export async function extractActivitySignals({ supabase, activityId, contactId, 
       meeting_held:     'meeting notes/transcript',
     }[type] || type;
 
-    // Meetings are content-rich, so they earn a few more facts than a single
-    // message — but the quality bar below is identical either way. A deliberate
-    // re-extract pass over a full transcript can raise the cap via override.
-    const maxFacts = maxFactsOverride ?? (type === 'meeting_held' ? 4 : 2);
+    // No fixed target — the content and the quality bar decide how many claims a
+    // conversation yields. A thin message may produce none; a content-rich 50-min
+    // meeting may produce many. These numbers are SAFETY CEILINGS (runaway + cost
+    // guards), NOT goals; the prompt is explicit that the model must extract only
+    // what clears the bar and must never pad to reach a count. A deliberate
+    // re-extract pass can still raise the ceiling via override.
+    const maxFacts = maxFactsOverride ?? (type === 'meeting_held' ? 12 : 4);
 
     const msg = await anthropic.messages.create({
       feature: 'activity-signals-extract',
@@ -270,8 +273,9 @@ Rules:
 - Each fact is one self-contained sentence naming ${contactName} explicitly (no pronouns).
 - Set "category" to exactly one of: ${CLAIM_CATEGORY_KEYS.join(', ')}.
 - Set "about" to "person" for a fact about ${contactName}, or "company" for a fact about their company.
-- Prefer fewer, sharper facts over more. If nothing clears all three bars, return [].
-- Maximum ${maxFacts} facts.
+- Extract EVERY fact that clears all three bars — there is no target number. A thin message often yields none or one; a content-rich meeting may yield many. NEVER pad to reach a count, NEVER split one fact into several, and NEVER restate the same fact in different words.
+- Quality over quantity: one sharp, specific fact is worth more than five vague ones. If nothing clears all three bars, return [].
+- Hard ceiling of ${maxFacts} facts — a safety limit, not a goal. Stop when you run out of facts that genuinely clear the bar, well before the ceiling.
 
 Output ONLY valid JSON: [{"content": "...", "category": "<one category key>", "about": "person|company"}]
 If nothing meaningful: []` }],
