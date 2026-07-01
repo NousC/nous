@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -138,6 +138,22 @@ export default function AcceptInvitation() {
     }
   }, [pendingAccept, session, invitation, accepting, error, handleAccept, refreshUserData]);
 
+  // Frictionless path: when the user lands back on this page already
+  // authenticated (e.g. returning from Google sign-in, where the pendingAccept
+  // flag was wiped by the full-page redirect), auto-accept — but ONLY when the
+  // signed-in email matches the invite, so a wrong-account visitor still sees the
+  // mismatch screen instead of a silent failed accept. One less click.
+  const autoFired = useRef(false);
+  useEffect(() => {
+    if (autoFired.current) return;
+    if (accepting || error || pendingAccept) return;
+    if (!isAuthenticated || !session?.access_token || !invitation) return;
+    const sameEmail = invitation.email?.toLowerCase() === session.user?.email?.toLowerCase();
+    if (!sameEmail) return;
+    autoFired.current = true;
+    handleAccept();
+  }, [isAuthenticated, session, invitation, accepting, error, pendingAccept, handleAccept]);
+
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email.trim() || !password.trim() || !name.trim()) {
@@ -199,16 +215,19 @@ export default function AcceptInvitation() {
 
   const handleGoogleSignIn = async () => {
     setAuthLoading(true);
-    const { error } = await signInWithGoogle();
-    
+    // Come back to THIS invite page (token in the URL) after Google, so the
+    // accept can auto-fire on return — otherwise the redirect lands on the
+    // dashboard and the invite is forgotten.
+    const returnPath = token ? `/accept-invitation?token=${encodeURIComponent(token)}` : "/accept-invitation";
+    const { error } = await signInWithGoogle(returnPath);
+
     if (error) {
       toast.error(error.message || "Failed to sign up with Google");
       setAuthLoading(false);
-    } else {
-      setPendingAccept(true);
-      setShowEmailForm(false);
-      setAuthLoading(false);
     }
+    // On success the browser redirects to Google, then back to returnPath; the
+    // auto-accept effect below fires once the session is live. No local flag
+    // needed (a full-page redirect would wipe it anyway).
   };
 
   const getInitials = (name?: string, email?: string) => {

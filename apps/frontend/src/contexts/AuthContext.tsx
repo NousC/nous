@@ -9,7 +9,7 @@ interface AuthContextType {
   userDataLoading: boolean; // true while /me is in-flight after auth
   signIn: (email: string, password: string) => Promise<{ error: any; data?: any }>;
   signUp: (email: string, password: string, name?: string, newsletterConsent?: boolean) => Promise<{ error: any; data?: any }>;
-  signInWithGoogle: () => Promise<{ error: any }>;
+  signInWithGoogle: (redirectPath?: string) => Promise<{ error: any }>;
   signOut: () => Promise<void>;
   verifyOtp: (email: string, token: string) => Promise<{ error: any; data?: any }>;
   isAuthenticated: boolean;
@@ -264,11 +264,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error, data };
   };
 
-  const signInWithGoogle = async () => {
+  const signInWithGoogle = async (redirectPath?: string) => {
     // Ensure we use the frontend URL, not backend
     const frontendUrl = window.location.origin;
-    // Redirect to dashboard - onboarding modals will handle setup
-    const redirectUrl = `${frontendUrl}/`;
+    // Default to the dashboard; callers (e.g. invite accept) can pass a path to
+    // return to — critical so the invite token survives the Google round-trip and
+    // the accept can auto-fire on return.
+    const redirectUrl = `${frontendUrl}${redirectPath ?? "/"}`;
 
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
