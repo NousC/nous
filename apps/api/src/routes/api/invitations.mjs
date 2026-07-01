@@ -45,19 +45,28 @@ invitationsRouter.post('/:token/accept', verifySupabaseAuth, async (req, res) =>
       await supabase.from('team_invitations').update({ status: 'expired', updated_at: new Date().toISOString() }).eq('id', invitation.id);
       return res.status(400).json({ error: 'invitation_expired' });
     }
-    if (invitation.status !== 'pending') return res.status(400).json({ error: 'invitation_already_processed', status: invitation.status });
 
     const { user } = await ensureUserAndTeam(req.user, true);
     if (user.email.toLowerCase() !== invitation.email.toLowerCase()) return res.status(403).json({ error: 'email_mismatch' });
 
-    const { data: existingMember } = await supabase.from('team_members').select('id').eq('team_id', invitation.team_id).eq('user_id', user.id).maybeSingle();
+    const memberRole = invitation.role || 'member';
+
+    // Idempotent accept. The frictionless flow can fire accept more than once (an
+    // auto-accept effect + a returning-from-OAuth render + a manual click can all
+    // race), so "already a member" or "already accepted by THIS user" must succeed,
+    // not 500/400 — otherwise the winner joins the user but the loser shows an error
+    // screen. Only a link already used by SOMEONE ELSE is a real failure.
+    const { data: existingMember } = await supabase.from('team_members').select('id, role').eq('team_id', invitation.team_id).eq('user_id', user.id).maybeSingle();
     if (existingMember) {
       await supabase.from('team_invitations').update({ status: 'accepted', accepted_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', invitation.id);
-      return res.status(400).json({ error: 'already_team_member' });
+      return res.json({ success: true, team: invitation.teams, role: existingMember.role || memberRole, onboarding_completed: true });
     }
+    if (invitation.status !== 'pending') return res.status(400).json({ error: 'invitation_already_processed', status: invitation.status });
 
-    const memberRole = invitation.role || 'member';
-    await supabase.from('team_members').insert({ team_id: invitation.team_id, user_id: user.id, role: memberRole });
+    // Tolerate a concurrent insert: the racing call gets a 23505 (already a member),
+    // which is success, not an error.
+    const { error: tmErr } = await supabase.from('team_members').insert({ team_id: invitation.team_id, user_id: user.id, role: memberRole });
+    if (tmErr && tmErr.code !== '23505') throw tmErr;
 
     const { data: allWorkspaces } = await supabase.from('workspaces').select('id').eq('team_id', invitation.team_id);
     if (allWorkspaces?.length) {

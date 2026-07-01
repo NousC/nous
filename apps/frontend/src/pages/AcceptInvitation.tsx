@@ -26,6 +26,7 @@ export default function AcceptInvitation() {
   const [password, setPassword] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
   const [pendingAccept, setPendingAccept] = useState(false);
+  const acceptingRef = useRef(false);
 
   // Load invitation details
   useEffect(() => {
@@ -76,6 +77,11 @@ export default function AcceptInvitation() {
       return;
     }
 
+    // Guard against a double network call — the auto-accept effect, the OAuth
+    // return, and the button can all trigger this. The server is idempotent too,
+    // but firing once keeps it clean.
+    if (acceptingRef.current) return;
+    acceptingRef.current = true;
     setAccepting(true);
     setError(null);
     try {
@@ -109,12 +115,14 @@ export default function AcceptInvitation() {
         const errorMessage = errorData.detail || errorData.error || "Failed to accept invitation";
         toast.error(errorMessage);
         setError(errorMessage);
+        acceptingRef.current = false; // allow a manual retry
       }
     } catch (err: any) {
       console.error("Failed to accept invitation:", err);
       const errorMessage = err.message || "Failed to accept invitation";
       toast.error(errorMessage);
       setError(errorMessage);
+      acceptingRef.current = false; // allow a manual retry
     } finally {
       setAccepting(false);
     }
