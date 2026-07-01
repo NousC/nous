@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
-import { getSupabaseClient, listNotes, saveNote, logActivity, collapseMeetingDupes, assertClaims, upsertIdentifier, scoreTier, normalizeClaimCategory, normalizeClaimAbout, readContextFromReq } from '@nous/core';
+import { getSupabaseClient, listNotes, saveNote, logActivity, collapseMeetingDupes, assertClaims, upsertIdentifier, scoreTier, normalizeClaimCategory, normalizeClaimAbout } from '@nous/core';
 import { fetchIcpByEntity, fetchIntentByEntity } from '../../lib/icpFit.mjs';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
 import { ensureUserAndTeam } from '../../lib/auth.mjs';
@@ -214,45 +214,19 @@ contactsApiRouter.get('/:id', verifySupabaseAuth, async (req, res) => {
       .eq('entity_id', id).eq('kind', 'event')
       .order('observed_at', { ascending: false }).limit(200);
 
-    // Per-member privacy (PRIVACY_MODEL.md): a member can open only their own raw
-    // conversations + shared (null-owner) ones on an account. Another rep's raw
-    // email / LinkedIn threads are LOCKED — not deleted: the member still sees
-    // that private activity exists (a 🔒 on the Emails/LinkedIn tabs) but not the
-    // content. Owner/admin see everything. Facts, calls, intel, signals stay shared.
+    // Per-member privacy (PRIVACY_MODEL.md): a member sees the whole timeline of
+    // an account they don't own — WHAT happened and WHEN — but not the CONTENT of
+    // another rep's email / LinkedIn messages. We keep the row and its header
+    // (email subject, or a "LinkedIn message" label) and redact only the body.
+    // Their own + shared (null-owner) messages show in full. Owner/admin see all.
+    // Meetings, calls, facts, signals, notes are always fully visible.
     const isMemberScope = req.viewerScope === 'member';
     const ownsRaw = (o) => o.owner_user_id == null || o.owner_user_id === req.memberUserId;
-    const RAW_LOCKABLE = (prop) => {
-      const t = String(prop || '').replace(/^interaction\./, '');
-      if (t.startsWith('email_')) return 'emails';
-      if (t.startsWith('linkedin_')) return 'linkedin';
-      return null; // meetings, signals, notes, etc. stay visible
-    };
-    // Count what's withheld per channel + resolve the owning rep(s) for the label.
-    const lockedChannels = {};
-    if (isMemberScope) {
-      const withheldOwners = {};
-      for (const o of obsRawAll || []) {
-        if (ownsRaw(o)) continue;
-        const ch = RAW_LOCKABLE(o.property);
-        if (!ch) continue; // only email/linkedin are lockable; keep the rest visible
-        lockedChannels[ch] = (lockedChannels[ch] || 0) + 1;
-        (withheldOwners[ch] ||= new Set()).add(o.owner_user_id);
-      }
-      // Resolve owner names for the lock label ("Private to Bennet").
-      const ownerIds = [...new Set(Object.values(withheldOwners).flatMap(s => [...s]))];
-      if (ownerIds.length) {
-        const { data: owners } = await supabase.from('users').select('id, name, email').in('id', ownerIds);
-        const nameOf = (uid) => { const u = (owners || []).find(x => x.id === uid); return u?.name || u?.email || 'another teammate'; };
-        lockedChannels._owners = Object.fromEntries(Object.entries(withheldOwners).map(([ch, set]) => [ch, [...set].map(nameOf)]));
-      }
-    }
-    // The timeline itself excludes another rep's raw email/LinkedIn (they're locked).
-    const obsVisible = isMemberScope
-      ? (obsRawAll || []).filter(o => ownsRaw(o) || !RAW_LOCKABLE(o.property))
-      : (obsRawAll || []);
+    const isRedactable = (type) => type.startsWith('email_') || LINKEDIN_MSG_TYPES.has(type);
+    const shouldRedact = (o) => isMemberScope && !ownsRaw(o) && isRedactable((o.property || '').replace(/^interaction\./, ''));
     // One meeting can be seen by two connectors (Cal.com webhook + Calendar
     // poller) — collapse to a single row so the timeline shows it once.
-    const obsRows = collapseMeetingDupes(obsVisible);
+    const obsRows = collapseMeetingDupes(obsRawAll || []);
 
     // Human title for known event types. Falls back to the raw type for
     // anything we don't recognize so unknown events still render readably.
@@ -306,6 +280,27 @@ contactsApiRouter.get('/:id', verifySupabaseAuth, async (req, res) => {
           const s = o.value?.summary;
           subtitle = (s && s.replace(/^You:\s*/i, '').trim()) ? s : null;
         }
+
+        // Another rep's message on an account this member doesn't own: keep the
+        // header (subject / a clean label) so they see it happened, but redact the
+        // body and the raw payload so the words aren't exposed.
+        if (shouldRedact(o)) {
+          const dir = type.endsWith('_sent') ? 'sent' : 'received';
+          const header = type.startsWith('email_')
+            ? `Email ${dir}${o.raw?.subject ? `: ${o.raw.subject}` : ''}`
+            : `LinkedIn message ${dir}`;
+          return {
+            id:            o.id,
+            activity_type: type,
+            title:         header,
+            subtitle:      null,          // body redacted
+            redacted:      true,          // frontend shows a subtle "private" hint
+            source:        o.source || 'nous',
+            created_at:    o.observed_at,
+            raw_data:      null,          // strip body_text/body_html/message text
+          };
+        }
+
         return {
           id:            o.id,
           activity_type: type,
@@ -324,10 +319,9 @@ contactsApiRouter.get('/:id', verifySupabaseAuth, async (req, res) => {
       company = c;
     }
 
-    // Notes on this contact-entity (entity_id == contact.id in v2). Scope raw
-    // documents (transcripts/meeting-notes) to the viewer; extracted facts stay
-    // shared. readContextFromReq reads req.viewerScope/memberUserId.
-    const memories = await listNotes(supabase, contact.workspace_id, { entityId: id, limit: 30 }, readContextFromReq(req));
+    // Notes on this contact-entity (entity_id == contact.id in v2). Notes are
+    // fully shared across the team by design — no viewer scoping here.
+    const memories = await listNotes(supabase, contact.workspace_id, { entityId: id, limit: 30 });
 
     // Buying signals — signal.* state claims written by signal-scan / record_signal.
     // Signals are COMPANY-LEVEL and live on the company record (see the company
@@ -378,7 +372,7 @@ contactsApiRouter.get('/:id', verifySupabaseAuth, async (req, res) => {
       updated_at: predRow.predicted_value?.rescored_at || predRow.predicted_at,
     } : null;
 
-    return res.json({ contact, activities, company, memories, signals, prediction, locked_channels: lockedChannels });
+    return res.json({ contact, activities, company, memories, signals, prediction });
   } catch (err) {
     return res.status(500).json({ error: 'internal_error', ...(process.env.NODE_ENV !== 'production' && { detail: String(err.message) }) });
   }
