@@ -77,7 +77,7 @@ async function matchContactByLinkedInUrl(supabase, workspaceId, rawUrl) {
   if (!slug) return null;
   const { data } = await supabase
     .from('contacts')
-    .select('id, company_id, linkedin_url, linkedin_member_id, email, channels')
+    .select('id, workspace_id, company_id, linkedin_url, linkedin_member_id, email, channels')
     .eq('workspace_id', workspaceId)
     .ilike('linkedin_url', `%/in/${slug}%`)
     .maybeSingle();
@@ -92,7 +92,7 @@ async function matchContactByLinkedInUrl(supabase, workspaceId, rawUrl) {
 // Always patches linkedin_member_id + linkedin_url back so future calls hit step 1/2.
 // Returns { contact, created } — created=true means it was just inserted for the first time.
 async function resolveLinkedInContact(supabase, workspaceId, { linkedinUrl, fullName, memberId }) {
-  const SELECT = 'id, company_id, linkedin_url, linkedin_member_id, email, channels, first_name, last_name, job_title, company, photo_url';
+  const SELECT = 'id, workspace_id, company_id, linkedin_url, linkedin_member_id, email, channels, first_name, last_name, job_title, company, photo_url';
 
   // Step 1: v2 entity_identifiers fast path — exact match by member_id / URL.
   for (const ident of [
