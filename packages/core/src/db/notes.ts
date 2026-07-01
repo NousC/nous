@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { embed } from '../embed.js';
+import { rawVisible, type ReadContext } from './readContext.js';
 
 // Build the text we embed for a note claim. MUST match the embeddings worker's
 // rowText() (apps/worker/src/workers/embeddings.mjs) so sync + backfill produce
@@ -108,11 +109,15 @@ export interface ListNotesOpts {
   includeInactive?: boolean;
 }
 
-/** List notes, newest first. */
+/** List notes, newest first.
+ *  With a member-scoped ReadContext, DOCUMENTS (transcripts, meeting_notes — raw
+ *  content) owned by another rep are dropped; extracted facts (no doc_type) are
+ *  shared and never filtered. See PRIVACY_MODEL.md. */
 export async function listNotes(
   supabase: SupabaseClient,
   workspaceId: string,
   opts: ListNotesOpts = {},
+  ctx?: ReadContext,
 ): Promise<Note[]> {
   let q = supabase
     .from('claims')
@@ -139,6 +144,14 @@ export async function listNotes(
   }
   if (opts.subject) {
     notes = notes.filter(n => n.subject === opts.subject);
+  }
+  // Member scope: drop other reps' raw documents. A document is a note WITH a
+  // doc_type; its owner is stamped in metadata.owner_user_id. Facts (no doc_type)
+  // are the shared extracted intel and stay visible.
+  if (ctx && ctx.viewerScope === 'member') {
+    notes = notes.filter(n =>
+      !n.metadata?.doc_type || rawVisible(n.metadata.owner_user_id as string | null | undefined, ctx),
+    );
   }
   return notes;
 }

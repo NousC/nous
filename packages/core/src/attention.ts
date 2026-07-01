@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import type { ReadContext } from './db/readContext.js';
 
 // getAttention() — the proactive endpoint. Scans the substrate for what an
 // agent should look at and returns ranked decisions. v1 detectors: accounts
@@ -27,18 +28,24 @@ export async function getAttention(
   supabase: SupabaseClient,
   workspaceId: string,
   opts: { limit?: number } = {},
+  ctx?: ReadContext,
 ): Promise<AttentionResult> {
   const limit = Math.min(Math.max(opts.limit ?? 25, 1), 100);
   const now = Date.now();
+  const memberScope = !!(ctx && ctx.viewerScope === 'member');
 
   // ── going dark — last event observation 30–365 days ago ────────────────────
-  const { data: events } = await supabase
+  let eventsQ = supabase
     .from('observations')
     .select('entity_id, observed_at')
     .eq('workspace_id', workspaceId)
     .eq('kind', 'event')
     .order('observed_at', { ascending: false })
     .limit(5000);
+  // Member scope: recency (and meeting labels below) reflect only this rep's own
+  // touches + shared rows, never another rep's private activity.
+  if (memberScope) eventsQ = eventsQ.or(`owner_user_id.is.null,owner_user_id.eq.${ctx.viewerUserId}`);
+  const { data: events } = await eventsQ;
   const lastTouch = new Map<string, number>();
   for (const o of (events as any[]) ?? []) {
     if (!lastTouch.has(o.entity_id)) lastTouch.set(o.entity_id, +new Date(o.observed_at));
@@ -84,7 +91,7 @@ export async function getAttention(
   // (entity_id, start time), so we use them to drop calls that are now off.
   const nowISO = new Date(now).toISOString();
   const horizonISO = new Date(now + 7 * DAY).toISOString();
-  const { data: meetingRaw } = await supabase
+  let meetingQ = supabase
     .from('observations')
     .select('entity_id, observed_at, value, property')
     .eq('workspace_id', workspaceId)
@@ -94,6 +101,8 @@ export async function getAttention(
     .lte('observed_at', horizonISO)
     .order('observed_at', { ascending: true })   // soonest first
     .limit(500);
+  if (memberScope) meetingQ = meetingQ.or(`owner_user_id.is.null,owner_user_id.eq.${ctx.viewerUserId}`);
+  const { data: meetingRaw } = await meetingQ;
   // Pre-pass: collect slots that are OFF — either a separate meeting_cancelled
   // event, or a meeting_scheduled whose label carries the RSVP (the calendar
   // poller stamps "(Declined)"/"(Cancelled)" into the description, so a declined

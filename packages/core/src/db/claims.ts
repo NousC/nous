@@ -4,6 +4,7 @@ import { getObservations } from './observations.js';
 import { collapseMeetingDupes } from './activities.js';
 import { fireClaimTransitionTriggers } from './triggers.js';
 import { listNotes } from './notes.js';
+import type { ReadContext } from './readContext.js';
 
 // Claims are the derived layer — the current best belief about
 // (entity, property), with calibrated confidence, provenance, and decay.
@@ -245,6 +246,7 @@ export async function getAccountRecord(
   supabase: SupabaseClient,
   workspaceId: string,
   entityId: string,
+  ctx?: ReadContext,
 ): Promise<AccountRecord | null> {
   const { data: entity } = await supabase
     .from('entities')
@@ -254,10 +256,12 @@ export async function getAccountRecord(
     .maybeSingle();
   if (!entity) return null;
 
+  // ctx scopes the raw layers (timeline observations + document facts) to the
+  // viewer; claims (derived intel) stay shared. See PRIVACY_MODEL.md.
   const [claims, recent, notes] = await Promise.all([
     getClaims(supabase, workspaceId, entityId),
-    getObservations(supabase, workspaceId, entityId, { limit: 50 }),
-    listNotes(supabase, workspaceId, { entityId, limit: 50 }),
+    getObservations(supabase, workspaceId, entityId, { limit: 50 }, ctx),
+    listNotes(supabase, workspaceId, { entityId, limit: 50 }, ctx),
   ]);
 
   // Atomic facts = asserted note.* claims minus long-form documents. Surface them

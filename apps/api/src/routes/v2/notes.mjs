@@ -6,6 +6,8 @@ import {
   saveDocument,
   searchClaims,
   resolveFocus,
+  rawVisible,
+  readContextFromReq,
 } from '@nous/core';
 
 export const notesV2Router = Router();
@@ -85,10 +87,14 @@ notesV2Router.post('/search', async (req, res) => {
     }
 
     const max = Math.min(Math.max(Number(limit) || 8, 1), 20);
+    const ctx = readContextFromReq(req);
     const hits = await searchClaims(supabase, workspaceId, String(question), { limit: 40, threshold: 0.2 });
     const documents = hits
       .filter(h => typeof h.property === 'string' && h.property.startsWith('note.') && h.value?.metadata?.doc_type)
       .filter(h => !entityId || h.entity_id === entityId)
+      // Per-member privacy: a raw document is visible only to its owning rep +
+      // admins (owner is stamped in metadata.owner_user_id). See PRIVACY_MODEL.md.
+      .filter(h => rawVisible(h.value?.metadata?.owner_user_id, ctx))
       .map(h => {
         const v = h.value;
         const text = String(v.content ?? '').replace(/\s+/g, ' ').trim();

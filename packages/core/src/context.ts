@@ -3,6 +3,7 @@ import { getClaims } from './db/claims.js';
 import { getObservations, type Observation } from './db/observations.js';
 import { collapseMeetingDupes } from './db/activities.js';
 import { listNotes } from './db/notes.js';
+import type { ReadContext } from './db/readContext.js';
 
 // The Context API's assembly layer. assembleContext() runs the pipeline —
 // retrieve → rank → connect → compress → tag → budget — and returns an
@@ -110,6 +111,7 @@ export async function assembleContext(
   entityId: string,
   intent: ContextIntent = 'account_review',
   budgetTokens?: number,
+  ctx?: ReadContext,
 ): Promise<AssembledContext | null> {
   const recipe = RECIPES[intent] ?? RECIPES.account_review;
   const budget = budgetTokens ?? recipe.budgetTokens;
@@ -119,10 +121,11 @@ export async function assembleContext(
     .eq('id', entityId).eq('workspace_id', workspaceId).maybeSingle();
   if (!entity) return null;
 
+  // ctx scopes the raw timeline + documents to the viewer; claims stay shared.
   const [claims, observations, notes] = await Promise.all([
     getClaims(supabase, workspaceId, entityId),
-    getObservations(supabase, workspaceId, entityId, { kind: 'event', limit: 300 }),
-    listNotes(supabase, workspaceId, { entityId, limit: 100 }),
+    getObservations(supabase, workspaceId, entityId, { kind: 'event', limit: 300 }, ctx),
+    listNotes(supabase, workspaceId, { entityId, limit: 100 }, ctx),
   ]);
 
   // workspace-level grounding — the agent's own ICP / product / positioning,

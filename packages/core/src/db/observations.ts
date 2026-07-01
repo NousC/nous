@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import type { ReadContext } from './readContext.js';
 
 // Observations are the immutable, append-only spine — the system of record.
 // Every enrichment result, email, reply, bounce, and agent action is one
@@ -32,10 +33,11 @@ export interface Observation {
   source_confidence: number | null;
   observed_at: string;
   ingested_at: string;
+  owner_user_id?: string | null;
 }
 
 const COLUMNS =
-  'id, entity_id, kind, property, value, source, method, source_confidence, observed_at, ingested_at';
+  'id, entity_id, kind, property, value, source, method, source_confidence, observed_at, ingested_at, owner_user_id';
 
 function toRow(input: ObservationInput) {
   return {
@@ -181,12 +183,17 @@ export async function getObservationsByIds(
   return (data as Observation[]) ?? [];
 }
 
-/** Observations for an entity, newest first — the account timeline. */
+/** Observations for an entity, newest first — the account timeline.
+ *  With a member-scoped ReadContext, raw rows owned by another rep are excluded
+ *  at the DB level (never fetched). Admin/legacy/system ctx sees all. Passing no
+ *  ctx also sees all — an unmigrated caller, safe because it has no member to leak
+ *  to (see PRIVACY_MODEL.md / rawVisible). */
 export async function getObservations(
   supabase: SupabaseClient,
   workspaceId: string,
   entityId: string,
   opts: { property?: string; kind?: ObservationKind; limit?: number } = {},
+  ctx?: ReadContext,
 ): Promise<Observation[]> {
   let q = supabase
     .from('observations')
@@ -197,6 +204,10 @@ export async function getObservations(
     .limit(opts.limit ?? 200);
   if (opts.property) q = q.eq('property', opts.property);
   if (opts.kind) q = q.eq('kind', opts.kind);
+  // Member scope: only this rep's raw rows + shared (null-owner) rows.
+  if (ctx && ctx.viewerScope === 'member') {
+    q = q.or(`owner_user_id.is.null,owner_user_id.eq.${ctx.viewerUserId}`);
+  }
   const { data, error } = await q;
   if (error) throw new Error(`failed to load observations: ${error.message}`);
   return (data as Observation[]) ?? [];

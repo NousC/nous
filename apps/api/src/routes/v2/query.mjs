@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getSupabaseClient, runQuery } from '@nous/core';
+import { getSupabaseClient, runQuery, readContextFromReq } from '@nous/core';
 
 export const queryV2Router = Router();
 
@@ -29,7 +29,7 @@ queryV2Router.post('/', async (req, res) => {
     const result = await runQuery(supabase, req.workspaceId, scope, question, {
       return: returnMode,
       without,
-    });
+    }, readContextFromReq(req));
     return res.json({ ...result, question: question ?? null });
   } catch (err) {
     console.error('[POST /v2/query]', err);

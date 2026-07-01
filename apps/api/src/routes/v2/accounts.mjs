@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getSupabaseClient, getAccountRecord, resolveFocus, mergeEntities } from '@nous/core';
+import { getSupabaseClient, getAccountRecord, resolveFocus, mergeEntities, readContextFromReq } from '@nous/core';
 import { icpFit } from '../../lib/icpFit.mjs';
 
 export const accountsV2Router = Router();
@@ -50,7 +50,7 @@ accountsV2Router.get('/:id', async (req, res) => {
       return res.json({ status: 'ambiguous', candidates: resolution.candidates });
     }
 
-    const record = await getAccountRecord(supabase, workspaceId, resolution.entity_id);
+    const record = await getAccountRecord(supabase, workspaceId, resolution.entity_id, readContextFromReq(req));
     if (!record) return res.status(404).json({ error: 'entity_not_found' });
     const icp = await icpFit(supabase, workspaceId, resolution.entity_id);
     return res.json(icp ? { ...record, icp } : record);

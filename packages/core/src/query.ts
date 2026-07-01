@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { searchObservations, searchClaims } from './db/search.js';
+import { rawVisible, type ReadContext } from './db/readContext.js';
 
 // runQuery() — the corpus-query engine behind POST /v2/query.
 //
@@ -123,6 +124,7 @@ async function fetchScopeObservations(
   workspaceId: string,
   scope: QueryScope,
   hardLimit: number,
+  ctx?: ReadContext,
 ): Promise<any[]> {
   const sinceISO = scope.since_days
     ? new Date(Date.now() - scope.since_days * DAY).toISOString()
@@ -130,7 +132,7 @@ async function fetchScopeObservations(
 
   let q = supabase
     .from('observations')
-    .select('id, entity_id, kind, property, value, source, observed_at, raw')
+    .select('id, entity_id, kind, property, value, source, observed_at, raw, owner_user_id')
     .eq('workspace_id', workspaceId)
     // Default newest-first; 'asc' surfaces the soonest upcoming row first, which
     // is what a schedule ("what's booked today") wants — events can be future-dated.
@@ -145,6 +147,10 @@ async function fetchScopeObservations(
   // future, so since_days can't reach them). from/to bound observed_at directly.
   if (scope.from)      q = q.gte('observed_at', scope.from);
   if (scope.to)        q = q.lte('observed_at', scope.to);
+  // Member scope: exclude other reps' raw observations across the whole query.
+  if (ctx && ctx.viewerScope === 'member') {
+    q = q.or(`owner_user_id.is.null,owner_user_id.eq.${ctx.viewerUserId}`);
+  }
 
   const { data, error } = await q;
   if (error) throw new Error(`query failed: ${error.message}`);
@@ -254,6 +260,7 @@ export async function runQuery(
   scope: QueryScope = {},
   question?: string,
   options: QueryOptions = {},
+  ctx?: ReadContext,
 ): Promise<QueryResult> {
   const returnMode = options.return ?? 'observations';
   const limit = Math.min(Math.max(scope.limit ?? 50, 1), 200);
@@ -286,11 +293,22 @@ export async function runQuery(
   }
 
   if (semantic && semantic.length) {
+    // Semantic rows come from the search_observations RPC, which does NOT return
+    // owner_user_id — so we must re-fetch owners by id and scope in memory rather
+    // than trust a missing field (a missing owner would read as shared = a leak).
+    // The structured path filters at the DB (see fetchScopeObservations).
+    if (ctx && ctx.viewerScope === 'member') {
+      const ids = semantic.map(o => o.id);
+      const { data: owners } = await supabase
+        .from('observations').select('id, owner_user_id').in('id', ids);
+      const ownerById = new Map((owners ?? []).map(r => [r.id, r.owner_user_id]));
+      semantic = semantic.filter(o => rawVisible(ownerById.get(o.id), ctx));
+    }
     rows = semantic;
     matched = semantic.length;
     mode = 'semantic';
   } else {
-    rows = await fetchScopeObservations(supabase, workspaceId, scope, broadLimit);
+    rows = await fetchScopeObservations(supabase, workspaceId, scope, broadLimit, ctx);
     matched = rows.length;
     mode = 'structured';
   }

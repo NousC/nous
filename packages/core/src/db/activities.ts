@@ -4,6 +4,7 @@ import {
   buildPersonSnapshot, buildInteractionPayload,
 } from './triggers.js';
 import { resolveEntityPredictions, OUTCOME_RESOLVING_TYPES } from '../services/outcomes.js';
+import type { ReadContext } from './readContext.js';
 
 // Activities — the v2 connector ingestion path.
 //
@@ -359,14 +360,18 @@ export interface ListActivitiesOpts {
   limit?: number;
 }
 
-/** v1-shape activities from observations. Filters on the `interaction.*` spine. */
+/** v1-shape activities from observations. Filters on the `interaction.*` spine.
+ *  This reader exposes `raw` (full email/DM body) — the most sensitive surface —
+ *  so with a member-scoped ctx it drops other reps' raw rows at the DB level.
+ *  See PRIVACY_MODEL.md. */
 export async function listActivities(
   supabase: SupabaseClient,
   opts: ListActivitiesOpts = {},
+  ctx?: ReadContext,
 ): Promise<ActivityRow[]> {
   let q = supabase
     .from('observations')
-    .select('id, workspace_id, entity_id, property, value, source, observed_at, ingested_at, raw');
+    .select('id, workspace_id, entity_id, property, value, source, observed_at, ingested_at, raw, owner_user_id');
 
   if (opts.types?.length) {
     q = q.in('property', opts.types.map(t => `interaction.${t}`));
@@ -378,6 +383,9 @@ export async function listActivities(
   if (opts.source) q = q.eq('source', opts.source);
   if (opts.since) q = q.gte('observed_at', opts.since);
   if (opts.ingestedSince) q = q.gte('ingested_at', opts.ingestedSince);
+  if (ctx && ctx.viewerScope === 'member') {
+    q = q.or(`owner_user_id.is.null,owner_user_id.eq.${ctx.viewerUserId}`);
+  }
 
   q = q.order('observed_at', { ascending: false });
   if (opts.limit) q = q.limit(opts.limit);
