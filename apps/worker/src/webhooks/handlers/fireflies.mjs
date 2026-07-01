@@ -205,6 +205,7 @@ export async function reprocessFireflies(supabase, workspaceId, body) {
       description: title || 'Meeting recorded',
       summary:     meetingSummary,
       rawData:     { transcript_url, meeting_id: id, duration },
+      ownerUserId: meetingOwnerUserId,
     });
     if (result) {
       logged++;
@@ -233,7 +234,8 @@ export async function reprocessFireflies(supabase, workspaceId, body) {
           content:  notesContent,
           date:     new Date().toISOString(),
           source:   'fireflies',
-          meta:     { meeting_id: id, transcript_url: transcript_url || null, duration: duration || null },
+          // The transcript is raw content — scope it to the hosting rep + admins.
+          meta:     { meeting_id: id, transcript_url: transcript_url || null, duration: duration || null, owner_user_id: meetingOwnerUserId ?? null },
         }).catch(() => {});
       }
     }

@@ -76,6 +76,7 @@ export async function reprocessFathom(supabase, workspaceId, payload) {
       // display and the full recap is also kept as a meeting_notes document.
       summary:    summary || null,
       rawData:    { title, url: meetingUrl, invitees: invitees.map(i => i.email) },
+      ownerUserId: meetingOwnerUserId,
     });
     if (result) {
       logged++;
@@ -97,7 +98,8 @@ export async function reprocessFathom(supabase, workspaceId, payload) {
           content:  summary,
           date:     occurredAt,
           source:   'fathom',
-          meta:     { url: meetingUrl || null },
+          // The transcript/recap is raw content — scope it to the hosting rep + admins.
+          meta:     { url: meetingUrl || null, owner_user_id: meetingOwnerUserId ?? null },
         }).catch(() => {});
       }
     }

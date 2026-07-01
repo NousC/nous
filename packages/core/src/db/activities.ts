@@ -28,6 +28,10 @@ export interface LogActivityParams {
   description?: string | null;
   summary?: string | null;
   rawData?: Record<string, unknown> | null;
+  /** The team member this raw touch came through (the owning rep). Null = a
+   *  system/derived/shared observation, not a private conversation. Drives the
+   *  per-member read scope (see PRIVACY_MODEL.md). */
+  ownerUserId?: string | null;
 }
 
 // Activity types that advance pipeline stage.
@@ -164,7 +168,7 @@ export async function logActivity(
   supabase: SupabaseClient,
   params: LogActivityParams,
 ): Promise<{ id: string } | null> {
-  const { workspaceId, contactId, type, source, externalId, occurredAt, description, summary, rawData } = params;
+  const { workspaceId, contactId, type, source, externalId, occurredAt, description, summary, rawData, ownerUserId } = params;
   const entityId = params.entityId ?? contactId;
   if (!entityId) return null;
 
@@ -187,6 +191,7 @@ export async function logActivity(
       observed_at:  occurredAt || new Date().toISOString(),
       external_id:  externalId || null,
       raw:          rawData || null,
+      owner_user_id: ownerUserId ?? null,
     })
     .select('id')
     .single();

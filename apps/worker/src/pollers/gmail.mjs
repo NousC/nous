@@ -156,6 +156,9 @@ async function pollWorkspace(supabase, conn) {
               occurredAt,
               description: snippet || (isOutbound ? `Email sent: ${subject}` : `Email received: ${subject}`),
               summary:     snippet,
+              // This raw email belongs to the rep whose mailbox it came through —
+              // scopes its body to that rep + admins (PRIVACY_MODEL.md).
+              ownerUserId,
               rawData:     {
                 message_id: msg.id,
                 subject,

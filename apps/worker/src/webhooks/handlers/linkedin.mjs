@@ -303,6 +303,10 @@ async function backfillLinkedInMessages(supabase, workspaceId, contactId, { link
     const messages = msgsBody.items || msgsBody.objects || (Array.isArray(msgsBody) ? msgsBody : []);
     console.log(`[LINKEDIN_BACKFILL] fetched ${messages.length} messages for contact=${contactId}`);
 
+    // Whose LinkedIn this chat came through — stamped on each message (scopes the
+    // raw DM to that rep) and reused for relationship attribution below.
+    const ownerUserId = await connectedLinkedinOwner(supabase, workspaceId, accountId);
+
     let logged = 0;
     let maxAt = null;
     for (const msg of messages) {
@@ -322,6 +326,7 @@ async function backfillLinkedInMessages(supabase, workspaceId, contactId, { link
         rawData:     { ...msg, text, is_outbound: isOutbound },
         description: content.description,
         summary:     content.summary,
+        ownerUserId,
       });
       logged++;
       if (!maxAt || occurredAt > maxAt) maxAt = occurredAt;
@@ -331,7 +336,6 @@ async function backfillLinkedInMessages(supabase, workspaceId, contactId, { link
     // Attribute the relationship to the rep whose LinkedIn this is (once for the
     // whole chat, using the most recent message). Skip if the contact is internal.
     if (logged > 0) {
-      const ownerUserId = await connectedLinkedinOwner(supabase, workspaceId, accountId);
       if (ownerUserId && !(await isEntityInternal(supabase, workspaceId, contactId))) {
         await attributeRelationship(supabase, workspaceId, contactId, ownerUserId, { at: maxAt || new Date().toISOString() });
       }
@@ -499,6 +503,7 @@ export async function handleLinkedIn(req, res, workspaceId) {
       occurredAt:  body.timestamp ? new Date(body.timestamp).toISOString() : new Date().toISOString(),
       rawData:     body,
       description: 'Connected on LinkedIn',
+      ownerUserId: liOwnerUserId,
     });
     await attributeLI(contact.id, body.timestamp ? new Date(body.timestamp).toISOString() : new Date().toISOString());
 
@@ -576,6 +581,7 @@ export async function handleLinkedIn(req, res, workspaceId) {
       rawData:     { ...body, is_outbound: isSender },
       description: content.description,
       summary:     content.summary,
+      ownerUserId: liOwnerUserId,
     });
     await attributeLI(contact.id, occurredAt);
 
@@ -617,6 +623,7 @@ export async function handleLinkedIn(req, res, workspaceId) {
               externalId:  `li_conn_inferred_${memberId || contact.id}`,
               occurredAt,
               description: 'Connected on LinkedIn',
+              ownerUserId: liOwnerUserId,
             });
             console.log(`[LINKEDIN_WEBHOOK] Inferred linkedin_connected for ${contact.id} from message signal`);
           }
