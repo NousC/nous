@@ -79,14 +79,20 @@ oauthGoogleRouter.get('/callback', async (req, res) => {
       scope:         tokens.scope,
     };
 
-    // Upsert by (workspace_id, provider_id) so reconnect overwrites the stale row
-    // instead of failing on the unique constraint. If a row already exists, we
-    // update credentials + last_test_at; otherwise we insert.
+    // Per-member mailboxes: key the connection by (workspace, provider, OWNER) so
+    // each teammate gets their OWN Gmail row instead of overwriting the workspace's
+    // one connection. Reconnecting updates that member's row; a new member inserts
+    // a new one. The name is the member's email, which also keeps the
+    // (workspace_id, provider_id, name) unique index distinct across members.
+    // See PRIVACY_MODEL.md / MULTI_ACCOUNT_FOUNDATION.md. The poller already
+    // iterates all connections and attributes each email to its owner.
+    const connName = userInfo.email || stateData.connectionName;
     const { data: existing } = await supabase
       .from('workflow_provider_connections')
       .select('id')
       .eq('workspace_id', stateData.workspaceId)
       .eq('provider_id', provider.id)
+      .eq('owner_user_id', stateData.userId)
       .maybeSingle();
 
     let connection;
@@ -95,7 +101,7 @@ oauthGoogleRouter.get('/callback', async (req, res) => {
         .from('workflow_provider_connections')
         .update({
           encrypted_credentials: credentials,
-          name: stateData.connectionName,
+          name: connName,
           is_verified: true,
           last_test_at: new Date().toISOString(),
           owner_user_id: stateData.userId,
@@ -113,7 +119,7 @@ oauthGoogleRouter.get('/callback', async (req, res) => {
         .insert({
           workspace_id: stateData.workspaceId,
           provider_id: provider.id,
-          name: stateData.connectionName,
+          name: connName,
           encrypted_credentials: credentials,
           created_by: stateData.userId,
           owner_user_id: stateData.userId,
