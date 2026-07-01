@@ -220,8 +220,20 @@ contactsApiRouter.get('/:id', verifySupabaseAuth, async (req, res) => {
     // (email subject, or a "LinkedIn message" label) and redact only the body.
     // Their own + shared (null-owner) messages show in full. Owner/admin see all.
     // Meetings, calls, facts, signals, notes are always fully visible.
-    const isMemberScope = req.viewerScope === 'member';
-    const ownsRaw = (o) => o.owner_user_id == null || o.owner_user_id === req.memberUserId;
+    //
+    // NOTE: this route doesn't take a workspace_id query param, so verifySupabaseAuth
+    // never resolved req.viewerScope. Resolve the viewer's role HERE from the
+    // record's own workspace — the authoritative source — so redaction can't be
+    // bypassed by a missing param.
+    const viewerUserId = req.internalUserId ?? req.memberUserId ?? null;
+    let viewerScope = 'member';
+    if (viewerUserId) {
+      const { data: mem } = await supabase.from('workspace_members')
+        .select('role').eq('workspace_id', contact.workspace_id).eq('user_id', viewerUserId).maybeSingle();
+      viewerScope = (mem?.role === 'owner' || mem?.role === 'admin') ? 'admin' : 'member';
+    }
+    const isMemberScope = viewerScope === 'member';
+    const ownsRaw = (o) => o.owner_user_id == null || o.owner_user_id === viewerUserId;
     const isRedactable = (type) => type.startsWith('email_') || LINKEDIN_MSG_TYPES.has(type);
     const shouldRedact = (o) => isMemberScope && !ownsRaw(o) && isRedactable((o.property || '').replace(/^interaction\./, ''));
     // One meeting can be seen by two connectors (Cal.com webhook + Calendar
