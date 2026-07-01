@@ -12,10 +12,10 @@ import {
   Zap,
   Brain,
   List,
-  FileBarChart,
   Lock,
   CreditCard,
   BookOpen,
+  Orbit,
   ChevronDown,
   PanelLeftClose,
   PanelLeft,
@@ -50,14 +50,15 @@ const setupItems: NavItem[] = [
 const mainNavItems: NavItem[] = [
   { title: "Ops",      url: "/ops",          icon: Activity },
   { title: "Accounts", url: "/accounts",     icon: Users    },
+  { title: "Graph",    url: "/graph",        icon: Orbit    },
   { title: "Playbooks", url: "/playbooks",   icon: Brain    },
 ];
 
 // Surfaces rendered inline under Accounts. Lists (lead database) is open on
 // self-host and Pro+ on cloud.
 const listsNavItem: NavItem  = { title: "Lists",    url: "/lists",    icon: List     };
-// Reports — campaign audits, cloud-only (same gate as Lists).
-const reportsNavItem: NavItem = { title: "Reports",  url: "/reports",  icon: FileBarChart };
+// Reports — campaign audits, cloud-only. Hidden for now.
+// const reportsNavItem: NavItem = { title: "Reports",  url: "/reports",  icon: FileBarChart };
 
 // Bottom navigation — Settings is reached via the profile button below.
 const bottomNavItems: NavItem[] = [
@@ -137,8 +138,11 @@ export function AppSidebar() {
   // on self-host. Gates match access.mjs (leadLists cloud-only; icpScoring is open
   // on self-host) + plans.mjs. ('scale' = Partner plan.)
   const selfHosted = (userData as { self_hosted?: boolean })?.self_hosted === true;
-  const showLeadLists =
-    !selfHosted && (plan === "pro" || plan === "growth" || plan === "scale");
+  // Context-graph-only niche-down (2026-07-01): Lists (lead lists/spreadsheets) and
+  // Reports are moving OUT of Nous core into the separate Partner OS. Hidden from the
+  // sidebar now; page/route/backend stay dormant until the salvage-then-strip pass.
+  // Restore prior gate: !selfHosted && (plan === "pro" || "growth" || "scale").
+  const showLeadLists = false && !selfHosted && (plan === "pro" || plan === "growth" || plan === "scale");
   // Lead-related surfaces (Lists, lead/campaign analytics) unlock with lead lists.
   const showCloudFeatures = showLeadLists;
 
@@ -457,7 +461,7 @@ export function AppSidebar() {
               )}
             </li>
           ))}
-          {showCloudFeatures && renderNavItem(reportsNavItem)}
+          {/* Reports hidden for now — re-enable: {showCloudFeatures && renderNavItem(reportsNavItem)} */}
         </ul>
       </nav>
 

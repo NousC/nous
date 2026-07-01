@@ -48,14 +48,16 @@ const Ops             = lazyWithErrorBoundary(() => import("@/pages/Ops"));
 const People          = lazyWithErrorBoundary(() => import("@/pages/People"));
 const Companies       = lazyWithErrorBoundary(() => import("@/pages/Companies"));
 const Accounts        = lazyWithErrorBoundary(() => import("@/pages/Accounts"));
+const Galaxy          = lazyWithErrorBoundary(() => import("@/pages/Galaxy"));
 const Integrations    = lazyWithErrorBoundary(() => import("@/pages/Integrations"));
 const UsageBilling    = lazyWithErrorBoundary(() => import("@/pages/UsageBilling"));
 const Inbox           = lazyWithErrorBoundary(() => import("@/pages/Inbox"));
 const Intelligence    = lazyWithErrorBoundary(() => import("@/pages/Intelligence"));
 const Lists           = lazyWithErrorBoundary(() => import("@/pages/Lists"));
-const Reports         = lazyWithErrorBoundary(() => import("@/pages/Reports"));
+// Reports hidden for now.
+// const Reports         = lazyWithErrorBoundary(() => import("@/pages/Reports"));
 const Note            = lazyWithErrorBoundary(() => import("@/pages/Note"));
-const ReportView      = lazyWithErrorBoundary(() => import("@/pages/Report"));
+// const ReportView      = lazyWithErrorBoundary(() => import("@/pages/Report"));
 const PlaybookView    = lazyWithErrorBoundary(() => import("@/pages/Playbook"));
 const NotFound        = lazyWithErrorBoundary(() => import("@/pages/NotFound"));
 const ConnectGate     = lazyWithErrorBoundary(() => import("@/pages/ConnectGate"));
@@ -150,7 +152,7 @@ export function AppRoutes() {
 
       {/* Standalone note + report pages — opened in a new tab, clean full-page markdown. */}
       <Route path="/note/:id" element={<Suspense fallback={<MinimalLoader />}><Note /></Suspense>} />
-      <Route path="/report/:id" element={<Suspense fallback={<MinimalLoader />}><ReportView /></Suspense>} />
+      {/* Reports hidden for now. <Route path="/report/:id" element={<Suspense fallback={<MinimalLoader />}><ReportView /></Suspense>} /> */}
       <Route path="/playbook/:id" element={<Suspense fallback={<MinimalLoader />}><PlaybookView /></Suspense>} />
 
       {/* Standard layout — sidebar + conditional header */}
@@ -177,13 +179,14 @@ export function AppRoutes() {
 
             {/* Standalone pages — extracted from Mind */}
             <Route path="/accounts"      element={<Suspense fallback={<MinimalLoader />}><Accounts /></Suspense>} />
+            <Route path="/graph"         element={<Suspense fallback={<MinimalLoader />}><Galaxy /></Suspense>} />
             <Route path="/people"        element={<Navigate to="/accounts?tab=people" replace />} />
             <Route path="/people/:id"    element={<Suspense fallback={<MinimalLoader />}><People /></Suspense>} />
             <Route path="/companies"     element={<Navigate to="/accounts?tab=companies" replace />} />
             <Route path="/companies/:id" element={<Suspense fallback={<MinimalLoader />}><Companies /></Suspense>} />
             <Route path="/integrations"  element={<Suspense fallback={<MinimalLoader />}><Integrations /></Suspense>} />
             <Route path="/lists"         element={<CloudOnly><Suspense fallback={<MinimalLoader />}><Lists /></Suspense></CloudOnly>} />
-            <Route path="/reports"       element={<CloudOnly><Suspense fallback={<MinimalLoader />}><Reports /></Suspense></CloudOnly>} />
+            {/* Reports hidden for now. <Route path="/reports"       element={<CloudOnly><Suspense fallback={<MinimalLoader />}><Reports /></Suspense></CloudOnly>} /> */}
             {/* Each list on its own page — /lists/:listId. */}
             <Route path="/lists/:listId" element={<CloudOnly><Suspense fallback={<MinimalLoader />}><Lists /></Suspense></CloudOnly>} />
             <Route path="/playbooks"     element={<Suspense fallback={<MinimalLoader />}><Intelligence /></Suspense>} />
