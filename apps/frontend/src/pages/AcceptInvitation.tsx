@@ -490,20 +490,12 @@ export default function AcceptInvitation() {
               )}
               </div>
 
-            {/* Toggle Sign Up/Sign In */}
-            <div className="text-center text-sm pt-4 border-t border-gray-100">
-              <button
-                onClick={() => {
-                  setIsSignUp(!isSignUp);
-                  setPassword("");
-                  setShowEmailForm(false);
-                }}
-                className="text-[#2D2D2D] font-semibold hover:underline"
-                disabled={authLoading}
-              >
-                {isSignUp ? "Already have an account? Sign in" : "Don't have an account? Sign up"}
-              </button>
-            </div>
+            {/* Invited users create an account (Google handles a returning login
+                transparently). No sign-in toggle — an invite is an onboarding, not
+                a login screen. */}
+            <p className="text-center text-xs text-gray-400 pt-2">
+              Use the Google account for {invitation.email} to join.
+            </p>
           </div>
                 </div>
             </div>
