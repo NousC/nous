@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
-import { ArrowLeft, Trash2, Search, Download, FileText } from "lucide-react";
+import { ArrowLeft, Trash2, Search, Download, FileText, Lock } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { relTime } from "@/components/mind/shared";
 import { Company, healthColor, stageColor, ActivityIcon, mapContact, buildCompanies, STAGE_ORDER } from "@/components/mind/entities";
@@ -388,6 +388,11 @@ export default function Companies({ embedded = false, leadingTab = null }: { emb
                               <span className="text-[12px] text-muted-foreground/70 tabular-nums flex-shrink-0">{relTime(a.created_at||a.occurred_at)}</span>
                             </div>
                             {body && <p className="text-[13px] text-foreground/80 leading-relaxed pl-[26px]">{body}</p>}
+                            {a.redacted && (
+                              <p className="pl-[26px] inline-flex items-center gap-1.5 text-[12px] text-muted-foreground/60 italic">
+                                <Lock className="h-3 w-3" /> Message private to the owning teammate
+                              </p>
+                            )}
                           </div>
                         );
                       })}

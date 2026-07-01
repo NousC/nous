@@ -2,6 +2,7 @@ import { Router } from 'express';
 import {
   getSupabaseClient, listNotes, listActivities,
   getAccountRecord, fetchEntityOverlays, applyCompanyOverlay,
+  redactActivitiesForViewer, readContextFromReq,
 } from '@nous/core';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
 import { enrichCompany } from '../../services/enrichment.mjs';
@@ -122,9 +123,9 @@ companiesApiRouter.get('/:id/activity-and-memory', verifySupabaseAuth, async (re
 
     let activities = [], memories = [];
     if (contactIds.length) {
-      activities = await listActivities(supabase, { contactIds, limit: 50 });
-
-      // Notes attached to any of the company's contacts (entity_id == contact_id).
+      // Same per-member privacy as the People page: redact another rep's email /
+      // LinkedIn message bodies (keep header + timing). Notes stay fully shared.
+      activities = redactActivitiesForViewer(await listActivities(supabase, { contactIds, limit: 50 }), readContextFromReq(req));
       memories = await listNotes(supabase, workspaceId, { entityIds: contactIds, limit: 20 });
     }
 
@@ -217,7 +218,8 @@ companiesApiRouter.get('/:id/detail', verifySupabaseAuth, async (req, res) => {
     const signalCount = {};
     if (contactIds.length) {
       const cutoff = new Date(Date.now() - 90 * 86400000).toISOString();
-      activity = await listActivities(supabase, { contactIds, since: cutoff, limit: 100 });
+      // Per-member privacy: redact another rep's message bodies (see People page).
+      activity = redactActivitiesForViewer(await listActivities(supabase, { contactIds, since: cutoff, limit: 100 }), readContextFromReq(req));
       const nameById = Object.fromEntries(
         contacts.map(c => [c.id, [c.first_name, c.last_name].filter(Boolean).join(' ') || c.email]),
       );
@@ -252,7 +254,8 @@ companiesApiRouter.get('/:id/detail', verifySupabaseAuth, async (req, res) => {
     }));
 
     const [account, icp] = await Promise.all([
-      getAccountRecord(supabase, workspaceId, id),
+      // ctx scopes recent_observations to the viewer (claims/facts stay shared).
+      getAccountRecord(supabase, workspaceId, id, readContextFromReq(req)),
       icpFit(supabase, workspaceId, id),
     ]);
 

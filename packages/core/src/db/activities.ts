@@ -332,6 +332,8 @@ export interface ActivityRow {
   source: string;
   occurred_at: string;
   raw_data: unknown;
+  owner_user_id?: string | null;
+  redacted?: boolean;
 }
 
 function fromObservation(o: Record<string, unknown>): ActivityRow {
@@ -347,6 +349,7 @@ function fromObservation(o: Record<string, unknown>): ActivityRow {
     source: o.source as string,
     occurred_at: o.observed_at as string,
     raw_data: o.raw ?? null,
+    owner_user_id: (o.owner_user_id as string | null) ?? null,
   };
 }
 
@@ -543,4 +546,36 @@ function notifyCrmPush(evt: Parameters<CrmPushHandler>[0]) {
   } catch (err: any) {
     console.error('[CRM_PUSH_HANDLER]', err?.message || err);
   }
+}
+
+// ── Per-member privacy: redact another rep's message bodies ──────────────────
+// A member viewing an account they don't own should see WHAT happened and WHEN
+// (the row + its header) but not the CONTENT of another rep's email / LinkedIn
+// messages. This keeps the row and a clean header, and strips the body. Their
+// own + shared (null-owner) rows pass through untouched; admin/owner see all.
+// Shared by the People and Company timelines so both behave identically.
+// See PRIVACY_MODEL.md.
+const REDACTABLE_LINKEDIN_MSG = new Set([
+  'linkedin_message', 'linkedin_message_sent', 'linkedin_message_received',
+  'linkedin_inmail', 'linkedin_inmail_sent', 'linkedin_inmail_received',
+]);
+
+function isRedactableActivity(type: string): boolean {
+  return type.startsWith('email_') || REDACTABLE_LINKEDIN_MSG.has(type);
+}
+
+/** Redact the bodies of another rep's email/LinkedIn messages for a member viewer.
+ *  Returns a new array; non-redacted rows are returned as-is. */
+export function redactActivitiesForViewer(rows: ActivityRow[], ctx?: ReadContext): ActivityRow[] {
+  if (!ctx || ctx.viewerScope === 'admin') return rows;
+  return rows.map(r => {
+    const ownsIt = r.owner_user_id == null || r.owner_user_id === ctx.viewerUserId;
+    if (ownsIt || !isRedactableActivity(r.activity_type)) return r;
+    const dir = r.activity_type.endsWith('_sent') ? 'sent' : 'received';
+    const raw = (r.raw_data as { subject?: string } | null) ?? null;
+    const header = r.activity_type.startsWith('email_')
+      ? `Email ${dir}${raw?.subject ? `: ${raw.subject}` : ''}`
+      : `LinkedIn message ${dir}`;
+    return { ...r, description: header, summary: null, raw_data: null, redacted: true };
+  });
 }
