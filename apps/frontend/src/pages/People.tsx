@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
-import { ArrowLeft, Linkedin, Trash2, RefreshCw, Search, Download, Upload, FileText, Filter, X, Lock } from "lucide-react";
+import { ArrowLeft, Linkedin, Trash2, RefreshCw, Search, Download, Upload, FileText, Filter, X } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { relTime, eventTime, tierFromScore, TIER_UI, type IcpTier } from "@/components/mind/shared";
 import { PeopleImportModal } from "@/components/contacts/PeopleImportModal";
@@ -193,11 +193,6 @@ function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token:
                           </div>
                           {body && (
                             <p className={`text-[13px] text-muted-foreground leading-relaxed pl-[26px] ${isCall ? "line-clamp-1" : "line-clamp-3"}`}>{body}</p>
-                          )}
-                          {a.redacted && (
-                            <p className="pl-[26px] inline-flex items-center gap-1.5 text-[12px] text-muted-foreground/60 italic">
-                              <Lock className="h-3 w-3" /> Message private to the owning teammate
-                            </p>
                           )}
                           {isCall && (
                             <button
