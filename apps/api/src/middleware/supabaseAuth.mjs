@@ -48,7 +48,14 @@ export async function verifySupabaseAuth(req, res, next) {
     req.user = cached.user;
     req.supabaseUser = cached.user;
     req.internalUserId = cached.internalUserId;
-    if (workspaceId) req.workspaceId = workspaceId;
+    if (workspaceId) {
+      req.workspaceId = workspaceId;
+      // Per-member privacy (PRIVACY_MODEL.md): the logged-in user is the viewer.
+      // owner/admin see all raw; member/viewer are scoped to their own content.
+      req.memberUserId = cached.internalUserId;
+      req.workspaceRole = cached.workspaceRole;
+      req.viewerScope = (cached.workspaceRole === 'owner' || cached.workspaceRole === 'admin') ? 'admin' : 'member';
+    }
     identify(cached.user);
     return next();
   }
@@ -100,10 +107,11 @@ export async function verifySupabaseAuth(req, res, next) {
   req.internalUserId = internalUserId;
 
   // Resolve workspace membership when a workspace is specified
+  let workspaceRole;
   if (workspaceId) {
     const { data: member } = await supabase
       .from('workspace_members')
-      .select('workspace_id')
+      .select('workspace_id, role')
       .eq('workspace_id', workspaceId)
       .eq('user_id', internalUserId)
       .maybeSingle();
@@ -113,6 +121,12 @@ export async function verifySupabaseAuth(req, res, next) {
       return res.status(403).json({ error: 'not_a_member' });
     }
     req.workspaceId = workspaceId;
+    workspaceRole = member.role;
+    // Per-member privacy (PRIVACY_MODEL.md): the logged-in user is the viewer.
+    // owner/admin see all raw; member/viewer are scoped to their own content.
+    req.memberUserId = internalUserId;
+    req.workspaceRole = workspaceRole;
+    req.viewerScope = (workspaceRole === 'owner' || workspaceRole === 'admin') ? 'admin' : 'member';
   }
 
   // Cache the success path
@@ -120,6 +134,7 @@ export async function verifySupabaseAuth(req, res, next) {
     expiresAt: Date.now() + AUTH_CACHE_TTL_MS,
     user,
     internalUserId,
+    workspaceRole,
   });
 
   next();

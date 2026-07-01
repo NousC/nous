@@ -15,7 +15,7 @@ export async function verifyApiKey(req, res, next) {
 
   const { data: keyRow } = await supabase
     .from('api_keys')
-    .select('id, workspace_id')
+    .select('id, workspace_id, owner_user_id, scope')
     .eq('key_hash', keyHash)
     .is('revoked_at', null)
     .maybeSingle();
@@ -27,6 +27,13 @@ export async function verifyApiKey(req, res, next) {
 
   req.workspaceId = keyRow.workspace_id;
   req.apiKeyId = keyRow.id;
+  // Per-member privacy (PRIVACY_MODEL.md): a member key acts AS that member, so
+  // raw content is scoped to them; an admin/workspace key (no owner_user_id) sees
+  // all raw. This is the ONLY point the agent gets a viewer identity, since the
+  // MCP session otherwise carries only a workspace. Legacy keys (null owner) keep
+  // full access, so nothing breaks on deploy.
+  req.memberUserId = keyRow.owner_user_id ?? null;
+  req.viewerScope  = keyRow.owner_user_id ? (keyRow.scope || 'member') : 'admin';
   // Normalize client identifier: mcp, sdk (sdk-node → sdk), or api
   const rawClient = (req.headers['x-nous-client'] || '').toLowerCase();
   req.clientType = rawClient === 'mcp' ? 'mcp' : rawClient.startsWith('sdk') ? 'sdk' : 'api';
