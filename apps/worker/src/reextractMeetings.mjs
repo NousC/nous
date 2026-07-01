@@ -25,15 +25,19 @@ const SOURCE_TYPES = ['transcript', 'meeting_notes'];
  * Re-extract one contact's richest meeting source. Returns the array of result
  * facts ({content, category, action}) from that source, or [] if none.
  */
-export async function reextractContact({ supabase, workspaceId, contactId, apply, maxFacts = 8 }) {
+export async function reextractContact({ supabase, workspaceId, contactId, apply, maxFacts = 8, all = false }) {
   const notes = await listNotes(supabase, workspaceId, { entityId: contactId, limit: 200 });
   const sources = notes
     .filter(n => SOURCE_TYPES.includes(n.metadata?.doc_type) && (n.content || '').trim())
     .sort((a, b) => (b.content?.length || 0) - (a.content?.length || 0));
   if (!sources.length) return [];
 
-  // Mine the single richest source that yields facts (transcript first), to avoid
-  // cross-source duplicates.
+  // Default: mine the single richest source that yields facts (transcript first),
+  // to avoid cross-source duplicates. With `all`, mine EVERY meeting source — the
+  // dedup step (decideMerge) drops facts already captured from an earlier source,
+  // so covering all meetings is safe and captures per-meeting intel the richest
+  // single transcript would miss.
+  const collected = [];
   for (const doc of sources) {
     const results = await extractActivitySignals({
       supabase,
@@ -51,15 +55,17 @@ export async function reextractContact({ supabase, workspaceId, contactId, apply
         const tag = r.action === 'SKIP' ? '· already have' : (apply ? '+ saved' : '+ new  ');
         console.log(`    ${tag}  [${r.category}]  ${r.content}`);
       }
-      return results;
+      collected.push(...results);
+      if (!all) return collected;
     }
   }
-  return [];
+  return collected;
 }
 
 async function main() {
   const args = process.argv.slice(2);
   const apply = args.includes('--apply');
+  const all = args.includes('--all');
   const maxIdx = args.indexOf('--max');
   const maxFacts = maxIdx !== -1 ? Number(args[maxIdx + 1]) : 8;
   const contactId = args.find(a => !a.startsWith('--') && !/^\d+$/.test(a)) || DEFAULT_CONTACT;
@@ -70,8 +76,8 @@ async function main() {
   if (!contact) { console.error(`contact ${contactId} not found`); process.exit(1); }
   const name = [contact.first_name, contact.last_name].filter(Boolean).join(' ') || contactId;
 
-  console.log(`\n${apply ? 'APPLY' : 'DRY-RUN'} — re-extract ${name} (up to ${maxFacts} facts)\n`);
-  const results = await reextractContact({ supabase, workspaceId: contact.workspace_id, contactId, apply, maxFacts });
+  console.log(`\n${apply ? 'APPLY' : 'DRY-RUN'} — re-extract ${name} (${all ? 'ALL meetings' : 'richest meeting'}, up to ${maxFacts} facts each)\n`);
+  const results = await reextractContact({ supabase, workspaceId: contact.workspace_id, contactId, apply, maxFacts, all });
   if (!results.length) console.log('  (no meeting transcript, or nothing cleared the bar)');
   console.log('');
 }
