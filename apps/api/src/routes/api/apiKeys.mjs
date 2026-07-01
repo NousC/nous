@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import crypto from 'crypto';
 import { getSupabaseClient, isUUID } from '@nous/core';
+import { apiKeyScopeFor } from '../../lib/apiKeyScope.mjs';
 
 export const apiKeysRouter = Router();
 
@@ -9,7 +10,7 @@ apiKeysRouter.get('/', async (req, res) => {
   try {
     const { data, error } = await getSupabaseClient()
       .from('api_keys')
-      .select('id, name, last_used_at, created_at, revoked_at')
+      .select('id, name, last_used_at, created_at, revoked_at, owner_user_id, scope')
       .eq('workspace_id', req.workspaceId)
       .is('revoked_at', null)
       .order('created_at', { ascending: false });
@@ -39,6 +40,12 @@ apiKeysRouter.post('/', async (req, res) => {
     const supabase = getSupabaseClient();
     const baseName = name.trim();
 
+    // The key acts AS the member who minted it: a regular member gets a
+    // member-scoped key (their agent sees only their own raw + shared), an
+    // owner/admin gets an admin key (sees all). Pass workspace_key:true for a
+    // shared automation key not tied to a person. See PRIVACY_MODEL.md.
+    const scopeFields = apiKeyScopeFor(req, { workspaceKey: req.body?.workspace_key === true });
+
     console.log('[API_KEYS_CREATE] workspaceId=', req.workspaceId, 'bodyWorkspaceId=', req.body?.workspace_id);
 
     // (workspace_id, name) is UNIQUE. If the user already has a key with this
@@ -53,6 +60,8 @@ apiKeysRouter.post('/', async (req, res) => {
           workspace_id: req.workspaceId,
           name: attemptName,
           key_hash: hashedKey,
+          created_by_user_id: req.internalUserId ?? null,
+          ...scopeFields,
         })
         .select('id, name, created_at')
         .single());

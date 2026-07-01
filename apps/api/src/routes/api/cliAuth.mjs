@@ -2,6 +2,7 @@ import { Router } from 'express';
 import crypto from 'crypto';
 import { getSupabaseClient } from '@nous/core';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
+import { apiKeyScopeFor } from '../../lib/apiKeyScope.mjs';
 
 // CLI / plugin browser-login — an OAuth-style device-authorization flow so a
 // user signs in with their browser and the CLI receives a freshly minted API
@@ -104,13 +105,19 @@ cliAuthRouter.post('/approve', verifySupabaseAuth, async (req, res) => {
     if (!row) return res.status(404).json({ error: 'unknown_or_used_code' });
     if (new Date(row.expires_at) < new Date()) return res.status(410).json({ error: 'expired' });
 
-    // Mint a workspace-scoped API key (same format as POST /api/workspace/api-keys).
+    // Mint an API key scoped to the approving member (same rule as
+    // POST /api/workspace/api-keys): a member gets a member-scoped key, an
+    // owner/admin an admin key. See PRIVACY_MODEL.md.
     const rawKey = `pk_${crypto.randomBytes(24).toString('hex')}`;
     const keyHash = crypto.createHash('sha256').update(rawKey).digest('hex');
     // Short suffix keeps the (workspace_id, name) unique constraint happy across logins.
     const name = `CLI login ${crypto.randomBytes(2).toString('hex')}`;
     const { data: keyRow, error: keyErr } = await supabase
-      .from('api_keys').insert({ workspace_id: workspaceId, name, key_hash: keyHash })
+      .from('api_keys').insert({
+        workspace_id: workspaceId, name, key_hash: keyHash,
+        created_by_user_id: req.internalUserId ?? null,
+        ...apiKeyScopeFor(req),
+      })
       .select('id').single();
     if (keyErr) throw keyErr;
 
