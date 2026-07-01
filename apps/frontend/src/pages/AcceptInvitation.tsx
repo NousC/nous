@@ -91,15 +91,18 @@ export default function AcceptInvitation() {
       if (response.ok) {
         const data = await response.json();
         toast.success(`You've joined ${data.team?.name || "the team"}!`);
-        
+
         // Refresh user data to update onboarding status
         if (refreshUserData) {
           await refreshUserData();
         }
-        
-        // Small delay to ensure user data is refreshed before redirect
+
+        // A member/viewer joins an already-set-up workspace, so they skip the
+        // workspace onboarding and get the light member setup (connect their own
+        // accounts + grab their scoped agent key). Owners/admins go to the app.
+        const dest = (data.role === "member" || data.role === "viewer") ? "/member-setup" : "/";
         setTimeout(() => {
-          navigate("/");
+          navigate(dest);
         }, 500);
       } else {
         const errorData = await response.json().catch(() => ({ error: "Failed to accept invitation" }));

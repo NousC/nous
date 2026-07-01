@@ -35,6 +35,7 @@ const lazyPage = (importFn: () => Promise<any>) =>
 const Login           = lazyPage(() => import("./pages/Login"));
 const Signup          = lazyPage(() => import("./pages/Signup"));
 const AcceptInvitation = lazyPage(() => import("./pages/AcceptInvitation"));
+const MemberSetup     = lazyPage(() => import("./pages/MemberSetup"));
 const CliLogin        = lazyPage(() => import("./pages/CliLogin"));
 const NotFound        = lazyPage(() => import("./pages/NotFound"));
 const LivePage        = lazyPage(() => import("./pages/Live"));
@@ -96,6 +97,18 @@ const App = () => (
 
               {/* Onboarding moved to the agent — /onboarding now redirects to Install. */}
               <Route path="/onboarding" element={<Navigate to="/install" replace />} />
+
+              {/* Member setup — a teammate who joined via invite connects their own
+                  accounts + grabs their agent key. Authed, reachable before the
+                  main app (they skip workspace onboarding, which the owner did). */}
+              <Route
+                path="/member-setup"
+                element={
+                  <ProtectedRoute>
+                    <Suspense fallback={<PageLoader />}><MemberSetup /></Suspense>
+                  </ProtectedRoute>
+                }
+              />
 
               {/* CLI / plugin browser-login approval. Authed, but reachable before
                   onboarding so a brand-new user can approve their first key. */}
