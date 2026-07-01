@@ -49,9 +49,12 @@ import { opsEmailsRouter } from './routes/opsEmails.mjs';
 import { integrationsRouter } from './routes/api/integrations.mjs';
 import { crmRouter } from './routes/api/crm.mjs';
 import { contactsApiRouter } from './routes/api/contacts.mjs';
+// Reports hidden from the Nous UI (niche-down), but the backend stays mounted —
+// it's the private engine the Partner OS reuses via the API. Do not delete.
 import { reportsApiRouter } from './routes/api/reports.mjs';
 import { playbooksApiRouter } from './routes/api/playbooks.mjs';
 import { companiesApiRouter } from './routes/api/companies.mjs';
+import { graphApiRouter } from './routes/api/graph.mjs';
 import { signalsRouter, publicSignalsRouter } from './routes/api/signals.mjs';
 import { skillDownloadsRouter } from './routes/public/skillDownloads.mjs';
 import { requestsRouter } from './routes/api/requests.mjs';
@@ -176,6 +179,7 @@ app.use('/api/integrations',          integrationsRouter);
 app.use('/api/crm',                   crmRouter);
 app.use('/api/contacts',              contactsApiRouter);
 app.use('/api/companies',             companiesApiRouter);
+app.use('/api/graph',                 graphApiRouter);
 // publicSignalExtraction gates the authenticated setup/configuration routes.
 // The public ingest endpoint stays open (its own HMAC token guards it).
 app.use('/api/signals',               verifySupabaseAuth, requireFeature('publicSignalExtraction'), signalsRouter);
