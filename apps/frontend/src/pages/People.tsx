@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
-import { ArrowLeft, Linkedin, Trash2, RefreshCw, Search, Download, Upload, FileText, Filter, X } from "lucide-react";
+import { ArrowLeft, Linkedin, Trash2, RefreshCw, Search, Download, Upload, FileText, Filter, X, Lock } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { relTime, eventTime, tierFromScore, TIER_UI, type IcpTier } from "@/components/mind/shared";
 import { PeopleImportModal } from "@/components/contacts/PeopleImportModal";
@@ -60,6 +60,9 @@ function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token:
   const [signals, setSignals] = useState<any[]>([]);
   const [prediction, setPrediction] = useState<any>(null);
   const [raw, setRaw] = useState<any>(null);
+  // Per-member privacy: channels whose raw content belongs to another rep and is
+  // locked for this viewer, e.g. { emails: 4, linkedin: 57, _owners: { emails:["Bennet"] } }.
+  const [lockedChannels, setLockedChannels] = useState<Record<string, any>>({});
   const [editingField, setEditingField] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
   const [saving, setSaving] = useState(false);
@@ -88,7 +91,7 @@ function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token:
     setLoading(true);
     fetch(`${apiUrl}/api/contacts/${contact.id}`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d) { setActs((d.activities ?? []).filter((a: any) => a.activity_type !== 'icp_scored')); setMems(d.memories ?? []); setSignals(d.signals ?? []); setRaw(d.contact ?? null); setPrediction(d.prediction ?? null); } setLoading(false); })
+      .then(d => { if (d) { setActs((d.activities ?? []).filter((a: any) => a.activity_type !== 'icp_scored')); setMems(d.memories ?? []); setSignals(d.signals ?? []); setRaw(d.contact ?? null); setPrediction(d.prediction ?? null); setLockedChannels(d.locked_channels ?? {}); } setLoading(false); })
       .catch(() => setLoading(false));
   }, [contact.id, token]);
 
@@ -136,6 +139,14 @@ function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token:
 
   const tabItems = tab==="activity" ? acts : tab==="emails" ? emails : tab==="linkedin" ? linkedin : tab==="slack" ? slack : tab==="calls" ? calls : [];
 
+  // Per-member privacy: is this channel's raw content locked (owned by another
+  // rep, not this viewer)? Drives the 🔒 on the tab + the lock panel in the body.
+  const channelLock = (id: DetailTab): number => (id === "emails" || id === "linkedin") ? (lockedChannels[id] || 0) : 0;
+  const lockOwner = (id: DetailTab): string => {
+    const owners = lockedChannels?._owners?.[id];
+    return Array.isArray(owners) && owners.length ? owners.join(", ") : "another teammate";
+  };
+
   return (
     <div className="flex flex-col h-full bg-background">
       {/* Header */}
@@ -158,7 +169,9 @@ function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token:
                 tab===t.id ? "text-foreground border-b-2 border-foreground -mb-px" : "text-muted-foreground/70 hover:text-foreground/80"
               }`}>
               {t.label}
-              {t.count !== undefined && <span className={`text-[11px] ${tab===t.id ? "text-muted-foreground/70" : "text-muted-foreground/50"}`}>{t.count}</span>}
+              {channelLock(t.id) > 0
+                ? <Lock className="h-3 w-3 text-muted-foreground/50" />
+                : t.count !== undefined && <span className={`text-[11px] ${tab===t.id ? "text-muted-foreground/70" : "text-muted-foreground/50"}`}>{t.count}</span>}
             </button>
           ))}
         </div>
@@ -170,9 +183,27 @@ function PeopleDetail({ contact, token, onBack }: { contact: ContactInfo; token:
         <div className="flex flex-1 min-h-0 overflow-hidden">
           {/* Main content */}
           <div className="flex-1 overflow-y-auto px-8 py-4">
+            {/* Locked channel — the raw threads here belong to another rep. Show a
+                lock, not the content (privacy model). Their own + shared items, if
+                any, still render below. */}
+            {(tab === "emails" || tab === "linkedin") && channelLock(tab) > 0 && (
+              <div className="mb-4 rounded-xl border border-border bg-muted/40 px-4 py-5 flex items-start gap-3">
+                <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground/70">
+                  <Lock className="h-4 w-4" />
+                </div>
+                <div className="text-[13px] leading-relaxed">
+                  <p className="font-medium text-foreground">Private to {lockOwner(tab)}</p>
+                  <p className="text-muted-foreground/80">
+                    {channelLock(tab)} {tab === "emails" ? "email" : "LinkedIn"} message{channelLock(tab) === 1 ? "" : "s"} on this account belong to another teammate, so they're kept private. You still see the facts, calls, signals, and intel.
+                  </p>
+                </div>
+              </div>
+            )}
             {(tab !== "company" && tab !== "memory" && tab !== "notes" && tab !== "signals") && (
               tabItems.length === 0
-                ? <p className="text-[13px] text-muted-foreground/70 py-12 text-center">Nothing here yet</p>
+                ? (channelLock(tab) > 0
+                    ? null
+                    : <p className="text-[13px] text-muted-foreground/70 py-12 text-center">Nothing here yet</p>)
                 : <div className="divide-y divide-border/60">
                     {tabItems.map((a: any) => {
                       const body = a.subtitle || a.raw_data?.text || a.raw_data?.body || null;

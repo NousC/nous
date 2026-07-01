@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
-import { getSupabaseClient, listNotes, saveNote, logActivity, collapseMeetingDupes, assertClaims, upsertIdentifier, scoreTier, normalizeClaimCategory, normalizeClaimAbout } from '@nous/core';
+import { getSupabaseClient, listNotes, saveNote, logActivity, collapseMeetingDupes, assertClaims, upsertIdentifier, scoreTier, normalizeClaimCategory, normalizeClaimAbout, readContextFromReq } from '@nous/core';
 import { fetchIcpByEntity, fetchIntentByEntity } from '../../lib/icpFit.mjs';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
 import { ensureUserAndTeam } from '../../lib/auth.mjs';
@@ -208,15 +208,51 @@ contactsApiRouter.get('/:id', verifySupabaseAuth, async (req, res) => {
     }
 
     // Activities are kind:'event' observations in the v2 substrate.
-    // entity_id == contact id (the v1->v2 migration convention). Same
-    // response shape as before — the frontend timeline is untouched.
-    const { data: obsRaw } = await supabase.from('observations')
-      .select('id, property, value, source, observed_at, raw, entity_id')
+    // entity_id == contact id (the v1->v2 migration convention).
+    const { data: obsRawAll } = await supabase.from('observations')
+      .select('id, property, value, source, observed_at, raw, entity_id, owner_user_id')
       .eq('entity_id', id).eq('kind', 'event')
       .order('observed_at', { ascending: false }).limit(200);
+
+    // Per-member privacy (PRIVACY_MODEL.md): a member can open only their own raw
+    // conversations + shared (null-owner) ones on an account. Another rep's raw
+    // email / LinkedIn threads are LOCKED — not deleted: the member still sees
+    // that private activity exists (a 🔒 on the Emails/LinkedIn tabs) but not the
+    // content. Owner/admin see everything. Facts, calls, intel, signals stay shared.
+    const isMemberScope = req.viewerScope === 'member';
+    const ownsRaw = (o) => o.owner_user_id == null || o.owner_user_id === req.memberUserId;
+    const RAW_LOCKABLE = (prop) => {
+      const t = String(prop || '').replace(/^interaction\./, '');
+      if (t.startsWith('email_')) return 'emails';
+      if (t.startsWith('linkedin_')) return 'linkedin';
+      return null; // meetings, signals, notes, etc. stay visible
+    };
+    // Count what's withheld per channel + resolve the owning rep(s) for the label.
+    const lockedChannels = {};
+    if (isMemberScope) {
+      const withheldOwners = {};
+      for (const o of obsRawAll || []) {
+        if (ownsRaw(o)) continue;
+        const ch = RAW_LOCKABLE(o.property);
+        if (!ch) continue; // only email/linkedin are lockable; keep the rest visible
+        lockedChannels[ch] = (lockedChannels[ch] || 0) + 1;
+        (withheldOwners[ch] ||= new Set()).add(o.owner_user_id);
+      }
+      // Resolve owner names for the lock label ("Private to Bennet").
+      const ownerIds = [...new Set(Object.values(withheldOwners).flatMap(s => [...s]))];
+      if (ownerIds.length) {
+        const { data: owners } = await supabase.from('users').select('id, name, email').in('id', ownerIds);
+        const nameOf = (uid) => { const u = (owners || []).find(x => x.id === uid); return u?.name || u?.email || 'another teammate'; };
+        lockedChannels._owners = Object.fromEntries(Object.entries(withheldOwners).map(([ch, set]) => [ch, [...set].map(nameOf)]));
+      }
+    }
+    // The timeline itself excludes another rep's raw email/LinkedIn (they're locked).
+    const obsVisible = isMemberScope
+      ? (obsRawAll || []).filter(o => ownsRaw(o) || !RAW_LOCKABLE(o.property))
+      : (obsRawAll || []);
     // One meeting can be seen by two connectors (Cal.com webhook + Calendar
     // poller) — collapse to a single row so the timeline shows it once.
-    const obsRows = collapseMeetingDupes(obsRaw || []);
+    const obsRows = collapseMeetingDupes(obsVisible);
 
     // Human title for known event types. Falls back to the raw type for
     // anything we don't recognize so unknown events still render readably.
@@ -288,8 +324,10 @@ contactsApiRouter.get('/:id', verifySupabaseAuth, async (req, res) => {
       company = c;
     }
 
-    // Notes on this contact-entity (entity_id == contact.id in v2).
-    const memories = await listNotes(supabase, contact.workspace_id, { entityId: id, limit: 30 });
+    // Notes on this contact-entity (entity_id == contact.id in v2). Scope raw
+    // documents (transcripts/meeting-notes) to the viewer; extracted facts stay
+    // shared. readContextFromReq reads req.viewerScope/memberUserId.
+    const memories = await listNotes(supabase, contact.workspace_id, { entityId: id, limit: 30 }, readContextFromReq(req));
 
     // Buying signals — signal.* state claims written by signal-scan / record_signal.
     // Signals are COMPANY-LEVEL and live on the company record (see the company
@@ -340,7 +378,7 @@ contactsApiRouter.get('/:id', verifySupabaseAuth, async (req, res) => {
       updated_at: predRow.predicted_value?.rescored_at || predRow.predicted_at,
     } : null;
 
-    return res.json({ contact, activities, company, memories, signals, prediction });
+    return res.json({ contact, activities, company, memories, signals, prediction, locked_channels: lockedChannels });
   } catch (err) {
     return res.status(500).json({ error: 'internal_error', ...(process.env.NODE_ENV !== 'production' && { detail: String(err.message) }) });
   }
