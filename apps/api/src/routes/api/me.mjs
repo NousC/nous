@@ -103,12 +103,20 @@ meRouter.get('/', verifySupabaseAuth, async (req, res) => {
     let workspace = null;
     const workspaceId = req.query.workspace_id;
 
+    // Default workspace picker. When a user belongs to several workspaces (e.g. an
+    // invited teammate joined a team that has a real workspace plus a leftover/empty
+    // one), prefer an ONBOARDED workspace (business_type set) over whatever Postgres
+    // returns first — otherwise they land on a junk/not-onboarded workspace and see
+    // the onboarding gate + "not a member"-flavoured failures on the real one.
+    const pickDefault = () =>
+      memberships.find(m => m.workspaces?.business_type)?.workspaces || memberships[0].workspaces;
+
     if (!membershipsError && memberships?.length > 0) {
       if (workspaceId) {
         const selected = memberships.find(m => String(m.workspaces?.id) === String(workspaceId));
-        workspace = selected?.workspaces || memberships[0].workspaces;
+        workspace = selected?.workspaces || pickDefault();
       } else {
-        workspace = memberships[0].workspaces;
+        workspace = pickDefault();
       }
       if (workspace?.id) userActiveWorkspace.set(user.id, workspace.id);
 
