@@ -2,9 +2,38 @@
 // callers (e.g. Partner OS operating an agency's own workspace). verifyApiKey
 // populates req.workspaceId.
 import { Router } from 'express';
-import { getSupabaseClient, listLeadLists, createLeadList, deleteLeadList } from '@nous/core';
+import { getSupabaseClient, listLeadLists, createLeadList, deleteLeadList, selectLeadIdsByFilter } from '@nous/core';
+import { enrichContact, getApolloEnrichmentKey, getFindymailEnrichmentKey, getProspeoEnrichmentKey } from '../../services/enrichment.mjs';
+import { getVerifier, listConnectedVerifiers, verifyLead } from '../../services/verification.mjs';
+import { estimateCost } from '../../lib/providerPricing.mjs';
 
 export const leadListsV2Router = Router();
+
+const MAX = 1000, MAX_RUN = 200, STALE = 90 * 86400000;
+
+// leads in URL-safe chunks
+async function fetchLeadsByIds(supabase, ws, listId, ids, columns) {
+  const out = [];
+  for (let i = 0; i < ids.length; i += 200) {
+    const { data } = await supabase.from('leads').select(columns).eq('workspace_id', ws).eq('lead_list_id', listId).in('id', ids.slice(i, i + 200));
+    if (data) out.push(...data);
+  }
+  return out;
+}
+// latest run timestamp per entity for a method ('enrichment'|'verification')
+async function lastRunByEntity(supabase, ws, method, entityIds) {
+  const map = new Map();
+  for (let i = 0; i < entityIds.length; i += 200) {
+    const { data } = await supabase.from('observations').select('entity_id, observed_at').eq('workspace_id', ws).eq('method', method).in('entity_id', entityIds.slice(i, i + 200)).order('observed_at', { ascending: false });
+    for (const o of data || []) if (!map.has(o.entity_id)) map.set(o.entity_id, o.observed_at);
+  }
+  return map;
+}
+async function resolveIds(supabase, ws, listId, body) {
+  let ids = Array.isArray(body.ids) ? body.ids.slice(0, MAX) : [];
+  if (ids.length === 0 && body.filter && typeof body.filter === 'object') ids = await selectLeadIdsByFilter(supabase, ws, listId, body.filter, MAX);
+  return ids;
+}
 
 // GET /v2/lead-lists — all lists with counts.
 leadListsV2Router.get('/', async (req, res) => {
@@ -40,6 +69,78 @@ leadListsV2Router.delete('/:id', async (req, res) => {
     return res.json({ deleted: !!deleted });
   } catch (err) {
     console.error('[DELETE /v2/lead-lists/:id]', err);
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
+// POST /v2/lead-lists/:id/enrich — find emails for the given lead ids (or filter).
+// { preview:true } returns the cost breakdown without spending. Same reuse-gate,
+// waterfall and pricing as the web enrich, so the agent + Partner OS get parity.
+leadListsV2Router.post('/:id/enrich', async (req, res) => {
+  try {
+    const supabase = getSupabaseClient(); const ws = req.workspaceId;
+    const ids = await resolveIds(supabase, ws, req.params.id, req.body || {});
+    if (ids.length === 0) return res.status(400).json({ error: 'ids array or filter required' });
+    const leads = await fetchLeadsByIds(supabase, ws, req.params.id, ids, 'id, workspace_id, email, linkedin_url, name, company, domain, email_status');
+    const staleBefore = Date.now() - STALE;
+    const last = await lastRunByEntity(supabase, ws, 'enrichment', leads.map((l) => l.id));
+    const hasKey = (l) => Boolean(l.email || l.linkedin_url || ((l.name || '').trim().split(/\s+/).length >= 2 && l.domain));
+    const classify = (l) => !hasKey(l) ? 'no_identifier' : (l.email && l.email_status && last.get(l.id) && new Date(last.get(l.id)).getTime() >= staleBefore ? 'reused' : 'chargeable');
+    const [apolloK, findymailK, prospeoK] = await Promise.all([getApolloEnrichmentKey(supabase, ws), getFindymailEnrichmentKey(supabase, ws), getProspeoEnrichmentKey(supabase, ws)]);
+    const provider = apolloK ? 'apollo' : findymailK ? 'findymail' : prospeoK ? 'prospeo' : 'prospeo';
+    if (req.body.preview) {
+      let chargeable = 0, reused = 0, noId = 0;
+      for (const l of leads) { const c = classify(l); c === 'chargeable' ? chargeable++ : c === 'reused' ? reused++ : noId++; }
+      return res.json({ preview: true, total: ids.length, chargeable, reused, no_identifier: noId, provider, cost: estimateCost(provider, chargeable) });
+    }
+    let enriched = 0, skippedNoId = 0, skippedReused = 0;
+    for (const l of leads) {
+      const c = classify(l);
+      if (c === 'no_identifier') { skippedNoId++; continue; }
+      if (c === 'reused') { skippedReused++; continue; }
+      if (enriched >= MAX_RUN) break;
+      const [first, ...rest] = (l.name || '').trim().split(' ');
+      try { await enrichContact(supabase, { id: l.id, workspace_id: l.workspace_id, email: l.email, linkedin_url: l.linkedin_url, first_name: first || null, last_name: rest.join(' ') || null, company: l.company || null, domain: l.domain || null }); enriched++; } catch (e) { console.warn('[v2 enrich]', l.id, e.message); }
+    }
+    return res.json({ enriched, skipped_no_identifier: skippedNoId, skipped_already_verified: skippedReused, requested: ids.length, provider });
+  } catch (err) {
+    console.error('[POST /v2/lead-lists/:id/enrich]', err);
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
+// POST /v2/lead-lists/:id/verify — validate deliverability of emails on the given
+// leads via the workspace's connected verifier. { preview:true } for the estimate.
+leadListsV2Router.post('/:id/verify', async (req, res) => {
+  try {
+    const supabase = getSupabaseClient(); const ws = req.workspaceId;
+    const ids = await resolveIds(supabase, ws, req.params.id, req.body || {});
+    if (ids.length === 0) return res.status(400).json({ error: 'ids array or filter required' });
+    const connected = await listConnectedVerifiers(supabase, ws);
+    if (connected.length === 0) return res.status(409).json({ error: 'no_verifier_connected' });
+    const leads = await fetchLeadsByIds(supabase, ws, req.params.id, ids, 'id, workspace_id, email, name');
+    const staleBefore = Date.now() - STALE;
+    const last = await lastRunByEntity(supabase, ws, 'verification', leads.map((l) => l.id));
+    const classify = (l) => !l.email ? 'no_email' : (last.get(l.id) && new Date(last.get(l.id)).getTime() >= staleBefore ? 'reused' : 'chargeable');
+    const provider = connected.includes(req.body.provider) ? req.body.provider : connected[0];
+    if (req.body.preview) {
+      let chargeable = 0, reused = 0, noEmail = 0;
+      for (const l of leads) { const c = classify(l); c === 'chargeable' ? chargeable++ : c === 'reused' ? reused++ : noEmail++; }
+      return res.json({ preview: true, total: ids.length, chargeable, reused, no_email: noEmail, connected_verifiers: connected, provider, cost: estimateCost(provider, chargeable) });
+    }
+    const verifier = await getVerifier(supabase, ws, req.body.provider);
+    if (!verifier) return res.status(409).json({ error: 'no_verifier_connected' });
+    let verified = 0, skippedNoEmail = 0, skippedReused = 0;
+    for (const l of leads) {
+      const c = classify(l);
+      if (c === 'no_email') { skippedNoEmail++; continue; }
+      if (c === 'reused') { skippedReused++; continue; }
+      if (verified >= MAX_RUN) break;
+      try { await verifyLead(supabase, verifier, l); verified++; } catch (e) { console.warn('[v2 verify]', l.id, e.message); }
+    }
+    return res.json({ verified, skipped_no_email: skippedNoEmail, skipped_recent: skippedReused, requested: ids.length, provider });
+  } catch (err) {
+    console.error('[POST /v2/lead-lists/:id/verify]', err);
     return res.status(500).json({ error: 'internal_error' });
   }
 });
