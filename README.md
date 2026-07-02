@@ -25,11 +25,11 @@
 
 ## Why Nous?
 
-- **One clean record per account.** Nous pulls every scattered email, profile, and duplicate for a person or company into a single record, so your agent sees the whole account.
-- **Know how good each fact is.** Every detail shows where it came from, how sure Nous is, and how fresh it is, so your agent can trust what it acts on.
-- **The full account, ready to use.** Your agent asks the context graph once and gets the account back, sorted by what matters for the task.
-- **Built for GTM out of the box.** Accounts, buying committees, buying signals, and ICP fit come ready, wired to how GTM teams actually work.
-- **Learns from your wins and losses.** Every reply, meeting, and closed deal feeds back in, so your ICP scoring gets sharper on your real results.
+- **Every account in one record.** Nous merges the emails, profiles, and duplicates scattered across your tools into a single person or company, so your agent works from one complete account.
+- **Every fact is sourced and scored.** Each detail carries its source, a confidence level, and how recent it is, so your agent knows what it can rely on.
+- **The full account in one request.** Your agent queries the context graph once and receives the account back, structured and prioritized for the task at hand.
+- **Purpose-built for GTM.** Accounts, buying committees, buying signals, and ICP fit are modeled out of the box and mapped to how GTM teams work.
+- **Improves with every result.** Each reply, meeting, and closed deal feeds back into the graph, sharpening your ICP scoring on your own outcomes.
 
 ## The context graph
 
