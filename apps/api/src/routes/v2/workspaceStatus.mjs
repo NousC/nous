@@ -569,6 +569,34 @@ workspaceStatusV2Router.post('/scoring-model', requireFeature('icpScoring'), asy
 // (they need a browser) — the agent is told to send the user to Integrations.
 // Mirrors the web connect route: tests the credentials, then stores them
 // encrypted exactly the same way.
+// GET /v2/workspace/scorecard — the ICP scorecard summary + win/loss drivers,
+// for external surfaces (Partner OS Playbooks page). accounts_analyzed = scored
+// predictions; closed_won/lost = decided outcomes; signals = the weighted
+// drivers (positive = win, negative = loss), highest weight first.
+workspaceStatusV2Router.get('/scorecard', async (req, res) => {
+  try {
+    const supabase = getSupabaseClient();
+    const ws = req.workspaceId;
+    const [tot, won, lost, signals] = await Promise.all([
+      supabase.from('predictions').select('id', { count: 'exact', head: true }).eq('workspace_id', ws),
+      supabase.from('predictions').select('id', { count: 'exact', head: true }).eq('workspace_id', ws).eq('outcome_value->>disposition', 'won'),
+      supabase.from('predictions').select('id', { count: 'exact', head: true }).eq('workspace_id', ws).eq('outcome_value->>disposition', 'lost'),
+      listSignals(supabase, ws),
+    ]);
+    const sig = (signals || []).map((s) => ({ key: s.key, label: s.label, weight: s.weight }));
+    return res.json({
+      accounts_analyzed: tot.count ?? 0,
+      closed_won: won.count ?? 0,
+      closed_lost: lost.count ?? 0,
+      signals_count: sig.length,
+      signals: sig,
+    });
+  } catch (err) {
+    console.error('[GET /v2/workspace/scorecard]', err);
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
 // GET /v2/workspace/integrations — the workspace's CONNECTED integrations
 // (read-only; the connect flow is the POST below). Used by Partner OS to surface
 // an agency's own connected providers. Dedupes by provider, newest first.
