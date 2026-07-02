@@ -154,6 +154,11 @@ export default function AcceptInvitation() {
         setTimeout(() => {
           navigate(dest);
         }, 500);
+      } else if (response.status === 409) {
+        // Not provisioned yet — retry silently once the user row exists, no scary
+        // error. This is the transient "internal error" flash we're killing.
+        acceptingRef.current = false;
+        setTimeout(() => { if (refreshUserData) refreshUserData(); handleAcceptRef.current?.(); }, 1200);
       } else {
         const errorData = await response.json().catch(() => ({ error: "Failed to accept invitation" }));
         const errorMessage = errorData.detail || errorData.error || "Failed to accept invitation";
@@ -171,6 +176,10 @@ export default function AcceptInvitation() {
       setAccepting(false);
     }
   }, [token, session, navigate, refreshUserData]);
+
+  // Lets the 409-retry path call the latest handleAccept without a circular dep.
+  const handleAcceptRef = useRef(handleAccept);
+  handleAcceptRef.current = handleAccept;
 
   // Auto-accept invitation when session becomes available after auth
   useEffect(() => {
@@ -203,8 +212,15 @@ export default function AcceptInvitation() {
     const sameEmail = invitation.email?.toLowerCase() === session.user?.email?.toLowerCase();
     if (!sameEmail) return;
     autoFired.current = true;
-    handleAccept();
-  }, [isAuthenticated, session, invitation, accepting, error, pendingAccept, handleAccept]);
+    // Provision the user row first (lazily created by /me), then accept — otherwise
+    // accept can race ahead of provisioning and flash a transient error. Mirrors
+    // the pendingAccept effect.
+    (async () => {
+      if (refreshUserData) { try { await refreshUserData(); } catch { /* best-effort */ } }
+      await new Promise(r => setTimeout(r, 400));
+      handleAccept();
+    })();
+  }, [isAuthenticated, session, invitation, accepting, error, pendingAccept, handleAccept, refreshUserData]);
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();

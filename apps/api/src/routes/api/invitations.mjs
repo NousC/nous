@@ -47,6 +47,10 @@ invitationsRouter.post('/:token/accept', verifySupabaseAuth, async (req, res) =>
     }
 
     const { user } = await ensureUserAndTeam(req.user, true);
+    // A just-signed-up / just-returned-from-Google user may not be provisioned in
+    // our DB yet (that happens lazily on /api/users/me). Return a retryable 409
+    // instead of throwing a scary 500 — the client retries once the row exists.
+    if (!user) return res.status(409).json({ error: 'provisioning', retry: true });
     if (user.email.toLowerCase() !== invitation.email.toLowerCase()) return res.status(403).json({ error: 'email_mismatch' });
 
     const memberRole = invitation.role || 'member';

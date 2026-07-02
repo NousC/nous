@@ -30,10 +30,14 @@ const publicBase = () =>
 
 // ── Unipile API helpers ────────────────────────────────────────────────────────
 
-async function createHostedAuthLink(workspaceId) {
+async function createHostedAuthLink(workspaceId, ownerUserId) {
   // expiresOn must be in the future — Unipile also expires links on daily restart
   const expiresOn = new Date(Date.now() + 60 * 60 * 1000).toISOString().replace(/\.\d{3}Z$/, '.000Z');
 
+  // Carry the connecting member through the redirect so the (unauthenticated)
+  // callback can stamp owner_user_id on the connection — without it, LinkedIn
+  // messages ingest unowned and leak to every member (PRIVACY_MODEL.md).
+  const ownerParam = ownerUserId ? `&owner_user_id=${ownerUserId}` : '';
   const res = await fetch(`${BASE()}/hosted/accounts/link`, {
     method: 'POST',
     headers: headers(),
@@ -41,7 +45,7 @@ async function createHostedAuthLink(workspaceId) {
       type: 'create',
       providers: ['LINKEDIN'],
       expiresOn,
-      success_redirect_url: `${publicBase()}/api/linkedin/callback?workspace_id=${workspaceId}`,
+      success_redirect_url: `${publicBase()}/api/linkedin/callback?workspace_id=${workspaceId}${ownerParam}`,
       failure_redirect_url: `${publicBase()}/api/linkedin/callback?workspace_id=${workspaceId}&error=auth_failed`,
       api_url: BASE(),
     }),
@@ -720,7 +724,9 @@ export function registerLinkedInRoutes(app, supabase, verifySupabaseAuth, verify
         });
       }
 
-      const { url } = await createHostedAuthLink(workspaceId);
+      // Stamp the connection with the connecting member so their LinkedIn messages
+      // ingest attributed to them (and stay private to them). See PRIVACY_MODEL.md.
+      const { url } = await createHostedAuthLink(workspaceId, req.internalUserId ?? null);
       return res.json({ url });
     } catch (err) {
       console.error('[LINKEDIN_CONNECT] error:', err.message, '| DSN:', process.env.UNIPILE_DSN, '| key set:', !!process.env.UNIPILE_API_KEY);
@@ -731,7 +737,7 @@ export function registerLinkedInRoutes(app, supabase, verifySupabaseAuth, verify
   // GET /api/linkedin/callback?workspace_id=...&account_id=...
   // Unipile redirects here after successful LinkedIn auth
   app.get('/api/linkedin/callback', async (req, res) => {
-    const { workspace_id, account_id, error } = req.query;
+    const { workspace_id, account_id, error, owner_user_id } = req.query;
 
     if (error || !workspace_id || !account_id) {
       return res.send(`<html><body><script>
@@ -762,6 +768,7 @@ export function registerLinkedInRoutes(app, supabase, verifySupabaseAuth, verify
         linkedin_headline:    headline,
         linkedin_profile_url: profileUrl,
         connected_at:         new Date().toISOString(),
+        ...(owner_user_id ? { owner_user_id } : {}),
       }, { onConflict: 'workspace_id,unipile_account_id' });
 
       // Register webhook so Unipile pushes events to us

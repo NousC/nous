@@ -168,7 +168,7 @@ export const PLANS: Record<PlanId, Plan> = {
     opsPerWorkspace: 100_000,
     includedOpsPerMonth: 500_000,
     recordsLimit: null, // unlimited — graph is given away
-    linkedinProfiles: 1, // per client workspace
+    linkedinProfiles: 5, // reps per workspace (agency's own team + per client workspace)
     enrichmentsPerMonth: 0,
     workspaceLimit: 5,
     stripePriceEnv: 'STRIPE_SCALE_PRICE_ID',

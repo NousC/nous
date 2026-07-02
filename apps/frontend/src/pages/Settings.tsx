@@ -568,8 +568,8 @@ export default function Settings() {
                   {members.map((m) => (
                     <div key={m.id ?? m.user_id} className="flex items-center gap-3 px-3.5 py-2.5 group">
                       <div className="flex-1 min-w-0">
-                        <div className="text-[13px] text-foreground">{m.name ?? m.user?.name ?? "—"}</div>
-                        <div className="text-[11px] text-muted-foreground/70">{m.email ?? m.user?.email ?? ""}</div>
+                        <div className="text-[13px] text-foreground">{m.name ?? m.users?.name ?? m.user?.name ?? "—"}</div>
+                        <div className="text-[11px] text-muted-foreground/70">{m.email ?? m.users?.email ?? m.user?.email ?? ""}</div>
                       </div>
                       <span className="text-[11px] text-muted-foreground/70 flex-shrink-0 capitalize">{m.role}</span>
                       {(m.user_id ?? m.id) !== userData?.user?.id && (

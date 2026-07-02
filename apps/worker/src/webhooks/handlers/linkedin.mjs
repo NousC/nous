@@ -647,7 +647,9 @@ export async function handleLinkedIn(req, res, workspaceId) {
       isSender
         ? `LinkedIn message sent to ${fullName || linkedinUrl}: ${messageText.slice(0, 120)}`
         : `LinkedIn message from ${fullName || linkedinUrl}: ${messageText.slice(0, 120)}`,
-      contact.id, { type: isSender ? 'message_sent' : 'message', message_id: msgId, is_sender: isSender }
+      // owner_user_id lets the ops-feed reader redact this message text for members
+      // who don't own the LinkedIn account it came through (PRIVACY_MODEL.md).
+      contact.id, { type: isSender ? 'message_sent' : 'message', message_id: msgId, is_sender: isSender, owner_user_id: liOwnerUserId ?? null }
     );
 
     // New contact → backfill their full conversation history.
