@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { searchObservations, searchClaims } from './db/search.js';
 import { rawVisible, type ReadContext } from './db/readContext.js';
+import { getInternalEntityIds } from './db/teamMembers.js';
 
 // runQuery() — the corpus-query engine behind POST /v2/query.
 //
@@ -36,6 +37,11 @@ export interface QueryScope {
 export interface QueryOptions {
   return?: 'observations' | 'entities';
   without?: QueryScope;
+  // Drop team members (co-founders / colleagues flagged is_internal) from the
+  // result set. Agent-facing corpus queries ask "which leads…" and should never
+  // surface our own people as prospects. Opt-in so UI callers that want the full
+  // set stay unaffected.
+  excludeInternal?: boolean;
 }
 
 export interface QueryItem {
@@ -319,6 +325,17 @@ export async function runQuery(
     const excludeSet = new Set(excludeRows.map(r => r.entity_id));
     if (excludeSet.size) rows = rows.filter(r => !excludeSet.has(r.entity_id));
     matched = rows.length;
+  }
+
+  // ── 2.5 Drop internal team members ───────────────────────────────────────
+  // Co-founders / colleagues are recognised records, not leads. On agent /MCP
+  // surfaces they must never come back as prospects in a cross-account query.
+  if (options.excludeInternal) {
+    const internal = await getInternalEntityIds(supabase, workspaceId);
+    if (internal.size) {
+      rows = rows.filter(r => !internal.has(r.entity_id));
+      matched = rows.length;
+    }
   }
 
   // ── 3. Resolve entity names + firmographics (one batched claims query) ────

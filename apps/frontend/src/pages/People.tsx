@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
-import { ArrowLeft, Linkedin, Trash2, RefreshCw, Search, Download, Upload, FileText, Filter, X } from "lucide-react";
+import { ArrowLeft, Linkedin, Trash2, RefreshCw, Search, Download, Upload, FileText, Filter, X, Users } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { relTime, eventTime, tierFromScore, TIER_UI, type IcpTier } from "@/components/mind/shared";
 import { PeopleImportModal } from "@/components/contacts/PeopleImportModal";
@@ -435,18 +435,21 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
 
   const [contacts, setContacts] = useState<ContactInfo[]>([]);
   const [loading, setLoading] = useState(true);
+  // Team members (co-founders / colleagues) are hidden from Accounts by default —
+  // they're recognised records, not leads. Toggle to bring them into view.
+  const [showTeam, setShowTeam] = useState(false);
 
   const load = useCallback(async () => {
     if (!token || !workspaceId) return;
     try {
-      const res = await fetch(`${apiUrl}/api/contacts?workspaceId=${workspaceId}&limit=2000`, {
+      const res = await fetch(`${apiUrl}/api/contacts?workspaceId=${workspaceId}&limit=2000${showTeam ? "&include_team=1" : ""}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = res.ok ? await res.json() : {};
       setContacts((data.contacts ?? []).map(mapContact));
     } catch { /* silent */ }
     finally { setLoading(false); }
-  }, [token, workspaceId]);
+  }, [token, workspaceId, showTeam]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -664,6 +667,11 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
           title={embedded ? "Accounts" : "People"}
           actions={
             <>
+              <button onClick={() => { setShowTeam(t => !t); setPage(0); }}
+                title={showTeam ? "Hide team members from the list" : "Show team members (co-founders / colleagues) in the list"}
+                className={`inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg border text-[13px] font-semibold transition-colors ${showTeam ? "bg-foreground text-background border-foreground" : "bg-background border-border text-foreground/80 hover:bg-muted/50"}`}>
+                <Users className="h-3.5 w-3.5" /> {showTeam ? "Team shown" : "Show team"}
+              </button>
               <button onClick={handleExport}
                 className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-lg bg-background border border-border text-foreground/80 text-[13px] font-semibold hover:bg-muted/50 transition-colors">
                 <Download className="h-3.5 w-3.5" /> Export
@@ -768,7 +776,14 @@ export default function People({ embedded = false, leadingTab = null }: { embedd
           {pageRows.map(c => (
             <div key={c.id} className="flex items-center px-4 py-3 border-b border-border/60 last:border-0 hover:bg-muted/50 transition-colors group">
               <button onClick={() => setDetail(c)} className="flex-shrink-0 text-left min-w-0 pr-3 sticky left-0 z-10 bg-background group-hover:bg-muted/50" style={{width:colW("name")}}>
-                <div className="text-[13px] font-medium text-foreground truncate">{c.name}</div>
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <div className="text-[13px] font-medium text-foreground truncate">{c.name}</div>
+                  {c.isInternal && (
+                    <span className="flex-shrink-0 inline-flex items-center gap-1 h-4 px-1.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-orange-500/15 text-orange-600 border border-orange-500/25">
+                      <Users className="h-2.5 w-2.5" /> Team
+                    </span>
+                  )}
+                </div>
                 {c.title && <div className="text-[12px] text-muted-foreground/70 truncate">{c.title}</div>}
               </button>
               <button onClick={() => setDetail(c)} className="text-[13px] text-muted-foreground truncate pr-2 flex-shrink-0 text-left" style={{width:colW("company")}}>{c.companyName ?? "—"}</button>

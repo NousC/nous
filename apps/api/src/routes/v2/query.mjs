@@ -29,6 +29,7 @@ queryV2Router.post('/', async (req, res) => {
     const result = await runQuery(supabase, req.workspaceId, scope, question, {
       return: returnMode,
       without,
+      excludeInternal: true,
     }, readContextFromReq(req));
     return res.json({ ...result, question: question ?? null });
   } catch (err) {

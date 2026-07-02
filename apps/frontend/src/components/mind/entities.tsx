@@ -33,6 +33,7 @@ export interface ContactInfo {
   country: string | null;
   department: string | null;
   createdAt: string | null;
+  isInternal: boolean;
 }
 
 export interface Company {
@@ -247,6 +248,7 @@ export function mapContact(c: any): ContactInfo {
     country: c.country ?? null,
     department: c.department ?? null,
     createdAt: c.created_at ?? null,
+    isInternal: c.is_internal === true,
   };
 }
 

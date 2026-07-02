@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
-import { getSupabaseClient, listNotes, saveNote, logActivity, collapseMeetingDupes, assertClaims, upsertIdentifier, scoreTier, normalizeClaimCategory, normalizeClaimAbout, recomputeClaim, ENRICHMENT_ATTRIBUTES } from '@nous/core';
+import { getSupabaseClient, listNotes, saveNote, logActivity, collapseMeetingDupes, assertClaims, upsertIdentifier, scoreTier, normalizeClaimCategory, normalizeClaimAbout, recomputeClaim, ENRICHMENT_ATTRIBUTES, getInternalEntityIds } from '@nous/core';
 import { fetchIcpByEntity, fetchIntentByEntity } from '../../lib/icpFit.mjs';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
 import { ensureUserAndTeam } from '../../lib/auth.mjs';
@@ -68,7 +68,8 @@ const linkedinMessageText = (type, value, raw) => {
 contactsApiRouter.get('/', verifySupabaseAuth, async (req, res) => {
   try {
     const supabase = getSupabaseClient();
-    const { workspaceId, search, limit = 50, offset = 0, filter, source, sort, status } = req.query;
+    const { workspaceId, search, limit = 50, offset = 0, filter, source, sort, status, include_team } = req.query;
+    const includeTeam = include_team === '1' || include_team === 'true';
     if (!workspaceId) return res.status(400).json({ error: 'workspace_id_required' });
     if (!UUID.test(workspaceId)) return res.status(400).json({ error: 'invalid_workspace_id' });
 
@@ -103,7 +104,15 @@ contactsApiRouter.get('/', verifySupabaseAuth, async (req, res) => {
     // the lead list and the person record use), so the People page stops showing
     // the stale v1 contacts.icp_score and gains the actionable tier. Contacts
     // without a prediction keep their existing value (no tier).
-    const rows = raw || [];
+    let rows = raw || [];
+
+    // Team members (co-founders / colleagues flagged is_internal) are not leads.
+    // We tag every row so the UI can badge them, and hide them from the default
+    // Accounts view — they're one toggle away via ?include_team=1. Filtering
+    // after the fetch keeps the query simple; internal records are a handful.
+    const internal = await getInternalEntityIds(supabase, workspaceId);
+    if (!includeTeam && internal.size) rows = rows.filter(c => !internal.has(c.id));
+
     const ids = rows.map(c => c.id);
     const icpMap = await fetchIcpByEntity(supabase, workspaceId, ids);
     const intentMap = await fetchIntentByEntity(supabase, workspaceId, ids);
@@ -113,6 +122,7 @@ contactsApiRouter.get('/', verifySupabaseAuth, async (req, res) => {
       // Intent overlay (reach-out-now axis) — defaults Dormant/0 until staked.
       return {
         ...c,
+        is_internal: internal.has(c.id),
         ...(ov ? { icp_score: ov.score, icp_tier: ov.tier } : {}),
         intent_score: iv?.score ?? 0,
         intent_band: iv?.band ?? 'Dormant',

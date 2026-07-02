@@ -214,6 +214,7 @@ async function executeTool(supabase, workspaceId, name, input) {
       const out = await runQuery(supabase, workspaceId, input.scope ?? {}, input.question, {
         return: input.return,
         without: input.without,
+        excludeInternal: true,
       });
       return { ...out, question: input.question ?? null };
     }
