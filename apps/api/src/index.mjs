@@ -82,6 +82,7 @@ import { adminChangelogRouter, publicChangelogRouter } from './routes/api/admin/
 import { roadmapRouter, adminRoadmapRouter } from './routes/api/admin/roadmap.mjs';
 import { updatesRouter, adminUpdatesRouter } from './routes/api/admin/updates.mjs';
 import { adminUsersRouter } from './routes/api/admin/users.mjs';
+import { provisionRouter } from './routes/api/admin/provision.mjs';
 
 const app = express();
 
@@ -235,6 +236,9 @@ app.use('/api/changelog/entries', verifySupabaseAuth, requireAdmin, adminChangel
 app.use('/api/admin/roadmap',   verifySupabaseAuth, requireAdmin, adminRoadmapRouter);
 app.use('/api/admin/updates',   verifySupabaseAuth, requireAdmin, adminUpdatesRouter);
 app.use('/api/admin/users',     verifySupabaseAuth, requireAdmin, adminUsersRouter);
+// Partner OS provisioning — service-to-service (shared secret inside the router),
+// NOT user-session auth. Dead (503) unless PARTNER_PROVISION_SECRET is set.
+app.use('/api/admin/provision', provisionRouter);
 
 // ── 404 catch-all ─────────────────────────────────────────────────────────────
 app.use((_req, res) => res.status(404).json({ error: 'not_found' }));
