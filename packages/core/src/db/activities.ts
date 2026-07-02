@@ -567,7 +567,10 @@ function isRedactableActivity(type: string): boolean {
 /** Redact the bodies of another rep's email/LinkedIn messages for a member viewer.
  *  Returns a new array; non-redacted rows are returned as-is. */
 export function redactActivitiesForViewer(rows: ActivityRow[], ctx?: ReadContext): ActivityRow[] {
-  if (!ctx || ctx.viewerScope === 'admin') return rows;
+  // Ownership-based, NOT role-based: raw message content is private to its owning
+  // rep — even the founder/owner doesn't see a teammate's messages. Only a caller
+  // with no viewer id (a system/service process) sees everything.
+  if (!ctx || !ctx.viewerUserId) return rows;
   return rows.map(r => {
     const ownsIt = r.owner_user_id == null || r.owner_user_id === ctx.viewerUserId;
     if (ownsIt || !isRedactableActivity(r.activity_type)) return r;

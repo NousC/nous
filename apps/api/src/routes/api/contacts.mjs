@@ -214,28 +214,19 @@ contactsApiRouter.get('/:id', verifySupabaseAuth, async (req, res) => {
       .eq('entity_id', id).eq('kind', 'event')
       .order('observed_at', { ascending: false }).limit(200);
 
-    // Per-member privacy (PRIVACY_MODEL.md): a member sees the whole timeline of
-    // an account they don't own — WHAT happened and WHEN — but not the CONTENT of
-    // another rep's email / LinkedIn messages. We keep the row and its header
-    // (email subject, or a "LinkedIn message" label) and redact only the body.
-    // Their own + shared (null-owner) messages show in full. Owner/admin see all.
-    // Meetings, calls, facts, signals, notes are always fully visible.
-    //
-    // NOTE: this route doesn't take a workspace_id query param, so verifySupabaseAuth
-    // never resolved req.viewerScope. Resolve the viewer's role HERE from the
-    // record's own workspace — the authoritative source — so redaction can't be
-    // bypassed by a missing param.
+    // Per-member privacy (PRIVACY_MODEL.md): raw email / LinkedIn message CONTENT
+    // is private to the rep who owns it. EVERYONE — including the founder/owner —
+    // sees only the messages they own, plus shared (null-owner) rows. Another
+    // rep's message body is redacted (the row + header still show WHAT and WHEN).
+    // This is ownership-based, NOT role-based: even an admin/owner does not see a
+    // teammate's private conversations. Meetings, calls, facts, signals, notes
+    // stay fully visible.
     const viewerUserId = req.internalUserId ?? req.memberUserId ?? null;
-    let viewerScope = 'member';
-    if (viewerUserId) {
-      const { data: mem } = await supabase.from('workspace_members')
-        .select('role').eq('workspace_id', contact.workspace_id).eq('user_id', viewerUserId).maybeSingle();
-      viewerScope = (mem?.role === 'owner' || mem?.role === 'admin') ? 'admin' : 'member';
-    }
-    const isMemberScope = viewerScope === 'member';
     const ownsRaw = (o) => o.owner_user_id == null || o.owner_user_id === viewerUserId;
     const isRedactable = (type) => type.startsWith('email_') || LINKEDIN_MSG_TYPES.has(type);
-    const shouldRedact = (o) => isMemberScope && !ownsRaw(o) && isRedactable((o.property || '').replace(/^interaction\./, ''));
+    // No viewer id (a system/service caller) → don't redact. Otherwise redact any
+    // message this viewer doesn't own, whatever their role.
+    const shouldRedact = (o) => !!viewerUserId && !ownsRaw(o) && isRedactable((o.property || '').replace(/^interaction\./, ''));
     // One meeting can be seen by two connectors (Cal.com webhook + Calendar
     // poller) — collapse to a single row so the timeline shows it once.
     const obsRows = collapseMeetingDupes(obsRawAll || []);

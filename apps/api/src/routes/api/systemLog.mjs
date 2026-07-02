@@ -27,12 +27,13 @@ systemLogRouter.get('/', verifySupabaseAuth, async (req, res) => {
     if (error) throw error;
 
     // Per-member privacy (PRIVACY_MODEL.md): the ops feed shows message-content
-    // events ("LinkedIn message from X: <text>"). A member sees that the message
-    // happened + who, but not the CONTENT of another rep's message. Owner/admin
-    // see all. Fail closed: a message event with no owner stamped is redacted for
-    // members too. Non-message events (pushes, scans, skips) are unaffected.
+    // events ("LinkedIn message from X: <text>"). A viewer sees that the message
+    // happened + who, but not the CONTENT of another rep's message. This is
+    // ownership-based, NOT role-based — even the founder/owner does not see a
+    // teammate's message text. Fail closed: a message event with no owner stamped
+    // is redacted. Non-message events (pushes, scans, skips) are unaffected.
     let events = data || [];
-    if (req.viewerScope === 'member') {
+    if (req.memberUserId) {
       const me = req.memberUserId;
       events = events.map(e => {
         const meta = e.metadata || {};
