@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
-import { getSupabaseClient, listNotes, saveNote, logActivity, collapseMeetingDupes, assertClaims, upsertIdentifier, scoreTier, normalizeClaimCategory, normalizeClaimAbout } from '@nous/core';
+import { getSupabaseClient, listNotes, saveNote, logActivity, collapseMeetingDupes, assertClaims, upsertIdentifier, scoreTier, normalizeClaimCategory, normalizeClaimAbout, recomputeClaim, ENRICHMENT_ATTRIBUTES } from '@nous/core';
 import { fetchIcpByEntity, fetchIntentByEntity } from '../../lib/icpFit.mjs';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
 import { ensureUserAndTeam } from '../../lib/auth.mjs';
@@ -819,6 +819,21 @@ contactsApiRouter.post('/:id/enrich', verifySupabaseAuth, requireEnrichmentQuota
     }
 
     await enrichContact(supabase, contact);
+
+    // Enrichment writes its results as observations (tagged with the true
+    // provider source), which a background worker normally materializes into
+    // claims — so company/domain/title would only surface on the list once the
+    // worker catches up (the "takes two refreshes to appear" lag). Recompute the
+    // enriched display claims synchronously here so the fresh values are live the
+    // instant this request returns. Properties with no observation are no-ops.
+    try {
+      await Promise.all(
+        ENRICHMENT_ATTRIBUTES.map((prop) =>
+          recomputeClaim(supabase, contact.workspace_id, contact.id, prop)),
+      );
+    } catch (e) {
+      console.warn('[POST /api/contacts/:id/enrich] claim recompute failed:', e.message);
+    }
 
     // Re-fetch updated contact so the frontend gets live enrichment_status + new fields
     const { data: updated } = await supabase.from('contacts').select('*').eq('id', id).single();

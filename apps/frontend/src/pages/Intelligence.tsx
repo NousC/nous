@@ -362,6 +362,12 @@ export default function Intelligence() {
   const [runs, setRuns] = useState<ScorecardRun[]>([]);
   const [contextChanges, setContextChanges] = useState<ContextChange[]>([]);
   const [loading, setLoading] = useState(true);
+  // The core fetches (scorecard signals + ICP facts) decide whether the ICP is
+  // set up; `hasLoaded` gates the cold-start screen so it never shows mid-load.
+  const [hasLoaded, setHasLoaded] = useState(false);
+  // The heavy /substrate query (calibration + closed-deal counts) loads on its
+  // own clock so the rest of the page never waits on it.
+  const [substrateLoading, setSubstrateLoading] = useState(true);
   const [seeding, setSeeding] = useState(false);
 
   // ICP facts — workspace-level notes (asserted claims). Loaded only when the
@@ -436,15 +442,19 @@ export default function Intelligence() {
     if (!workspaceId || !token) return;
     const h = { Authorization: `Bearer ${token}` };
     setLoading(true);
+    setSubstrateLoading(true);
+
+    // ── Core (fast) — scorecard signals + ICP facts + runs + context changes.
+    // These alone decide `hasModel` / `needsSetup`, so they must NOT wait on the
+    // heavy substrate query. Each lands independently; the page flips out of the
+    // cold-start "Set up your ICP" state as soon as they arrive.
     Promise.all([
-      fetch(`${apiUrl}/api/mind/substrate?workspaceId=${workspaceId}`, { headers: h }).then(r => (r.ok ? r.json() : null)),
       fetch(`${apiUrl}/api/mind/scorecard?workspaceId=${workspaceId}`, { headers: h }).then(r => (r.ok ? r.json() : null)),
       fetch(`${apiUrl}/api/workspace/memories?workspaceId=${workspaceId}&limit=80`, { headers: h }).then(r => (r.ok ? r.json() : null)),
       fetch(`${apiUrl}/api/mind/scorecard/runs?workspaceId=${workspaceId}`, { headers: h }).then(r => (r.ok ? r.json() : null)),
       fetch(`${apiUrl}/api/mind/context-changes?workspaceId=${workspaceId}`, { headers: h }).then(r => (r.ok ? r.json() : null)),
     ])
-      .then(([sub, sc, mem, scruns, ctxch]) => {
-        if (sub) setSubstrate(sub);
+      .then(([sc, mem, scruns, ctxch]) => {
         if (sc) setSignals(sc.signals ?? []);
         if (mem) {
           const facts: IcpFact[] = (mem.memories ?? [])
@@ -455,7 +465,15 @@ export default function Intelligence() {
         if (scruns) setRuns(scruns.runs ?? []);
         if (ctxch) setContextChanges(ctxch.changes ?? []);
       })
-      .finally(() => setLoading(false));
+      .finally(() => { setLoading(false); setHasLoaded(true); });
+
+    // ── Heavy (slow) — calibration + closed-deal counts. Only the numeric metric
+    // tiles and the calibration line depend on this; let it fill in late.
+    fetch(`${apiUrl}/api/mind/substrate?workspaceId=${workspaceId}`, { headers: h })
+      .then(r => (r.ok ? r.json() : null))
+      .then(sub => { if (sub) setSubstrate(sub); })
+      .catch(() => { /* ignore */ })
+      .finally(() => setSubstrateLoading(false));
   }, [workspaceId, token]);
 
   useEffect(() => { load(); }, [load]);
@@ -581,7 +599,10 @@ export default function Intelligence() {
   // >= 2 threshold rather than "any built fact".
   const builtFacts = icpFacts.filter(f => f.source === "playbook" || f.source === "agent");
   const playbookDone = builtFacts.length >= 2;
-  const needsSetup = !playbookDone && !hasModel;
+  // Only conclude "not set up" once the core fetches have actually returned —
+  // otherwise the empty initial state paints the cold-start "Set up your ICP"
+  // screen for the seconds the load takes, even on a fully-configured workspace.
+  const needsSetup = hasLoaded && !playbookDone && !hasModel;
 
   // Does the ICP live in the user's own repo? When any section was synced from a
   // file (sync_icp records source_path), the file is the source of truth and this
@@ -813,10 +834,10 @@ export default function Intelligence() {
         {hasModel && (
           <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-border/70 rounded-xl border border-border mb-4 bg-background">
             {[
-              { label: "Accounts analyzed", value: predictionsMade, color: undefined as string | undefined, info: "Accounts the ICP model has scored for fit (0–100)." },
-              { label: "Closed-won", value: substrate?.predictions.won ?? 0, color: "#15803d", info: "Scored accounts that converted — the wins the model learns from." },
-              { label: "Closed-lost", value: substrate?.predictions.lost ?? 0, color: "#b45309", info: "Scored accounts that entered a real buying motion but didn't close." },
-              { label: "Signals", value: active.length, color: undefined, info: "The weighted attributes the model scores fit on. Click to see how they evolved.", onClick: () => setModelOpen(true) },
+              { label: "Accounts analyzed", value: predictionsMade, pending: substrateLoading, color: undefined as string | undefined, info: "Accounts the ICP model has scored for fit (0–100)." },
+              { label: "Closed-won", value: substrate?.predictions.won ?? 0, pending: substrateLoading, color: "#15803d", info: "Scored accounts that converted — the wins the model learns from." },
+              { label: "Closed-lost", value: substrate?.predictions.lost ?? 0, pending: substrateLoading, color: "#b45309", info: "Scored accounts that entered a real buying motion but didn't close." },
+              { label: "Signals", value: active.length, pending: false, color: undefined, info: "The weighted attributes the model scores fit on. Click to see how they evolved.", onClick: () => setModelOpen(true) },
             ].map(m => (
               <div
                 key={m.label}
@@ -827,7 +848,9 @@ export default function Intelligence() {
                 <span className="pointer-events-none absolute top-7 right-2 z-30 w-52 rounded-lg bg-foreground text-background text-[11px] leading-snug px-2.5 py-2 shadow-lg opacity-0 group-hover/metric:opacity-100 transition-opacity duration-150">
                   {m.info}
                 </span>
-                <div className="text-[22px] font-semibold tabular-nums leading-none" style={m.color ? { color: m.color } : undefined}>{m.value}</div>
+                {m.pending
+                  ? <div className="h-[22px] w-8 rounded bg-muted animate-pulse" />
+                  : <div className="text-[22px] font-semibold tabular-nums leading-none" style={m.color ? { color: m.color } : undefined}>{m.value}</div>}
                 <div className="text-[10.5px] font-medium text-muted-foreground/60 uppercase tracking-wide mt-1.5">{m.label}</div>
               </div>
             ))}
