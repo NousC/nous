@@ -31,6 +31,7 @@ import { notesV2Router } from './routes/v2/notes.mjs';
 import { signalsV2Router } from './routes/v2/signals.mjs';
 import { peopleV2Router } from './routes/v2/people.mjs';
 import { leadsV2Router } from './routes/v2/leads.mjs';
+import { leadListsV2Router } from './routes/v2/leadLists.mjs';
 import { actionItemsV2Router } from './routes/v2/actionItems.mjs';
 
 // /api — Frontend API (Supabase JWT auth)
@@ -158,6 +159,7 @@ app.use('/v2/workspace/triggers', blockOnSelfHost('triggers'));
 // handles /v2/workspace/status (GET) and /v2/workspace/onboarding (POST).
 app.use('/v2/workspace',       verifyApiKey,     requireOpsBalance, logV2Op, workspaceStatusV2Router);
 app.use('/v2/playbooks',       verifyApiKey,     playbooksV2Router);
+app.use('/v2/lead-lists',      verifyApiKey,     leadListsV2Router);
 app.use('/v2/notes',           verifyApiKey,     requireOpsBalance, logV2Op, notesV2Router);
 app.use('/v2/signals',         verifyApiKey,     requireOpsBalance, logV2Op, signalsV2Router);
 app.use('/v2/people',          verifyApiKey,     requireOpsBalance, logV2Op, peopleV2Router);

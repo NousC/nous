@@ -569,6 +569,39 @@ workspaceStatusV2Router.post('/scoring-model', requireFeature('icpScoring'), asy
 // (they need a browser) — the agent is told to send the user to Integrations.
 // Mirrors the web connect route: tests the credentials, then stores them
 // encrypted exactly the same way.
+// GET /v2/workspace/integrations — the workspace's CONNECTED integrations
+// (read-only; the connect flow is the POST below). Used by Partner OS to surface
+// an agency's own connected providers. Dedupes by provider, newest first.
+workspaceStatusV2Router.get('/integrations', async (req, res) => {
+  try {
+    const supabase = getSupabaseClient();
+    const { data, error } = await supabase
+      .from('workflow_provider_connections')
+      .select('name, is_verified, created_at, provider:workflow_providers(name, display_name, logo_url, category)')
+      .eq('workspace_id', req.workspaceId)
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    const seen = new Set();
+    const integrations = [];
+    for (const c of data || []) {
+      const key = c.provider?.name || c.name;
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      integrations.push({
+        provider: key,
+        display_name: c.provider?.display_name || key,
+        category: c.provider?.category || null,
+        logo_url: c.provider?.logo_url || null,
+        verified: !!c.is_verified,
+      });
+    }
+    return res.json({ integrations });
+  } catch (err) {
+    console.error('[GET /v2/workspace/integrations]', err);
+    return res.status(500).json({ error: 'internal_error' });
+  }
+});
+
 workspaceStatusV2Router.post('/integrations', async (req, res) => {
   try {
     const supabase = getSupabaseClient();
