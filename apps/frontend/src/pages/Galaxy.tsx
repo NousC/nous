@@ -82,15 +82,15 @@ function runEngine(root: HTMLElement, D: any): () => void {
   const tip = root.querySelector('#gx-tip') as HTMLElement;
   const rail = root.querySelector('#gx-rail') as HTMLElement;
   let W = 0, H = 0; const DPR = Math.min(1.6, window.devicePixelRatio || 1);
-  const RAIL = 262;
+  const RAIL = 272;
   function size() { W = window.innerWidth; H = window.innerHeight; cv.width = W * DPR; cv.height = H * DPR; cv.style.width = W + 'px'; cv.style.height = H + 'px'; }
   size();
-  const GREEN = '#34d399', GREEN_D = '#12694a', GOLD = '#f5b942', SLATE = '#2a3446', SLATEB = '#3f4b63', INK = '231,236,245', ACC = '#8b5cf6', CLA = '#a78bfa', BG = '#0a0c11';
+  const GREEN = '#3ddc84', GREEN_D = '#39946a', GOLD = '#f5c451', SLATE = '#7f8798', INK = '226,231,240', ACC = '#a892f7', CLA = '#a78bfa', BG = '#17191e';
   const CATCOL: Record<string, string> = { stack: '#a78bfa', pain: '#f0665c', intent: '#4fd1c5', segment: '#f2b263', theme: '#8a8fa0' };
   const nodes = D.nodes, byId = new Map(nodes.map((n: any) => [n.i, n]));
-  for (const n of nodes) n.r = n.t === 1 ? (4.5 + (n.pc || 0) * 0.9) : n.t === 3 ? (4 + Math.sqrt(n.sz || 1) * 1.6) : 3.0;
+  for (const n of nodes) n.r = n.t === 1 ? (3.6 + (n.pc || 0) * 1.1) : n.t === 3 ? (4.2 + Math.sqrt(n.sz || 1) * 1.7) : 2.3;
   const fillP = (n: any) => n.a == null ? SLATE : (n.s != null && n.s >= 85 && n.a <= 30) ? GOLD : n.a <= 30 ? GREEN : n.a <= 75 ? GREEN_D : SLATE;
-  const fillC = (n: any) => n.a == null ? '#26313f' : n.a <= 30 ? '#2c5647' : '#2a3446';
+  const fillC = (n: any) => n.a == null ? '#9aa2b2' : n.a <= 30 ? GREEN : n.a <= 75 ? GREEN_D : '#9aa2b2';
   const edges = D.edges.map((e: any) => ({ a: byId.get(e.s), b: byId.get(e.t), k: e.k })).filter((e: any) => e.a && e.b);
   const adj = new Map(nodes.map((n: any) => [n.i, [] as string[]]));
   const memberOf = new Map<string, string[]>(); for (const n of nodes) if (n.t === 1) memberOf.set(n.i, []);
@@ -110,26 +110,25 @@ function runEngine(root: HTMLElement, D: any): () => void {
   function fset(): Set<string> | null { if (hi) return hi; const f = sel || hov; return f ? expand(f) : null; }
   function draw() {
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0); ctx.fillStyle = BG; ctx.fillRect(0, 0, W, H);
+    { const gx = (W - RAIL) / 2, gy = H * 0.46, rr = Math.max(W, H) * 0.62, rg = ctx.createRadialGradient(gx, gy, 0, gx, gy, rr); rg.addColorStop(0, 'rgba(98,108,150,0.06)'); rg.addColorStop(1, 'rgba(0,0,0,0)'); ctx.fillStyle = rg; ctx.fillRect(0, 0, W, H); }
     ctx.setTransform(DPR * scale, 0, 0, DPR * scale, DPR * tx, DPR * ty); const S = fset();
     if (!fast) { const f = sel || hov; const comp = f && f.t === 1 ? f : null; if (comp) { const pts = [comp, ...memberOf.get(comp.i)!.map(id => byId.get(id))].filter((p: any) => p && F(p.x)) as any[]; let cx = 0, cy = 0; for (const p of pts) { cx += p.x; cy += p.y; } cx /= pts.length; cy /= pts.length; let R = 0; for (const p of pts) R = Math.max(R, Math.hypot(p.x - cx, p.y - cy) + p.r); R += 14; ctx.beginPath(); ctx.arc(cx, cy, R, 0, 6.283); ctx.fillStyle = 'rgba(139,92,246,0.06)'; ctx.fill(); ctx.lineWidth = 1 / scale; ctx.strokeStyle = 'rgba(139,92,246,0.2)'; ctx.stroke(); } }
-    for (const e of edges) { if (!F(e.a.x) || !F(e.b.x)) continue; if (mode === 'patterns' && e.k === 0) continue; if (mode === 'accounts' && e.k === 2) continue; const on = !S || (S.has(e.a.i) && S.has(e.b.i)); let col, w; if (!on) { col = 'rgba(' + INK + ',0.035)'; w = 0.5; } else if (e.k === 2) { col = 'rgba(167,139,250,0.4)'; w = 0.9; } else { col = e.a.dm ? 'rgba(245,185,66,0.55)' : 'rgba(150,166,196,0.28)'; w = e.a.dm ? 1.1 : 0.6; } ctx.strokeStyle = col; ctx.lineWidth = w / scale; ctx.beginPath(); ctx.moveTo(e.a.x, e.a.y); ctx.lineTo(e.b.x, e.b.y); ctx.stroke(); }
+    for (const e of edges) { if (!F(e.a.x) || !F(e.b.x)) continue; if (mode === 'patterns' && e.k === 0) continue; if (mode === 'accounts' && e.k === 2) continue; const on = !S || (S.has(e.a.i) && S.has(e.b.i)); let col, w; if (!on) { col = 'rgba(200,208,222,0.045)'; w = 0.5; } else if (e.k === 2) { col = 'rgba(168,146,247,0.32)'; w = 0.8; } else { col = e.a.dm ? 'rgba(245,196,81,0.4)' : 'rgba(200,208,222,0.11)'; w = e.a.dm ? 0.9 : 0.55; } ctx.strokeStyle = col; ctx.lineWidth = w / scale; ctx.beginPath(); ctx.moveTo(e.a.x, e.a.y); ctx.lineTo(e.b.x, e.b.y); ctx.stroke(); }
     for (const n of nodes) {
       if (!F(n.x)) continue; if (mode === 'patterns' && n.t === 0) continue; if (mode === 'accounts' && n.t === 3) continue;
       const faded = S && !S.has(n.i); ctx.globalAlpha = faded ? 0.12 : 1;
-      if (n.t === 3) { const r = n.r, cc = CATCOL[n.cat] || CLA; ctx.save(); ctx.translate(n.x, n.y); ctx.rotate(0.785); if (!fast && !faded) { ctx.shadowColor = cc; ctx.shadowBlur = 10; } ctx.fillStyle = '#1c1c28'; ctx.fillRect(-r, -r, 2 * r, 2 * r); ctx.shadowBlur = 0; ctx.lineWidth = 1.5 / scale; ctx.strokeStyle = cc; ctx.strokeRect(-r, -r, 2 * r, 2 * r); ctx.restore(); ctx.globalAlpha = 1; continue; }
-      const col = n.t === 1 ? fillC(n) : fillP(n); const lit = !faded && ((n.t === 0 && (col === GREEN || col === GOLD)) || (n.t === 1 && n.look));
-      if (!fast && lit) { ctx.shadowColor = n.t === 1 ? GOLD : col; ctx.shadowBlur = n.t === 1 ? 16 : 11; } else ctx.shadowBlur = 0;
+      if (n.t === 3) { const r = n.r, cc = CATCOL[n.cat] || CLA; ctx.save(); ctx.translate(n.x, n.y); ctx.rotate(0.785); if (!fast && !faded) { ctx.shadowColor = cc; ctx.shadowBlur = 13; } ctx.fillStyle = cc; ctx.fillRect(-r, -r, 2 * r, 2 * r); ctx.shadowBlur = 0; ctx.restore(); ctx.globalAlpha = 1; continue; }
+      const col = n.t === 1 ? fillC(n) : fillP(n); const lit = !faded && (col === GREEN || col === GOLD || (n.t === 1 && n.look));
+      if (!fast && lit) { ctx.shadowColor = (n.t === 1 && n.look) ? GOLD : col; ctx.shadowBlur = n.t === 1 ? 12 : 9; } else ctx.shadowBlur = 0;
       ctx.beginPath(); ctx.arc(n.x, n.y, n.r, 0, 6.283); ctx.fillStyle = col; ctx.fill(); ctx.shadowBlur = 0;
-      if (n.t === 1) {
-        ctx.lineWidth = (n.look ? 2 : 1.2) / scale; ctx.strokeStyle = n.look ? GOLD : (n === sel ? ACC : SLATEB); ctx.stroke();
-        if (!fast) { const by = n.y - n.r - 4 / scale; if (n.single) { ctx.fillStyle = '#f0a33a'; ctx.font = 'bold ' + (9 / scale) + 'px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('!', n.x + n.r * 0.8, by); } if (n.budget) { ctx.strokeStyle = '#e5573b'; ctx.lineWidth = 1.3 / scale; const bx = n.x - n.r * 0.8; ctx.beginPath(); ctx.arc(bx, by, 3 / scale, 0, 6.283); ctx.moveTo(bx - 2 / scale, by - 2 / scale); ctx.lineTo(bx + 2 / scale, by + 2 / scale); ctx.stroke(); } }
-      } else { ctx.lineWidth = (n.dm ? 1.5 : 0.7) / scale; ctx.strokeStyle = n.dm ? GOLD : (n === sel ? ACC : SLATEB); ctx.stroke(); }
+      if (n.t === 1) { if (n.look) { ctx.lineWidth = 1.6 / scale; ctx.strokeStyle = GOLD; ctx.stroke(); } else if (n === sel) { ctx.lineWidth = 1.6 / scale; ctx.strokeStyle = ACC; ctx.stroke(); }
+      } else if (n.dm) { ctx.lineWidth = 1.3 / scale; ctx.strokeStyle = GOLD; ctx.stroke(); } else if (n === sel) { ctx.lineWidth = 1.3 / scale; ctx.strokeStyle = ACC; ctx.stroke(); }
       ctx.globalAlpha = 1;
     }
     ctx.textAlign = 'center'; ctx.textBaseline = 'top';
     for (const n of nodes) {
       if (!F(n.x)) continue; if (mode === 'patterns' && n.t === 0) continue; if (mode === 'accounts' && n.t === 3) continue; const near = S && S.has(n.i);
-      const show = near || (n.t === 3 && scale > 0.2) || (n.t === 1 && scale > 0.62) || scale > 2.1; if (!show) continue;
+      const show = near || (n.t === 3 && scale > 0.45) || scale > 1.7; if (!show) continue;
       let lb = n.l || (n.t === 1 ? 'company' : 'person'); if (!lb) continue; if (lb.length > 26) lb = lb.slice(0, 25) + '…';
       const big = n.t === 3 || n.t === 1; const fs = (near ? 12 : (big ? 11 : 10)) / scale;
       ctx.font = (big ? '600 ' : '500 ') + fs + 'px ui-sans-serif,system-ui,sans-serif';
@@ -164,20 +163,23 @@ function runEngine(root: HTMLElement, D: any): () => void {
   const snake = (s: string) => (s || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 24);
   function clearActive() { active = null; hi = null; rail.querySelectorAll('.row').forEach(r => r.classList.remove('on')); }
   function setActive(el: HTMLElement, ids: string[], clusterNode?: string) { if (active === el) { clearActive(); req(); return; } clearActive(); active = el; el.classList.add('on'); const s = memberSet(ids); if (clusterNode) s.add(clusterNode); hi = s; sel = null; req(); }
-  let html = '<div class="ttl">$ nous.context_graph<i>' + ' — ' + nodes.filter((n: any) => n.t === 1).length + ' acct · ' + nodes.filter((n: any) => n.t === 0).length + ' ppl</i></div>';
-  const cats: [string, string][] = [['pain', 'shared_pain'], ['segment', 'shared_segment'], ['stack', 'shared_stack'], ['intent', 'shared_intent']];
-  const rowHtml = (c: any, i: number, cat: string) => '<div class="row cl" data-c="' + i + '"><span class="mk" style="color:' + (CATCOL[cat] || '#a78bfa') + '">◆</span><span class="lb">' + snake(c.label) + '</span><span class="ld"></span><b>' + c.ids.length + '</b></div>';
+  const RISKCOL: Record<string, string> = { single: '#f0a33a', budget: '#f0665c' };
+  const maxN = Math.max(1, P.single.length, P.budget.length, ...P.clusters.map((c: any) => c.ids.length));
+  const bw = (n: number) => Math.max(6, Math.round(Math.sqrt(n) / Math.sqrt(maxN) * 186));
+  const row = (label: string, count: number, color: string, attr: string) => '<div class="row" ' + attr + '><span class="lb">' + label + '</span><span class="ct">' + count + '</span><span class="bar" style="width:' + bw(count) + 'px;background:' + color + '"></span></div>';
+  let html = '<div class="head"><div class="t">Context Graph</div><button class="share" title="Export & share — coming soon">↗</button></div>';
+  const cats: [string, string][] = [['pain', 'shared_pain'], ['segment', 'shared_segment'], ['stack', 'shared_stack'], ['intent', 'shared_intent'], ['theme', 'shared_themes']];
   for (const [cat, title] of cats) {
     const items = P.clusters.map((c: any, i: number) => [c, i] as [any, number]).filter((a: [any, number]) => (a[0].cat || 'theme') === cat);
-    html += '<div class="h">## ' + title + '</div>';
-    if (!items.length) { html += '<div class="mut">// none identified yet</div>'; continue; }
-    for (const [c, i] of items) html += rowHtml(c, i, cat);
+    if (cat === 'theme' && !items.length) continue;
+    const col = CATCOL[cat] || '#a78bfa';
+    html += '<div class="sh">' + title + '</div>';
+    if (!items.length) { html += '<div class="none">none identified yet</div>'; continue; }
+    for (const [c, i] of items) html += row(snake(c.label), c.ids.length, col, 'data-c="' + i + '"');
   }
-  const th = P.clusters.map((c: any, i: number) => [c, i] as [any, number]).filter((a: [any, number]) => (a[0].cat || 'theme') === 'theme');
-  if (th.length) { html += '<div class="h">## shared_themes</div>'; for (const [c, i] of th) html += rowHtml(c, i, 'theme'); }
-  html += '<div class="h" style="margin-top:15px">## account_risk</div>';
-  html += '<div class="row" data-k="single"><span class="mk" style="color:#f0a33a">●</span><span class="lb">single_threaded</span><span class="ld"></span><b>' + P.single.length + '</b></div>';
-  html += '<div class="row" data-k="budget"><span class="mk" style="color:#e5573b">●</span><span class="lb">missing_budget_holder</span><span class="ld"></span><b>' + P.budget.length + '</b></div>';
+  html += '<div class="sh" style="margin-top:16px">account_risk</div>';
+  html += row('single_threaded', P.single.length, RISKCOL.single, 'data-k="single"');
+  html += row('missing_budget_holder', P.budget.length, RISKCOL.budget, 'data-k="budget"');
   rail.innerHTML = html;
   rail.querySelectorAll('.row').forEach(el => { (el as HTMLElement).onclick = () => { const k = (el as HTMLElement).dataset.k; if (k) setActive(el as HTMLElement, k === 'single' ? P.single : P.budget); else { const cl = P.clusters[+(el as HTMLElement).dataset.c!]; setActive(el as HTMLElement, cl.ids, cl.node); } }; });
   root.querySelectorAll('#gx-modes button').forEach(b => { (b as HTMLElement).onclick = () => { root.querySelectorAll('#gx-modes button').forEach(x => x.classList.toggle('on', x === b)); toMode((b as HTMLElement).dataset.m!); }; });
@@ -186,25 +188,26 @@ function runEngine(root: HTMLElement, D: any): () => void {
 }
 
 const CSS = `
-.gx-root{position:fixed;inset:0;background:#0a0c11;overflow:hidden;color:#fff;font-family:ui-sans-serif,system-ui,-apple-system,sans-serif}
+.gx-root{position:fixed;inset:0;background:#17191e;overflow:hidden;color:#fff;font-family:ui-sans-serif,system-ui,-apple-system,sans-serif}
 .gx-root #gx-c{display:block;cursor:grab;position:fixed;left:0;top:0}
 .gx-back{position:fixed;left:16px;top:16px;z-index:7;width:34px;height:34px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:9px;color:rgba(255,255,255,.8);cursor:pointer;backdrop-filter:blur(8px)}
 .gx-back:hover{background:rgba(255,255,255,.13)}
 .gx-root #gx-modes{position:fixed;left:62px;top:16px;z-index:6;display:flex;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.09);border-radius:9px;padding:3px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
 .gx-root #gx-modes button{background:none;border:0;color:rgba(255,255,255,.5);font-size:11px;padding:6px 12px;border-radius:6px;cursor:pointer;font-family:inherit}
 .gx-root #gx-modes button.on{background:rgba(167,139,250,.22);color:#fff}
-.gx-root #gx-rail{position:fixed;right:0;top:0;width:262px;height:100%;padding:16px 14px;background:rgba(8,10,15,.86);backdrop-filter:blur(16px);border-left:1px solid rgba(255,255,255,.08);z-index:6;overflow:auto;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11.5px;line-height:1.5}
-.gx-root #gx-rail .ttl{font-size:12px;font-weight:600;color:#7ee787;margin-bottom:16px}
-.gx-root #gx-rail .ttl i{color:rgba(255,255,255,.32);font-style:normal;font-weight:400;font-size:10px}
-.gx-root #gx-rail .h{color:rgba(126,231,135,.55);margin-bottom:6px;font-size:10.5px}
-.gx-root #gx-rail .row{display:flex;align-items:center;gap:6px;color:rgba(255,255,255,.72);padding:4px 7px;border-radius:6px;cursor:pointer}
-.gx-root #gx-rail .row:hover{background:rgba(255,255,255,.06)}
-.gx-root #gx-rail .row.on{background:rgba(167,139,250,.2);color:#fff}
-.gx-root #gx-rail .mk{flex:none;color:#a78bfa;font-size:9px}
-.gx-root #gx-rail .lb{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.gx-root #gx-rail .ld{flex:1;border-bottom:1px dotted rgba(255,255,255,.16);margin:0 3px;position:relative;top:-3px;min-width:8px}
-.gx-root #gx-rail .row b{color:#7ee787;font-weight:600;flex:none}
-.gx-root #gx-rail .mut{color:rgba(255,255,255,.3)}
+.gx-root #gx-rail{position:fixed;right:0;top:0;width:272px;height:100%;padding:18px 15px;background:rgba(19,21,26,.82);backdrop-filter:blur(22px);border-left:1px solid rgba(255,255,255,.06);z-index:6;overflow:auto;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11.5px;line-height:1.5}
+.gx-root #gx-rail .head{display:flex;align-items:center;justify-content:space-between;padding-bottom:14px;border-bottom:1px solid rgba(255,255,255,.06)}
+.gx-root #gx-rail .head .t{font-family:ui-sans-serif,system-ui,-apple-system,sans-serif;font-size:14px;font-weight:600;color:#e6ebf3;letter-spacing:-.01em}
+.gx-root #gx-rail .share{width:26px;height:26px;border-radius:7px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.05);color:rgba(255,255,255,.65);font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;font-family:sans-serif}
+.gx-root #gx-rail .share:hover{background:rgba(255,255,255,.12);color:#fff}
+.gx-root #gx-rail .sh{font-size:10px;letter-spacing:.05em;color:rgba(255,255,255,.5);margin:15px 0 6px;font-weight:600}
+.gx-root #gx-rail .row{position:relative;display:flex;align-items:center;gap:8px;color:rgba(255,255,255,.75);padding:6px 9px 8px;border-radius:7px;cursor:pointer;overflow:hidden}
+.gx-root #gx-rail .row:hover{background:rgba(255,255,255,.05)}
+.gx-root #gx-rail .row.on{background:rgba(255,255,255,.08)}
+.gx-root #gx-rail .row .lb{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gx-root #gx-rail .row .ct{font-variant-numeric:tabular-nums;color:rgba(255,255,255,.6);font-weight:600;font-size:11px}
+.gx-root #gx-rail .row .bar{position:absolute;left:9px;bottom:3px;height:2px;border-radius:2px;opacity:.5}
+.gx-root #gx-rail .none{font-size:10.5px;color:rgba(255,255,255,.28);padding:2px 9px 6px;font-style:italic}
 .gx-root #gx-bar{position:fixed;left:16px;bottom:16px;display:flex;gap:6px;z-index:6}
 .gx-root #gx-bar button{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.09);color:rgba(255,255,255,.8);width:32px;height:32px;border-radius:9px;font-size:16px;cursor:pointer;backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center}
 .gx-root #gx-bar button:hover{background:rgba(255,255,255,.13)}
