@@ -50,7 +50,6 @@ const setupItems: NavItem[] = [
 const mainNavItems: NavItem[] = [
   { title: "Ops",      url: "/ops",          icon: Activity },
   { title: "Accounts", url: "/accounts",     icon: Users    },
-  { title: "Graph",    url: "/graph",        icon: Orbit    },
   { title: "Playbooks", url: "/playbooks",   icon: Brain    },
 ];
 
@@ -62,6 +61,7 @@ const listsNavItem: NavItem  = { title: "Lists",    url: "/lists",    icon: List
 
 // Bottom navigation — Settings is reached via the profile button below.
 const bottomNavItems: NavItem[] = [
+  { title: "Graph", url: "/graph", icon: Orbit },
   { title: "Usage & Billing", url: "/usage", icon: CreditCard },
 ];
 

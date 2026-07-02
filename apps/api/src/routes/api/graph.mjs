@@ -2,28 +2,68 @@ import { Router } from 'express';
 import { getSupabaseClient, scoreTier } from '@nous/core';
 import { verifySupabaseAuth } from '../../middleware/supabaseAuth.mjs';
 
-// GET /api/graph?workspaceId=... — the workspace's context graph as a node/edge
-// snapshot for the Galaxy view. This is the SAME graph the agents traverse, shaped
-// for a force layout.
+// GET /api/graph?workspaceId=... — the workspace context graph as a war-room:
+// companies with their buying committee, bridged to each other by the shared
+// claims/pains they surface, plus computed patterns (single-threaded, missing
+// budget-holder, shared-claim clusters).
 //
-// SCOPE: only the accounts we have actually TOUCHED — the People view (engaged
-// contacts) and the Companies view — NOT the raw cold-lead dump from lead lists.
-// The lead lists are a staging area; the graph is the relationship you actually
-// have. Sourcing from the `contacts`/`companies` views (the same sets the People
-// and Companies pages show) keeps the galaxy a focused core instead of a cloud of
-// untouched leads.
-//
-// Nodes carry only what the visual encodings need — type, ICP score+tier, and
-// days-since-last-activity (aliveness) — and deliberately NO names/emails, so the
-// snapshot is anonymous-by-construction and safe to render in share mode.
+// SCOPE: only accounts we've actually TOUCHED — engaged contacts (People view)
+// and the companies that either have activity or employ one of those contacts.
+// The cold lead-list domains are excluded. Names are included for the owner view;
+// the client "Anonymize" toggle hides them for a shareable artifact.
 export const graphApiRouter = Router();
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const ageDays = (ts) => ts ? Math.round((Date.now() - +new Date(ts)) / 864e5) : null;
+const DM_RE = /founder|co-?founder|ceo|owner|chief|president|\bvp\b|vice president|head of|director|partner|principal|cxo|coo|cfo|cmo|cto/i;
+// generic buckets that make fake hubs — dropped from the claim layer
+// generic buckets only — firmographic terms (agency, startup, smb, b2b…) are
+// deliberately NOT dropped: they flow through to the shared_segment (lookalike) layer.
+const STOP = new Set(['company','companies','client','clients','customer','customers','user','users',
+  'product','products','service','services','tool','tools','software','platform','business',
+  'ceo','team','teams','work','workflow','workflows','system','systems','operations','marketing','sales','gtm','go-to-market',
+  'ai','revenue','institutions','contact','person','people','integrations','automation','automations']);
 
-// PostgREST caps a single response at ~1000 rows.
+// Classify a shared claim so the rail can split shared_stack (tools we could
+// integrate with / displace) from shared_pain (messaging angles) from
+// shared_intent (initiatives = timing). Honest labelling — most extracted
+// claims today are tools, so shared_pain/intent stay sparse until signal-scan
+// surfaces more real pains.
+const STACK = new Set('clay instantly zapier make n8n hubspot salesforce notion slack apollo smartly render claude linkedin gmail outlook lemlist heyreach unipile airtable sheets google chatgpt openai gpt nous proply effigy runwave splink freepik marquee dosobe sawify antifragile master'.split(' '));
+const SEG_WORDS = new Set(['yc', 'smb', 'smbs', 'b2b', 'dtc', 'saas']);
+const SEG_SUB = ['agency', 'agencies', 'bootstrap', 'startup', 'enterprise', 'solopreneur', 'freelanc', 'consultan', 'ecommerce', 'fintech', 'recruit', 'staffing', 'founder-led', 'german'];
+const PAINW = ['pain', 'cost', 'issue', 'problem', 'fragment', 'reliab', 'bottleneck', 'slow', 'scal', 'deadline', 'churn', 'friction', 'gap', 'risk', 'hard', 'struggl', 'deliver', 'manual', 'stall', 'overwhelm', 'inconsist', 'error', 'fail', 'time-consum', 'headcount', 'fatigue'];
+const INTENTW = ['build', 'system', 'product', 'strateg', 'launch', 'prototyp', 'automat', 'migrat', 'adopt', 'hiring', 'expansion', 'initiative', 'roadmap', 'systemiz', 'rollout', 'agent', 'outbound', 'validation', 'testing', 'discovery'];
+function classifyClaim(label) {
+  const l = (label || '').toLowerCase();
+  const words = new Set(l.match(/[a-z0-9]+/g) || []);
+  for (const w of words) if (SEG_WORDS.has(w)) return 'segment';
+  if (SEG_SUB.some(w => l.includes(w))) return 'segment';
+  for (const w of words) if (STACK.has(w)) return 'stack';
+  if (PAINW.some(w => l.includes(w))) return 'pain';
+  if (INTENTW.some(w => l.includes(w))) return 'intent';
+  return 'theme';
+}
+
+// Normalize a free-text `industry` claim into a canonical segment bucket, so
+// accounts group into real lookalike segments ("agency", "software"…) instead
+// of every distinct string being its own singleton. This is the shared_segment
+// (lookalike) layer — sourced from the same firmographic claims ICP scoring uses.
+function normSeg(t) {
+  const l = (t || '').toLowerCase();
+  if (/agenc|marketing|advertis|creative|demand gen|lead gen|seo|ppc/.test(l)) return 'agency';
+  if (/saas|software|devtool|platform|information and internet|technology|web dev|app dev/.test(l)) return 'software';
+  if (/consult|revops|rev ops|advisor/.test(l)) return 'consulting';
+  if (/fintech|financ|insur|bank|payment|lending/.test(l)) return 'fintech';
+  if (/\bdata\b|analytic/.test(l)) return 'data';
+  if (/ecommerce|e-commerce|\bdtc\b|retail|consumer/.test(l)) return 'ecommerce';
+  if (/logistic|supply chain|freight|shipping/.test(l)) return 'logistics';
+  if (/recruit|staffing|talent/.test(l)) return 'recruiting';
+  return 'other';
+}
+
 async function pageAll(makeQuery) {
-  const out = [];
-  const size = 1000;
+  const out = []; const size = 1000;
   for (let from = 0; ; from += size) {
     const { data, error } = await makeQuery(from, from + size - 1);
     if (error) throw error;
@@ -33,8 +73,6 @@ async function pageAll(makeQuery) {
   return out;
 }
 
-const ageDays = (ts) => ts ? Math.round((Date.now() - +new Date(ts)) / 864e5) : null;
-
 graphApiRouter.get('/', verifySupabaseAuth, async (req, res) => {
   try {
     const supabase = getSupabaseClient();
@@ -43,66 +81,99 @@ graphApiRouter.get('/', verifySupabaseAuth, async (req, res) => {
     if (!UUID.test(workspaceId)) return res.status(400).json({ error: 'invalid_workspace_id' });
     if (req.workspaceId !== workspaceId) return res.status(403).json({ error: 'workspace_not_found_or_unauthorized' });
 
-    const [people, companies, rels, gedges] = await Promise.all([
-      // touched people — the contacts view (cold leads already filtered out)
+    const [contacts, companies, rels, gedges] = await Promise.all([
       pageAll((a, b) => supabase.from('contacts')
-        .select('id,last_activity_at,icp_score').eq('workspace_id', workspaceId).range(a, b)),
-      // companies we know
+        .select('id,first_name,last_name,job_title,icp_score,last_activity_at').eq('workspace_id', workspaceId).range(a, b)),
       pageAll((a, b) => supabase.from('companies')
-        .select('id,last_activity_at,icp_score').eq('workspace_id', workspaceId).range(a, b)),
-      // backbone edges: person → company
-      supabase.from('relationships')
-        .select('from_entity_id,to_entity_id').eq('workspace_id', workspaceId)
+        .select('id,name,domain,icp_score,last_activity_at').eq('workspace_id', workspaceId).range(a, b)),
+      supabase.from('relationships').select('from_entity_id,to_entity_id').eq('workspace_id', workspaceId)
         .eq('type', 'works_at').is('valid_to', null).then(r => r.data || []),
-      // semantic edges: person/company → topic concept (and the rare entity↔entity)
-      supabase.from('workspace_graph_edges')
-        .select('subject_id,object_id,object_label').eq('workspace_id', workspaceId)
-        .not('subject_id', 'is', null).then(r => r.data || []),
+      supabase.from('workspace_graph_edges').select('subject_id,object_id,object_label,relationship')
+        .eq('workspace_id', workspaceId).not('subject_id', 'is', null).then(r => r.data || []),
     ]);
 
-    const nodes = [];
-    const ids = new Set();
-    for (const p of people) {
-      ids.add(p.id);
-      const score = p.icp_score != null ? Number(p.icp_score) : null;
-      nodes.push({ id: p.id, t: 'person', score, tier: score != null ? scoreTier(score) : null, age: ageDays(p.last_activity_at) });
+    const contactIds = new Set(contacts.map(c => c.id));
+    // contact → employer (first works_at) + set of companies that employ a contact
+    const contactCompany = new Map(); const worked = new Set();
+    for (const r of rels) {
+      if (contactIds.has(r.from_entity_id) && r.to_entity_id) {
+        if (!contactCompany.has(r.from_entity_id)) contactCompany.set(r.from_entity_id, r.to_entity_id);
+        worked.add(r.to_entity_id);
+      }
     }
-    for (const c of companies) {
-      if (ids.has(c.id)) continue;
-      ids.add(c.id);
-      const score = c.icp_score != null ? Number(c.icp_score) : null;
-      nodes.push({ id: c.id, t: 'company', score, tier: score != null ? scoreTier(score) : null, age: ageDays(c.last_activity_at) });
+    // touched companies: real activity OR employ an engaged contact
+    const touched = companies.filter(c => c.last_activity_at != null || worked.has(c.id));
+    const companyIds = new Set(touched.map(c => c.id));
+
+    // segment (lookalike) grouping — normalize each touched company's industry claim
+    const industryRows = companyIds.size
+      ? ((await supabase.from('claims').select('entity_id,value').eq('workspace_id', workspaceId).eq('property', 'industry').in('entity_id', [...companyIds])).data || [])
+      : [];
+    const segMap = new Map();
+    for (const r of industryRows) {
+      const seg = normSeg(typeof r.value === 'string' ? r.value : String(r.value ?? ''));
+      if (seg === 'other') continue;
+      if (!segMap.has(seg)) segMap.set(seg, new Set());
+      segMap.get(seg).add(r.entity_id);
     }
+
+    const dmRel = new Set(gedges.filter(g => g.relationship === 'DECISION_MAKER_AT').map(g => g.subject_id));
+
+    // people nodes + committee membership
+    const nodes = []; const committee = new Map(); // companyId -> [personId]
+    for (const cid of companyIds) committee.set(cid, []);
+    for (const c of contacts) {
+      const co = contactCompany.get(c.id);
+      const inCo = companyIds.has(co) ? co : null;
+      const label = [c.first_name, c.last_name].filter(Boolean).join(' ').trim() || null;
+      const dm = !!(DM_RE.test(c.job_title || '') || dmRel.has(c.id));
+      nodes.push({ i: c.id, t: 0, l: label, jt: c.job_title || null, s: c.icp_score != null ? Number(c.icp_score) : null, a: ageDays(c.last_activity_at), co: inCo, dm });
+      if (inCo) committee.get(inCo).push(c.id);
+    }
+    const dmById = new Map(nodes.filter(n => n.t === 0).map(n => [n.i, n.dm]));
+
+    // company nodes + risk flags
+    const single = [], budget = [];
+    for (const c of touched) {
+      const ppl = committee.get(c.id) || [];
+      const s = c.icp_score != null ? Number(c.icp_score) : null;
+      const isSingle = ppl.length === 1;
+      const missBudget = ppl.length >= 1 && !ppl.some(pid => dmById.get(pid));
+      if (isSingle) single.push(c.id);
+      if (missBudget) budget.push(c.id);
+      nodes.push({ i: c.id, t: 1, l: c.name || c.domain || null, s, tier: s != null ? scoreTier(s) : null,
+        a: ageDays(c.last_activity_at), pc: ppl.length, single: isSingle, budget: missBudget, look: s != null && s >= 85 });
+    }
+
+    // shared-claim clusters: non-generic claim shared by 2+ touched companies
+    const tmap = new Map();
+    for (const g of gedges) {
+      if (g.object_id || !g.object_label) continue;
+      if (STOP.has(g.object_label.toLowerCase())) continue;
+      let co = null;
+      if (contactIds.has(g.subject_id)) co = contactCompany.get(g.subject_id);
+      else if (companyIds.has(g.subject_id)) co = g.subject_id;
+      if (!companyIds.has(co)) continue;
+      if (!tmap.has(g.object_label)) tmap.set(g.object_label, new Set());
+      tmap.get(g.object_label).add(co);
+    }
+    const clusters = [...tmap.entries()].filter(([, s]) => s.size >= 2)
+      .map(([label, s]) => ({ label, ids: [...s], cat: classifyClaim(label) })).sort((a, b) => b.ids.length - a.ids.length).slice(0, 16);
+    // append normalized-industry segment clusters (accounts sharing a canonical segment)
+    for (const [seg, set] of segMap) if (set.size >= 2) clusters.push({ label: seg, ids: [...set], cat: 'segment' });
 
     const edges = [];
-    for (const r of rels) {
-      if (ids.has(r.from_entity_id) && ids.has(r.to_entity_id)) edges.push({ s: r.from_entity_id, t: r.to_entity_id, k: 'works_at' });
-    }
-    // topic concepts become dim nodes keyed by label — the hub starbursts that
-    // bridge touched accounts into a connected core. Only topics that hang off a
-    // touched node are kept.
-    const topics = new Map();
-    for (const g of gedges) {
-      if (!g.subject_id || !ids.has(g.subject_id)) continue;
-      let target;
-      if (g.object_id) {
-        if (!ids.has(g.object_id)) continue;          // entity↔entity only if both touched
-        target = g.object_id;
-      } else if (g.object_label) {
-        target = `topic:${g.object_label}`;
-        if (!topics.has(target)) topics.set(target, { id: target, t: 'topic', label: g.object_label, score: null, tier: null, age: null });
-      } else continue;
-      edges.push({ s: g.subject_id, t: target, k: 'topic' });
-    }
-    for (const tn of topics.values()) nodes.push(tn);
-
-    const nodeIds = new Set(nodes.map(n => n.id));
-    const cleanEdges = edges.filter(e => nodeIds.has(e.s) && nodeIds.has(e.t));
+    for (const n of nodes) if (n.t === 0 && n.co) edges.push({ s: n.i, t: n.co, k: 0 });
+    clusters.forEach((cl, i) => {
+      const node = `cl${i}`; cl.node = node;
+      nodes.push({ i: node, t: 3, l: cl.label, sz: cl.ids.length, cat: cl.cat });
+      for (const cid of cl.ids) edges.push({ s: cid, t: node, k: 2 });
+    });
 
     return res.json({
-      nodes,
-      edges: cleanEdges,
-      meta: { people: people.length, companies: companies.length, topics: topics.size, edges: cleanEdges.length, ts: Date.now() },
+      nodes, edges,
+      patterns: { single, budget, clusters: clusters.map(c => ({ label: c.label, ids: c.ids, node: c.node, cat: c.cat })) },
+      meta: { people: contacts.length, companies: touched.length, clusters: clusters.length, ts: Date.now() },
     });
   } catch (err) {
     return res.status(500).json({ error: 'internal_error', ...(process.env.NODE_ENV !== 'production' && { detail: String(err.message) }) });
