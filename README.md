@@ -19,18 +19,35 @@
 
 # Nous
 
-**The GTM Context API for agents.** Unify your GTM tools into a single context graph with every person, conversation and touchpoint in one record, ready for any Agent. Open source, and available as a [hosted service](https://opennous.cloud).
+**The context graph for agentic GTM.** Nous unifies the data scattered across your GTM tools into one identity-resolved account, then exposes it as a single API so your agents read the whole account in one call instead of stitching six tools together and guessing. Open source, with a [hosted version](https://opennous.cloud).
 
 ---
 
 ## Why Nous?
 
-- **One call, the whole account:** Your agent gets the entire identity-resolved account in a single call, instead of stitching six tools together and guessing over raw dumps.
-- **LLM-ready context:** Structured, token-budgeted, agent-shaped. Every fact carries its own source, confidence, and freshness.
-- **We handle the hard stuff:** Identity resolution across Apollo, HubSpot, Gmail, and LinkedIn into one canonical record per person.
-- **Agent ready:** Connect Nous to any agent or MCP client with a single command.
-- **25+ integrations:** Your CRM, outbound, email, and LinkedIn, unified into one graph.
-- **Open source:** Self-host the whole primitive under AGPL, or skip the setup with Nous Cloud.
+- **One call, the whole account.** Your agent reads one resolved, current account instead of querying six tools and stitching the answer together every time. No rebuild before it reasons, no guessing over raw dumps.
+- **Identity resolved into one record.** "S. Chen", "@sarah", and schen@acme.com become one canonical person. Nous folds every fragment into one account per person and company, the prerequisite raw retrieval never builds.
+- **Evidence, not values.** Nous stores every signal as immutable evidence and derives the current belief from it, so every fact carries its source, confidence, and freshness, and the truth is never overwritten.
+- **A graph, not RAG.** Retrieval runs over resolved entities and their claims, not vector search over text chunks. You get the resolved account back, not documents that happen to mention it.
+- **It gets truer as you work.** Every outcome flows back as new evidence and the ICP model sharpens from your own won and lost deals, a signal no reconstruct-each-time agent can accumulate.
+
+## The context graph
+
+Nous is built on three layers. Every signal from your tools lands as an **observation**, immutable evidence of something that happened or was said. Observations resolve to **entities**, one canonical record per person and company. From the evidence on each entity, Nous derives **claims**, the current belief about a fact with its confidence and freshness. Store the evidence, derive the truth. Throw the claims away and replaying the observations rebuilds them.
+
+```mermaid
+flowchart LR
+  OBS[Observations] -->|resolve identity| ENT[Entities]
+  ENT -->|derive| CLM[Claims]
+  classDef s1 fill:#ffffff,stroke:#6B7280,color:#6B7280;
+  classDef s2 fill:#ffffff,stroke:#7C3AED,color:#7C3AED;
+  classDef s3 fill:#ffffff,stroke:#F59E0B,color:#F59E0B;
+  class OBS s1;
+  class ENT s2;
+  class CLM s3;
+```
+
+→ [The Context Graph](docs/context-graph.md)
 
 ## Core endpoints
 
@@ -42,7 +59,7 @@
 
 ## Quick start
 
-Connect Nous to your agent over MCP — self-host passes its own API URL (on Nous Cloud, drop the `-e` flag):
+Connect Nous to your agent over MCP. Self-host passes its own API URL, and on Nous Cloud you drop the `-e` flag:
 
 ```bash
 claude mcp add nous -e NOUS_API_URL=https://api.yourdomain.com -- npx -y @opennous/mcp
@@ -52,7 +69,7 @@ Your agent now has `get_context`, `get_account`, and `query`. The examples below
 
 ### `get_context`
 
-The whole account context for a task, token-budgeted and agent-shaped. `focus` takes a domain, email, LinkedIn URL, or id; every fact carries its confidence and freshness:
+The whole account context for a task, token-budgeted and agent-shaped. `focus` takes a domain, email, LinkedIn URL, or id, and every fact carries its confidence and freshness:
 
 ```bash
 curl -X POST https://api.opennous.cloud/v2/context \
@@ -127,50 +144,58 @@ curl -X POST https://api.opennous.cloud/v2/query \
 }
 ```
 
-## Power your agent
+## Run Nous from your agent
 
-Nous is operated by your **agent**, not by clicking through an app. Add it to your stack in one step:
+Nous is operated by your **agent**, not by clicking through an app. Point any MCP host at it in one step:
 
-- **Claude Code** — `/plugin marketplace add NousC/nous` then `/plugin install nous@nous-plugins`
-- **Codex** — add to `~/.codex/config.toml`:
+- **Claude Code**: `/plugin marketplace add NousC/nous` then `/plugin install nous@nous-plugins`
+- **Codex**: add to `~/.codex/config.toml`:
   ```toml
   [mcp_servers.nous]
   command = "npx"
   args = ["-y", "@opennous/mcp"]
   ```
-- **Cursor / any MCP host** — add to `mcp.json`:
+- **Cursor / any MCP host**: add to `mcp.json`:
   ```json
   { "mcpServers": { "nous": { "command": "npx", "args": ["-y", "@opennous/mcp"] } } }
   ```
 
-Then sign in once — it opens your browser, mints a workspace key, and saves it to `~/.nous/config.json` (the MCP reads it automatically, no key to paste):
+Then sign in once. It opens your browser, mints a workspace key, and saves it to `~/.nous/config.json`, so there is no key to paste:
 
 ```bash
 npx @opennous/cli login    # on self-host, add --url https://api.yourdomain.com
 ```
 
-Now tell your agent **“Set me up — onboard my workspace and build my playbook,”** and it walks setup in order: profile → connect Gmail / LinkedIn / a note-taker → enrichment → import your CRM contacts.
+Now hand your agent the setup itself. Tell it **"Set me up, onboard my workspace and build my playbook,"** and it walks setup in order: profile, connect Gmail / LinkedIn / a note-taker, enrichment, import your CRM contacts.
 
 → [Full MCP docs](https://docs.opennous.cloud/mcp/introduction)
 
-## Open source vs Cloud
+## How it works
 
-Nous is open source under the AGPL-3.0 license. Nous Cloud at [opennous.cloud](https://opennous.cloud) adds the team layer on top of the same graph:
+```mermaid
+flowchart TD
+  SRC[Your GTM tools: CRM, inbox, calendar, LinkedIn, enrichment, signals] -->|ingest| OBS[Observations: append-only evidence]
+  OBS -->|resolve identity| ENT[Entities: one per person and company]
+  ENT -->|derive| CLM[Claims: current beliefs with confidence and freshness]
+  ENT -->|connect| REL[Relationships: buying group, works_at]
+  CLM -->|score| DEC[Decision context: ICP fit, intent, next best action]
+  REL --> DEC
+  DEC -->|get_context, one call| AG[Your agent acts]
+  AG -->|record| OBS
+```
 
-<div align="center">
-  <img src=".github/assets/open-source-vs-cloud.svg" alt="Nous Open Source vs Cloud" width="760" />
-</div>
+Every signal becomes immutable evidence against a resolved entity. Nous derives the current beliefs, scores fit, and serves the whole account in one call. The outcome flows back as new evidence, so the account gets truer over time.
 
 ## Self-host
 
-Run the whole stack — API, worker, MCP server, frontend, Redis, and Caddy (automatic HTTPS) — with Docker Compose on your own infrastructure. You bring a [Supabase](https://supabase.com) project (Postgres + auth) and an Anthropic API key.
+Run the whole stack (API, worker, MCP server, frontend, Redis, and Caddy for automatic HTTPS) with Docker Compose on your own infrastructure. You bring a [Supabase](https://supabase.com) project (Postgres + auth) and an Anthropic API key.
 
 **Prerequisites**
 
 - A Linux server with Docker + Docker Compose
 - A [Supabase](https://supabase.com) project (free tier is fine)
 - An [Anthropic API key](https://console.anthropic.com)
-- Three DNS records — `app`, `api`, `mcp` — pointing at your server
+- Three DNS records (`app`, `api`, `mcp`) pointing at your server
 
 ```bash
 # 1. Clone
@@ -181,7 +206,7 @@ cp nous.env.example nous.env
 #    Fill in APP_DOMAIN / API_DOMAIN / MCP_DOMAIN, your Supabase URL + keys,
 #    and ANTHROPIC_API_KEY. Generate the encryption key:
 openssl rand -hex 32      # paste the output into ENCRYPTION_KEY=
-#    SELF_HOSTED=true is already set — it runs the open primitive, unmetered.
+#    SELF_HOSTED=true is already set, it runs the open primitive, unmetered.
 
 # 3. Create the database
 #    Open supabase/schema.sql in your Supabase SQL editor and run it once.
@@ -190,15 +215,15 @@ openssl rand -hex 32      # paste the output into ENCRYPTION_KEY=
 docker compose --env-file nous.env up -d --build
 ```
 
-Open `https://app.yourdomain.com` and create the first account — it becomes the **owner**. To close public registration afterward, set `DISABLE_SIGNUPS=true` in `nous.env` and re-run `./update.sh`. Update any time with `./update.sh` (it pulls the latest, rebuilds, and flags new DB migrations).
+Open `https://app.yourdomain.com` and create the first account, and it becomes the **owner**. To close public registration afterward, set `DISABLE_SIGNUPS=true` in `nous.env` and re-run `./update.sh`. Update any time with `./update.sh` (it pulls the latest, rebuilds, and flags new DB migrations).
 
-**Point your agent at your instance.** On self-host the MCP connect command takes your **own API URL** — pass it as an env var so the agent talks to your server, not the cloud:
+**Point your agent at your instance.** On self-host the MCP connect command takes your **own API URL**, so pass it as an env var and the agent talks to your server, not the cloud:
 
 ```bash
 claude mcp add nous -e NOUS_API_URL=https://api.yourdomain.com -- npx -y @opennous/mcp
 ```
 
-Then sign in against your instance — it mints a workspace key and saves it (plus the URL) to `~/.nous/config.json`, which the MCP reads automatically:
+Then sign in against your instance. It mints a workspace key and saves it (plus the URL) to `~/.nous/config.json`, which the MCP reads automatically:
 
 ```bash
 npx @opennous/cli login --url https://api.yourdomain.com
