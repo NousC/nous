@@ -338,6 +338,55 @@ Two entry points:
 
 ---
 
+## Planned: normalized local-part matching
+
+> Status: **not yet built.** This is the next resolution tier, documented here so
+> the design is settled before the code lands. Everything above this line is live.
+
+The waterfall in §2 anchors its name fallback on an *existing name claim*. That
+leaves one real gap: a stray record that is nothing but a bare email, with no
+name to anchor on. A member who signs up as `sethiaakash03@gmail.com` while an
+older prospect record already exists as `sethiaakash04@gmail.com` forks into two
+entities, because Step 1 finds no shared identifier and Step 2 has no first name
+to match. Same person, two emails, two records.
+
+The fix is a new tier that matches on the **email local part itself**, after
+normalising away everything a human treats as noise. Strip the local part to
+letters only (drop digits, dots, plus-tags, underscores, hyphens) and compare:
+
+```
+sethiaakash03  →  sethiaakash        first.last   →  firstlast
+sethiaakash04  →  sethiaakash        firstlast    →  firstlast
+                  ── identical ──                     ── identical ──
+```
+
+Both of these collapse to an **exact** match after normalisation, so this is not
+fuzzy matching and there is no similarity threshold to tune — it is an equality
+check on a normalised key. A trailing number or an inserted period, the two most
+common ways one person ends up with two addresses, both resolve here.
+
+Precision comes from the gates, in the same spirit as the rest of the layer:
+
+- **Same domain required.** `sethiaakash@gmail.com` and `sethiaakash@acme.com`
+  normalise identically but are not necessarily one person, so the domains must
+  also match (or a name/other identifier must corroborate).
+- **Unique candidate only.** More than one existing entity sharing the normalised
+  local part at the same domain is ambiguous, so it is skipped, never guessed.
+- **Auto-merge only at exact-after-normalisation.** True fuzzy cases — a typo like
+  `bennet` vs `benett`, a dropped letter in `aakash` vs `akash` — sit one edit
+  apart and would need edit-distance matching. Because a wrong merge fuses two
+  real people, those never auto-merge; they surface as a Data Quality
+  "possible duplicate" note for one-click human confirmation, exactly like the
+  ambiguous ingestion cases in §3.
+
+Two placements: as a new step in `resolvePersonByNameFallback` (catches the fork
+at ingest time), and as a periodic dedup sweep over existing entities (the
+`04` record already existed before `03` arrived, so an at-ingest check alone
+never re-examines the pair — a nightly pass proposes the merge on data already
+written).
+
+---
+
 ## 10. The guarantees, and the guards that enforce them
 
 The expensive failure in any context graph is fusing two real people into one. Every link path above is gated so that cannot happen quietly.
