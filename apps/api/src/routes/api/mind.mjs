@@ -11,7 +11,7 @@
 // Mind page plot it. See docs/compound-intelligence-mind.md §7.
 
 import { Router } from 'express';
-import { getSupabaseClient, listSignals, listNotes, scoreLead, getAttention, getWorkspaceEntityId, getOrCreateEntity, logActivity, discoverSignals, upsertSignal, pipelineFeatures, scoreAndStake, rescoreOpenPredictions, isNonFeatureProp } from '@nous/core';
+import { getSupabaseClient, listSignals, listNotes, scoreLead, getWorkspaceEntityId, getOrCreateEntity, logActivity, discoverSignals, upsertSignal, pipelineFeatures, scoreAndStake, rescoreOpenPredictions, isNonFeatureProp } from '@nous/core';
 import { extractAndRecordWebsiteSignals } from '../../services/websiteSignals.mjs';
 import { seedScorecardFromMemory } from '../../lib/scorecardSeed.mjs';
 import { requireFeature } from '../../lib/access.mjs';
@@ -58,27 +58,26 @@ mindRouter.get('/substrate', async (req, res) => {
     // queries at 1000 server-side, so .length of a fetched array LIES about
     // total count. Use head:true count queries for the headline numbers and
     // separate (capped) sample queries for breakdowns.
+    // The Playbooks page reads only predictions + calibration + top_signals +
+    // recent_predictions from this endpoint, so we skip the two 2000-row
+    // observations/claims SAMPLE fetches (their by-source / freshness / epistemic
+    // breakdowns are unused) and keep only the cheap head-count totals. That trims
+    // the endpoint's two heaviest row transfers.
     const [
-      obsTotalRes, obsSampleRes, obs7Res,
-      claimsTotalRes, claimsSampleRes,
+      obsTotalRes, obs7Res,
+      claimsTotalRes,
       jobsRes,
       predTotalRes, predSampleRes,
     ] = await Promise.all([
       // observations total
       supabase.from('observations').select('id', { count: 'exact', head: true })
         .eq('workspace_id', workspaceId),
-      // observations sample for by-source breakdown (top sources, not exhaustive)
-      supabase.from('observations').select('source')
-        .eq('workspace_id', workspaceId).limit(2000),
       // last-7d observations count
       supabase.from('observations').select('id', { count: 'exact', head: true })
         .eq('workspace_id', workspaceId).gte('ingested_at', sevenDaysAgo),
       // claims total
       supabase.from('claims').select('id', { count: 'exact', head: true })
         .eq('workspace_id', workspaceId).is('invalid_at', null),
-      // claims sample for freshness + epistemic-class breakdown
-      supabase.from('claims').select('freshness, epistemic_class')
-        .eq('workspace_id', workspaceId).is('invalid_at', null).limit(2000),
       // self-healing — the unprocessed recompute queue
       supabase.from('claim_jobs').select('id', { count: 'exact', head: true })
         .eq('workspace_id', workspaceId).is('picked_at', null),
@@ -90,8 +89,6 @@ mindRouter.get('/substrate', async (req, res) => {
         .select('kind, predicted_value, outcome_value, predicted_at, resolved_at, feature_snapshot')
         .eq('workspace_id', workspaceId).limit(2000),
     ]);
-    if (obsSampleRes.error) throw obsSampleRes.error;
-    if (claimsSampleRes.error) throw claimsSampleRes.error;
     if (predSampleRes.error) throw predSampleRes.error;
 
     const observationsTotal = obsTotalRes.count ?? 0;
@@ -99,21 +96,14 @@ mindRouter.get('/substrate', async (req, res) => {
     const predictionsTotal = predTotalRes.count ?? 0;
 
     // ── 1. evidence ──────────────────────────────────────────────
-    const observations = obsSampleRes.data || [];
-    const bySource = {};
-    for (const o of observations) bySource[o.source] = (bySource[o.source] || 0) + 1;
-    const sources = Object.entries(bySource)
-      .map(([source, count]) => ({ source, count }))
-      .sort((a, b) => b.count - a.count);
+    // by-source breakdown intentionally omitted — the Playbooks page shows totals
+    // only, so we don't pay for the 2000-row sample fetch.
+    const sources = [];
 
     // ── 2. beliefs ───────────────────────────────────────────────
-    const claims = claimsSampleRes.data || [];
+    // freshness / epistemic-class breakdowns omitted for the same reason.
     const freshness = { fresh: 0, aging: 0, suspect: 0, expired: 0 };
     const epistemic = { observed: 0, inferred: 0, predicted: 0, asserted: 0 };
-    for (const c of claims) {
-      if (c.freshness in freshness) freshness[c.freshness]++;
-      if (c.epistemic_class in epistemic) epistemic[c.epistemic_class]++;
-    }
 
     // ── 3 + 4. predictions and calibration ───────────────────────
     // A well-calibrated model scores the accounts that actually convert
@@ -296,14 +286,10 @@ mindRouter.get('/substrate', async (req, res) => {
       })
       .slice(0, 10);
 
-    // Attention — accounts going quiet, claims decayed. Already a v2 helper.
-    let attention = [];
-    try {
-      const atRes = await getAttention(supabase, workspaceId, { limit: 8 });
-      attention = atRes.items ?? [];
-    } catch (e) {
-      console.warn('[GET /api/mind/substrate] attention failed:', e?.message);
-    }
+    // Attention feed intentionally not computed here — it's unused by the
+    // Playbooks page and lives behind its own endpoint. Skipping it removes an
+    // extra multi-query helper from this hot path.
+    const attention = [];
 
     return res.json({
       observations: {
