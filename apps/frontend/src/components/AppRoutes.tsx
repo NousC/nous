@@ -150,6 +150,13 @@ export function AppRoutes() {
         </CloudOnly>
       } />
 
+      {/* Context graph — its own immersive full-viewport surface, no app sidebar. */}
+      <Route path="/graph" element={
+        <div className="h-screen w-full bg-background overflow-hidden">
+          <Suspense fallback={<MinimalLoader />}><Galaxy /></Suspense>
+        </div>
+      } />
+
       {/* Standalone note + report pages — opened in a new tab, clean full-page markdown. */}
       <Route path="/note/:id" element={<Suspense fallback={<MinimalLoader />}><Note /></Suspense>} />
       {/* Reports hidden for now. <Route path="/report/:id" element={<Suspense fallback={<MinimalLoader />}><ReportView /></Suspense>} /> */}
@@ -165,7 +172,7 @@ export function AppRoutes() {
             <Route path="/requests"   element={<Navigate to="/ops" replace />} />
             {/* Setup */}
             <Route path="/install"    element={<Suspense fallback={<MinimalLoader />}><Install /></Suspense>} />
-            {/* /playground is mounted above as a full-screen route — no sidebar */}
+            {/* /playground and /graph are mounted above as full-screen routes — no sidebar */}
             <Route path="/keys"       element={<Suspense fallback={<MinimalLoader />}><ApiKeys /></Suspense>} />
             {/* Main nav */}
             <Route path="/webhooks"   element={<Suspense fallback={<MinimalLoader />}><Webhooks /></Suspense>} />
@@ -179,7 +186,6 @@ export function AppRoutes() {
 
             {/* Standalone pages — extracted from Mind */}
             <Route path="/accounts"      element={<Suspense fallback={<MinimalLoader />}><Accounts /></Suspense>} />
-            <Route path="/graph"         element={<Suspense fallback={<MinimalLoader />}><Galaxy /></Suspense>} />
             <Route path="/people"        element={<Navigate to="/accounts?tab=people" replace />} />
             <Route path="/people/:id"    element={<Suspense fallback={<MinimalLoader />}><People /></Suspense>} />
             <Route path="/companies"     element={<Navigate to="/accounts?tab=companies" replace />} />
